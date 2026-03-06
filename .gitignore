@@ -1,0 +1,16 @@
+# Quarto / Pandoc Ausgabeverzeichnisse
+/_site/
+/site_libs/
+/.quarto/
+/output/
+
+# Betriebssystem-Dateien
+.DS_Store
+Thumbs.db
+
+# VS Code Einstellungen (optional, falls du sie nicht teilen willst)
+.vscode/
+
+# Buchinhalte
+/Band_Dummy/
+/Band_Stoffwechselgesundheit/

@@ -1,0 +1,4 @@
+# Python-Abhängigkeiten für die IFJN Publishing-Pipeline
+
+# Für das einfache Lesen und Schreiben von YAML Frontmatter in Markdown-Dateien
+PyYAML>=6.0.1
