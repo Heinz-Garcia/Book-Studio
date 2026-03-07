@@ -31,8 +31,9 @@ class QuartoYamlEngine:
             if title:
                 body = content[match.end():].strip() if match else content.strip()
                 lines = [l.strip() for l in body.split('\n') if l.strip()]
+                # NEU: Markiere Dateien, die NUR aus einer Überschrift bestehen, als Struktur-Knoten!
                 if len(lines) == 1 and lines[0].startswith('#'):
-                    return f"# {title}" 
+                    return f"📁 {title}" 
                 return title
             return None 
         except Exception:
@@ -146,10 +147,17 @@ class QuartoYamlEngine:
     # =========================================================================
     # 4. YAML SCHREIBEN & EXPORT VERZEICHNIS
     # =========================================================================
-    def save_chapters(self, tree_data, profile_name=None):
+    def save_chapters(self, tree_data, profile_name=None, save_gui_state=True): # <-- NEU
         if not self.yaml_path.exists(): 
             raise FileNotFoundError(f"Die Datei {self.yaml_path} existiert nicht.")
 
+        # 1. TIEFEN GUI-STATE SPEICHERN (Nur wenn nicht im Render-Modus!)
+        if save_gui_state: # <-- NEU
+            self.gui_state_path.parent.mkdir(exist_ok=True)
+            with open(self.gui_state_path, 'w', encoding='utf-8') as f:
+                json.dump(tree_data, f, ensure_ascii=False, indent=4)
+
+        # 2. _quarto.yml OPERIEREN
         # 1. TIEFEN GUI-STATE SPEICHERN, DAMIT DIE STRUKTUR IM STUDIO ERHALTEN BLEIBT
         self.gui_state_path.parent.mkdir(exist_ok=True)
         with open(self.gui_state_path, 'w', encoding='utf-8') as f:
