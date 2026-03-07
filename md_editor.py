@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 from pathlib import Path
 
 class MarkdownEditor(tk.Toplevel):
@@ -25,12 +25,17 @@ class MarkdownEditor(tk.Toplevel):
         
         tk.Button(toolbar, text="💾 Speichern & Schließen (Strg+S)", bg="#27ae60", fg="white", 
                   font=("Arial", 10, "bold"), command=self.save_and_close).pack(side=tk.LEFT)
+                  
+        # --- FIXED: SPEICHERN ALS BUTTON hängt jetzt an der 'toolbar' ---
+        tk.Button(toolbar, text="📝 Speichern als...", bg="#f39c12", fg="white", 
+                  font=("Arial", 10, "bold"), command=self.save_as_file).pack(side=tk.LEFT, padx=5)
+                  
         tk.Button(toolbar, text="Abbrechen (Esc)", bg="#e74c3c", fg="white",
                   command=self.destroy).pack(side=tk.LEFT, padx=10)
         
-        # Status Label für Pfad
-        tk.Label(toolbar, text=self.file_path.as_posix(), bg="#2c3e50", fg="#bdc3c7", 
-                 font=("Consolas", 9)).pack(side=tk.RIGHT)
+        # Status Label für Pfad (als self-Variable, damit wir es updaten können)
+        self.path_label = tk.Label(toolbar, text=self.file_path.as_posix(), bg="#2c3e50", fg="#bdc3c7", font=("Consolas", 9))
+        self.path_label.pack(side=tk.RIGHT)
         
         # Editor Textfeld
         self.text_area = tk.Text(self, font=("Consolas", 11), wrap="word", undo=True, bg="#fdfdfd", padx=10, pady=10)
@@ -66,3 +71,33 @@ class MarkdownEditor(tk.Toplevel):
             self.destroy()
         except Exception as e:
             messagebox.showerror("Fehler", f"Datei konnte nicht gespeichert werden:\n{e}")
+            
+    # --- FIXED: Saubere Einrückung für die Funktion ---
+    def save_as_file(self):
+        # Öffnet den Dialog exakt im Ordner der aktuell geöffneten Datei
+        new_path = filedialog.asksaveasfilename(
+            initialdir=self.file_path.parent,
+            title="Neue Markdown-Datei erstellen",
+            defaultextension=".md",
+            filetypes=[("Markdown Dateien", "*.md"), ("Alle Dateien", "*.*")]
+        )
+        
+        if new_path:
+            try:
+                # 1. Text in die NEUE Datei schreiben
+                with open(new_path, 'w', encoding='utf-8') as f:
+                    f.write(self.text_area.get("1.0", tk.END).strip() + "\n")
+                
+                # 2. Den Editor auf die neue Datei "umbiegen"
+                self.file_path = Path(new_path)
+                self.title(f"📝 Markdown Editor: {self.file_path.name}")
+                self.path_label.config(text=self.file_path.as_posix()) # Pfad oben rechts updaten!
+                
+                # 3. Das Wichtigste: Das Hauptfenster zwingen, die Liste neu zu laden!
+                if self.on_save_callback:
+                    self.on_save_callback()
+                    
+                messagebox.showinfo("Erfolg", f"Datei erfolgreich gespeichert unter:\n{self.file_path.name}")
+                
+            except Exception as e:
+                messagebox.showerror("Fehler", f"Konnte neue Datei nicht speichern:\n{e}")

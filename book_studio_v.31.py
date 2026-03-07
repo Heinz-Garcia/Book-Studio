@@ -163,6 +163,13 @@ class BookStudio:
         self.fmt_box.current(0)
         self.fmt_box.pack(side=tk.LEFT, padx=(5, 15))
         
+        # --- NEU: FUSSNOTEN-SCHALTER ---
+        tk.Label(foot, text="Noten:", bg="#2c3e50", fg="white").pack(side=tk.LEFT)
+        self.footnote_box = ttk.Combobox(foot, values=["endnotes", "pandoc"], state="readonly", width=10)
+        self.footnote_box.current(0) # Standardmäßig auf "endnotes"
+        self.footnote_box.pack(side=tk.LEFT, padx=(5, 15))
+        # -------------------------------
+        
         self.btn_render = tk.Button(foot, text="🖨️ RENDERN", bg="#2980b9", fg="white", font=("Arial", 10, "bold"), command=self.run_quarto_render, padx=15)
         self.btn_render.pack(side=tk.LEFT)
         
@@ -320,8 +327,13 @@ class BookStudio:
             return False
             
         try:
-            b_name = self.backup_mgr.create_structure_backup()
+            # 1. ZUERST den aktuellen Baum aus der GUI auslesen!
             tree_data = self._get_tree_data_for_engine()
+            
+            # 2. DANN den Baum direkt an den Backup-Manager übergeben
+            b_name = self.backup_mgr.create_structure_backup(tree_data)
+            
+            # 3. UND ZULETZT die Quarto Engine speichern lassen
             self.yaml_engine.save_chapters(tree_data, profile_name=self.current_profile_name)
             
             msg = f"Struktur in _quarto.yml gesichert.\n🛡️ Backup: {b_name}"
@@ -336,6 +348,7 @@ class BookStudio:
         except Exception as e:
             messagebox.showerror("YAML Fehler", f"Konnte _quarto.yml nicht speichern:\n\n{str(e)}")
             return False
+        
 
     def run_doctor(self):
         if not self.current_book: return
@@ -417,18 +430,20 @@ class BookStudio:
             res = self.backup_mgr.create_full_backup()
             messagebox.showinfo("Backup 📦", f"Sicherungs-ZIP erstellt:\n{res}")
 
+    
     def open_time_machine(self):
         if not self.current_book: return
         original_state = self._get_current_state()
         
-        def preview_callback(yaml_path):
-            old_path = self.yaml_engine.yaml_path
-            self.yaml_engine.yaml_path = yaml_path
-            struct = self.yaml_engine.parse_chapters()
-            for i in self.tree_book.get_children(): self.tree_book.delete(i)
-            self._build_tree_recursive("", struct)
+        # Das Callback empfängt jetzt direkt die tree_data (JSON-Liste) aus dem Backup
+        def preview_callback(tree_data):
+            # 1. Den alten Baum im GUI löschen
+            for i in self.tree_book.get_children(): 
+                self.tree_book.delete(i)
+                
+            # 2. Den neuen Baum direkt aus den JSON-Daten bauen!
+            self._build_tree_from_json("", tree_data)
             self._update_avail_list()
-            self.yaml_engine.yaml_path = old_path
             
         def apply_callback():
             self.save_project()

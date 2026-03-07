@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import threading
 import json
+import re
+import os
 import platform
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
@@ -12,16 +14,28 @@ from yaml_engine import QuartoYamlEngine
 from book_doctor import BookDoctor, BackupManager
 
 # =============================================================================
-# QUARTO BOOK STUDIO V30 - STRUKTUR EDITION
+# QUARTO BOOK STUDIO V31 - ULTIMATE EDITION
 # =============================================================================
 
 class BookStudio:
     def __init__(self, root):
         self.root = root
-        self.root.title("📚 Quarto Book Studio v30 (Struktur Edition)")
+        self.base_path = Path(__file__).parent
+        
+        # --- NEU: Version dynamisch aus Datei laden ---
+        self.version_str = "v? (Unbekannt)" # Fallback, falls die Datei mal fehlt
+        version_file = self.base_path / "version.txt"
+        if version_file.exists():
+            with open(version_file, "r", encoding="utf-8") as f:
+                self.version_str = f.read().strip()
+                
+        self.root.title(f"📚 Quarto Book Studio {self.version_str}")
+        # ----------------------------------------------
         self.root.geometry("1300x900")
         self.root.configure(bg="#f4f7f6")
         
+        # ... (der restliche Code bleibt genau so)
+
         self.base_path = Path(__file__).parent
         self.books = self._discover_projects()
         self.current_book = None
@@ -53,7 +67,7 @@ class BookStudio:
     def _discover_projects(self):
         found = []
         for p in self.base_path.rglob("_quarto.yml"):
-            if not any(x in p.parts for x in ['.venv', '_book', '.backups', '.git', 'bookconfig']):
+            if not any(x in p.parts for x in ['.venv', '_book', '.backups', '.git', 'bookconfig', 'export', 'processed']):
                 found.append(p.parent)
         return found
 
@@ -89,8 +103,9 @@ class BookStudio:
         search_f = tk.Frame(l_frame, bg="#f9f9f9", pady=5)
         search_f.pack(fill=tk.X)
         tk.Label(search_f, text=" 🔍 Suche nach Titel: ", bg="#f9f9f9").pack(side=tk.LEFT)
+        
         self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *args: self._update_avail_list())
+        self.search_var.trace_add("write", lambda *args: self._update_avail_list()) # Tcl 9 / Python 3.14 Fix
         tk.Entry(search_f, textvariable=self.search_var, bd=1).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
         self.list_avail = ttk.Treeview(l_frame, selectmode="extended", show="tree")
@@ -98,8 +113,10 @@ class BookStudio:
         sl = tk.Scrollbar(l_frame, command=self.list_avail.yview)
         sl.pack(side=tk.RIGHT, fill=tk.Y)
         self.list_avail.config(yscrollcommand=sl.set)
+        
         self.list_avail.bind("<Double-1>", self.on_double_click)
-        # --- NEU: KONTEXTMENÜ (RECHTSKLICK) ---
+        
+        # --- KONTEXTMENÜ LINKS ---
         self.avail_menu = tk.Menu(self.root, tearoff=0)
         self.avail_menu.add_command(label="📂 Im Explorer anzeigen", command=self.open_avail_in_explorer)
         self.list_avail.bind("<Button-3>", self.show_avail_menu)
@@ -142,6 +159,11 @@ class BookStudio:
         self.tree_book.bind("<ButtonRelease-1>", self.on_drop)
         self.tree_book.bind("<Double-1>", self.on_double_click)
         
+        # --- KONTEXTMENÜ RECHTS ---
+        self.tree_menu = tk.Menu(self.root, tearoff=0)
+        self.tree_menu.add_command(label="📂 Im Explorer anzeigen", command=self.open_tree_in_explorer)
+        self.tree_book.bind("<Button-3>", self.show_tree_menu)
+        
         # --- FOOTER ---
         foot = tk.Frame(self.root, bg="#2c3e50", pady=15)
         foot.pack(fill=tk.X, side=tk.BOTTOM)
@@ -153,14 +175,18 @@ class BookStudio:
         self.fmt_box.current(0)
         self.fmt_box.pack(side=tk.LEFT, padx=(5, 15))
         
-        # --- (Bestehender Code aus deinem Footer) ---
+        # --- NEU: FUSSNOTEN-SCHALTER ---
+        tk.Label(foot, text="Noten:", bg="#2c3e50", fg="white").pack(side=tk.LEFT)
+        self.footnote_box = ttk.Combobox(foot, values=["endnotes", "pandoc"], state="readonly", width=10)
+        self.footnote_box.current(0) # Standardmäßig auf "endnotes"
+        self.footnote_box.pack(side=tk.LEFT, padx=(5, 15))
+        # -------------------------------
+        
         self.btn_render = tk.Button(foot, text="🖨️ RENDERN", bg="#2980b9", fg="white", font=("Arial", 10, "bold"), command=self.run_quarto_render, padx=15)
         self.btn_render.pack(side=tk.LEFT)
         
-        # NEUER BUTTON HIER:
         tk.Button(foot, text="🔍 PREVIEW", bg="#9b59b6", fg="white", font=("Arial", 10, "bold"), command=self.open_preview, padx=15).pack(side=tk.LEFT, padx=(5, 15))
         
-        # --- (Rest des bestehenden Footers) ---
         tk.Button(foot, text="🩺 BUCH-DOKTOR", bg="#8e44ad", fg="white", font=("Arial", 10, "bold"), command=self.run_doctor, padx=15).pack(side=tk.LEFT, padx=15)
         tk.Button(foot, text="📦 BACKUP", bg="#f39c12", fg="white", command=self.run_backup).pack(side=tk.LEFT)
         tk.Button(foot, text="⏪ TIME MACHINE", bg="#c0392b", fg="white", command=self.open_time_machine).pack(side=tk.LEFT, padx=5)
@@ -254,10 +280,7 @@ class BookStudio:
         for item in data:
             path = item.get("path", "")
             if path == "index.md": continue
-            # Bevorzuge den Live-Titel aus der Registry (für das 📁 Update!), greife auf JSON zurück, falls nicht vorhanden
-            live_title = self.title_registry.get(path)
-            title = live_title if live_title else item.get("title", f"[NEU] {Path(path).stem}")
-            
+            title = item.get("title", self.title_registry.get(path, f"[NEU] {Path(path).stem}"))
             node = self.tree_book.insert(parent_id, "end", text=title, values=(path,), open=True)
             if item.get("children"):
                 self._build_tree_from_json(node, item["children"])
@@ -305,40 +328,6 @@ class BookStudio:
         return data
 
     # =========================================================================
-    # KONTEXTMENÜ-FUNKTIONEN
-    # =========================================================================
-    def show_avail_menu(self, event):
-        """Öffnet das Rechtsklick-Menü und markiert das Element unter der Maus."""
-        item = self.list_avail.identify_row(event.y)
-        if item:
-            self.list_avail.selection_set(item)
-            self.avail_menu.post(event.x_root, event.y_root)
-
-    def open_avail_in_explorer(self):
-        """Öffnet den Dateimanager und wählt die Datei aus."""
-        sel = self.list_avail.selection()
-        if not sel: return
-        vals = self.list_avail.item(sel[0], "values")
-        if not vals: return
-        
-        f_path = self.current_book / vals[0]
-        if not f_path.exists():
-            messagebox.showwarning("Geister-Datei", "Die Datei existiert nicht mehr auf der Festplatte.")
-            return
-            
-        try:
-            if platform.system() == "Windows":
-                # Öffnet Windows Explorer und markiert die Datei sofort!
-                subprocess.Popen(f'explorer /select,"{f_path.resolve()}"')
-            elif platform.system() == "Darwin":
-                # Für macOS (Finder)
-                subprocess.Popen(["open", "-R", str(f_path.resolve())])
-            else:
-                # Für Linux
-                subprocess.Popen(["xdg-open", str(f_path.parent.resolve())])
-        except Exception as e:
-            messagebox.showerror("Fehler", f"Explorer konnte nicht geöffnet werden:\n{e}")
-    # =========================================================================
     # SPEICHERN, DOKTOR, EDITOR (INKL. GEISTER-DATEI-ERKENNUNG)
     # =========================================================================
     def save_project(self, show_msg=True):
@@ -350,8 +339,13 @@ class BookStudio:
             return False
             
         try:
-            b_name = self.backup_mgr.create_structure_backup()
+            # 1. ZUERST den aktuellen Baum aus der GUI auslesen!
             tree_data = self._get_tree_data_for_engine()
+            
+            # 2. DANN den Baum direkt an den Backup-Manager übergeben
+            b_name = self.backup_mgr.create_structure_backup(tree_data)
+            
+            # 3. UND ZULETZT die Quarto Engine speichern lassen
             self.yaml_engine.save_chapters(tree_data, profile_name=self.current_profile_name)
             
             msg = f"Struktur in _quarto.yml gesichert.\n🛡️ Backup: {b_name}"
@@ -366,6 +360,7 @@ class BookStudio:
         except Exception as e:
             messagebox.showerror("YAML Fehler", f"Konnte _quarto.yml nicht speichern:\n\n{str(e)}")
             return False
+        
 
     def run_doctor(self):
         if not self.current_book: return
@@ -381,7 +376,6 @@ class BookStudio:
         if f_path.exists():
             MarkdownEditor(self.root, f_path, on_save_callback=lambda: self.load_book(None))
         else:
-            # GEISTER-DATEI ERKANNT! (Wurde umbenannt oder gelöscht)
             dead_path = vals[0]
             msg = (f"Die Datei wurde auf der Festplatte nicht gefunden:\n{dead_path}\n\n"
                    "Sie wurde wahrscheinlich umbenannt oder gelöscht.\n\n"
@@ -390,7 +384,6 @@ class BookStudio:
             if messagebox.askyesno("Geister-Datei 👻", msg):
                 pre = self._get_current_state()
                 
-                # Wenn es ein Ordner im rechten Baum war, werfen wir die gesunden Kinder in den linken Pool zurück!
                 if event.widget == self.tree_book:
                     for child in self._get_all_tree_children(item):
                         txt, c_vals = self.tree_book.item(child, "text"), self.tree_book.item(child, "values")
@@ -400,25 +393,69 @@ class BookStudio:
                 self._push_undo(pre)
 
     # =========================================================================
-    # TIME MACHINE
+    # KONTEXTMENÜ-FUNKTIONEN (Im Explorer öffnen)
+    # =========================================================================
+    def show_avail_menu(self, event):
+        item = self.list_avail.identify_row(event.y)
+        if item:
+            self.list_avail.selection_set(item)
+            self.avail_menu.post(event.x_root, event.y_root)
+
+    def open_avail_in_explorer(self):
+        sel = self.list_avail.selection()
+        if not sel: return
+        self._open_in_explorer(self.list_avail.item(sel[0], "values"))
+
+    def show_tree_menu(self, event):
+        item = self.tree_book.identify_row(event.y)
+        if item:
+            self.tree_book.selection_set(item)
+            self.tree_menu.post(event.x_root, event.y_root)
+
+    def open_tree_in_explorer(self):
+        sel = self.tree_book.selection()
+        if not sel: return
+        self._open_in_explorer(self.tree_book.item(sel[0], "values"))
+
+    def _open_in_explorer(self, vals):
+        if not vals: return
+        f_path = self.current_book / vals[0]
+        if not f_path.exists():
+            messagebox.showwarning("Geister-Datei", "Die Datei existiert nicht mehr auf der Festplatte.")
+            return
+            
+        try:
+            if platform.system() == "Windows":
+                subprocess.Popen(f'explorer /select,"{f_path.resolve()}"')
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", "-R", str(f_path.resolve())])
+            else:
+                subprocess.Popen(["xdg-open", str(f_path.parent.resolve())])
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Explorer konnte nicht geöffnet werden:\n{e}")
+
+    # =========================================================================
+    # TIME MACHINE & PREVIEW
     # =========================================================================
     def run_backup(self):
         if self.current_book:
             res = self.backup_mgr.create_full_backup()
             messagebox.showinfo("Backup 📦", f"Sicherungs-ZIP erstellt:\n{res}")
 
+    
     def open_time_machine(self):
         if not self.current_book: return
         original_state = self._get_current_state()
         
-        def preview_callback(yaml_path):
-            old_path = self.yaml_engine.yaml_path
-            self.yaml_engine.yaml_path = yaml_path
-            struct = self.yaml_engine.parse_chapters()
-            for i in self.tree_book.get_children(): self.tree_book.delete(i)
-            self._build_tree_recursive("", struct)
+        # Das Callback empfängt jetzt direkt die tree_data (JSON-Liste) aus dem Backup
+        def preview_callback(tree_data):
+            # 1. Den alten Baum im GUI löschen
+            for i in self.tree_book.get_children(): 
+                self.tree_book.delete(i)
+                
+            # 2. Den neuen Baum direkt aus den JSON-Daten bauen!
+            self._build_tree_from_json("", tree_data)
             self._update_avail_list()
-            self.yaml_engine.yaml_path = old_path
             
         def apply_callback():
             self.save_project()
@@ -427,6 +464,12 @@ class BookStudio:
             self._restore_state(original_state)
             
         self.backup_mgr.show_restore_manager(preview_callback, apply_callback, cancel_callback)
+
+    def open_preview(self):
+        if not self.current_book: return
+        from preview_inspector import PreviewInspector
+        tree_data = self._get_tree_data_for_engine()
+        PreviewInspector(self.root, tree_data, self.yaml_engine)
 
     # =========================================================================
     # GUI AKTIONEN & DRAG AND DROP
@@ -537,21 +580,6 @@ class BookStudio:
             self.undo_stack.append(pre)
             self.redo_stack.clear()
 
-    def open_preview(self):
-        if not self.current_book: 
-            return
-            
-        # Wir importieren das Modul lokal, um Zirkelbezüge zu vermeiden
-        from preview_inspector import PreviewInspector
-        
-        # Wir holen den aktuellen Live-Zustand des Baums
-        tree_data = self._get_tree_data_for_engine()
-        
-        # Öffne das Modul!
-        PreviewInspector(self.root, tree_data, self.yaml_engine)
-    # =========================================================================
-    # RENDERING PIPELINE
-    # =========================================================================
     # =========================================================================
     # RENDERING PIPELINE (Ghost-Render mit Pre-Processor)
     # =========================================================================
@@ -595,9 +623,42 @@ class BookStudio:
             self.yaml_engine.save_chapters(original_tree, profile_name=self.current_profile_name, save_gui_state=False)
             
             if p.returncode == 0:
-                txt.insert(tk.END, f"\n\n=======================================\n✅ ERFOLG: {fmt.upper()} generiert im export/ Ordner!\n=======================================")
-                txt.config(fg="#2ecc71")
-                self.root.after(0, lambda: self.status.config(text="Render: Erfolgreich", fg="#2ecc71"))
+                try:
+                    safe_profile = re.sub(r'[^a-zA-Z0-9_\-]', '_', self.current_profile_name) if self.current_profile_name else None
+                    out_dir_name = f"_book_{safe_profile}" if safe_profile else "_book"
+                    out_dir = self.current_book / "export" / out_dir_name
+                    
+                    target_ext = ".pdf" if fmt in ["pdf", "typst"] else f".{fmt}"
+                    found_files = list(out_dir.glob(f"*{target_ext}"))
+                    
+                    if found_files:
+                        file_to_open = found_files[0]
+                        abs_path = str(file_to_open.resolve())
+                        
+                        # --- NEU: CLIPBOARD MAGIC ---
+                        self.root.clipboard_clear()
+                        self.root.clipboard_append(abs_path)
+                        self.root.update()
+                        
+                        txt.insert(tk.END, f"\n\n=======================================\n✅ ERFOLG: {fmt.upper()} generiert!\n📋 IN ZWISCHENABLAGE KOPIERT:\n{abs_path}\n=======================================")
+                        txt.config(fg="#2ecc71")
+                        self.root.after(0, lambda: self.status.config(text="Render: Erfolgreich", fg="#2ecc71"))
+                        
+                        # --- AUTO-OPEN MAGIC ---
+                        if platform.system() == 'Windows':
+                            os.startfile(abs_path)
+                        elif platform.system() == 'Darwin':
+                            subprocess.call(('open', abs_path))
+                        else:
+                            subprocess.call(('xdg-open', abs_path))
+                    else:
+                        txt.insert(tk.END, f"\n\n=======================================\n✅ ERFOLG: {fmt.upper()} generiert im export/ Ordner!\n=======================================")
+                        txt.config(fg="#2ecc71")
+                        self.root.after(0, lambda: self.status.config(text="Render: Erfolgreich", fg="#2ecc71"))
+
+                except Exception as e:
+                    print(f"Auto-Open/Clipboard fehlgeschlagen: {e}")
+                    
             else:
                 txt.insert(tk.END, f"\n\n=======================================\n❌ FEHLER: Crash (Code {p.returncode})\n=======================================")
                 txt.config(fg="#e74c3c")

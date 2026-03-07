@@ -1,15 +1,20 @@
 import re
 import shutil
 from pathlib import Path
+from footnote_harvester import FootnoteHarvester
 
 # =============================================================================
-# DER MASCHINENRAUM - PHYSISCHE AMALGAMIERUNG (KLEBE-VERFAHREN)
+# DER MASCHINENRAUM - PHYSISCHE AMALGAMIERUNG & FOOTNOTE HARVESTING
 # =============================================================================
 
 class PreProcessor:
-    def __init__(self, book_path):
+    # NEU: Wir erlauben der GUI, den Modus als Parameter (footnote_mode) zu übergeben
+    def __init__(self, book_path, footnote_mode="endnotes"):
         self.book_path = Path(book_path)
         self.processed_dir = self.book_path / "processed"
+        
+        # Der Harvester nutzt jetzt den Modus, den die GUI ihm diktiert!
+        self.harvester = FootnoteHarvester(mode=footnote_mode, title="Anmerkungen")
 
     def prepare_render_environment(self, tree_data):
         if self.processed_dir.exists():
@@ -51,6 +56,19 @@ class PreProcessor:
                 }
                 processed_tree.append(new_chapter)
 
+        # --- NEU: ENDNOTEN-KAPITEL AM ENDE ANFÜGEN ---
+        if self.harvester.harvested:
+            endnotes_filename = "Endnoten.md"
+            endnotes_dest = self.processed_dir / endnotes_filename
+            self.harvester.generate_endnotes_file(endnotes_dest)
+            
+            # Quarto mitteilen, dass es ein brandneues Kapitel ganz am Ende gibt!
+            processed_tree.append({
+                "title": self.harvester.title,
+                "path": f"processed/{endnotes_filename}",
+                "children": []
+            })
+
         return processed_tree
 
     def _process_part_file(self, node):
@@ -67,13 +85,13 @@ class PreProcessor:
         body = content[match.end():] if match else content
         
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
+        body = self.harvester.process_text(body) # <-- HARVESTER
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body)
         return dest
 
     def _process_host_file(self, node):
-        """Behandelt Level 1: Kopiert die Wirts-Datei und maskiert das redundante H1."""
         src = self.book_path / node["path"]
         dest = self.processed_dir / node["path"]
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -86,8 +104,8 @@ class PreProcessor:
         frontmatter = match.group(0) if match else ""
         body = content[match.end():] if match else content
         
-        # MASKIERE AUCH HIER DIE ERSTE H1-ÜBERSCHRIFT, da der Titel aus der YAML kommt!
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
+        body = self.harvester.process_text(body) # <-- HARVESTER
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body)
@@ -102,6 +120,8 @@ class PreProcessor:
                     
                 match = re.search(r'^---\s*\n.*?\n---\s*\n', content, re.DOTALL)
                 body = content[match.end():] if match else content
+                
+                body = self.harvester.process_text(body) # <-- HARVESTER
                 
                 def shift_heading(m):
                     hashes = m.group(1)

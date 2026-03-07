@@ -5,6 +5,7 @@ import re
 import zipfile
 import shutil
 from datetime import datetime
+import json
 
 # =========================================================================
 # 1. DER BUCH-DOKTOR (DIAGNOSE & SICHERHEIT)
@@ -78,7 +79,7 @@ class BookDoctor:
 
 
 # =========================================================================
-# 2. DER BACKUP MANAGER & TIME MACHINE
+# 2. DER BACKUP MANAGER & TIME MACHINE (JSON EDITION)
 # =========================================================================
 class BackupManager:
     def __init__(self, root, current_book):
@@ -87,7 +88,7 @@ class BackupManager:
         self.backup_dir = self.current_book / ".backups" if self.current_book else None
 
     def create_full_backup(self):
-        """Erstellt eine komplette ZIP-Datei des Projekts (ohne generierte Ordner)."""
+        """Erstellt eine komplette ZIP-Datei des Projekts."""
         if not self.current_book: return None
         self.backup_dir.mkdir(exist_ok=True)
         
@@ -95,51 +96,45 @@ class BackupManager:
         file_name = self.backup_dir / f"backup_{timestamp}.zip"
         
         with zipfile.ZipFile(file_name, 'w', zipfile.ZIP_DEFLATED) as zf:
-            yaml_file = self.current_book / "_quarto.yml"
-            if yaml_file.exists():
-                zf.write(yaml_file, "_quarto.yml")
-                
-            for md_file in self.current_book.rglob("*.md"):
-                if not any(folder in md_file.parts for folder in ['_book', '.backups']):
-                    zf.write(md_file, md_file.relative_to(self.current_book))
+            # Sichere auch den bookconfig Ordner mit!
+            for f in self.current_book.rglob("*"):
+                if f.is_file() and not any(folder in f.parts for folder in ['_book', '.backups', 'export', 'processed']):
+                    zf.write(f, f.relative_to(self.current_book))
                     
         return file_name.name
 
-    def create_structure_backup(self):
-        """Sichert NUR die _quarto.yml blitzschnell für die Time Machine."""
+    def create_structure_backup(self, tree_data): # NEU: Nimmt jetzt die Daten direkt an!
+        """Sichert die JSON-GUI-Struktur direkt aus dem Arbeitsspeicher für die Time Machine."""
         if not self.current_book: return None
         self.backup_dir.mkdir(exist_ok=True)
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        f_name = self.backup_dir / f"struct_{timestamp}.yml"
+        f_name = self.backup_dir / f"struct_{timestamp}.json"
         
-        y_path = self.current_book / "_quarto.yml"
-        if y_path.exists():
-            shutil.copy2(y_path, f_name)
-            return f_name.name
-        return None
+        # Wir schreiben die Daten direkt aus dem RAM in die Backup-Datei!
+        with open(f_name, 'w', encoding='utf-8') as f:
+            json.dump(tree_data, f, ensure_ascii=False, indent=4)
+            
+        return f_name.name
 
     def show_restore_manager(self, preview_callback, apply_callback, cancel_callback):
-        """
-        Öffnet das modale Fenster für die Time Machine (Live-Preview).
-        Die Callbacks verbinden das Modul mit der Haupt-GUI.
-        """
+        """Öffnet das modale Fenster für die Time Machine (Live-Preview aus JSON)."""
         if not self.current_book: return
         
         if not self.backup_dir.exists():
             messagebox.showinfo("Time Machine", "Keine Backups gefunden.")
             return
             
-        backups = sorted(list(self.backup_dir.glob("struct_*.yml")), reverse=True)
+        # NEU: Wir suchen nach den neuen .json Backups!
+        backups = sorted(list(self.backup_dir.glob("struct_*.json")), reverse=True)
         if not backups:
-            messagebox.showinfo("Time Machine", "Keine Struktur-Backups gefunden.")
+            messagebox.showinfo("Time Machine", "Keine Struktur-Backups gefunden.\n\nSpeichere das Buch einmal, um den ersten Snapshot anzulegen!")
             return
             
         win = tk.Toplevel(self.root)
         win.title("⏪ Time Machine: Live-Preview")
         win.geometry("500x400")
         
-        # Mache das Fenster modal (blockiert Interaktion im Hauptfenster)
         win.transient(self.root)
         win.grab_set()
         
@@ -149,27 +144,43 @@ class BackupManager:
         listbox.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
         
         for b in backups:
-            listbox.insert(tk.END, b.name)
+            # Wir formatieren den Namen hübsch (struct_20260307_120000.json -> 2026-03-07 12:00:00)
+            try:
+                raw_time = b.stem.replace("struct_", "")
+                dt = datetime.strptime(raw_time, '%Y%m%d_%H%M%S')
+                nice_name = dt.strftime('%d.%m.%Y - %H:%M:%S Uhr')
+                listbox.insert(tk.END, f"{nice_name} ({b.name})")
+            except:
+                listbox.insert(tk.END, b.name)
         
         # --- Events ---
         def on_select_preview(event):
             sel = listbox.curselection()
             if not sel: return
-            target_yml = self.backup_dir / listbox.get(sel[0])
-            # Rufe die Vorschau in der Haupt-GUI auf!
-            preview_callback(target_yml)
+            
+            # Wir holen uns den echten Dateinamen (steht in den Klammern)
+            item_text = listbox.get(sel[0])
+            real_filename = item_text.split("(")[-1].replace(")", "")
+            
+            target_json = self.backup_dir / real_filename
+            
+            # Lese die JSON und schicke sie an die GUI
+            if target_json.exists():
+                with open(target_json, 'r', encoding='utf-8') as f:
+                    tree_data = json.load(f)
+                preview_callback(tree_data) # NEU: Wir übergeben direkt das fertige Dictionary!
         
         def on_apply():
-            apply_callback() # Haupt-GUI speichert den Preview-Stand
+            apply_callback()
             messagebox.showinfo("Erfolg", "Struktur wurde dauerhaft wiederhergestellt!")
             win.destroy()
 
         def on_cancel():
-            cancel_callback() # Haupt-GUI stellt originalen Stand wieder her
+            cancel_callback()
             win.destroy()
             
         listbox.bind("<<ListboxSelect>>", on_select_preview)
-        win.protocol("WM_DELETE_WINDOW", on_cancel) # X-Button verhält sich wie "Abbrechen"
+        win.protocol("WM_DELETE_WINDOW", on_cancel)
         
         # --- Buttons ---
         btn_frame = tk.Frame(win)
