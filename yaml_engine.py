@@ -47,8 +47,17 @@ class QuartoYamlEngine:
                 rel_path = p.relative_to(self.book_path).as_posix()
                 if rel_path == "index.md": continue
                 title = self.extract_title_from_md(p)
-                if title: registry[rel_path] = title
-                else: registry[rel_path] = f"[FEHLT] {p.stem}"
+                
+                if title: 
+                    # --- NEU: Schönes Icon für Dateien im "required" Ordner ---
+                    if "required" in p.parts:
+                        # Du kannst das Icon hier ganz nach Geschmack anpassen!
+                        # Alternativen: ⚓ (Anker), 🔑 (Schlüssel), ⭐️ (Stern), 🔒 (Schloss)
+                        title = f"📌 {title}" 
+                    
+                    registry[rel_path] = title
+                else: 
+                    registry[rel_path] = f"[FEHLT] {p.stem}"
         return registry
 
     # =========================================================================
