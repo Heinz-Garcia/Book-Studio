@@ -60,6 +60,30 @@ class QuartoYamlEngine:
                     registry[rel_path] = f"[FEHLT] {p.stem}"
         return registry
 
+    def extract_status_from_md(self, filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read(5000)
+            
+            match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL | re.MULTILINE)
+            if match:
+                frontmatter = match.group(1)
+                status_match = re.search(r'^status:\s*["\']?(.*?)["\']?\s*$', frontmatter, re.MULTILINE)
+                if status_match:
+                    return status_match.group(1).strip()
+            return "ohne Eintrag"
+        except Exception:
+            return "ohne Eintrag"
+
+    def build_status_registry(self):
+        registry = {}
+        for p in self.book_path.rglob("*.md"):
+            # Ignoriere System- und Export-Ordner
+            if not any(x.startswith(".") for x in p.parts) and "export" not in p.parts:
+                rel_path = p.relative_to(self.book_path).as_posix()
+                if rel_path == "index.md": continue
+                registry[rel_path] = self.extract_status_from_md(p)
+        return registry
     # =========================================================================
     # 2. STRUKTUR LESEN (LÄDT DEN TIEFEN GUI-STATE ODER DEN FLACHEN FALLBACK)
     # =========================================================================

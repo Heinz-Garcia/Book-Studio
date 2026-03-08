@@ -14,7 +14,7 @@ from yaml_engine import QuartoYamlEngine
 from book_doctor import BookDoctor, BackupManager
 
 # =============================================================================
-# QUARTO BOOK STUDIO V31 - ULTIMATE EDITION
+# QUARTO BOOK STUDIO
 # =============================================================================
 
 class BookStudio:
@@ -33,8 +33,6 @@ class BookStudio:
         # ----------------------------------------------
         self.root.geometry("1300x900")
         self.root.configure(bg="#f4f7f6")
-        
-        # ... (der restliche Code bleibt genau so)
 
         self.base_path = Path(__file__).parent
         self.books = self._discover_projects()
@@ -44,6 +42,7 @@ class BookStudio:
         self.doctor = None
         self.backup_mgr = None
         self.title_registry = {}
+        self.status_registry = {}
         
         self.current_profile_name = None 
         
@@ -98,8 +97,8 @@ class BookStudio:
         # --- LINKS ---
         l_frame = tk.Frame(self.pane, bg="white")
         self.pane.add(l_frame, width=450)
-        tk.Label(l_frame, text="NICHT ZUGEORDNETE KAPITEL (DOPPELKLICK = EDIT)", bg="#dfe6e9", font=("Arial", 9, "bold"), pady=5).pack(fill=tk.X)
-        
+        self.lbl_avail_count = tk.Label(l_frame, text="NICHT ZUGEORDNETE KAPITEL (0)", bg="#dfe6e9", font=("Arial", 9, "bold"), pady=5)
+        self.lbl_avail_count.pack(fill=tk.X)        
         search_f = tk.Frame(l_frame, bg="#f9f9f9", pady=5)
         search_f.pack(fill=tk.X)
         tk.Label(search_f, text=" 🔍 Suche nach Titel: ", bg="#f9f9f9").pack(side=tk.LEFT)
@@ -140,16 +139,36 @@ class BookStudio:
         tk.Button(m_frame, text="↪️ Redo (Strg+Y)", bg="#ecf0f1", command=self.redo, **b_sty).pack(pady=2)
         
         ttk.Separator(m_frame, orient='horizontal').pack(fill='x', pady=15, padx=10)
-        tk.Button(m_frame, text="💾 Save JSON", bg="#fff9c4", command=self.export_json, **b_sty).pack(pady=2)
+        # --- NEU: Der Hard Reset Button ---
+        tk.Button(m_frame, text="🔥 YAML Nuke", bg="#e74c3c", fg="white", font=("Segoe UI", 9, "bold"), command=self.reset_quarto_yml, width=16, pady=4).pack(pady=(2, 15))
+        # ----------------------------------
+        # --- NEU: Aufgeteilte Save-Buttons ---
+        tk.Button(m_frame, text="💾 Save JSON", bg="#fff9c4", command=self.quick_save_json, **b_sty).pack(pady=2)
+        tk.Button(m_frame, text="📝 Save JSON as...", bg="#ffeaa7", command=self.export_json, **b_sty).pack(pady=2)
         tk.Button(m_frame, text="📂 Load JSON", bg="#fff9c4", command=self.import_json, **b_sty).pack(pady=2)
 
         # --- RECHTS ---
         r_frame = tk.Frame(self.pane, bg="white")
         self.pane.add(r_frame, width=600)
-        tk.Label(r_frame, text="BUCH-STRUKTUR (DRAG & DROP / DOPPELKLICK)", bg="#dfe6e9", font=("Arial", 9, "bold"), pady=5).pack(fill=tk.X)
+        
+        # NEU: Ein kleiner Header-Frame für die rechte Seite
+        r_header = tk.Frame(r_frame, bg="#dfe6e9", pady=5)
+        r_header.pack(fill=tk.X)
+        tk.Label(r_header, text="BUCH-STRUKTUR", bg="#dfe6e9", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(r_header, text=" | Status-Filter: ", bg="#dfe6e9", font=("Arial", 9)).pack(side=tk.LEFT)
+        self.status_filter_var = tk.StringVar(value="Alle")
+        self.status_combo = ttk.Combobox(r_header, textvariable=self.status_filter_var, state="readonly", width=15)
+        self.status_combo.pack(side=tk.LEFT, padx=5)
+        self.status_combo.bind("<<ComboboxSelected>>", self.apply_status_filter)
         
         self.tree_book = ttk.Treeview(r_frame, selectmode="extended", show="tree")
         self.tree_book.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # NEU: Farben (Tags) für den Filter definieren
+        self.tree_book.tag_configure('dimmed', foreground='#bdc3c7')
+        self.tree_book.tag_configure('normal', foreground='black')
+        
         sr = tk.Scrollbar(r_frame, command=self.tree_book.yview)
         sr.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree_book.config(yscrollcommand=sr.set)
@@ -194,6 +213,28 @@ class BookStudio:
         self.status = tk.Label(foot, text="Bereit.", bg="#2c3e50", fg="#bdc3c7", font=("Consolas", 9))
         self.status.pack(side=tk.RIGHT, padx=20)
 
+    def apply_status_filter(self, event=None):
+        if not self.current_book: return
+        target_status = self.status_filter_var.get()
+        
+        def walk_tree(node):
+            vals = self.tree_book.item(node, "values")
+            if vals:
+                path = vals[0]
+                status = self.status_registry.get(path, "ohne Eintrag")
+                
+                # Wenn wir "Alle" auswählen oder der Status exakt passt -> Normale Farbe
+                if target_status == "Alle" or status == target_status:
+                    self.tree_book.item(node, tags=('normal',))
+                else:
+                    self.tree_book.item(node, tags=('dimmed',)) # Sonst Grau machen
+                    
+            for child in self.tree_book.get_children(node):
+                walk_tree(child)
+                
+        for root_node in self.tree_book.get_children():
+            walk_tree(root_node)
+
     # =========================================================================
     # LADEN & JSON IMPORT/EXPORT
     # =========================================================================
@@ -209,6 +250,18 @@ class BookStudio:
         
         self.yaml_engine = QuartoYamlEngine(self.current_book)
         self.title_registry = self.yaml_engine.build_title_registry()
+        
+        # NEU: Check ob engine den Status holen kann
+        if hasattr(self.yaml_engine, 'build_status_registry'):
+            self.status_registry = self.yaml_engine.build_status_registry() 
+            # Dropdown mit allen verfügbaren Status füllen
+            unique_statuses = set(self.status_registry.values())
+            combo_vals = ["Alle"] + sorted(list(unique_statuses))
+            self.status_combo.config(values=combo_vals)
+            self.status_filter_var.set("Alle")
+        else:
+            self.status_registry = {}
+            
         self.doctor = BookDoctor(self.current_book, self.title_registry)
         self.backup_mgr = BackupManager(self.root, self.current_book)
         
@@ -222,6 +275,69 @@ class BookStudio:
         
         self.status.config(text=f"Projekt geladen: {self.current_book.name}", fg="#2ecc71")
 
+    def refresh_ui_titles(self):
+        """Aktualisiert nur die Titel in der GUI, ohne die Struktur zu zerstören."""
+        if not self.current_book: return
+        
+        # 1. Registries aus den Dateien neu einlesen (für Titel und Status)
+        self.title_registry = self.yaml_engine.build_title_registry()
+        
+        # Falls die Status-Registry existiert (für den neuen Filter) laden wir sie auch
+        if hasattr(self.yaml_engine, 'build_status_registry'):
+            self.status_registry = self.yaml_engine.build_status_registry()
+            
+            # Dropdown updaten, falls ein GANZ NEUER Status eingetippt wurde
+            if hasattr(self, 'status_combo'):
+                unique_statuses = set(self.status_registry.values())
+                combo_vals = ["Alle"] + sorted(list(unique_statuses))
+                self.status_combo.config(values=combo_vals)
+        
+        # 2. Den rechten Baum updaten
+        def update_tree(node):
+            vals = self.tree_book.item(node, "values")
+            if vals:
+                path = vals[0]
+                # Den frisch geänderten Titel aus der Registry holen
+                new_title = self.title_registry.get(path, f"[NEU] {Path(path).stem}")
+                self.tree_book.item(node, text=new_title)
+                
+            # Rekursiv durch alle Kinder (Unterkapitel) gehen
+            for child in self.tree_book.get_children(node):
+                update_tree(child)
+                
+        # Start: Den Baum von der Wurzel an durchlaufen
+        for root_item in self.tree_book.get_children():
+            update_tree(root_item)
+            
+        # 3. Die linke Liste updaten (falls dort eine Datei bearbeitet wurde)
+        self._update_avail_list()
+        
+        # 4. Den Status-Filter direkt wieder anwenden (Highlighting aktualisieren)
+        if hasattr(self, 'apply_status_filter'):
+            self.apply_status_filter()
+
+    def quick_save_json(self):
+        """Überschreibt das aktuelle Profil ohne Dialog. Fallback auf 'Save As', wenn kein Profil existiert."""
+        if not self.current_book: return
+        
+        # Wenn wir noch im [Standard] Profil sind, erzwingen wir den "Speichern als"-Dialog
+        if not self.current_profile_name:
+            self.export_json()
+            return
+            
+        # Ansonsten überschreiben wir die Datei still und heimlich
+        filepath = self.current_book / "bookconfig" / f"{self.current_profile_name}.json"
+        tree_data = self._get_tree_data_for_engine()
+        
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(tree_data, f, indent=4, ensure_ascii=False)
+            
+            # Kleines visuelles Feedback in der Statusleiste statt störendem Popup
+            self.status.config(text=f"Profil '{self.current_profile_name}' gespeichert!", fg="#27ae60")
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Konnte Profil nicht überschreiben:\n{e}")
+    
     def export_json(self):
         if not self.current_book: return
         config_dir = self.current_book / "bookconfig"
@@ -303,10 +419,17 @@ class BookStudio:
         self.list_avail.delete(*self.list_avail.get_children())
         search_term = self.search_var.get().lower()
         
+        count = 0  # NEU: Zähler starten
+        
         for path, title in sorted(self.title_registry.items(), key=lambda x: x[1]):
             if path not in used_paths and (search_term in title.lower() or search_term in path.lower()):
                 self.list_avail.insert("", "end", text=title, values=(path,))
-
+                count += 1  # NEU: Zähler hochzählen
+                
+        # NEU: Das Label oben updaten!
+        if hasattr(self, 'lbl_avail_count'):
+            self.lbl_avail_count.config(text=f"NICHT ZUGEORDNETE KAPITEL ({count}) - DOPPELKLICK = EDIT")
+    
     def _get_all_used_paths(self):
         res = []
         def walk(node):
@@ -362,6 +485,58 @@ class BookStudio:
             return False
         
 
+    def reset_quarto_yml(self):
+        if not self.current_book: return
+        
+        msg = ("🚨 HARD RESET 🚨\n\n"
+               "Möchtest du die _quarto.yml WIRKLICH auf eine saubere, leere Basis zurücksetzen?\n\n"
+               "Alle fehlerhaften/fremden Dateieinträge (Geister-Dateien) werden restlos aus der Konfiguration gelöscht!\n"
+               "Das Projekt startet strukturell bei Null (nur index.md).\n\n"
+               "Deine echten Markdown-Dateien auf der Festplatte bleiben natürlich erhalten!")
+               
+        if messagebox.askyesno("🔥 _quarto.yml plattmachen", msg):
+            yaml_path = self.current_book / "_quarto.yml"
+            gui_path = self.current_book / "bookconfig" / ".gui_state.json"
+            
+            # 1. Ein sauberes, frisches Quarto-Skelett generieren
+            minimal_yaml = (
+                "project:\n"
+                "  type: book\n"
+                "  output-dir: export/_book\n\n"
+                "book:\n"
+                f"  title: \"{self.current_book.name}\"\n"
+                "  chapters:\n"
+                "    - index.md\n\n"
+                "format:\n"
+                "  typst:\n"
+                "    keep-typ: true\n"
+                "    toc: true\n"
+                "    toc-depth: 3\n"
+                "    number-sections: true\n"
+                "    section-numbering: 1.1.1\n"
+                "    papersize: a4\n"
+                "  html:\n"
+                "    theme: cosmo\n"
+                "    toc: true\n"
+            )
+            
+            try:
+                # 2. Die alte YAML erbarmungslos überschreiben
+                with open(yaml_path, 'w', encoding='utf-8') as f:
+                    f.write(minimal_yaml)
+                    
+                # 3. Den GUI-State löschen (damit der Müll nicht zurückkommt!)
+                if gui_path.exists():
+                    gui_path.unlink()
+                    
+                messagebox.showinfo("Erfolg", "Tabula Rasa!\n\nDie _quarto.yml ist jetzt wieder blitzsauber.")
+                
+                # 4. Das Buch zwingen, sich im Book Studio komplett neu zu laden
+                self.load_book(None)
+                
+            except Exception as e:
+                messagebox.showerror("Fehler", f"Konnte YAML nicht resetten:\n{e}")
+    
     def run_doctor(self):
         if not self.current_book: return
         self.doctor.run_doctor_manual(self._get_all_used_paths(), len(self.list_avail.get_children("")))
@@ -374,7 +549,7 @@ class BookStudio:
         f_path = self.current_book / vals[0]
         
         if f_path.exists():
-            MarkdownEditor(self.root, f_path, on_save_callback=lambda: self.load_book(None))
+            MarkdownEditor(self.root, f_path, on_save_callback=self.refresh_ui_titles)
         else:
             dead_path = vals[0]
             msg = (f"Die Datei wurde auf der Festplatte nicht gefunden:\n{dead_path}\n\n"
@@ -492,6 +667,30 @@ class BookStudio:
             self.tree_book.delete(i)
         self._push_undo(pre)
 
+    def reset_structure(self):
+        if not self.current_book: return
+        
+        msg = ("Möchtest du wirklich die komplette Buch-Struktur leeren?\n\n"
+               "Alle Kapitel werden zurück in die linke Liste geschoben und die _quarto.yml wird zurückgesetzt.\n"
+               "Deine Dateien auf der Festplatte bleiben natürlich erhalten!\n\n"
+               "(Du kannst dies danach noch mit Strg+Z widerrufen.)")
+               
+        if messagebox.askyesno("🚨 Struktur zurücksetzen", msg):
+            pre = self._get_current_state()
+            
+            # 1. Rechten Baum komplett leeren
+            for i in self.tree_book.get_children():
+                self.tree_book.delete(i)
+                
+            # 2. Linke Liste neu berechnen und befüllen
+            self._update_avail_list()
+            
+            # 3. Undo-State speichern
+            self._push_undo(pre)
+            
+            # 4. Direkt speichern, um die _quarto.yml und .gui_state.json zu überschreiben
+            self.save_project(show_msg=True)
+    
     def _get_all_tree_children(self, item):
         res = list(self.tree_book.get_children(item))
         for child in res: res.extend(self._get_all_tree_children(child))
@@ -550,6 +749,13 @@ class BookStudio:
             self.tree_book.selection_set(drag)
             self._push_undo(pre)
 
+    def _mark_unsaved(self):
+        """Ändert die Statusmeldung, sobald eine Änderung erkannt wurde."""
+        current_text = self.status.cget("text")
+        # Nur wenn vorher "gespeichert" da stand, springen wir um
+        if "gespeichert" in current_text.lower():
+            self.status.config(text="Status: Ungespeicherte Änderungen*", fg="#f39c12") # Orange
+            
     # =========================================================================
     # UNDO / REDO (SNAPSHOT ENGINE)
     # =========================================================================
@@ -569,16 +775,19 @@ class BookStudio:
         if self.undo_stack:
             self.redo_stack.append(self._get_current_state())
             self._restore_state(self.undo_stack.pop())
+            self._mark_unsaved()  # <-- NEU
 
     def redo(self, e=None):
         if self.redo_stack:
             self.undo_stack.append(self._get_current_state())
             self._restore_state(self.redo_stack.pop())
+            self._mark_unsaved()  # <-- NEU
 
     def _push_undo(self, pre):
         if pre != self._get_current_state():
             self.undo_stack.append(pre)
             self.redo_stack.clear()
+            self._mark_unsaved()  # <-- NEU
 
     # =========================================================================
     # RENDERING PIPELINE (Ghost-Render mit Pre-Processor)

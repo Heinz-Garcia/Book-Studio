@@ -1,0 +1,82 @@
+[
+    {
+        "title": "📌 Stoffwechselgesundheit im Kreuzverhör",
+        "path": "content/required/Titel.md",
+        "children": []
+    },
+    {
+        "title": "📌 Klappentext vorne",
+        "path": "content/required/Klappentext_vorne.md",
+        "children": []
+    },
+    {
+        "title": "📌 Impressum und rechtliche Hinweise",
+        "path": "content/required/Impressum.md",
+        "children": []
+    },
+    {
+        "title": "KI und Halluzination: Ein Plädoyer",
+        "path": "content/20260220190849.md",
+        "children": []
+    },
+    {
+        "title": "📌 Einleitung",
+        "path": "content/required/Einleitung.md",
+        "children": []
+    },
+    {
+        "title": "Validität durch transparente Quellenarbeit",
+        "path": "content/20260215101346.md",
+        "children": []
+    },
+    {
+        "title": "📌 Inhaltsverzeichnis",
+        "path": "content/required/IVZ.md",
+        "children": []
+    },
+    {
+        "title": "📌 These",
+        "path": "content/required/These.md",
+        "children": []
+    },
+    {
+        "title": "Danke, keine weiteren Fragen!",
+        "path": "content/20260214111323.md",
+        "children": []
+    },
+    {
+        "title": "📌 Glossar",
+        "path": "content/required/Glossar.md",
+        "children": []
+    },
+    {
+        "title": "Glossar der medizinischen und biochemischen Fachbegriffe",
+        "path": "content/20260222200620.md",
+        "children": []
+    },
+    {
+        "title": "📌 Literaturverzeichnis",
+        "path": "content/required/Literaturverzeichnis.md",
+        "children": []
+    },
+    {
+        "title": "📌 Über Autor",
+        "path": "content/required/UeberAutor.md",
+        "children": []
+    },
+    {
+        "title": "📌 Danksagung",
+        "path": "content/required/Danksagung.md",
+        "children": []
+    },
+    {
+        "title": "📌 Klappentext hinten",
+        "path": "content/required/Klappentext_hinten.md",
+        "children": []
+    },
+    {
+        "title": "📌 Rückseite",
+        "path": "content/required/Rueckseite.md",
+        "children": []
+    }
+]
