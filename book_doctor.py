@@ -6,6 +6,7 @@ import zipfile
 import shutil
 from datetime import datetime
 import json
+import yaml
 
 # =========================================================================
 # 1. DER BUCH-DOKTOR (DIAGNOSE & SICHERHEIT)
@@ -18,56 +19,66 @@ class BookDoctor:
 
     def check_health(self, used_paths, unused_count):
         """Führt alle strengen Buch-Prüfungen durch."""
+        import yaml
+        import re
         if not self.current_book:
             return False, "Kein Projekt aktiv."
             
         err = []
         warn = []
         
-        # 1. Existiert die Startseite?
+        # NEU: Wir zwingen den Doktor, auch die unsichtbare index.md zu röntgen!
+        paths_to_check = list(used_paths)
+        if "index.md" not in paths_to_check:
+            paths_to_check.insert(0, "index.md")
+        
         if not (self.current_book / "index.md").exists():
             err.append("❌ Root: 'index.md' fehlt komplett!")
             
-        # 2. Prüfe alle im Baum verwendeten Dateien
-        for p_str in used_paths:
+        for p_str in paths_to_check:
             full_p = self.current_book / p_str
-            
-            # Physischer Check
             if not full_p.exists():
-                err.append(f"❌ Geister-Datei: '{p_str}' existiert nicht auf der Festplatte.")
+                err.append(f"❌ Geister-Datei: '{p_str}' existiert nicht.")
                 continue
                 
-            # Quarto Unterstrich-Sperre
-            if Path(p_str).name.startswith("_"):
-                err.append(f"❌ Quarto-Sperre: '{p_str}' beginnt mit '_'. Quarto wird dies ignorieren!")
+            if self.title_registry.get(p_str, "").startswith("[FEHLT]") and p_str != "index.md":
+                err.append(f"❌ Frontmatter-Fehler: '{p_str}' hat keinen YAML Titel.")
                 
-            # Frontmatter Titel Check
-            if self.title_registry.get(p_str, "").startswith("[FEHLT]"):
-                err.append(f"❌ Frontmatter-Fehler: '{p_str}' hat keinen YAML 'title:' Header.")
-                
-            # Inhalts-Check (Altlasten & Crash-Reste)
             try:
                 with open(full_p, 'r', encoding='utf-8') as f:
-                    content = f.read(5000)
-                    if "shift-heading-level-by:" in content:
-                        err.append(f"⚠️ Altlast: In '{p_str}' existiert der veraltete Key 'shift-heading'. Bitte entfernen.")
-                    if "<!-" + "- quarto-file" in content:
-                        err.append(f"🚨 Crash-Rest: In '{p_str}' am Dateiende wurde HTML-Müll gefunden.")
-            except Exception:
-                pass
+                    content = f.read()
+                    
+                match = re.match(r'^\uFEFF?---\s*[\r\n]+(.*?)[\r\n]+---\s*[\r\n]+(.*)', content, re.DOTALL)
+                if match:
+                    frontmatter = match.group(1)
+                    body = match.group(2)
+                    
+                    try:
+                        yaml.safe_load(frontmatter)
+                    except Exception as exc:
+                        err.append(f"❌ YAML-CRASH in '{p_str}':\nQuarto wird hier abbrechen! Grund:\n{exc}")
+                        
+                    if '\t' in frontmatter:
+                        err.append(f"❌ VERBOTENES ZEICHEN in '{p_str}':\nYAML enthält Tabulatoren! Bitte durch Leerzeichen ersetzen.")
+                        
+                    for i, line in enumerate(body.split('\n')):
+                        if line.strip() == '---':
+                            err.append(f"❌ VERSTECKTER TRENNSTRICH in '{p_str}':\nQuarto stürzt bei '---' im Text ab. (Bitte *** nutzen)")
+                else:
+                    err.append(f"❌ FRONTMATTER DEFEKT in '{p_str}': Die '---' Blöcke umschließen den Bereich nicht sauber.")
+
+            except Exception as e:
+                err.append(f"❌ Datei-Lesefehler bei '{p_str}': {e}")
             
-        # 3. Warnung bei ungenutzten Dateien
         if unused_count > 0:
             warn.append(f"⚠️ Hinweis: {unused_count} Markdown-Dateien liegen aktuell ungenutzt im Datei-Pool.")
 
-        # Report zusammenbauen
-        report = "\n".join(err)
+        report = "\n\n".join(err)
         if warn:
-            if err: report += "\n\n"
+            if err: report += "\n\n---\n\n"
             report += "\n".join(warn)
             
-        is_healthy = (len(err) == 0)
-        return is_healthy, report if report else "Das Buchprojekt ist in perfektem Zustand. ✅"
+        return (len(err) == 0), report if report else "Das Buchprojekt ist in perfektem Zustand. ✅"
 
     def run_doctor_manual(self, used_paths, unused_count):
         """Manuelle Ausführung mit direkter GUI-Rückmeldung."""

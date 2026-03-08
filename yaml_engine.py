@@ -1,10 +1,7 @@
+import yaml
 import re
 import json
 from pathlib import Path
-
-# =============================================================================
-# YAML ENGINE - QUARTO NATIVE FLATTENING & GUI STATE PRESERVATION
-# =============================================================================
 
 class QuartoYamlEngine:
     def __init__(self, book_path):
@@ -13,54 +10,53 @@ class QuartoYamlEngine:
         self.gui_state_path = self.book_path / "bookconfig" / ".gui_state.json"
 
     # =========================================================================
-    # 1. FRONTMATTER & METADATEN EXTRAKTION
+    # TITEL- & STATUS-EXTRAKTION (REGISTRY)
     # =========================================================================
+
     def extract_title_from_md(self, filepath):
+        """Liest den Titel aus dem YAML-Frontmatter oder der ersten H1-Überschrift."""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
-                content = f.read(5000)
+                content = f.read(5000) # Nur den Anfang lesen
             
-            title = None
+            # 1. Suche in YAML Frontmatter
             match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL | re.MULTILINE)
             if match:
                 frontmatter = match.group(1)
-                title_match = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', frontmatter, re.MULTILINE)
-                if title_match:
-                    title = title_match.group(1).strip()
+                t_match = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', frontmatter, re.MULTILINE)
+                if t_match:
+                    return t_match.group(1).strip()
             
-            if title:
-                body = content[match.end():].strip() if match else content.strip()
-                lines = [l.strip() for l in body.split('\n') if l.strip()]
-                # NEU: Markiere Dateien, die NUR aus einer Überschrift bestehen, als Struktur-Knoten!
-                if len(lines) == 1 and lines[0].startswith('#'):
-                    return f"📁 {title}" 
-                return title
-            return None 
+            # 2. Suche nach erster # Überschrift
+            h1_match = re.search(r'^#\s+(.*)$', content, re.MULTILINE)
+            if h1_match:
+                return h1_match.group(1).strip()
+            
+            return None
         except Exception:
             return None
 
     def build_title_registry(self):
+        """Erstellt eine Liste aller .md Dateien mit ihren Titeln und Icons."""
         registry = {}
         for p in self.book_path.rglob("*.md"):
             # Ignoriere System- und Export-Ordner
             if not any(x.startswith(".") for x in p.parts) and "export" not in p.parts:
                 rel_path = p.relative_to(self.book_path).as_posix()
                 if rel_path == "index.md": continue
-                title = self.extract_title_from_md(p)
                 
+                title = self.extract_title_from_md(p)
                 if title: 
-                    # --- NEU: Schönes Icon für Dateien im "required" Ordner ---
+                    # --- ICON LOGIK: Schöner Pin für Dateien im "required" Ordner ---
                     if "required" in p.parts:
-                        # Du kannst das Icon hier ganz nach Geschmack anpassen!
-                        # Alternativen: ⚓ (Anker), 🔑 (Schlüssel), ⭐️ (Stern), 🔒 (Schloss)
                         title = f"📌 {title}" 
-                    
                     registry[rel_path] = title
                 else: 
                     registry[rel_path] = f"[FEHLT] {p.stem}"
         return registry
 
     def extract_status_from_md(self, filepath):
+        """Liest den Status aus dem YAML-Frontmatter (status: "...") aus."""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read(5000)
@@ -76,209 +72,147 @@ class QuartoYamlEngine:
             return "ohne Eintrag"
 
     def build_status_registry(self):
+        """Erstellt eine Registry aller Dateistatus für den Filter in der GUI."""
         registry = {}
         for p in self.book_path.rglob("*.md"):
-            # Ignoriere System- und Export-Ordner
             if not any(x.startswith(".") for x in p.parts) and "export" not in p.parts:
                 rel_path = p.relative_to(self.book_path).as_posix()
                 if rel_path == "index.md": continue
                 registry[rel_path] = self.extract_status_from_md(p)
         return registry
+
     # =========================================================================
-    # 2. STRUKTUR LESEN (LÄDT DEN TIEFEN GUI-STATE ODER DEN FLACHEN FALLBACK)
+    # QUARTO YAML PARSING & SAVING
     # =========================================================================
+
+    def _load_quarto_yml(self):
+        if not self.yaml_path.exists():
+            return {"project": {"type": "book"}, "book": {"chapters": []}}
+        with open(self.yaml_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f) or {}
+
     def parse_chapters(self):
-        # 1. Versuch: Lade die schöne, tiefe GUI-Struktur (falls aktuell)
-        if self.gui_state_path.exists() and self.yaml_path.exists():
-            if self.gui_state_path.stat().st_mtime >= self.yaml_path.stat().st_mtime:
-                try:
-                    with open(self.gui_state_path, 'r', encoding='utf-8') as f:
-                        return json.load(f)
-                except Exception:
-                    pass
+        """Konvertiert die Quarto-YAML Liste in das interne Tree-Format der GUI."""
+        # 1. Versuche zuerst, den letzten GUI-Zustand (geöffnete Ordner etc.) zu laden
+        gui_state = self._load_gui_state()
+        if gui_state:
+            return gui_state
+            
+        # 2. Falls kein GUI-State da ist, lade direkt aus der _quarto.yml
+        config = self._load_quarto_yml()
+        chapters = config.get("book", {}).get("chapters", [])
+        
+        def convert(items):
+            res = []
+            for item in items:
+                if isinstance(item, str):
+                    res.append({"path": item, "children": []})
+                elif isinstance(item, dict):
+                    # Quarto Parts/Chapters Logik
+                    part_title = item.get("part") or item.get("text")
+                    sub = item.get("chapters", [])
+                    if part_title:
+                        res.append({"path": f"PART:{part_title}", "children": convert(sub)})
+                    else:
+                        # Einfache Datei mit Meta-Daten
+                        file_path = list(item.values())[0] if not item.get("file") else item.get("file")
+                        res.append({"path": file_path, "children": []})
+            return res
+            
+        return convert(chapters)
 
-        # 2. Fallback: Wenn kein State existiert, parse die flache _quarto.yml
-        if not self.yaml_path.exists(): return []
+    def save_chapters(self, tree_data, profile_name=None, save_gui_state=True, extra_format_options=None):
+        """Speichert die Baum-Struktur in _quarto.yml und injiziert Templates/Profile."""
+        config = self._load_quarto_yml()
+        
+        # 1. Kapitel aus dem Tree konvertieren
+        chapters = self._tree_to_quarto_list(tree_data)
+        
+        # --- FIX: index.md IMMER als erste Datei hinzufügen ---
+        if "index.md" not in chapters:
+            if (self.book_path / "index.md").exists():
+                chapters.insert(0, "index.md")
+            else:
+                # Falls die Datei gar nicht existiert, erstellen wir eine minimale Version
+                with open(self.book_path / "index.md", "w", encoding="utf-8") as f:
+                    f.write("---\ntitle: Einleitung\n---\n\nWillkommen zu meinem Buch.")
+                chapters.insert(0, "index.md")
+        # -------------------------------------------------------
+
+        config["book"]["chapters"] = chapters
+        
+        # ... (Rest der Funktion bleibt gleich) ...
+        
+        # Ausgabe-Ordner basierend auf Profil anpassen
+        if profile_name:
+            safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', profile_name)
+            config["project"]["output-dir"] = f"export/_book_{safe_name}"
+        else:
+            config["project"]["output-dir"] = "export/_book"
+
+        # --- NEU: ZUSATZOPTIONEN (Templates etc.) INJIZIEREN ---
+        if extra_format_options:
+            if "format" not in config: config["format"] = {}
+            for fmt, options in extra_format_options.items():
+                if fmt not in config["format"]: config["format"][fmt] = {}
+                for key, val in options.items():
+                    config["format"][fmt][key] = val
+        # ---------------------------------------------------------
+
+        with open(self.yaml_path, 'w', encoding='utf-8') as f:
+            yaml.dump(config, f, sort_keys=False, allow_unicode=True, indent=2)
+            
+        if save_gui_state:
+            self._save_gui_state(tree_data)
+
+    def _tree_to_quarto_list(self, tree_data):
+        """Hilfsfunktion: Wandelt den GUI-Baum zurück in Quarto-Syntax."""
+        res = []
+        for item in tree_data:
+            path = item["path"]
+            if path.startswith("PART:"):
+                res.append({
+                    "part": path.replace("PART:", ""),
+                    "chapters": self._tree_to_quarto_list(item["children"])
+                })
+            else:
+                # --- DER WINDOWS-FIX ---
+                # Wandelt alle Backslashes zwingend in Forward-Slashes um
+                safe_path = path.replace("\\", "/")
+                res.append(safe_path)
+        return res
+
+    # =========================================================================
+    # GUI STATE (Sichert geöffnete Ordner & genaue GUI Struktur)
+    # =========================================================================
+
+    def _save_gui_state(self, tree_data):
         try:
-            with open(self.yaml_path, 'r', encoding='utf-8') as f:
-                all_lines = f.read().splitlines()
-        except Exception: return []
-            
-        start_idx = -1
-        for i, l in enumerate(all_lines):
-            if l.strip() == "chapters:" and not l.lstrip().startswith("-"):
-                start_idx = i + 1
-                break
-        
-        if start_idx == -1: return []
-        
-        data = []
-        stack = [(0, data)] 
-        
-        for l in all_lines[start_idx:]:
-            if not l.strip() or l.strip().startswith("#"): continue
-            indent = len(l) - len(l.lstrip())
-            if indent == 0 and not l.lstrip().startswith("-"): break 
-            
-            clean = l.strip()
-            
-            if clean.startswith("- part:"):
-                val = clean.split(":", 1)[1].strip().strip('"\'')
-                new_item = {"path": val, "children": []}
-                while len(stack) > 1: stack.pop()
-                stack[-1][1].append(new_item)
-                continue
+            self.gui_state_path.parent.mkdir(exist_ok=True)
+            with open(self.gui_state_path, 'w', encoding='utf-8') as f:
+                json.dump(tree_data, f, indent=4, ensure_ascii=False)
+        except Exception:
+            pass
 
-            elif clean == "chapters:":
-                last_added = stack[-1][1][-1]
-                stack.append((indent, last_added["children"]))
-                continue
-
-            elif clean.startswith("-"):
-                val = clean[1:].strip().strip('"\'')
-                if not val.endswith(".md"): continue
-                new_item = {"path": val, "children": []}
-                while len(stack) > 1 and indent <= stack[-1][0]:
-                    stack.pop()
-                stack[-1][1].append(new_item)
-
-        return data
-
-    # =========================================================================
-    # 3. QUARTO FLATTENING LOGIK (MACHT QUARTO GLÜCKLICH)
-    # =========================================================================
-    def _flatten_to_files(self, items):
-        """Holt alle Dateipfade aus beliebig tiefen Unterordnern für die flache Quarto-Liste."""
-        flat = []
-        for item in items:
-            flat.append(item["path"])
-            if item.get("children"):
-                flat.extend(self._flatten_to_files(item["children"]))
-        return flat
-
+    def _load_gui_state(self):
+        if self.gui_state_path.exists():
+            try:
+                with open(self.gui_state_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                return None
+        return None
+    
     def _generate_yaml_string(self, tree_data, base_indent="  "):
-        """Generiert die streng auf 2 Ebenen limitierte Quarto-Struktur."""
+        """Hilfsfunktion für den Preview-Inspektor."""
         lines = []
         for item in tree_data:
             path = item["path"]
-            children = item.get("children", [])
-            
-            if children:
-                # Die Ankerdatei MUSS der Part-Wert sein, sonst gibt es Duplikate im IVZ!
-                lines.append(f"{base_indent}- part: \"{path}\"")
+            if path.startswith("PART:"):
+                lines.append(f"{base_indent}- part: {path.replace('PART:', '')}")
                 lines.append(f"{base_indent}  chapters:")
-                
-                # Alle Unterordner und deren Kinder rigoros flachklopfen
-                flat_paths = self._flatten_to_files(children)
-                for c_path in flat_paths:
-                    lines.append(f"{base_indent}    - \"{c_path}\"")
+                if item.get("children"):
+                    lines.append(self._generate_yaml_string(item["children"], base_indent + "    "))
             else:
-                lines.append(f"{base_indent}- \"{path}\"")
-                
+                lines.append(f"{base_indent}- {path}")
         return "\n".join(lines)
-
-    # =========================================================================
-    # 4. YAML SCHREIBEN & EXPORT VERZEICHNIS
-    # =========================================================================
-    def save_chapters(self, tree_data, profile_name=None, save_gui_state=True): # <-- NEU
-        if not self.yaml_path.exists(): 
-            raise FileNotFoundError(f"Die Datei {self.yaml_path} existiert nicht.")
-
-        # 1. TIEFEN GUI-STATE SPEICHERN (Nur wenn nicht im Render-Modus!)
-        if save_gui_state: # <-- NEU
-            self.gui_state_path.parent.mkdir(exist_ok=True)
-            with open(self.gui_state_path, 'w', encoding='utf-8') as f:
-                json.dump(tree_data, f, ensure_ascii=False, indent=4)
-
-        # 2. _quarto.yml OPERIEREN
-        # 1. TIEFEN GUI-STATE SPEICHERN, DAMIT DIE STRUKTUR IM STUDIO ERHALTEN BLEIBT
-        self.gui_state_path.parent.mkdir(exist_ok=True)
-        with open(self.gui_state_path, 'w', encoding='utf-8') as f:
-            json.dump(tree_data, f, ensure_ascii=False, indent=4)
-
-        # 2. _quarto.yml OPERIEREN
-        with open(self.yaml_path, 'r', encoding='utf-8') as f:
-            lines = f.read().splitlines()
-
-        safe_profile = re.sub(r'[^a-zA-Z0-9_\-]', '_', profile_name) if profile_name else None
-
-        # PASS 1: Dynamisches Setzen von output-dir und output-file (in export/ Ordner!)
-        new_lines = []
-        in_book = False
-        in_project = False
-        
-        for line in lines:
-            stripped = line.strip()
-            indent = len(line) - len(line.lstrip())
-            
-            if stripped == "project:":
-                in_project = True
-                new_lines.append(line)
-                continue
-            
-            if in_project:
-                if stripped.startswith("output-dir:"):
-                    if safe_profile:
-                        new_lines.append(f"  output-dir: export/_book_{safe_profile}")
-                    else:
-                        new_lines.append(f"  output-dir: export/_book")
-                    continue
-                if indent == 0 and stripped != "" and not stripped.startswith("#"):
-                    in_project = False
-                    
-            if stripped == "book:":
-                in_book = True
-                new_lines.append(line)
-                if safe_profile:
-                    new_lines.append(f"  output-file: \"{safe_profile}\"")
-                continue
-            
-            if in_book:
-                if stripped.startswith("output-file:"):
-                    continue 
-                if indent == 0 and stripped != "" and not stripped.startswith("#"):
-                    in_book = False
-                    
-            new_lines.append(line)
-            
-        lines = new_lines
-
-        # PASS 2: Den chapters-Block ersetzen (mit dem flachen Quarto-Code!)
-        out_lines = []
-        in_chapters = False
-        chapters_indent = -1
-        chapters_found = False
-
-        for line in lines:
-            stripped = line.strip()
-
-            if not in_chapters:
-                if stripped == 'chapters:' and not line.lstrip().startswith('-'):
-                    chapters_indent_str = line[:len(line) - len(line.lstrip())]
-                    chapters_indent = len(chapters_indent_str)
-                    in_chapters = True
-                    chapters_found = True
-                    
-                    out_lines.append(line)
-                    base_indent = chapters_indent_str + "  "
-                    out_lines.append(f"{base_indent}- \"index.md\"")
-                    
-                    # Hier wird die abgeflachte YAML eingeklebt
-                    new_yaml = self._generate_yaml_string(tree_data, base_indent=base_indent)
-                    if new_yaml:
-                        out_lines.append(new_yaml)
-                    continue
-                out_lines.append(line)
-            else:
-                if not stripped or stripped.startswith('#'): continue
-
-                current_indent = len(line) - len(line.lstrip())
-                if current_indent <= chapters_indent and not stripped.startswith('-'):
-                    in_chapters = False
-                    out_lines.append(line)
-
-        if not chapters_found:
-            raise ValueError("Konnte den Key 'chapters:' nicht finden! Prüfe deine _quarto.yml.")
-
-        with open(self.yaml_path, 'w', encoding='utf-8') as f:
-            f.write("\n".join(out_lines) + "\n")

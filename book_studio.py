@@ -7,6 +7,7 @@ import json
 import re
 import os
 import platform
+from export_manager import ExportManager
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
@@ -49,6 +50,7 @@ class BookStudio:
         self.drag_data = {'item': None}
         self.undo_stack = []
         self.redo_stack = []
+        self.exporter = ExportManager(self) # NEU: Unser ausgelagerter Export-Manager
         
         self._set_style()
         self.setup_ui()
@@ -61,7 +63,7 @@ class BookStudio:
         self.root.bind("<Control-y>", self.redo)
         self.root.bind("<Control-Z>", self.redo)
         self.root.bind("<Control-s>", lambda e: self.save_project())
-        self.root.bind("<F5>", lambda e: self.run_quarto_render())
+        self.root.bind("<F5>", lambda e: self.exporter.run_quarto_render())
 
     def _discover_projects(self):
         found = []
@@ -194,6 +196,11 @@ class BookStudio:
         self.fmt_box.current(0)
         self.fmt_box.pack(side=tk.LEFT, padx=(5, 15))
         
+        tk.Label(foot, text="Template:", bg="#2c3e50", fg="white").pack(side=tk.LEFT, padx=(10, 5))
+        self.template_var = tk.StringVar(value="Standard")
+        self.template_box = ttk.Combobox(foot, textvariable=self.template_var, state="readonly", width=15)
+        self.template_box.pack(side=tk.LEFT, padx=(0, 15))
+        
         # --- NEU: FUSSNOTEN-SCHALTER ---
         tk.Label(foot, text="Noten:", bg="#2c3e50", fg="white").pack(side=tk.LEFT)
         self.footnote_box = ttk.Combobox(foot, values=["endnotes", "pandoc"], state="readonly", width=10)
@@ -201,8 +208,11 @@ class BookStudio:
         self.footnote_box.pack(side=tk.LEFT, padx=(5, 15))
         # -------------------------------
         
-        self.btn_render = tk.Button(foot, text="🖨️ RENDERN", bg="#2980b9", fg="white", font=("Arial", 10, "bold"), command=self.run_quarto_render, padx=15)
+        self.btn_render = tk.Button(foot, text="🖨️ RENDERN", bg="#2980b9", fg="white", font=("Arial", 10, "bold"), command=self.exporter.run_quarto_render, padx=15)
         self.btn_render.pack(side=tk.LEFT)
+        
+        # --- NEU: Der Scrivener Export Button (läuft über ExportManager) ---
+        tk.Button(foot, text="📝 SCRIVENER (.md)", bg="#16a085", fg="white", font=("Arial", 10, "bold"), command=self.exporter.export_single_markdown, padx=15).pack(side=tk.LEFT, padx=(5, 15))
         
         tk.Button(foot, text="🔍 PREVIEW", bg="#9b59b6", fg="white", font=("Arial", 10, "bold"), command=self.open_preview, padx=15).pack(side=tk.LEFT, padx=(5, 15))
         
@@ -274,6 +284,11 @@ class BookStudio:
         self._update_avail_list()
         
         self.status.config(text=f"Projekt geladen: {self.current_book.name}", fg="#2ecc71")
+        # NEU: Templates über das neue Modul entdecken
+        from template_manager import TemplateManager
+        tpls = TemplateManager.discover_templates(self.current_book)
+        self.template_box.config(values=tpls)
+        self.template_var.set("Standard")
 
     def refresh_ui_titles(self):
         """Aktualisiert nur die Titel in der GUI, ohne die Struktur zu zerstören."""
