@@ -1,1 +1,1 @@
-v.33.2 (Template-powered Book Doctor Edition)
+v.34.0 (YAML-frontmatter-completing Edition)

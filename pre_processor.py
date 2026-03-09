@@ -16,15 +16,61 @@ class PreProcessor:
             return match.group(0), content[match.end():]
         return "", content
 
+    # =========================================================================
+    # NEU: DER WASCHGANG FÜR KAPUTTE MARKDOWN-SYNTAX
+    # =========================================================================
+    def _sanitize_markdown(self, text):
+        """Repariert alte Boxen und übersetzt @-Zitationen absolut verlustfrei in echte Fußnoten."""
+        
+        # 1. Boxen reparieren: :::: \[BOX: Titel\] Inhalt ::: -> Quarto Callout
+        text = re.sub(
+            r':{3,4}\s*\\?\[BOX:\s*(.*?)\\?\](.*?):{3,4}', 
+            r'::: {.callout-note title="\1"}\n\2\n:::', 
+            text, 
+            flags=re.DOTALL
+        )
+        
+        # 1b. Übrig gebliebene eklige 4er-Doppelpunkte auf saubere 3er kürzen
+        text = re.sub(r'^::::\s*$', r':::', text, flags=re.MULTILINE)
+        
+        # 2. @-ZITATIONEN IN FUSSNOTEN UMWANDELN (Absolut robust!)
+        # Schritt A: Definitionen (egal ob Zeilenanfang oder Leerzeichen davor)
+        # Wir zwingen ein \n davor, damit sie für den Harvester immer sauber auf einer neuen Zeile stehen!
+        text = re.sub(r'(^|\s)@([a-zA-Z0-9_-]+):', r'\1\n[^\2]:', text)
+        
+        # Schritt B: Verweise im Text (mit Leerzeichen, Klammern oder am Zeilenanfang)
+        text = re.sub(r'(^|\s|\(|\[)@([a-zA-Z0-9_-]+)', r'\1[^\2]', text)
+        
+        return text
+    # =========================================================================
+
+    def _gather_all_definitions(self, nodes):
+        """
+        PASS 1: Liest alle Dateien heimlich vorab ein, bereinigt sie (Waschgang) 
+        und füllt das globale Lexikon im FootnoteHarvester.
+        """
+        for node in nodes:
+            if not node["path"].startswith("PART:"):
+                path = self.book_path / node["path"]
+                if path.exists() and path.is_file():
+                    with open(path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        
+                    _, body = self._extract_parts(content)
+                    body = self._sanitize_markdown(body)
+                    
+                    # Füllt das Lexikon, ohne den Text schon zu verändern
+                    self.harvester.extract_definitions(body)
+                    
+            if node.get("children"):
+                self._gather_all_definitions(node["children"])
+
     def prepare_render_environment(self, tree_data):
         if self.processed_dir.exists():
             shutil.rmtree(self.processed_dir)
         self.processed_dir.mkdir(parents=True)
 
         # --- DER MAGISCHE PANDOC FIX ---
-        # Wir stellen sicher, dass index.md ZWINGEND mit Leerzeilen endet.
-        # Fehlen diese, klebt Quarto die Dateien zusammen, zerreißt den YAML-Block
-        # des nächsten Kapitels und lässt Pandoc bei Markdown-Zitaten (>) abstürzen!
         index_path = self.book_path / "index.md"
         if index_path.exists():
             with open(index_path, 'r', encoding='utf-8') as f:
@@ -34,6 +80,10 @@ class PreProcessor:
                     f.write('\n\n')
         # -------------------------------
 
+        # === PASS 1: ALLE QUELLEN SAMMELN (Globales Lexikon füllen) ===
+        self._gather_all_definitions(tree_data)
+
+        # === PASS 2: DATEIEN SCHREIBEN UND VERWEISE SETZEN ===
         processed_tree = []
 
         for root_node in tree_data:
@@ -62,6 +112,7 @@ class PreProcessor:
                 processed_tree.append(new_part)
             else:
                 self._process_host_file(root_node)
+                
                 new_chapter = {
                     "title": root_node["title"],
                     "path": f"processed/{root_node['path']}",
@@ -69,6 +120,7 @@ class PreProcessor:
                 }
                 processed_tree.append(new_chapter)
 
+        # Ganz am Ende die gesammelten Endnoten generieren
         if self.harvester.harvested:
             endnotes_filename = "Endnoten.md"
             endnotes_dest = self.processed_dir / endnotes_filename
@@ -93,12 +145,19 @@ class PreProcessor:
             
         frontmatter, body = self._extract_parts(content)
         
+        # 1. Text waschen
+        body = self._sanitize_markdown(body)
+        
+        # 2. H1 bereinigen
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
-        body = self.harvester.process_text(body)
+        
+        # 3. Lexikon anwenden (Zuerst alte Definitionen unten abschneiden, dann Marker im Text ersetzen)
+        body = self.harvester.extract_definitions(body)
+        body = self.harvester.replace_markers(body)
         
         with open(dest, 'w', encoding='utf-8') as f:
-            # FIX: Jede Datei MUSS mit einem sauberen Cut (Leerzeilen) enden!
             f.write(frontmatter + body.rstrip() + "\n\n")
+            
         return dest
 
     def _process_host_file(self, node):
@@ -112,12 +171,19 @@ class PreProcessor:
             
         frontmatter, body = self._extract_parts(content)
         
+        # 1. Text waschen
+        body = self._sanitize_markdown(body)
+        
+        # 2. H1 bereinigen
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
-        body = self.harvester.process_text(body)
+        
+        # 3. Lexikon anwenden
+        body = self.harvester.extract_definitions(body)
+        body = self.harvester.replace_markers(body)
         
         with open(dest, 'w', encoding='utf-8') as f:
-            # FIX: Jede Datei MUSS mit einem sauberen Cut (Leerzeilen) enden!
             f.write(frontmatter + body.rstrip() + "\n\n")
+            
         return dest
 
     def _amalgamate_children(self, children, host_dest, offset):
@@ -128,17 +194,22 @@ class PreProcessor:
                     content = f.read()
                     
                 _, body = self._extract_parts(content)
-                body = self.harvester.process_text(body)
                 
+                # 1. Text waschen
+                body = self._sanitize_markdown(body)
+                
+                # 2. Lexikon anwenden
+                body = self.harvester.extract_definitions(body)
+                body = self.harvester.replace_markers(body)
+                
+                # 3. Überschriften einrücken
                 def shift_heading(m):
                     return f"{'#' * (len(m.group(1)) + offset)}{m.group(2)}"
                 
                 body = re.sub(r'^(#+)(\s+.*)$', shift_heading, body, flags=re.MULTILINE)
                 
                 with open(host_dest, 'a', encoding='utf-8') as f:
-                    # FIX: Auch zusammengeführte Kapitel brauchen harte Umbrüche
                     f.write(f"\n\n\n{body.strip()}\n\n")
             
             if child.get("children"):
                 self._amalgamate_children(child["children"], host_dest, offset + 1)
-                

@@ -1,0 +1,7 @@
+{
+    "frontmatter_requirements": {
+        "title": "<filename>",
+        "description": "<title>",
+        "status": "bookstudio"
+    }
+}

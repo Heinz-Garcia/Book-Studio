@@ -80,7 +80,92 @@ class QuartoYamlEngine:
                 if rel_path == "index.md": continue
                 registry[rel_path] = self.extract_status_from_md(p)
         return registry
+    
+    def ensure_required_frontmatter(self, filepath, fallback_title=None):
+        """Prüft das Frontmatter und ergänzt Felder dynamisch mit Variablen-Auflösung und erzwingt Anführungszeichen."""
+        import json
+        from pathlib import Path
+        import yaml
+        import re
+        
+        # --- PYYAML TRICK FÜR ANFÜHRUNGSZEICHEN ---
+        # Wir erzeugen eine eigene String-Klasse, der wir beibringen,
+        # dass sie beim Speichern IMMER in " " gesetzt werden muss!
+        class QuotedStr(str): pass
+        def quoted_presenter(dumper, data):
+            return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='"')
+        
+        yaml.add_representer(QuotedStr, quoted_presenter)
+        # ------------------------------------------
+        
+        filepath = Path(filepath)
+        config_path = Path(__file__).parent / "studio_config.json"
+        
+        required_fields = {
+            "title": "<filename>",
+            "description": "<title>",
+            "status": "bookstudio"
+        }
+        
+        if config_path.exists():
+            try:
+                with open(config_path, 'r', encoding='utf-8') as c_f:
+                    config_data = json.load(c_f)
+                    required_fields = config_data.get("frontmatter_requirements", required_fields)
+            except Exception as e:
+                print(f"Fehler beim Lesen der studio_config.json: {e}")
 
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            match = re.match(r'^\uFEFF?---\s*[\r\n]+(.*?)[\r\n]+---\s*[\r\n]+(.*)', content, re.DOTALL)
+            
+            if match:
+                frontmatter_str = match.group(1)
+                body = match.group(2)
+                try:
+                    parsed_yaml = yaml.safe_load(frontmatter_str) or {}
+                except yaml.YAMLError:
+                    return False
+            else:
+                parsed_yaml = {}
+                body = content.strip()
+
+            changed = False
+            
+            keys_to_process = list(required_fields.keys())
+            if "title" in keys_to_process:
+                keys_to_process.remove("title")
+                keys_to_process.insert(0, "title")
+
+            for key in keys_to_process:
+                if key not in parsed_yaml:
+                    config_val = required_fields[key]
+                    
+                    if config_val == "<filename>":
+                        val = fallback_title if fallback_title else filepath.stem
+                    elif config_val == "<title>":
+                        val = parsed_yaml.get("title", fallback_title if fallback_title else filepath.stem)
+                    else:
+                        val = config_val
+                        
+                    # HIER IST DIE MAGIE: Wir verpacken den Wert in unseren QuotedStr!
+                    parsed_yaml[key] = QuotedStr(val)
+                    changed = True
+
+            if changed:
+                new_yaml_str = yaml.dump(parsed_yaml, sort_keys=False, allow_unicode=True)
+                new_content = f"---\n{new_yaml_str}---\n\n{body}\n"
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+                return True
+                
+            return False
+
+        except Exception as e:
+            print(f"Fehler beim Auto-Healing: {e}")
+            return False
     # =========================================================================
     # QUARTO YAML PARSING & SAVING
     # =========================================================================

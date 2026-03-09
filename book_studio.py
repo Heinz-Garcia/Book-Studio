@@ -666,10 +666,33 @@ class BookStudio:
     # =========================================================================
     def add_files(self):
         pre = self._get_current_state()
+        files_healed = False
+        
         for i in self.list_avail.selection():
-            self.tree_book.insert("", "end", text=self.list_avail.item(i, "text"), values=self.list_avail.item(i, "values"))
+            rel_path = self.list_avail.item(i, "values")[0]
+            full_path = self.current_book / rel_path
+            
+            # --- NEU: AUTO-HEALING BEIM HINZUFÜGEN ---
+            # Den angezeigten Namen bereinigen (falls "[FEHLT]" davorsteht)
+            fallback_title = self.list_avail.item(i, "text").replace("[FEHLT] ", "")
+            
+            # Wir rufen unsere neue smarte Methode auf. Wenn sie etwas heilt, merken wir uns das!
+            if self.yaml_engine.ensure_required_frontmatter(full_path, fallback_title):
+                files_healed = True
+            # -----------------------------------------
+            
+            # Datei normal in den rechten Baum verschieben
+            self.tree_book.insert("", "end", text=fallback_title, values=(rel_path,))
             self.list_avail.delete(i)
+            
         self._push_undo(pre)
+        
+        # Wenn wir heimlich Dateien verändert haben, laden wir die Titel kurz neu,
+        # damit die GUI (und der Buch-Doktor) sofort den neuen, reparierten Stand kennen!
+        if files_healed:
+            self.refresh_ui_titles()
+            # --- NEU: Dezentes Status-Update in der Fußzeile ---
+            self.status.config(text="✨ Auto-Healing: Fehlende YAML-Felder wurden ergänzt!", fg="#d35400") # Ein schickes Orange
 
     def remove_files(self):
         pre = self._get_current_state()
