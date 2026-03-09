@@ -1,5 +1,5 @@
 # PROJEKT-KONTEXT: BOOK STUDIO
-Generiert am: 08.03.2026 22:32:59
+Generiert am: 09.03.2026 20:21:38
 
 ## 🗂️ GEPACKTE DATEIEN (Inhaltsverzeichnis)
 Folgende Dateien wurden in diesem Kontext gebündelt:
@@ -48,7 +48,6 @@ Folgende Dateien wurden in diesem Kontext gebündelt:
     "**/CVS": true,
     "**/__pycache__": true,
     "**/.venv": true,
-    "Band_Stoffwechselgesundheit": true,
     "Band_Template": true,
     "Band_Dummy": true
   },
@@ -57,7 +56,6 @@ Folgende Dateien wurden in diesem Kontext gebündelt:
     "MD025": false
   },
   "hide-files.files": [
-    "Band_Stoffwechselgesundheit",
     "Band_Template",
     "Band_Dummy"
   ]
@@ -113,6 +111,7 @@ project:
   output-dir: export/_book
 book:
   title: Band_Stoffwechselgesundheit
+  author: Wolfram Daniel Heinz Garcia
   chapters:
   - index.md
   - content/required/Titel.md
@@ -141,7 +140,6 @@ format:
     number-sections: true
     section-numbering: 1.1.1
     papersize: a4
-    template: templates/index.typ
   html:
     theme: cosmo
     toc: true
@@ -1880,6 +1878,19 @@ class PreProcessor:
             shutil.rmtree(self.processed_dir)
         self.processed_dir.mkdir(parents=True)
 
+        # --- DER MAGISCHE PANDOC FIX ---
+        # Wir stellen sicher, dass index.md ZWINGEND mit Leerzeilen endet.
+        # Fehlen diese, klebt Quarto die Dateien zusammen, zerreißt den YAML-Block
+        # des nächsten Kapitels und lässt Pandoc bei Markdown-Zitaten (>) abstürzen!
+        index_path = self.book_path / "index.md"
+        if index_path.exists():
+            with open(index_path, 'r', encoding='utf-8') as f:
+                idx_content = f.read()
+            if not idx_content.endswith('\n\n'):
+                with open(index_path, 'a', encoding='utf-8') as f:
+                    f.write('\n\n')
+        # -------------------------------
+
         processed_tree = []
 
         for root_node in tree_data:
@@ -1943,7 +1954,8 @@ class PreProcessor:
         body = self.harvester.process_text(body)
         
         with open(dest, 'w', encoding='utf-8') as f:
-            f.write(frontmatter + body)
+            # FIX: Jede Datei MUSS mit einem sauberen Cut (Leerzeilen) enden!
+            f.write(frontmatter + body.rstrip() + "\n\n")
         return dest
 
     def _process_host_file(self, node):
@@ -1961,7 +1973,8 @@ class PreProcessor:
         body = self.harvester.process_text(body)
         
         with open(dest, 'w', encoding='utf-8') as f:
-            f.write(frontmatter + body)
+            # FIX: Jede Datei MUSS mit einem sauberen Cut (Leerzeilen) enden!
+            f.write(frontmatter + body.rstrip() + "\n\n")
         return dest
 
     def _amalgamate_children(self, children, host_dest, offset):
@@ -1980,10 +1993,12 @@ class PreProcessor:
                 body = re.sub(r'^(#+)(\s+.*)$', shift_heading, body, flags=re.MULTILINE)
                 
                 with open(host_dest, 'a', encoding='utf-8') as f:
-                    f.write(f"\n\n\n{body.strip()}\n")
+                    # FIX: Auch zusammengeführte Kapitel brauchen harte Umbrüche
+                    f.write(f"\n\n\n{body.strip()}\n\n")
             
             if child.get("children"):
                 self._amalgamate_children(child["children"], host_dest, offset + 1)
+                
 ```
 
 

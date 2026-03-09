@@ -37,12 +37,20 @@ class BookDoctor:
             
         for p_str in paths_to_check:
             full_p = self.current_book / p_str
+            
+            # --- NEU: Wir holen uns den echten Titel aus der Registry! ---
+            doc_title = self.title_registry.get(p_str, "Unbekannter Titel")
+            # Falls die Registry [FEHLT] anzeigt, bereinigen wir das für die Ausgabe etwas
+            clean_title = doc_title.replace("[FEHLT] ", "") 
+            display_name = f"'{clean_title}' ({Path(p_str).name})"
+            # -------------------------------------------------------------
+
             if not full_p.exists():
-                err.append(f"❌ Geister-Datei: '{p_str}' existiert nicht.")
+                err.append(f"❌ Geister-Datei: {display_name} existiert nicht.")
                 continue
                 
-            if self.title_registry.get(p_str, "").startswith("[FEHLT]") and p_str != "index.md":
-                err.append(f"❌ Frontmatter-Fehler: '{p_str}' hat keinen YAML Titel.")
+            if doc_title.startswith("[FEHLT]") and p_str != "index.md":
+                err.append(f"❌ Frontmatter-Fehler: {display_name} hat gar keinen YAML Titel.")
                 
             try:
                 with open(full_p, 'r', encoding='utf-8') as f:
@@ -54,21 +62,30 @@ class BookDoctor:
                     body = match.group(2)
                     
                     try:
-                        yaml.safe_load(frontmatter)
+                        parsed_yaml = yaml.safe_load(frontmatter)
+                        
+                        if not parsed_yaml:
+                            err.append(f"❌ LEERES FRONTMATTER in {display_name}: Der YAML-Block ist leer.")
+                        else:
+                            if 'title' not in parsed_yaml:
+                                err.append(f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'title' fehlt im Frontmatter.")
+                            if 'description' not in parsed_yaml:
+                                err.append(f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'description' fehlt im Frontmatter.")
+                                
                     except Exception as exc:
-                        err.append(f"❌ YAML-CRASH in '{p_str}':\nQuarto wird hier abbrechen! Grund:\n{exc}")
+                        err.append(f"❌ YAML-CRASH in {display_name}:\nQuarto wird hier abbrechen! Grund:\n{exc}")
                         
                     if '\t' in frontmatter:
-                        err.append(f"❌ VERBOTENES ZEICHEN in '{p_str}':\nYAML enthält Tabulatoren! Bitte durch Leerzeichen ersetzen.")
+                        err.append(f"❌ VERBOTENES ZEICHEN in {display_name}:\nYAML enthält Tabulatoren! Bitte durch Leerzeichen ersetzen.")
                         
                     for i, line in enumerate(body.split('\n')):
                         if line.strip() == '---':
-                            err.append(f"❌ VERSTECKTER TRENNSTRICH in '{p_str}':\nQuarto stürzt bei '---' im Text ab. (Bitte *** nutzen)")
+                            err.append(f"❌ VERSTECKTER TRENNSTRICH in {display_name}:\nQuarto stürzt bei '---' im Text ab. (Bitte *** nutzen)")
                 else:
-                    err.append(f"❌ FRONTMATTER DEFEKT in '{p_str}': Die '---' Blöcke umschließen den Bereich nicht sauber.")
+                    err.append(f"❌ FRONTMATTER DEFEKT in {display_name}: Die '---' Blöcke umschließen den Bereich nicht sauber.")
 
             except Exception as e:
-                err.append(f"❌ Datei-Lesefehler bei '{p_str}': {e}")
+                err.append(f"❌ Datei-Lesefehler bei {display_name}: {e}")
             
         if unused_count > 0:
             warn.append(f"⚠️ Hinweis: {unused_count} Markdown-Dateien liegen aktuell ungenutzt im Datei-Pool.")
