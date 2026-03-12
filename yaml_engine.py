@@ -37,22 +37,42 @@ class QuartoYamlEngine:
             return None
 
     def build_title_registry(self):
-        """Erstellt eine Liste aller .md Dateien mit ihren Titeln und Icons."""
+        """Erstellt eine Liste aller .md Dateien mit ihren Titeln und Icons (nur im content-Ordner)."""
         registry = {}
-        for p in self.book_path.rglob("*.md"):
-            # Ignoriere System- und Export-Ordner
-            if not any(x.startswith(".") for x in p.parts) and "export" not in p.parts:
+        content_dir = self.book_path / "content"
+        
+        # Sicherstellen, dass der content-Ordner existiert, bevor wir suchen
+        if not content_dir.exists():
+            return registry
+            
+        for p in content_dir.rglob("*.md"):
+            # Wir ignorieren nur noch versteckte Systemordner innerhalb von content
+            if not any(x.startswith(".") for x in p.parts):
+                # Der relative Pfad MUSS weiterhin ab book_path gebildet werden, 
+                # da die _quarto.yml die Pfade inkl. "content/..." erwartet!
                 rel_path = p.relative_to(self.book_path).as_posix()
-                if rel_path == "index.md": continue
                 
                 title = self.extract_title_from_md(p)
                 if title: 
-                    # --- ICON LOGIK: Schöner Pin für Dateien im "required" Ordner ---
                     if "required" in p.parts:
                         title = f"📌 {title}" 
                     registry[rel_path] = title
                 else: 
                     registry[rel_path] = f"[FEHLT] {p.stem}"
+        return registry
+
+    def build_status_registry(self):
+        """Erstellt eine Registry aller Dateistatus für den Filter in der GUI (nur im content-Ordner)."""
+        registry = {}
+        content_dir = self.book_path / "content"
+        
+        if not content_dir.exists():
+            return registry
+            
+        for p in content_dir.rglob("*.md"):
+            if not any(x.startswith(".") for x in p.parts):
+                rel_path = p.relative_to(self.book_path).as_posix()
+                registry[rel_path] = self.extract_status_from_md(p)
         return registry
 
     def extract_status_from_md(self, filepath):
@@ -71,16 +91,6 @@ class QuartoYamlEngine:
         except Exception:
             return "ohne Eintrag"
 
-    def build_status_registry(self):
-        """Erstellt eine Registry aller Dateistatus für den Filter in der GUI."""
-        registry = {}
-        for p in self.book_path.rglob("*.md"):
-            if not any(x.startswith(".") for x in p.parts) and "export" not in p.parts:
-                rel_path = p.relative_to(self.book_path).as_posix()
-                if rel_path == "index.md": continue
-                registry[rel_path] = self.extract_status_from_md(p)
-        return registry
-    
     def ensure_required_frontmatter(self, filepath, fallback_title=None):
         """Prüft das Frontmatter und ergänzt Felder dynamisch mit Variablen-Auflösung und erzwingt Anführungszeichen."""
         import json

@@ -3,5 +3,6 @@
         "title": "<filename>",
         "description": "<title>",
         "status": "bookstudio"
-    }
+    },
+    "sanitizer_backup_path": "C:/Users/Daniel/Documents/Python/IFJN/Sanitizer_Backups"
 }

@@ -1,0 +1,22 @@
+# Sanitizer-Konfiguration für Quarto/Pandoc -> Typst Pipeline
+
+[tags]
+# Mapping von Tag-Namen zu Quarto Div-Klassen für [TAG]: Pattern
+C = ".author"
+Q = ".Inquirer"
+A = ".answer"
+MONO = ".monospace"
+
+[features]
+# Aktivierung einzelner Funktionen
+normalize_headings = true
+convert_bold_tags = true
+remove_double_delimiters = true
+convert_inline_tags = true
+# Repariert Mojibake (UTF-8 als Latin-1 gespeichert/gelesen, z.B. Ã¤ -> ä)
+# Deaktivieren wenn Sonderzeichen dadurch verfälscht werden!
+repair_encoding = false
+
+[logging]
+# Verbose-Logging für debugging
+verbose = true

@@ -215,7 +215,9 @@ class BookStudio:
         tk.Button(foot, text="📝 SCRIVENER (.md)", bg="#16a085", fg="white", font=("Arial", 10, "bold"), command=self.exporter.export_single_markdown, padx=15).pack(side=tk.LEFT, padx=(5, 15))
         
         tk.Button(foot, text="🔍 PREVIEW", bg="#9b59b6", fg="white", font=("Arial", 10, "bold"), command=self.open_preview, padx=15).pack(side=tk.LEFT, padx=(5, 15))
-        
+        # --- NEU: DER SANITIZER BUTTON ---
+        tk.Button(foot, text="🧹 SANITIZER", bg="#d35400", fg="white", font=("Arial", 10, "bold"), command=self.run_sanitizer_pipeline, padx=15).pack(side=tk.LEFT, padx=(0, 15))
+        # ---------------------------------
         tk.Button(foot, text="🩺 BUCH-DOKTOR", bg="#8e44ad", fg="white", font=("Arial", 10, "bold"), command=self.run_doctor, padx=15).pack(side=tk.LEFT, padx=15)
         tk.Button(foot, text="📦 BACKUP", bg="#f39c12", fg="white", command=self.run_backup).pack(side=tk.LEFT)
         tk.Button(foot, text="⏪ TIME MACHINE", bg="#c0392b", fg="white", command=self.open_time_machine).pack(side=tk.LEFT, padx=5)
@@ -668,30 +670,46 @@ class BookStudio:
         pre = self._get_current_state()
         files_healed = False
         
+        # --- NEU: DEN "CURSOR" ERMITTELN ---
+        target_parent = ""
+        target_index = "end"
+        
+        # Prüfen, ob im rechten Buch-Baum aktuell ein Element markiert ist
+        selected_in_book = self.tree_book.selection()
+        if selected_in_book:
+            # Wir nehmen das (erste) markierte Element als Cursor
+            cursor_node = selected_in_book[0]
+            target_parent = self.tree_book.parent(cursor_node)
+            # Wir wollen die neuen Dateien DIREKT UNTER dem Cursor einfügen
+            target_index = self.tree_book.index(cursor_node) + 1
+        # -----------------------------------
+        
         for i in self.list_avail.selection():
             rel_path = self.list_avail.item(i, "values")[0]
             full_path = self.current_book / rel_path
             
-            # --- NEU: AUTO-HEALING BEIM HINZUFÜGEN ---
-            # Den angezeigten Namen bereinigen (falls "[FEHLT]" davorsteht)
+            # Auto-Healing
             fallback_title = self.list_avail.item(i, "text").replace("[FEHLT] ", "")
-            
-            # Wir rufen unsere neue smarte Methode auf. Wenn sie etwas heilt, merken wir uns das!
             if self.yaml_engine.ensure_required_frontmatter(full_path, fallback_title):
                 files_healed = True
-            # -----------------------------------------
             
-            # Datei normal in den rechten Baum verschieben
-            self.tree_book.insert("", "end", text=fallback_title, values=(rel_path,))
+            # --- NEU: AN DER CURSOR-POSITION EINFÜGEN ---
+            if target_index == "end":
+                # Standard-Verhalten (Ans Ende hängen)
+                self.tree_book.insert("", "end", text=fallback_title, values=(rel_path,))
+            else:
+                # Am Cursor einfügen
+                self.tree_book.insert(target_parent, target_index, text=fallback_title, values=(rel_path,))
+                # Den Index um 1 erhöhen, damit die nächste Datei aus der Liste 
+                # sauber unter die gerade eingefügte Datei rutscht!
+                target_index += 1
+                
             self.list_avail.delete(i)
             
         self._push_undo(pre)
         
-        # Wenn wir heimlich Dateien verändert haben, laden wir die Titel kurz neu,
-        # damit die GUI (und der Buch-Doktor) sofort den neuen, reparierten Stand kennen!
         if files_healed:
             self.refresh_ui_titles()
-            # --- NEU: Dezentes Status-Update in der Fußzeile ---
             self.status.config(text="✨ Auto-Healing: Fehlende YAML-Felder wurden ergänzt!", fg="#d35400") # Ein schickes Orange
 
     def remove_files(self):
@@ -827,6 +845,95 @@ class BookStudio:
             self.redo_stack.clear()
             self._mark_unsaved()  # <-- NEU
 
+    # =========================================================================
+    # SANITIZER PIPELINE (Inklusive Pre-Backup)
+    # =========================================================================
+    def run_sanitizer_pipeline(self):
+        if not self.current_book: return
+        
+        content_dir = self.current_book / "content"
+        if not content_dir.exists():
+            messagebox.showerror("Fehler", "Kein 'content'-Ordner gefunden. Es gibt nichts zu bereinigen.")
+            return
+
+        # 1. Konfiguration laden (für konfigurierbaren Backup-Pfad)
+        config_path = self.base_path / "studio_config.json"
+        
+        # Standard-Pfad: Eine Ebene über dem aktuellen Buch-Projekt
+        backup_base_dir = self.current_book.parent / f"_Sanitizer_Backups_{self.current_book.name}"
+        
+        if config_path.exists():
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                    custom_path = cfg.get("sanitizer_backup_path")
+                    if custom_path:
+                        backup_base_dir = Path(custom_path)
+            except Exception as e:
+                print(f"Fehler beim Lesen der Config: {e}")
+
+        # 2. Zeitstempel-Ordnernamen generieren (Format: DDMMYY_HHMM)
+        from datetime import datetime
+        import shutil
+        timestamp = datetime.now().strftime("%d%m%y_%H%M")
+        backup_dir = backup_base_dir / f"sanitizer_backup_{timestamp}"
+
+        # 3. Sicherheitsabfrage
+        msg = (f"Möchtest du den Sanitizer-Waschgang jetzt starten?\n\n"
+               f"🛡️ SCHRITT 1:\n"
+               f"Der aktuelle 'content'-Ordner wird gesichert nach:\n"
+               f"{backup_dir}\n\n"
+               f"🧹 SCHRITT 2:\n"
+               f"Der Sanitizer repariert Frontmatter und konvertiert Tags. "
+               f"Dabei werden die Originaldateien im Projekt überschrieben.")
+
+        if not messagebox.askyesno("🧹 Sanitizer Pipeline starten", msg):
+            return
+
+        # 4. Backup physisch durchführen
+        try:
+            # Stellt sicher, dass das Basis-Verzeichnis existiert
+            backup_base_dir.mkdir(parents=True, exist_ok=True) 
+            shutil.copytree(content_dir, backup_dir)
+        except Exception as e:
+            messagebox.showerror("Backup Fehler", f"Konnte das Pre-Backup nicht erstellen. Abbruch!\n\n{e}")
+            return
+
+        # 5. Live-Log Fenster für den Sanitizer öffnen (wie beim Rendern)
+        log_win = tk.Toplevel(self.root)
+        log_win.title("🧹 Sanitizer Live-Log")
+        log_win.geometry("850x600")
+        
+        txt = tk.Text(log_win, bg="#1e1e1e", fg="#ecf0f1", font=("Consolas", 10), padx=10, pady=10)
+        txt.pack(fill=tk.BOTH, expand=True)
+        
+        # 6. Thread starten, damit die GUI nicht einfriert
+        def sanitizer_thread():
+            txt.insert(tk.END, f"✅ PRE-BACKUP ERFOLGREICH:\n{backup_dir}\n")
+            txt.insert(tk.END, "="*60 + "\n🚀 STARTE SANITIZER...\n" + "="*60 + "\n\n")
+            
+            # Sanitizer.py aufrufen und Output abfangen
+            cmd = f'python Sanitizer.py "{self.current_book}"'
+            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=self.base_path)
+            
+            for line in p.stdout: 
+                txt.insert(tk.END, line)
+                txt.see(tk.END)
+                
+            p.wait()
+            
+            if p.returncode == 0:
+                txt.insert(tk.END, "\n\n✅ SANITIZER-LAUF ABGESCHLOSSEN!")
+                txt.config(fg="#2ecc71")
+                # GANZ WICHTIG: Die UI aktualisieren, falls der Sanitizer defektes Frontmatter repariert hat!
+                self.root.after(0, self.refresh_ui_titles)
+            else:
+                txt.insert(tk.END, f"\n\n❌ FEHLER: Crash (Code {p.returncode})")
+                txt.config(fg="#e74c3c")
+
+        import threading
+        threading.Thread(target=sanitizer_thread, daemon=True).start()
+        
     # =========================================================================
     # RENDERING PIPELINE (Ghost-Render mit Pre-Processor)
     # =========================================================================

@@ -1,11 +1,13 @@
 # PROJEKT-KONTEXT: BOOK STUDIO
-Generiert am: 09.03.2026 20:21:38
+Generiert am: 12.03.2026 22:01:46
 
 ## 🗂️ GEPACKTE DATEIEN (Inhaltsverzeichnis)
 Folgende Dateien wurden in diesem Kontext gebündelt:
 
 - `.vscode/settings.json`
 - `Band_Dummy/_quarto.yml`
+- `Band_Stoffwechselgesundheit/_extensions/elipousson/typstdoc/_extension.yml`
+- `Band_Stoffwechselgesundheit/_extensions/quarto-ext/letter/_extension.yml`
 - `Band_Stoffwechselgesundheit/_quarto.yml`
 - `Band_Template/_quarto.yml`
 - `book_doctor.py`
@@ -17,6 +19,8 @@ Folgende Dateien wurden in diesem Kontext gebündelt:
 - `md_editor.py`
 - `pre_processor.py`
 - `preview_inspector.py`
+- `Sanitizer.py`
+- `studio_config.json`
 - `template_manager.py`
 - `yaml_engine.py`
 
@@ -102,13 +106,58 @@ format:
 
 
 ======================================================================
+📁 FILE: Band_Stoffwechselgesundheit/_extensions/elipousson/typstdoc/_extension.yml
+======================================================================
+
+```yaml
+title: typstdoc
+author: Eli Pousson
+version: 1.0.0
+quarto-required: ">=1.5.0"
+contributes:
+  formats:
+    common:
+      knitr:
+          opts_chunk:
+            echo: false
+    typst:
+      template: template.typ
+      template-partials:
+        - typst-template.typ
+        - typst-show.typ
+
+
+```
+
+
+======================================================================
+📁 FILE: Band_Stoffwechselgesundheit/_extensions/quarto-ext/letter/_extension.yml
+======================================================================
+
+```yaml
+title: Typst Letter
+author: J.J. Allaire
+version: "0.2.0"
+quarto-required: ">=1.9.18"
+contributes:
+  formats:
+    typst:
+      template-partials:
+        - typst-template.typ
+        - typst-show.typ
+
+
+```
+
+
+======================================================================
 📁 FILE: Band_Stoffwechselgesundheit/_quarto.yml
 ======================================================================
 
 ```yaml
 project:
   type: book
-  output-dir: export/_book
+  output-dir: export/_book_Pandemie_Diabetes_komplett_Unsortiert
 book:
   title: Band_Stoffwechselgesundheit
   author: Wolfram Daniel Heinz Garcia
@@ -120,18 +169,113 @@ book:
   - content/20260216185716.md
   - content/20260221115703.md
   - content/20260220190849.md
+  - content/required/UeberAutor.md
+  - content/030_Vorwort.md
   - content/required/Einleitung.md
   - content/20260215101346.md
   - content/required/These.md
   - content/required/IVZ.md
-  - content/20260214111323.md
-  - content/required/Glossar.md
-  - content/20260222200620.md
+  - content/20260213213815.md
+  - content/20260217222527.md
+  - content/20260213220143.md
+  - content/20260214191449.md
+  - content/20260221194055.md
+  - content/20260221194506.md
+  - content/20260220225011.md
+  - content/20260220194358.md
+  - content/20260220195303.md
+  - content/20260221201913.md
+  - content/20260221190906.md
+  - processed/Endnoten.md
+  - content/20260221195414.md
+  - content/20260221192656.md
+  - processed/content/20260214111323.md
+  - processed/content/20260217222527.md
+  - processed/content/20260213220143.md
+  - processed/content/20260214191449.md
+  - processed/content/20260213213815.md
+  - content/20260215155646.md
+  - content/20260213214244.md
+  - content/1.md
+  - content/20260214190734.md
+  - content/20260215213911.md
+  - content/20260213222948.md
+  - content/20260215215305.md
+  - content/20260221203019.md
+  - content/20260213220451.md
+  - content/20260221203248.md
+  - content/20260221202808.md
+  - content/20260214182713.md
+  - content/20260213221613.md
+  - content/20260213212559.md
+  - content/20260220222549.md
+  - content/20260214143159.md
+  - content/20260214140335.md
+  - content/20260214111614.md
+  - content/20260221185815.md
+  - content/20260215214731.md
+  - content/20260214142029.md
+  - content/20260221182940.md
+  - content/20260213220822.md
+  - content/20260214133553.md
+  - content/20260220221638.md
+  - content/20260214142745.md
+  - content/20260214192508.md
+  - content/20260214190005.md
+  - content/20260214134808.md
+  - content/20260224200445.md
+  - content/20260221201304.md
+  - content/3.md
+  - content/20260222172414.md
+  - content/20260221192756.md
+  - content/20260215102853.md
+  - content/20260213215351.md
+  - content/20260222171340.md
+  - processed/content/20260222200620.md
+  - content/20260214113555.md
+  - content/20260213214945.md
+  - content/20260221200153.md
+  - processed/content/20260220190849.md
+  - content/20260213222002.md
+  - content/4.md
+  - content/20260221193351.md
+  - content/20260214121219.md
+  - content/20260221195149.md
+  - content/20260221200925.md
+  - content/20260214192056.md
+  - content/20260221203514.md
+  - content/20260221195008.md
+  - content/20260221200322.md
+  - content/20260221201133.md
+  - content/20260221193457.md
+  - content/20260221200033.md
+  - content/20260215131749.md
+  - content/2.md
+  - content/20260221201443.md
+  - content/20260221200443.md
+  - content/20260221195617.md
+  - content/20260221202318.md
+  - content/20260221193232.md
+  - content/20260221201728.md
+  - content/20260221195838.md
+  - content/20260213213517.md
+  - content/20260222170044.md
+  - content/20260214115026.md
+  - content/20260215103846.md
+  - content/20260217222652.md
+  - processed/content/20260215101346.md
+  - content/20260221193707.md
+  - content/20260220193658.md
+  - processed/content/20260216185716.md
+  - content/20260214133723.md
+  - content/20260221192507.md
+  - content/20260221202127.md
   - content/required/Literaturverzeichnis.md
-  - content/required/UeberAutor.md
-  - content/required/Danksagung.md
   - content/required/Klappentext_hinten.md
   - content/required/Rueckseite.md
+  - content/required/Danksagung.md
+  - content/required/Glossar.md
+  - content/20260222200620.md
 format:
   typst:
     keep-typ: true
@@ -140,9 +284,15 @@ format:
     number-sections: true
     section-numbering: 1.1.1
     papersize: a4
+    template: 'templates/EXT: typst'
   html:
     theme: cosmo
     toc: true
+  typstdoc-typst:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    section-numbering: 1.1.1
 
 ```
 
@@ -220,12 +370,20 @@ class BookDoctor:
             
         for p_str in paths_to_check:
             full_p = self.current_book / p_str
+            
+            # --- NEU: Wir holen uns den echten Titel aus der Registry! ---
+            doc_title = self.title_registry.get(p_str, "Unbekannter Titel")
+            # Falls die Registry [FEHLT] anzeigt, bereinigen wir das für die Ausgabe etwas
+            clean_title = doc_title.replace("[FEHLT] ", "") 
+            display_name = f"'{clean_title}' ({Path(p_str).name})"
+            # -------------------------------------------------------------
+
             if not full_p.exists():
-                err.append(f"❌ Geister-Datei: '{p_str}' existiert nicht.")
+                err.append(f"❌ Geister-Datei: {display_name} existiert nicht.")
                 continue
                 
-            if self.title_registry.get(p_str, "").startswith("[FEHLT]") and p_str != "index.md":
-                err.append(f"❌ Frontmatter-Fehler: '{p_str}' hat keinen YAML Titel.")
+            if doc_title.startswith("[FEHLT]") and p_str != "index.md":
+                err.append(f"❌ Frontmatter-Fehler: {display_name} hat gar keinen YAML Titel.")
                 
             try:
                 with open(full_p, 'r', encoding='utf-8') as f:
@@ -237,21 +395,30 @@ class BookDoctor:
                     body = match.group(2)
                     
                     try:
-                        yaml.safe_load(frontmatter)
+                        parsed_yaml = yaml.safe_load(frontmatter)
+                        
+                        if not parsed_yaml:
+                            err.append(f"❌ LEERES FRONTMATTER in {display_name}: Der YAML-Block ist leer.")
+                        else:
+                            if 'title' not in parsed_yaml:
+                                err.append(f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'title' fehlt im Frontmatter.")
+                            if 'description' not in parsed_yaml:
+                                err.append(f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'description' fehlt im Frontmatter.")
+                                
                     except Exception as exc:
-                        err.append(f"❌ YAML-CRASH in '{p_str}':\nQuarto wird hier abbrechen! Grund:\n{exc}")
+                        err.append(f"❌ YAML-CRASH in {display_name}:\nQuarto wird hier abbrechen! Grund:\n{exc}")
                         
                     if '\t' in frontmatter:
-                        err.append(f"❌ VERBOTENES ZEICHEN in '{p_str}':\nYAML enthält Tabulatoren! Bitte durch Leerzeichen ersetzen.")
+                        err.append(f"❌ VERBOTENES ZEICHEN in {display_name}:\nYAML enthält Tabulatoren! Bitte durch Leerzeichen ersetzen.")
                         
                     for i, line in enumerate(body.split('\n')):
                         if line.strip() == '---':
-                            err.append(f"❌ VERSTECKTER TRENNSTRICH in '{p_str}':\nQuarto stürzt bei '---' im Text ab. (Bitte *** nutzen)")
+                            err.append(f"❌ VERSTECKTER TRENNSTRICH in {display_name}:\nQuarto stürzt bei '---' im Text ab. (Bitte *** nutzen)")
                 else:
-                    err.append(f"❌ FRONTMATTER DEFEKT in '{p_str}': Die '---' Blöcke umschließen den Bereich nicht sauber.")
+                    err.append(f"❌ FRONTMATTER DEFEKT in {display_name}: Die '---' Blöcke umschließen den Bereich nicht sauber.")
 
             except Exception as e:
-                err.append(f"❌ Datei-Lesefehler bei '{p_str}': {e}")
+                err.append(f"❌ Datei-Lesefehler bei {display_name}: {e}")
             
         if unused_count > 0:
             warn.append(f"⚠️ Hinweis: {unused_count} Markdown-Dateien liegen aktuell ungenutzt im Datei-Pool.")
@@ -1167,10 +1334,33 @@ class BookStudio:
     # =========================================================================
     def add_files(self):
         pre = self._get_current_state()
+        files_healed = False
+        
         for i in self.list_avail.selection():
-            self.tree_book.insert("", "end", text=self.list_avail.item(i, "text"), values=self.list_avail.item(i, "values"))
+            rel_path = self.list_avail.item(i, "values")[0]
+            full_path = self.current_book / rel_path
+            
+            # --- NEU: AUTO-HEALING BEIM HINZUFÜGEN ---
+            # Den angezeigten Namen bereinigen (falls "[FEHLT]" davorsteht)
+            fallback_title = self.list_avail.item(i, "text").replace("[FEHLT] ", "")
+            
+            # Wir rufen unsere neue smarte Methode auf. Wenn sie etwas heilt, merken wir uns das!
+            if self.yaml_engine.ensure_required_frontmatter(full_path, fallback_title):
+                files_healed = True
+            # -----------------------------------------
+            
+            # Datei normal in den rechten Baum verschieben
+            self.tree_book.insert("", "end", text=fallback_title, values=(rel_path,))
             self.list_avail.delete(i)
+            
         self._push_undo(pre)
+        
+        # Wenn wir heimlich Dateien verändert haben, laden wir die Titel kurz neu,
+        # damit die GUI (und der Buch-Doktor) sofort den neuen, reparierten Stand kennen!
+        if files_healed:
+            self.refresh_ui_titles()
+            # --- NEU: Dezentes Status-Update in der Fußzeile ---
+            self.status.config(text="✨ Auto-Healing: Fehlende YAML-Felder wurden ergänzt!", fg="#d35400") # Ein schickes Orange
 
     def remove_files(self):
         pre = self._get_current_state()
@@ -1414,22 +1604,16 @@ import os
 import platform
 from pathlib import Path
 
-# Unser Pre-Processor für den Quarto-Render
 from pre_processor import PreProcessor
 
 class ExportManager:
     def __init__(self, studio):
-        """
-        Nimmt die Hauptinstanz des BookStudios entgegen, um auf den GUI-Baum, 
-        die Statusleiste und das aktuelle Buchprojekt zugreifen zu können.
-        """
         self.studio = studio
 
     # =========================================================================
     # 1. SCRIVENER EXPORT (SINGLE MARKDOWN)
     # =========================================================================
     def export_single_markdown(self):
-        """Klebt alle MD-Dateien für Scrivener zusammen und passt die Ebenen an."""
         if not self.studio.current_book: return
         
         export_dir = self.studio.current_book / "export"
@@ -1449,45 +1633,34 @@ class ExportManager:
         
         try:
             with open(filepath, 'w', encoding='utf-8') as out_f:
-                # Wir schreiben einen sauberen Haupt-Titel ganz nach oben
                 out_f.write(f"# {self.studio.current_book.name}\n\n")
                 self._write_tree_to_file(tree_data, out_f, 0)
                 
             messagebox.showinfo("Erfolg", f"Markdown erfolgreich exportiert!\n\nDu kannst diese Datei nun in Scrivener über 'Importieren und aufteilen' einlesen.")
-            
-            # Auto-Open im Explorer
             self._open_folder_and_select(filepath)
                 
         except Exception as e:
             messagebox.showerror("Fehler", f"Konnte Markdown nicht exportieren:\n{e}")
 
     def _write_tree_to_file(self, data, out_file, level_offset):
-        """Rekursive Hilfsfunktion: Zusammenfügen und Überschriften-Shift."""
         for item in data:
             path_str = item["path"]
             
-            # 1. Fall: Es ist ein PART (Ordner)
             if path_str.startswith("PART:"):
                 title = path_str.replace("PART:", "")
-                # Ordner werden zu Hauptüberschriften
                 hashes = "#" * (1 + level_offset)
                 out_file.write(f"{hashes} {title}\n\n")
-                
                 if item.get("children"):
                     self._write_tree_to_file(item["children"], out_file, level_offset + 1)
-            
-            # 2. Fall: Es ist eine echte Datei
             else:
                 src = self.studio.current_book / path_str
                 if src.exists():
                     with open(src, 'r', encoding='utf-8') as f:
                         content = f.read()
                         
-                    # YAML Frontmatter entfernen
                     match = re.search(r'^---\s*\n.*?\n---\s*\n', content, re.DOTALL)
                     body = content[match.end():] if match else content
                     
-                    # Überschriften-Ebenen anpassen
                     if level_offset > 0:
                         def shift_heading(m):
                             h, t = m.group(1), m.group(2)
@@ -1496,7 +1669,6 @@ class ExportManager:
                         
                     out_file.write(body.strip() + "\n\n\n")
                 
-                # Auch Dateien können in unserem Tree Kinder haben (Unterkapitel)
                 if item.get("children"):
                     self._write_tree_to_file(item["children"], out_file, level_offset + 1)
 
@@ -1504,32 +1676,48 @@ class ExportManager:
     # 2. QUARTO RENDER PIPELINE
     # =========================================================================
     def run_quarto_render(self):
-        """Die Haupt-Pipeline für PDF, Typst, DOCX und HTML."""
         if not self.studio.current_book: return
         
-        # 1. Projekt speichern, damit die YAML aktuell ist
         if not self.studio.save_project(show_msg=False):
             self.studio.status.config(text="Render abgebrochen (Speicherfehler)", fg="#e74c3c")
             return
             
-        fmt = self.studio.fmt_box.get()
+        base_fmt = self.studio.fmt_box.get()
         footnote_mode = self.studio.footnote_box.get()
         selected_tpl = self.studio.template_var.get()
         
-        self.studio.status.config(text=f"Rendere {fmt} (Pre-Processing)...", fg="#3498db")
+        # --- DIE NEUE EXTENSION-WEICHE ---
+        # --- DIE NEUE EXTENSION-WEICHE ---
+        target_fmt = base_fmt
+        extra_opts = None
         
-        # 2. PRE-PROCESSING (Sammelt Fußnoten, erstellt processed/ Ordner)
+        if selected_tpl.startswith("EXT: "):
+            # Es ist eine Quarto Extension (z.B. typstdoc)
+            ext_name = selected_tpl.replace("EXT: ", "").strip()
+            target_fmt = f"{ext_name}-{base_fmt}" 
+            
+            # NEU: Wir injizieren die wichtigsten Buch-Features (TOC, Nummerierung) 
+            # direkt in das Extension-Format!
+            extra_opts = {
+                target_fmt: {
+                    "toc": True,
+                    "toc-depth": 3,
+                    "number-sections": True,
+                    "section-numbering": "1.1.1" #
+                }
+            }
+            
+        elif selected_tpl != "Standard":
+            # Es ist eine dumme lokale Datei in templates/
+            extra_opts = {base_fmt: {"template": f"templates/{selected_tpl}"}}
+        # ----------------------------------
+        
+        self.studio.status.config(text=f"Rendere {target_fmt} (Pre-Processing)...", fg="#3498db")
+        
         processor = PreProcessor(self.studio.current_book, footnote_mode=footnote_mode)
         original_tree = self.studio._get_tree_data_for_engine()
         processed_tree = processor.prepare_render_environment(original_tree)
         
-        # 3. ZUSATZOPTIONEN (Template) vorbereiten
-        extra_opts = None
-        if selected_tpl != "Standard":
-            # Quarto erwartet Pfad relativ zum Projektstamm
-            extra_opts = {fmt: {"template": f"templates/{selected_tpl}"}}
-        
-        # 4. TEMPORÄR SPEICHERN (Nur für Quarto, ohne GUI-State zu ändern)
         self.studio.yaml_engine.save_chapters(
             processed_tree, 
             profile_name=self.studio.current_profile_name, 
@@ -1537,9 +1725,8 @@ class ExportManager:
             extra_format_options=extra_opts
         )
         
-        # Log-Fenster für Quarto-Output
         log_win = tk.Toplevel(self.studio.root)
-        log_win.title(f"🖨️ Pipeline: {fmt.upper()} - {selected_tpl}")
+        log_win.title(f"🖨️ Pipeline: {target_fmt.upper()}")
         log_win.geometry("900x600")
         
         txt = tk.Text(log_win, bg="#1e1e1e", fg="#ecf0f1", font=("Consolas", 10), padx=10, pady=10)
@@ -1547,18 +1734,18 @@ class ExportManager:
         self.studio.btn_render.config(state="disabled")
         
         def render_thread():
-            cmd = f"quarto render \"{self.studio.current_book}\" --to {fmt}"
+            # Quarto mit dem dynamischen target_fmt aufrufen
+            cmd = f"quarto render \"{self.studio.current_book}\" --to {target_fmt}"
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
             for line in p.stdout: 
                 txt.insert(tk.END, line)
                 txt.see(tk.END)
             p.wait()
             
-            # 5. AUFRÄUMEN: Original-YAML wiederherstellen
             self.studio.yaml_engine.save_chapters(original_tree, profile_name=self.studio.current_profile_name, save_gui_state=False)
             
             if p.returncode == 0:
-                self._handle_render_success(fmt, txt)
+                self._handle_render_success(target_fmt, txt)
             else:
                 txt.insert(tk.END, f"\n\n❌ FEHLER: Code {p.returncode}")
                 txt.config(fg="#e74c3c")
@@ -1572,14 +1759,14 @@ class ExportManager:
     # HILFSFUNKTIONEN (Auto-Open & UI)
     # =========================================================================
     def _handle_render_success(self, fmt, log_text_widget):
-        """Sucht das Resultat, kopiert Pfad in Clipboard und öffnet Datei."""
         try:
             profile = self.studio.current_profile_name
             safe_profile = re.sub(r'[^a-zA-Z0-9_\-]', '_', profile) if profile else None
             out_dir_name = f"_book_{safe_profile}" if safe_profile else "_book"
             out_dir = self.studio.current_book / "export" / out_dir_name
             
-            ext = ".pdf" if fmt in ["pdf", "typst"] else f".{fmt}"
+            # Bei Extensions wie 'letter-typst' suchen wir nach .pdf
+            ext = ".pdf" if "pdf" in fmt.lower() or "typst" in fmt.lower() else f".{fmt}"
             found = list(out_dir.glob(f"*{ext}"))
             
             if found:
@@ -1591,7 +1778,6 @@ class ExportManager:
                 log_text_widget.config(fg="#2ecc71")
                 self.studio.root.after(0, lambda: self.studio.status.config(text="Render erfolgreich", fg="#2ecc71"))
                 
-                # Datei direkt öffnen
                 if platform.system() == 'Windows': os.startfile(abs_path)
                 elif platform.system() == 'Darwin': subprocess.call(('open', abs_path))
                 else: subprocess.call(('xdg-open', abs_path))
@@ -1599,7 +1785,6 @@ class ExportManager:
             print(f"Post-Render-Fehler: {e}")
 
     def _open_folder_and_select(self, filepath):
-        """Öffnet den Explorer und markiert die Datei."""
         f_path = Path(filepath).resolve()
         if platform.system() == "Windows":
             subprocess.Popen(f'explorer /select,"{f_path}"')
@@ -1675,48 +1860,60 @@ class FootnoteHarvester:
         """
         self.mode = mode
         self.title = title
+        
         self.global_counter = 1
-        self.harvested = [] # Speichert Tuples: (neue_id, text)
-
-    def process_text(self, text):
-        """Findet Fußnoten, entfernt sie aus dem Text und nummeriert die Marker global um."""
-        definitions = {}
+        self.harvested = [] # Speichert Tuples: (neue_id, text) für das finale Endnoten-Kapitel
         
-        # 1. Alle Fußnoten-Definitionen am Ende des Textes finden und herausschneiden
-        # Sucht nach dem Muster [^irgendwas]: ... 
-        parts = re.split(r'^\[\^([^\]]+)\]:\s*', text, flags=re.MULTILINE)
-        clean_text = parts[0] # Der eigentliche Fließtext ohne die Definitionen am Ende
-        
-        for i in range(1, len(parts), 2):
-            note_id = parts[i]
-            note_content = parts[i+1].strip()
-            definitions[note_id] = note_content
+        # --- NEU: Das 2-Pass-System (Globale Lexika) ---
+        self.definitions = {} # Unser globales Lexikon: Speichert ALLE Quellen aus allen Dateien
+        self.file_mapping = {} # Merkt sich, welche Quelle welche fortlaufende Nummer bekommen hat
+        # -----------------------------------------------
 
-        # 2. Ersetzen der Inline-Marker im Fließtext
-        file_mapping = {}
+    def extract_definitions(self, text):
+        """PASS 1: Findet alle Fußnoten-Definitionen (egal wo sie stehen), speichert sie und entfernt sie aus dem Text."""
+        
+        # NEU: Wir suchen nach [^Label]: gefolgt von beliebigem Text bis zum nächsten [^Label]: oder Dateiende
+        # Das (?=...) ist ein Lookahead. Wir suchen also bis vor die nächste Definition.
+        pattern = re.compile(r'\[\^([^\]]+)\]:\s*(.*?)(?=\[\^[^\]]+\]:|$)', re.DOTALL)
+        
+        # 1. Alle Treffer ins Lexikon aufnehmen
+        for match in pattern.finditer(text):
+            note_id = match.group(1)
+            note_content = match.group(2).strip()
+            self.definitions[note_id] = note_content
+            
+        # 2. Die gefundenen Definitionen komplett aus dem Fließtext löschen
+        clean_text = pattern.sub('', text)
+        
+        return clean_text.strip()
+
+    def replace_markers(self, text):
+        """PASS 2: Nutzt das globale Lexikon, um alle Verweise durch saubere Zahlen zu ersetzen."""
         def inline_repl(m):
             old_id = m.group(1)
-            # Nur ersetzen, wenn wir die Definition unten auch gefunden haben
-            if old_id in definitions:
-                # Wurde diese Fußnote in DIESER Datei schon umnummeriert?
-                if old_id not in file_mapping:
-                    file_mapping[old_id] = self.global_counter
-                    self.harvested.append((self.global_counter, definitions[old_id]))
+            
+            # Prüfen, ob wir die Quelle im weltweiten Lexikon gefunden haben
+            if old_id in self.definitions:
+                
+                # Wenn diese Quelle noch keine Nummer hat, bekommt sie jetzt die nächste
+                if old_id not in self.file_mapping:
+                    self.file_mapping[old_id] = self.global_counter
+                    self.harvested.append((self.global_counter, self.definitions[old_id]))
                     self.global_counter += 1
                 
-                new_id = file_mapping[old_id]
+                new_id = self.file_mapping[old_id]
                 
                 # Konfigurierbares Ausgabeformat anwenden
                 if self.mode == "endnotes":
-                    # Pandoc Superscript Syntax: ^[1]^ (Wird in Word/PDF hochgestellt gerendert)
                     return f"^[{new_id}]^" 
                 else:
-                    # Klassische Pandoc Syntax (als Fußnote auf der Seite)
                     return f"[^{new_id}]"
+                    
+            # Falls die Quelle nicht existiert, belassen wir den Marker unberührt
             return m.group(0)
 
         # Sucht nach [^1] im Text und jagt es durch unsere Ersetzungs-Funktion
-        clean_text = re.sub(r'\[\^([^\]]+)\]', inline_repl, clean_text)
+        clean_text = re.sub(r'\[\^([^\]]+)\]', inline_repl, text)
         return clean_text.strip()
 
     def generate_endnotes_file(self, export_path):
@@ -1730,11 +1927,10 @@ class FootnoteHarvester:
             
             for note_id, text in self.harvested:
                 if self.mode == "endnotes":
-                    # Ein reiner, harter Texteintrag für den Verlag
                     f.write(f"**[{note_id}]** {text}\n\n")
                 else:
-                    # Pandoc Syntax
                     f.write(f"[^{note_id}]: {text}\n\n")
+                    
         return True
 ```
 
@@ -1873,15 +2069,61 @@ class PreProcessor:
             return match.group(0), content[match.end():]
         return "", content
 
+    # =========================================================================
+    # NEU: DER WASCHGANG FÜR KAPUTTE MARKDOWN-SYNTAX
+    # =========================================================================
+    def _sanitize_markdown(self, text):
+        """Repariert alte Boxen und übersetzt @-Zitationen absolut verlustfrei in echte Fußnoten."""
+        
+        # 1. Boxen reparieren: :::: \[BOX: Titel\] Inhalt ::: -> Quarto Callout
+        text = re.sub(
+            r':{3,4}\s*\\?\[BOX:\s*(.*?)\\?\](.*?):{3,4}', 
+            r'::: {.callout-note title="\1"}\n\2\n:::', 
+            text, 
+            flags=re.DOTALL
+        )
+        
+        # 1b. Übrig gebliebene eklige 4er-Doppelpunkte auf saubere 3er kürzen
+        text = re.sub(r'^::::\s*$', r':::', text, flags=re.MULTILINE)
+        
+        # 2. @-ZITATIONEN IN FUSSNOTEN UMWANDELN (Absolut robust!)
+        # Schritt A: Definitionen (egal ob Zeilenanfang oder Leerzeichen davor)
+        # Wir zwingen ein \n davor, damit sie für den Harvester immer sauber auf einer neuen Zeile stehen!
+        text = re.sub(r'(^|\s)@([a-zA-Z0-9_-]+):', r'\1\n[^\2]:', text)
+        
+        # Schritt B: Verweise im Text (mit Leerzeichen, Klammern oder am Zeilenanfang)
+        text = re.sub(r'(^|\s|\(|\[)@([a-zA-Z0-9_-]+)', r'\1[^\2]', text)
+        
+        return text
+    # =========================================================================
+
+    def _gather_all_definitions(self, nodes):
+        """
+        PASS 1: Liest alle Dateien heimlich vorab ein, bereinigt sie (Waschgang) 
+        und füllt das globale Lexikon im FootnoteHarvester.
+        """
+        for node in nodes:
+            if not node["path"].startswith("PART:"):
+                path = self.book_path / node["path"]
+                if path.exists() and path.is_file():
+                    with open(path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        
+                    _, body = self._extract_parts(content)
+                    body = self._sanitize_markdown(body)
+                    
+                    # Füllt das Lexikon, ohne den Text schon zu verändern
+                    self.harvester.extract_definitions(body)
+                    
+            if node.get("children"):
+                self._gather_all_definitions(node["children"])
+
     def prepare_render_environment(self, tree_data):
         if self.processed_dir.exists():
             shutil.rmtree(self.processed_dir)
         self.processed_dir.mkdir(parents=True)
 
         # --- DER MAGISCHE PANDOC FIX ---
-        # Wir stellen sicher, dass index.md ZWINGEND mit Leerzeilen endet.
-        # Fehlen diese, klebt Quarto die Dateien zusammen, zerreißt den YAML-Block
-        # des nächsten Kapitels und lässt Pandoc bei Markdown-Zitaten (>) abstürzen!
         index_path = self.book_path / "index.md"
         if index_path.exists():
             with open(index_path, 'r', encoding='utf-8') as f:
@@ -1891,6 +2133,10 @@ class PreProcessor:
                     f.write('\n\n')
         # -------------------------------
 
+        # === PASS 1: ALLE QUELLEN SAMMELN (Globales Lexikon füllen) ===
+        self._gather_all_definitions(tree_data)
+
+        # === PASS 2: DATEIEN SCHREIBEN UND VERWEISE SETZEN ===
         processed_tree = []
 
         for root_node in tree_data:
@@ -1919,6 +2165,7 @@ class PreProcessor:
                 processed_tree.append(new_part)
             else:
                 self._process_host_file(root_node)
+                
                 new_chapter = {
                     "title": root_node["title"],
                     "path": f"processed/{root_node['path']}",
@@ -1926,6 +2173,7 @@ class PreProcessor:
                 }
                 processed_tree.append(new_chapter)
 
+        # Ganz am Ende die gesammelten Endnoten generieren
         if self.harvester.harvested:
             endnotes_filename = "Endnoten.md"
             endnotes_dest = self.processed_dir / endnotes_filename
@@ -1950,12 +2198,19 @@ class PreProcessor:
             
         frontmatter, body = self._extract_parts(content)
         
+        # 1. Text waschen
+        body = self._sanitize_markdown(body)
+        
+        # 2. H1 bereinigen
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
-        body = self.harvester.process_text(body)
+        
+        # 3. Lexikon anwenden (Zuerst alte Definitionen unten abschneiden, dann Marker im Text ersetzen)
+        body = self.harvester.extract_definitions(body)
+        body = self.harvester.replace_markers(body)
         
         with open(dest, 'w', encoding='utf-8') as f:
-            # FIX: Jede Datei MUSS mit einem sauberen Cut (Leerzeilen) enden!
             f.write(frontmatter + body.rstrip() + "\n\n")
+            
         return dest
 
     def _process_host_file(self, node):
@@ -1969,12 +2224,19 @@ class PreProcessor:
             
         frontmatter, body = self._extract_parts(content)
         
+        # 1. Text waschen
+        body = self._sanitize_markdown(body)
+        
+        # 2. H1 bereinigen
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
-        body = self.harvester.process_text(body)
+        
+        # 3. Lexikon anwenden
+        body = self.harvester.extract_definitions(body)
+        body = self.harvester.replace_markers(body)
         
         with open(dest, 'w', encoding='utf-8') as f:
-            # FIX: Jede Datei MUSS mit einem sauberen Cut (Leerzeilen) enden!
             f.write(frontmatter + body.rstrip() + "\n\n")
+            
         return dest
 
     def _amalgamate_children(self, children, host_dest, offset):
@@ -1985,20 +2247,25 @@ class PreProcessor:
                     content = f.read()
                     
                 _, body = self._extract_parts(content)
-                body = self.harvester.process_text(body)
                 
+                # 1. Text waschen
+                body = self._sanitize_markdown(body)
+                
+                # 2. Lexikon anwenden
+                body = self.harvester.extract_definitions(body)
+                body = self.harvester.replace_markers(body)
+                
+                # 3. Überschriften einrücken
                 def shift_heading(m):
                     return f"{'#' * (len(m.group(1)) + offset)}{m.group(2)}"
                 
                 body = re.sub(r'^(#+)(\s+.*)$', shift_heading, body, flags=re.MULTILINE)
                 
                 with open(host_dest, 'a', encoding='utf-8') as f:
-                    # FIX: Auch zusammengeführte Kapitel brauchen harte Umbrüche
                     f.write(f"\n\n\n{body.strip()}\n\n")
             
             if child.get("children"):
                 self._amalgamate_children(child["children"], host_dest, offset + 1)
-                
 ```
 
 
@@ -2090,6 +2357,762 @@ class PreviewInspector(tk.Toplevel):
 
 
 ======================================================================
+📁 FILE: Sanitizer.py
+======================================================================
+
+```py
+import argparse
+import re
+import unicodedata
+import importlib
+import sys
+from pathlib import Path
+from datetime import datetime
+
+try:
+    import tomllib
+except Exception:
+    try:
+        import tomli as tomllib
+    except Exception:
+        tomllib = None
+
+try:
+    yaml = importlib.import_module("yaml")
+except Exception:
+    yaml = None
+
+# Dieses Skript durchsucht rekursiv ein Verzeichnis nach Markdown-Dateien,
+# wendet Bereinigungen für Quarto/Pandoc/Typst an und überschreibt die Originaldateien.
+# Die YAML-Frontmatter (---) bleiben absolut unangetastet, AUßER sie sind fehlerhaft gedoppelt!
+# Es wird automatisch ein Logfile im Zielverzeichnis erstellt.
+
+# Statische Ersetzungen (strukturelle Fehler und Typst-inkompatible Steuerzeichen)
+# HINWEIS: Um Parser-Fehler zu vermeiden, werden Backticks als Unicode \x60 geschrieben.
+REPLACEMENTS = {
+    "## ## ": ("## ", "Doppelte Überschriften-Tags repariert"),
+    "\x60\x60\x60text\n\n\x60\x60\x60\n": ("", "Leeren Code-Block (LF) entfernt"),
+    "\x60\x60\x60text\r\n\r\n\x60\x60\x60\r\n": (
+        "",
+        "Leeren Code-Block (CRLF) entfernt",
+    ),
+    "\u200b": ("", "Zero-Width Space entfernt"),
+    "\u00ad": ("", "Soft Hyphen entfernt"),
+    "\u00a0": (" ", "Non-Breaking Space durch Leerzeichen ersetzt"),
+    "\ufeff": ("", "BOM (Byte Order Mark) entfernt"),
+}
+
+# Weitere Unicode-Steuerzeichen, die in Quarto/Pandoc -> Typst oft Probleme verursachen.
+UNICODE_STRIP_RANGES = [
+    (0x200B, 0x200F),  # Zero-width + LRM/RLM
+    (0x202A, 0x202E),  # bidi embedding/override
+    (0x2060, 0x206F),  # word joiner + directional isolates + invisibles
+]
+
+
+def _load_config(config_path=None):
+    """Lädt die Sanitizer-Konfiguration aus TOML-Datei."""
+    if config_path is None:
+        config_path = Path(__file__).parent / "sanitizer_config.toml"
+
+    _defaults = {
+        "tags": {
+            "C": ".author",
+            "Q": ".Inquirer",
+            "A": ".answer",
+            "MONO": ".monospace",
+        },
+        "features": {
+            "normalize_headings": True,
+            "convert_bold_tags": True,
+            "remove_double_delimiters": True,
+            "convert_inline_tags": True,
+            "repair_encoding": True,
+        },
+        "logging": {"verbose": True},
+    }
+
+    if not config_path.exists():
+        return _defaults
+
+    if tomllib is None:
+        return _defaults
+
+    try:
+        with open(config_path, "rb") as f:
+            config = tomllib.load(f)
+        return config
+    except Exception:
+        return _defaults
+
+
+def _repair_encoding(content):
+    """Repariert Mojibake: UTF-8-Text, der als Windows-1252 (CP1252) gelesen/gespeichert wurde.
+    Beispiel: 'Ã¤' -> 'ä', 'â€ž' -> '„'
+    Gibt (content, changes) zurück. Wenn keine Reparatur möglich, bleibt content unverändert."""
+    changes = []
+    try:
+        repaired = content.encode("cp1252").decode("utf-8")
+        if repaired != content:
+            changes.append("Encoding-Fehler repariert (UTF-8 Mojibake/CP1252 behoben)")
+            return repaired, changes
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # Kein Mojibake oder gemischtes Encoding – unverändert lassen
+        pass
+    return content, changes
+
+
+def _remove_double_delimiters(body):
+    """Entfernt doppelte --- Trennlinien am Anfang des Body.
+    Der Body kann direkt mit --- oder mit \\n--- starten, je nach Dateistruktur."""
+    changes = []
+
+    # Alle vier möglichen Varianten am Body-Anfang:
+    # 1. Kein Leerzeichen davor, LF:    "---\n..."
+    # 2. Kein Leerzeichen davor, CRLF:  "---\r\n..."
+    # 3. Leerzeile davor, LF:           "\n---\n..."
+    # 4. Leerzeile davor, CRLF:         "\r\n---\r\n..."
+    for prefix, triple_dash, rest in [
+        ("", "---\n", ""),
+        ("", "---\r\n", ""),
+        ("\n", "---\n", ""),
+        ("\r\n", "---\r\n", ""),
+    ]:
+        candidate = prefix + triple_dash
+        if body.startswith(candidate):
+            body = prefix + body[len(candidate) :]
+            changes.append("Doppelte '---' Trennlinie nach Frontmatter gelöscht")
+            break
+
+    return body, changes
+
+
+def _convert_bold_tags(body, config):
+    """Konvertiert **[TAG]: Text.** Blöcke zu ::: {.class} ... ::: Divs.
+    Handhabt auch blockquote-prefixed Varianten: > **[TAG]: Text**
+    Der Blockquote-Marker > wird dabei entfernt."""
+    changes = []
+    tags = config.get("tags", {})
+
+    for tag, div_class in tags.items():
+        # Regex: optional blockquote-prefix (wird ignoriert/entfernt), dann bold-tag mit Text.
+        # ^ = Zeilenanfang
+        # [ \t]* = Optional führendes Whitespace (z.B. versehentliche Einrückungen)
+        # (?:>[ \t]*)? = Optional Blockquote-Prefix > (wird entfernt)
+        # \*\*\[{tag}\]:? = **[TAG]: oder **[TAG]:
+        # \s* = Whitespace nach Doppelpunkt
+        # ([^\n]*?) = Text bis Zeilenende (non-greedy, Gruppe 1)
+        # \*\*\s*$ = **-Ende und Zeilenende
+        pattern = re.compile(
+            rf"^[ \t]*(?:>[ \t]*)?\*\*\[{tag}\]:?\s*([^\n]*?)\*\*\s*$",
+            re.IGNORECASE | re.MULTILINE,
+        )
+
+        if pattern.search(body):
+            # Factory-Funktion, um die Closure korrekt zu binden
+            def make_replacer(cls_name):
+                def replacer(m):
+                    text = m.group(1).strip()
+                    return f"::: {{{cls_name}}}\n{text}\n:::"
+
+                return replacer
+
+            body = pattern.sub(make_replacer(div_class), body)
+            changes.append(f"**[{tag}]:** Blöcke zu ::: {{{div_class}}} konvertiert")
+
+    return body, changes
+
+
+def _convert_inline_tags(body, config):
+    """Konvertiert [TAG]: Absatzblöcke robust zu ::: {.class} ... ::: Divs."""
+    changes = []
+    tags = config.get("tags", {})
+
+    for tag, div_class in tags.items():
+        # Strikt: nur Zeilenstart (optional mit Blockquote) und verpflichtendem Doppelpunkt.
+        pattern = re.compile(
+            rf"^(?P<prefix>(?:>[ \t]*)*)\[{tag}\]:[ \t]*(?P<text>.*)$",
+            re.IGNORECASE,
+        )
+
+        lines = body.splitlines(keepends=True)
+        i = 0
+        out = []
+        changed_for_tag = False
+
+        while i < len(lines):
+            line = lines[i]
+            m = pattern.match(line.rstrip("\r\n"))
+            if not m:
+                out.append(line)
+                i += 1
+                continue
+
+            para_lines = [m.group("text")]
+            i += 1
+            while i < len(lines):
+                next_line = lines[i]
+                raw = next_line.rstrip("\r\n")
+                if raw.strip() == "":
+                    break
+                # Entfernt nur führende Blockquote-Pfeile im laufenden Absatz.
+                raw = re.sub(r"^>[ \t]*", "", raw)
+                para_lines.append(raw)
+                i += 1
+
+            block_text = "\n".join(x.strip() for x in para_lines).strip()
+            out.append(f"::: {{{div_class}}}\n{block_text}\n:::")
+            changed_for_tag = True
+
+            # Leerzeile nach Absatz unverändert übernehmen.
+            if i < len(lines) and lines[i].strip() == "":
+                out.append(lines[i])
+                i += 1
+
+        if changed_for_tag:
+            body = "".join(out)
+            changes.append(f"[{tag}]-Tags in ::: {{{div_class}}} konvertiert")
+
+    return body, changes
+
+
+def _normalize_headings(body):
+    """
+    Normalisiert Überschriftsebenen: erste Ebene wird #, zweite ##, etc.
+    Beispiel: ##, ###, #### wird zu #, ##, ###
+    """
+    changes = []
+    lines = body.splitlines(keepends=True)
+    heading_levels_found = {}
+
+    for i, line in enumerate(lines):
+        m = re.match(r"^(#+)\s+(.+)$", line)
+        if m:
+            original_level = len(m.group(1))
+            content = m.group(2)
+
+            if original_level not in heading_levels_found:
+                heading_levels_found[original_level] = len(heading_levels_found) + 1
+
+            new_level = heading_levels_found[original_level]
+            new_hashes = "#" * new_level
+            lines[i] = f"{new_hashes} {content}\n"
+
+    if heading_levels_found:
+        for orig, norm in sorted(heading_levels_found.items()):
+            changes.append(
+                f"Überschriftsebene {'#' * orig} -> {'#' * norm} normalisiert"
+            )
+
+    body = "".join(lines)
+    return body, changes
+
+
+def _detect_newline(text):
+    if "\r\n" in text:
+        return "\r\n"
+    return "\n"
+
+
+def _is_yaml_delimiter(line):
+    return line.strip() in {"---", "..."}
+
+
+def _split_frontmatter(content):
+    """
+    Trennt Frontmatter vom Body.
+    Erkennt Frontmatter nur am Dateianfang (optional mit BOM).
+    """
+    bom = ""
+    if content.startswith("\ufeff"):
+        bom = "\ufeff"
+        content = content[1:]
+
+    if not content.startswith("---"):
+        return bom, None, None, content
+
+    lines = content.splitlines(keepends=True)
+    if not lines:
+        return bom, None, None, content
+
+    first = lines[0].strip()
+    if first != "---":
+        return bom, None, None, content
+
+    idx = 1
+    duplicate_opening_count = 0
+    while idx < len(lines) and lines[idx].strip() == "---":
+        duplicate_opening_count += 1
+        idx += 1
+
+    closing_idx = None
+    for i in range(idx, len(lines)):
+        if _is_yaml_delimiter(lines[i]):
+            closing_idx = i
+            break
+
+    if closing_idx is None:
+        # Heuristik: Wenn der Endtrenner fehlt, endet der Header meist am ersten Leerabsatz.
+        header_lines = []
+        body_lines = []
+        in_body = False
+        for line in lines[idx:]:
+            if not in_body:
+                if line.strip() == "":
+                    in_body = True
+                    continue
+                header_lines.append(line)
+            else:
+                body_lines.append(line)
+
+        header_text = "".join(header_lines)
+        body_text = "".join(body_lines)
+        has_closing = False
+    else:
+        header_text = "".join(lines[idx:closing_idx])
+        body_text = "".join(lines[closing_idx + 1 :])
+        has_closing = True
+
+    meta = {
+        "duplicate_opening_count": duplicate_opening_count,
+        "had_closing_delimiter": has_closing,
+    }
+    return bom, header_text, body_text, meta
+
+
+def _salvage_simple_yaml_mapping(header_text):
+    """Ein defensiver Fallback, falls YAML nicht parsebar ist."""
+    result = {}
+    for raw_line in header_text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.match(r"^([A-Za-z0-9_.-]+)\s*:\s*(.*)$", line)
+        if not m:
+            continue
+        key, value = m.group(1), m.group(2)
+        result[key] = value.strip().strip('"').strip("'")
+    return result
+
+
+def _validate_and_repair_frontmatter(content, header_mode="repair"):
+    """
+    Repariert/validiert Frontmatter-Blöcke robust:
+    - doppelte Starttrenner werden auf einen reduziert
+    - fehlender Endtrenner wird ergänzt
+    - YAML wird geparst; im repair-Mode bei Bedarf konservativ rekonstruiert
+    - im preserve-Mode bleibt Header-Inhalt unverändert (nur Struktur-Fixes)
+    """
+    changes = []
+    is_valid = True
+
+    bom, header_text, body_text, meta = _split_frontmatter(content)
+    if header_text is None:
+        return content, changes, is_valid
+
+    newline = _detect_newline(content)
+
+    if meta["duplicate_opening_count"] > 0:
+        changes.append(
+            "Frontmatter repariert: Doppelte YAML-Starttrenner auf einen reduziert"
+        )
+
+    if not meta["had_closing_delimiter"]:
+        changes.append("Frontmatter repariert: Fehlender YAML-Endtrenner ergänzt")
+
+    parsed_data = None
+    yaml_repaired = False
+    parse_attempted = False
+
+    if yaml is not None:
+        parse_attempted = True
+        try:
+            parsed_data = yaml.safe_load(header_text) if header_text.strip() else {}
+        except Exception:
+            parsed_data = None
+
+    if isinstance(parsed_data, dict):
+        if header_mode == "repair":
+            normalized_header = (
+                yaml.safe_dump(
+                    parsed_data,
+                    allow_unicode=True,
+                    sort_keys=False,
+                    default_flow_style=False,
+                )
+                if yaml is not None
+                else header_text
+            )
+            yaml_repaired = True
+        else:
+            normalized_header = header_text
+            changes.append("Frontmatter validiert (preserve-mode: Inhalt unverändert)")
+    else:
+        fallback_data = _salvage_simple_yaml_mapping(header_text)
+        if fallback_data and header_mode == "repair":
+            if yaml is not None:
+                normalized_header = yaml.safe_dump(
+                    fallback_data,
+                    allow_unicode=True,
+                    sort_keys=False,
+                    default_flow_style=False,
+                )
+            else:
+                normalized_header = "".join(
+                    f"{k}: {v}{newline}" for k, v in fallback_data.items()
+                )
+            yaml_repaired = True
+            changes.append(
+                "Frontmatter repariert: YAML war defekt und wurde konservativ rekonstruiert"
+            )
+        elif fallback_data and header_mode == "preserve":
+            normalized_header = header_text
+            is_valid = False
+            changes.append(
+                "CAVEAT: Frontmatter YAML ungültig (preserve-mode: unverändert belassen)"
+            )
+        else:
+            normalized_header = header_text
+            is_valid = False
+            changes.append(
+                "CAVEAT: Frontmatter erkannt, aber nicht parsebar/reparierbar"
+            )
+
+    if not parse_attempted and header_text.strip():
+        # Ohne YAML-Library kann nur begrenzt validiert werden.
+        fallback_data = _salvage_simple_yaml_mapping(header_text)
+        if not fallback_data:
+            is_valid = False
+            changes.append(
+                "CAVEAT: YAML-Validierung nicht möglich (PyYAML fehlt, Header verdächtig)"
+            )
+
+    if yaml_repaired and not changes:
+        # Kein struktureller Defekt, aber Header wurde erfolgreich validiert/normalisiert.
+        changes.append("Frontmatter validiert")
+
+    normalized_header = normalized_header.rstrip("\r\n")
+    rebuilt = f"{bom}---{newline}{normalized_header}{newline}---{newline}{body_text}"
+    return rebuilt, changes, is_valid
+
+
+def _strip_problematic_unicode_controls(content):
+    removed = {}
+
+    def should_remove(ch):
+        cp = ord(ch)
+        in_explicit_range = any(
+            start <= cp <= end for start, end in UNICODE_STRIP_RANGES
+        )
+        # Zusätzliche unsichtbare Controls außerhalb klassischer Newlines/Tabs.
+        is_control = unicodedata.category(ch) in {"Cf", "Cc"} and ch not in {
+            "\n",
+            "\r",
+            "\t",
+        }
+        return in_explicit_range or is_control
+
+    out = []
+    for ch in content:
+        if should_remove(ch):
+            removed[ch] = removed.get(ch, 0) + 1
+            continue
+        out.append(ch)
+
+    if not removed:
+        return content, []
+
+    messages = []
+    for ch, count in sorted(removed.items(), key=lambda x: ord(x[0])):
+        cp = ord(ch)
+        name = unicodedata.name(ch, "UNNAMED")
+        messages.append(f"Unicode-Control entfernt: U+{cp:04X} ({name}) x{count}")
+
+    return "".join(out), messages
+
+
+def _split_for_processing(content):
+    """
+    Liefert strikt typisierte Teile für die Verarbeitung.
+    Rückgabe: (has_frontmatter, bom, header, body, newline)
+    """
+    bom, header_text, body_text, _meta = _split_frontmatter(content)
+    newline = _detect_newline(content)
+
+    if header_text is None:
+        return False, "", "", content, newline
+
+    return True, bom, header_text, body_text or "", newline
+
+
+def sanitize_file(filepath, header_mode="repair"):
+    """Liest eine Datei ein, wendet Bereinigungen an und liefert Ergebnisdetails zurück."""
+    changes_made = []
+
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        original_content = content
+
+        # -1. Encoding-Reparatur VOR allem anderen (betrifft Header + Body gleichmäßig)
+        config = _load_config()
+        if config.get("features", {}).get("repair_encoding", True):
+            content, enc_changes = _repair_encoding(content)
+            changes_made.extend(enc_changes)
+
+        # 0. Frontmatter zuerst robust validieren/reparieren.
+        content, fm_changes, frontmatter_valid = _validate_and_repair_frontmatter(
+            content, header_mode=header_mode
+        )
+        changes_made.extend(fm_changes)
+
+        if header_mode == "strict" and not frontmatter_valid:
+            changes_made.append(
+                "STRICT-MODUS: Datei wegen ungültigem Frontmatter nicht geschrieben"
+            )
+            return {"changes": changes_made, "written": False, "skipped": True}
+
+        # Danach strikt trennen: Nur der Body wird mit Sanitizer-Regeln bearbeitet.
+        # Der Frontmatter-Block bleibt (abseits der Reparatur oben) unverändert.
+        has_frontmatter, bom, header_text, body, newline = _split_for_processing(
+            content
+        )
+
+        if config.get("features", {}).get("remove_double_delimiters"):
+            body, dd_changes = _remove_double_delimiters(body)
+            changes_made.extend(dd_changes)
+        # 1. Statische Ersetzungen anwenden
+        for search_string, (replace_string, log_message) in REPLACEMENTS.items():
+            if search_string in body:
+                body = body.replace(search_string, replace_string)
+                changes_made.append(log_message)
+
+        # 1b. Erweiterte Bereinigung unsichtbarer/problematischer Unicode-Steuerzeichen
+        body, unicode_changes = _strip_problematic_unicode_controls(body)
+        changes_made.extend(unicode_changes)
+
+        if config.get("features", {}).get("normalize_headings"):
+            body, heading_changes = _normalize_headings(body)
+            changes_made.extend(heading_changes)
+
+        if config.get("features", {}).get("convert_bold_tags"):
+            body, bold_changes = _convert_bold_tags(body, config)
+            changes_made.extend(bold_changes)
+
+        # 2. Dynamische Ersetzungen per Regex (HTML Tags)
+        if re.search(r"<(\d+)", body):
+            body = re.sub(r"<(\d+)", r"< \1", body)
+            changes_made.append("Spitze Klammern vor Zahlen maskiert (HTML-Fix)")
+
+        # 3. Inline-Tags ([C]:, [Q]:, [A]:, [MONO]:) in Quarto-Div-Fences konvertieren.
+        if config.get("features", {}).get("convert_inline_tags", True):
+            body, inline_changes = _convert_inline_tags(body, config)
+            changes_made.extend(inline_changes)
+
+        # 4. Quarto Div-Fences für ```text Blöcke (analog zu MONO)
+        text_block_pattern = r"\x60\x60\x60text[ \t]*\r?\n(.*?)\r?\n\x60\x60\x60"
+        if re.search(text_block_pattern, body, flags=re.DOTALL):
+            body = re.sub(
+                text_block_pattern,
+                r"::: {.monospace}\n\1\n:::",
+                body,
+                flags=re.DOTALL,
+            )
+            changes_made.append(
+                "Code-Blöcke (text) in ::: {.monospace} Div-Fences konvertiert"
+            )
+
+        # 5. Quarto Callout-Boxen für [BOX: ...]
+        if re.search(r"^::::?\s*\[BOX:\s*(.*?)\]", body, flags=re.MULTILINE):
+            body = re.sub(
+                r"^::::?\s*\[BOX:\s*(.*?)\]",
+                r'::: {.callout-note title="\1"}',
+                body,
+                flags=re.MULTILINE,
+            )
+            changes_made.append(
+                "BOX-Tags in Quarto Callouts (.callout-note) konvertiert"
+            )
+
+        if has_frontmatter:
+            normalized_header = header_text.rstrip("\r\n")
+            content = f"{bom}---{newline}{normalized_header}{newline}---{newline}{body}"
+        else:
+            content = body
+
+        # Nur neu speichern, wenn sich tatsächlich etwas geändert hat
+        if content != original_content:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            return {"changes": changes_made, "written": True, "skipped": False}
+
+        return {"changes": changes_made, "written": False, "skipped": False}
+
+    except Exception as e:
+        print(f"Fehler beim Bearbeiten von '{filepath}': {e}")
+        return {
+            "changes": [f"FEHLER beim Lesen/Schreiben: {e}"],
+            "written": False,
+            "skipped": True,
+        }
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Bereinigt rekursiv Markdown-Dateien fuer eine Quarto (pandoc) -> typst Pipeline, "
+            "repariert optional Frontmatter und erstellt ein Logfile."
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+        add_help=False,
+        epilog=(
+            "\n"
+            "Ausfuehrliche Beispiele:\n"
+            "  python Sanitizer.py <ordner> --header-mode repair\n"
+            "    - Empfohlen fuer Standardlaeufe.\n"
+            "    - Frontmatter wird validiert und bei Defekten rekonstruiert.\n"
+            "    - Body wird sanitiziert (Typst-/Parser-problematische Zeichen, Marker-Konvertierung).\n"
+            "\n"
+            "  python Sanitizer.py <ordner> --header-mode preserve\n"
+            "    - Frontmatter-Inhalt bleibt unveraendert.\n"
+            "    - Nur strukturelle Frontmatter-Reparaturen (z. B. fehlender Endtrenner) sind erlaubt.\n"
+            "    - Bei ungueltigem YAML wird ein CAVEAT geloggt.\n"
+            "\n"
+            "  python Sanitizer.py <ordner> --header-mode strict\n"
+            "    - Wenn Frontmatter ungueltig ist, wird die Datei NICHT geschrieben.\n"
+            "    - Die Datei wird als UEBERSPRUNGEN protokolliert.\n"
+            "\n"
+            "Hinweise:\n"
+            "  - Hilfe aufrufen mit: -h, --help oder -help\n"
+            "  - PyYAML ist Pflicht: pip install pyyaml\n"
+            "  - Ausgabe-Log: sanitizer_log.txt im Zielordner\n"
+        ),
+    )
+    parser.add_argument(
+        "-h",
+        "--help",
+        "-help",
+        action="help",
+        help="Zeigt diese Hilfe mit Erklaerungen und Beispielen an.",
+    )
+    parser.add_argument(
+        "directory", help="Der Pfad zum Verzeichnis, das durchsucht werden soll."
+    )
+    parser.add_argument(
+        "--header-mode",
+        choices=["repair", "preserve", "strict"],
+        default="repair",
+        help=(
+            "Steuert die Frontmatter-Behandlung: "
+            "repair = validieren + ggf. rekonstruieren/normalisieren, "
+            "preserve = nur validieren, Header-Inhalt unverändert lassen, "
+            "strict = bei ungültigem Header nicht schreiben."
+        ),
+    )
+    args = parser.parse_args()
+
+    if yaml is None:
+        print("Fehler: PyYAML ist erforderlich, aber nicht installiert.")
+        print("Installiere es mit: pip install pyyaml")
+        sys.exit(2)
+
+    target_dir = Path(args.directory)
+
+    if not target_dir.is_dir():
+        print(
+            f"Fehler: Das angegebene Verzeichnis '{target_dir}' existiert nicht oder ist kein Ordner."
+        )
+        return
+
+    print(f"Durchsuche '{target_dir}' und alle Unterordner nach .md-Dateien...")
+
+    total_files = 0
+    changed_files = 0
+    skipped_files = 0
+
+    log_path = target_dir / "sanitizer_log.txt"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with open(log_path, "w", encoding="utf-8") as log_file:
+        log_file.write("=== SANITIZER LOG ===\n")
+        log_file.write(f"Datum/Zeit: {timestamp}\n")
+        log_file.write(f"Verzeichnis: {target_dir.absolute()}\n")
+        log_file.write("=====================\n\n")
+
+        for md_file in target_dir.rglob("*.md"):
+            total_files += 1
+            result = sanitize_file(md_file, header_mode=args.header_mode)
+            changes = result["changes"]
+            written = result["written"]
+            skipped = result["skipped"]
+
+            if written:
+                changed_files += 1
+                rel_path = md_file.relative_to(target_dir)
+
+                print(f"[BEREINIGT] {rel_path.name} ({len(changes)} Änderungen)")
+
+                log_file.write(f"Datei: {rel_path}\n")
+                for change in changes:
+                    log_file.write(f"  - {change}\n")
+                log_file.write("\n")
+            elif skipped:
+                skipped_files += 1
+                rel_path = md_file.relative_to(target_dir)
+
+                print(f"[ÜBERSPRUNGEN] {rel_path.name} ({len(changes)} Hinweise)")
+
+                log_file.write(f"Datei: {rel_path}\n")
+                for change in changes:
+                    log_file.write(f"  - {change}\n")
+                log_file.write("\n")
+            elif changes:
+                # Änderungen/Hinweise vorhanden, aber Datei inhaltlich unverändert.
+                rel_path = md_file.relative_to(target_dir)
+
+                print(f"[GEPRÜFT] {rel_path.name} ({len(changes)} Hinweise)")
+
+                log_file.write(f"Datei: {rel_path}\n")
+                for change in changes:
+                    log_file.write(f"  - {change}\n")
+                log_file.write("\n")
+
+        log_file.write("--- Zusammenfassung ---\n")
+        log_file.write(f"Geprüfte Dateien: {total_files}\n")
+        log_file.write(f"Geänderte Dateien: {changed_files}\n")
+        log_file.write(f"Übersprungene Dateien: {skipped_files}\n")
+
+    print("\n--- Vorgang abgeschlossen ---")
+    print(f"Geprüfte .md-Dateien gesamt: {total_files}")
+    print(f"Davon bereinigt und überschrieben: {changed_files}")
+    print(f"Davon übersprungen (strict/Fehler): {skipped_files}")
+    print(f"Logfile wurde erstellt unter: {log_path}")
+
+
+if __name__ == "__main__":
+    main()
+
+```
+
+
+======================================================================
+📁 FILE: studio_config.json
+======================================================================
+
+```json
+{
+    "frontmatter_requirements": {
+        "title": "<filename>",
+        "description": "<title>",
+        "status": "bookstudio"
+    }
+}
+```
+
+
+======================================================================
 📁 FILE: template_manager.py
 ======================================================================
 
@@ -2099,18 +3122,28 @@ from pathlib import Path
 class TemplateManager:
     @staticmethod
     def discover_templates(book_path):
-        """Scannt den 'templates' Ordner nach .typ (Typst) und .tex (LaTeX) Dateien."""
+        """Scannt nach lokalen Dateien im 'templates' Ordner UND nach Quarto-Extensions."""
         if not book_path:
             return ["Standard"]
             
-        tpl_dir = Path(book_path) / "templates"
-        if not tpl_dir.exists():
-            return ["Standard"]
+        book_path = Path(book_path)
+        templates = ["Standard"]
+        
+        # 1. Lokale Dateien (.typ, .tex)
+        tpl_dir = book_path / "templates"
+        if tpl_dir.exists():
+            found = [f.name for f in tpl_dir.glob("*.*") if f.suffix in [".typ", ".tex"]]
+            templates.extend(sorted(found))
             
-        # Wir suchen nach Typst-Vorlagen (.typ) und LaTeX-Vorlagen (.tex)
-        found = [f.name for f in tpl_dir.glob("*.*") if f.suffix in [".typ", ".tex"]]
-        return ["Standard"] + sorted(found)
-    
+        # 2. Quarto Extensions scannen
+        ext_dir = book_path / "_extensions"
+        if ext_dir.exists():
+            for ext_file in ext_dir.rglob("_extension.yml"):
+                # Der Name der Extension ist immer der Name des Ordners!
+                ext_name = ext_file.parent.name
+                templates.append(f"EXT: {ext_name}")
+                
+        return templates
 ```
 
 
@@ -2201,7 +3234,92 @@ class QuartoYamlEngine:
                 if rel_path == "index.md": continue
                 registry[rel_path] = self.extract_status_from_md(p)
         return registry
+    
+    def ensure_required_frontmatter(self, filepath, fallback_title=None):
+        """Prüft das Frontmatter und ergänzt Felder dynamisch mit Variablen-Auflösung und erzwingt Anführungszeichen."""
+        import json
+        from pathlib import Path
+        import yaml
+        import re
+        
+        # --- PYYAML TRICK FÜR ANFÜHRUNGSZEICHEN ---
+        # Wir erzeugen eine eigene String-Klasse, der wir beibringen,
+        # dass sie beim Speichern IMMER in " " gesetzt werden muss!
+        class QuotedStr(str): pass
+        def quoted_presenter(dumper, data):
+            return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='"')
+        
+        yaml.add_representer(QuotedStr, quoted_presenter)
+        # ------------------------------------------
+        
+        filepath = Path(filepath)
+        config_path = Path(__file__).parent / "studio_config.json"
+        
+        required_fields = {
+            "title": "<filename>",
+            "description": "<title>",
+            "status": "bookstudio"
+        }
+        
+        if config_path.exists():
+            try:
+                with open(config_path, 'r', encoding='utf-8') as c_f:
+                    config_data = json.load(c_f)
+                    required_fields = config_data.get("frontmatter_requirements", required_fields)
+            except Exception as e:
+                print(f"Fehler beim Lesen der studio_config.json: {e}")
 
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            match = re.match(r'^\uFEFF?---\s*[\r\n]+(.*?)[\r\n]+---\s*[\r\n]+(.*)', content, re.DOTALL)
+            
+            if match:
+                frontmatter_str = match.group(1)
+                body = match.group(2)
+                try:
+                    parsed_yaml = yaml.safe_load(frontmatter_str) or {}
+                except yaml.YAMLError:
+                    return False
+            else:
+                parsed_yaml = {}
+                body = content.strip()
+
+            changed = False
+            
+            keys_to_process = list(required_fields.keys())
+            if "title" in keys_to_process:
+                keys_to_process.remove("title")
+                keys_to_process.insert(0, "title")
+
+            for key in keys_to_process:
+                if key not in parsed_yaml:
+                    config_val = required_fields[key]
+                    
+                    if config_val == "<filename>":
+                        val = fallback_title if fallback_title else filepath.stem
+                    elif config_val == "<title>":
+                        val = parsed_yaml.get("title", fallback_title if fallback_title else filepath.stem)
+                    else:
+                        val = config_val
+                        
+                    # HIER IST DIE MAGIE: Wir verpacken den Wert in unseren QuotedStr!
+                    parsed_yaml[key] = QuotedStr(val)
+                    changed = True
+
+            if changed:
+                new_yaml_str = yaml.dump(parsed_yaml, sort_keys=False, allow_unicode=True)
+                new_content = f"---\n{new_yaml_str}---\n\n{body}\n"
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+                return True
+                
+            return False
+
+        except Exception as e:
+            print(f"Fehler beim Auto-Healing: {e}")
+            return False
     # =========================================================================
     # QUARTO YAML PARSING & SAVING
     # =========================================================================
