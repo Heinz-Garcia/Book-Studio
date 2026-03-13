@@ -4,5 +4,6 @@
         "description": "<title>",
         "status": "bookstudio"
     },
+    "frontmatter_update_mode": "append_only",
     "sanitizer_backup_path": "C:/Users/Daniel/Documents/Python/IFJN/Sanitizer_Backups"
 }

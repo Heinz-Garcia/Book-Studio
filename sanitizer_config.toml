@@ -16,6 +16,15 @@ convert_inline_tags = true
 # Repariert Mojibake (UTF-8 als Latin-1 gespeichert/gelesen, z.B. Ã¤ -> ä)
 # Deaktivieren wenn Sonderzeichen dadurch verfälscht werden!
 repair_encoding = false
+# Wenn true: erkennt ungeschlossene ::: {.answer} Blöcke,
+# öffnet die Datei markiert im Windows Explorer und wartet auf Enter.
+prompt_unclosed_answer_div = true
+# Wenn true: führt AUSSCHLIESSLICH die Prüfung auf ungeschlossene
+# ::: {.answer}-Blöcke aus (keine weiteren Sanitizer-Transformationen).
+only_unclosed_answer_div_check = true
+# Wenn true: lässt im --header-mode repair den bestehenden Header-Stil
+# (Quotes/Reihenfolge/Formatting) unverändert und repariert nur die Struktur.
+preserve_frontmatter_style_in_repair = true
 
 [logging]
 # Verbose-Logging für debugging

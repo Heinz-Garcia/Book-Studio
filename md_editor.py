@@ -101,3 +101,4 @@ class MarkdownEditor(tk.Toplevel):
                 
             except Exception as e:
                 messagebox.showerror("Fehler", f"Konnte neue Datei nicht speichern:\n{e}")
+                # write a function that returns the current date

@@ -3,20 +3,21 @@ import re
 import unicodedata
 import importlib
 import sys
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
 try:
-    import tomllib
-except Exception:
+    tomllib = importlib.import_module("tomllib")
+except ModuleNotFoundError:
     try:
-        import tomli as tomllib
-    except Exception:
+        tomllib = importlib.import_module("tomli")
+    except ModuleNotFoundError:
         tomllib = None
 
 try:
     yaml = importlib.import_module("yaml")
-except Exception:
+except ModuleNotFoundError:
     yaml = None
 
 # Dieses Skript durchsucht rekursiv ein Verzeichnis nach Markdown-Dateien,
@@ -46,6 +47,10 @@ UNICODE_STRIP_RANGES = [
     (0x2060, 0x206F),  # word joiner + directional isolates + invisibles
 ]
 
+DIV_OPEN_PATTERN = re.compile(r"^\s*:::+\s*\{[^}]+\}\s*$")
+DIV_CLOSE_PATTERN = re.compile(r"^\s*:::+\s*$")
+ANSWER_DIV_OPEN_PATTERN = re.compile(r"^\s*:::+\s*\{[^}]*\B\.answer\b[^}]*\}\s*$")
+
 
 def _load_config(config_path=None):
     """Lädt die Sanitizer-Konfiguration aus TOML-Datei."""
@@ -65,6 +70,9 @@ def _load_config(config_path=None):
             "remove_double_delimiters": True,
             "convert_inline_tags": True,
             "repair_encoding": True,
+            "prompt_unclosed_answer_div": False,
+            "only_unclosed_answer_div_check": False,
+            "preserve_frontmatter_style_in_repair": True,
         },
         "logging": {"verbose": True},
     }
@@ -79,7 +87,7 @@ def _load_config(config_path=None):
         with open(config_path, "rb") as f:
             config = tomllib.load(f)
         return config
-    except Exception:
+    except (OSError, ValueError):
         return _defaults
 
 
@@ -109,11 +117,11 @@ def _remove_double_delimiters(body):
     # 2. Kein Leerzeichen davor, CRLF:  "---\r\n..."
     # 3. Leerzeile davor, LF:           "\n---\n..."
     # 4. Leerzeile davor, CRLF:         "\r\n---\r\n..."
-    for prefix, triple_dash, rest in [
-        ("", "---\n", ""),
-        ("", "---\r\n", ""),
-        ("\n", "---\n", ""),
-        ("\r\n", "---\r\n", ""),
+    for prefix, triple_dash in [
+        ("", "---\n"),
+        ("", "---\r\n"),
+        ("\n", "---\n"),
+        ("\r\n", "---\r\n"),
     ]:
         candidate = prefix + triple_dash
         if body.startswith(candidate):
@@ -332,7 +340,9 @@ def _salvage_simple_yaml_mapping(header_text):
     return result
 
 
-def _validate_and_repair_frontmatter(content, header_mode="repair"):
+def _validate_and_repair_frontmatter(
+    content, header_mode="repair", preserve_style_in_repair=False
+):
     """
     Repariert/validiert Frontmatter-Blöcke robust:
     - doppelte Starttrenner werden auf einen reduziert
@@ -365,43 +375,59 @@ def _validate_and_repair_frontmatter(content, header_mode="repair"):
         parse_attempted = True
         try:
             parsed_data = yaml.safe_load(header_text) if header_text.strip() else {}
-        except Exception:
+        except (yaml.YAMLError, ValueError, TypeError):
             parsed_data = None
 
     if isinstance(parsed_data, dict):
         if header_mode == "repair":
-            normalized_header = (
-                yaml.safe_dump(
-                    parsed_data,
-                    allow_unicode=True,
-                    sort_keys=False,
-                    default_flow_style=False,
+            if preserve_style_in_repair:
+                normalized_header = header_text
+                changes.append(
+                    "Frontmatter validiert (repair + preserve-style: Inhalt unverändert)"
                 )
-                if yaml is not None
-                else header_text
-            )
-            yaml_repaired = True
+            else:
+                normalized_header = (
+                    yaml.safe_dump(
+                        parsed_data,
+                        allow_unicode=True,
+                        sort_keys=False,
+                        default_flow_style=False,
+                    )
+                    if yaml is not None
+                    else header_text
+                )
+                yaml_repaired = True
         else:
             normalized_header = header_text
             changes.append("Frontmatter validiert (preserve-mode: Inhalt unverändert)")
     else:
         fallback_data = _salvage_simple_yaml_mapping(header_text)
         if fallback_data and header_mode == "repair":
-            if yaml is not None:
+            if preserve_style_in_repair:
+                normalized_header = header_text
+                is_valid = False
+                changes.append(
+                    "CAVEAT: Frontmatter YAML ungültig (repair + preserve-style: unverändert belassen)"
+                )
+            elif yaml is not None:
                 normalized_header = yaml.safe_dump(
                     fallback_data,
                     allow_unicode=True,
                     sort_keys=False,
                     default_flow_style=False,
                 )
+                yaml_repaired = True
+                changes.append(
+                    "Frontmatter repariert: YAML war defekt und wurde konservativ rekonstruiert"
+                )
             else:
                 normalized_header = "".join(
                     f"{k}: {v}{newline}" for k, v in fallback_data.items()
                 )
-            yaml_repaired = True
-            changes.append(
-                "Frontmatter repariert: YAML war defekt und wurde konservativ rekonstruiert"
-            )
+                yaml_repaired = True
+                changes.append(
+                    "Frontmatter repariert: YAML war defekt und wurde konservativ rekonstruiert"
+                )
         elif fallback_data and header_mode == "preserve":
             normalized_header = header_text
             is_valid = False
@@ -482,6 +508,50 @@ def _split_for_processing(content):
     return True, bom, header_text, body_text or "", newline
 
 
+def _find_unclosed_answer_divs(body):
+    """Findet ungeschlossene ::: {.answer}-Divs in einem Markdown-Body."""
+    stack = []
+
+    for line_number, line in enumerate(body.splitlines(), start=1):
+        if DIV_CLOSE_PATTERN.match(line):
+            if stack:
+                stack.pop()
+            continue
+
+        if DIV_OPEN_PATTERN.match(line):
+            stack.append(
+                {
+                    "is_answer": bool(ANSWER_DIV_OPEN_PATTERN.match(line)),
+                    "line_number": line_number,
+                }
+            )
+
+    return [entry for entry in stack if entry["is_answer"]]
+
+
+def _prompt_and_reveal_file(filepath, unclosed_entries):
+    """Warnt interaktiv und markiert betroffene Datei im Windows Explorer."""
+    line_numbers = ", ".join(str(item["line_number"]) for item in unclosed_entries)
+    print("\n[WARNUNG] Ungeschlossener ::: {.answer}-Block erkannt!")
+    print(f"Datei: {filepath}")
+    print(f"Betroffene Zeile(n) im Body: {line_numbers}")
+
+    if sys.platform.startswith("win"):
+        try:
+            subprocess.run(
+                ["explorer", "/select,", str(Path(filepath).resolve())], check=False
+            )
+            print("Datei wurde im Windows Explorer markiert.")
+        except OSError as error:
+            print(f"Explorer konnte nicht geöffnet werden: {error}")
+
+    try:
+        input("Bitte Datei prüfen und mit Enter fortfahren...")
+    except EOFError:
+        # Nicht-interaktive Umgebungen dürfen weiterlaufen.
+        pass
+
+
 def sanitize_file(filepath, header_mode="repair"):
     """Liest eine Datei ein, wendet Bereinigungen an und liefert Ergebnisdetails zurück."""
     changes_made = []
@@ -494,13 +564,32 @@ def sanitize_file(filepath, header_mode="repair"):
 
         # -1. Encoding-Reparatur VOR allem anderen (betrifft Header + Body gleichmäßig)
         config = _load_config()
-        if config.get("features", {}).get("repair_encoding", True):
+        features = config.get("features", {})
+
+        if features.get("only_unclosed_answer_div_check", False):
+            _has_frontmatter, _bom, _header_text, body, _newline = _split_for_processing(
+                content
+            )
+            unclosed_answer_divs = _find_unclosed_answer_divs(body)
+            if unclosed_answer_divs:
+                changes_made.append(
+                    "WARNUNG: Ungeschlossener ::: {.answer}-Block erkannt"
+                )
+                if features.get("prompt_unclosed_answer_div", False):
+                    _prompt_and_reveal_file(filepath, unclosed_answer_divs)
+            return {"changes": changes_made, "written": False, "skipped": False}
+
+        if features.get("repair_encoding", True):
             content, enc_changes = _repair_encoding(content)
             changes_made.extend(enc_changes)
 
         # 0. Frontmatter zuerst robust validieren/reparieren.
         content, fm_changes, frontmatter_valid = _validate_and_repair_frontmatter(
-            content, header_mode=header_mode
+            content,
+            header_mode=header_mode,
+            preserve_style_in_repair=features.get(
+                "preserve_frontmatter_style_in_repair", True
+            ),
         )
         changes_made.extend(fm_changes)
 
@@ -516,7 +605,15 @@ def sanitize_file(filepath, header_mode="repair"):
             content
         )
 
-        if config.get("features", {}).get("remove_double_delimiters"):
+        if features.get("prompt_unclosed_answer_div", False):
+            unclosed_answer_divs = _find_unclosed_answer_divs(body)
+            if unclosed_answer_divs:
+                changes_made.append(
+                    "WARNUNG: Ungeschlossener ::: {.answer}-Block erkannt"
+                )
+                _prompt_and_reveal_file(filepath, unclosed_answer_divs)
+
+        if features.get("remove_double_delimiters"):
             body, dd_changes = _remove_double_delimiters(body)
             changes_made.extend(dd_changes)
         # 1. Statische Ersetzungen anwenden
@@ -529,11 +626,11 @@ def sanitize_file(filepath, header_mode="repair"):
         body, unicode_changes = _strip_problematic_unicode_controls(body)
         changes_made.extend(unicode_changes)
 
-        if config.get("features", {}).get("normalize_headings"):
+        if features.get("normalize_headings"):
             body, heading_changes = _normalize_headings(body)
             changes_made.extend(heading_changes)
 
-        if config.get("features", {}).get("convert_bold_tags"):
+        if features.get("convert_bold_tags"):
             body, bold_changes = _convert_bold_tags(body, config)
             changes_made.extend(bold_changes)
 
@@ -543,7 +640,7 @@ def sanitize_file(filepath, header_mode="repair"):
             changes_made.append("Spitze Klammern vor Zahlen maskiert (HTML-Fix)")
 
         # 3. Inline-Tags ([C]:, [Q]:, [A]:, [MONO]:) in Quarto-Div-Fences konvertieren.
-        if config.get("features", {}).get("convert_inline_tags", True):
+        if features.get("convert_inline_tags", True):
             body, inline_changes = _convert_inline_tags(body, config)
             changes_made.extend(inline_changes)
 
@@ -587,7 +684,7 @@ def sanitize_file(filepath, header_mode="repair"):
 
         return {"changes": changes_made, "written": False, "skipped": False}
 
-    except Exception as e:
+    except (OSError, UnicodeError, ValueError) as e:
         print(f"Fehler beim Bearbeiten von '{filepath}': {e}")
         return {
             "changes": [f"FEHLER beim Lesen/Schreiben: {e}"],
@@ -677,6 +774,7 @@ def main():
     total_files = 0
     changed_files = 0
     skipped_files = 0
+    warning_files = 0
 
     log_path = target_dir / "sanitizer_log.txt"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -701,12 +799,14 @@ def main():
             written = result["written"]
             skipped = result["skipped"]
 
+            has_answer_warning = any(
+                "Ungeschlossener ::: {.answer}" in c for c in changes
+            )
+
             if written:
                 changed_files += 1
                 rel_path = md_file.relative_to(target_dir)
-
                 print(f"[BEREINIGT] {rel_path.name} ({len(changes)} Änderungen)")
-
                 log_file.write(f"Datei: {rel_path}\n")
                 for change in changes:
                     log_file.write(f"  - {change}\n")
@@ -714,19 +814,22 @@ def main():
             elif skipped:
                 skipped_files += 1
                 rel_path = md_file.relative_to(target_dir)
-
                 print(f"[ÜBERSPRUNGEN] {rel_path.name} ({len(changes)} Hinweise)")
-
                 log_file.write(f"Datei: {rel_path}\n")
                 for change in changes:
                     log_file.write(f"  - {change}\n")
                 log_file.write("\n")
-            elif changes:
-                # Änderungen/Hinweise vorhanden, aber Datei inhaltlich unverändert.
+            elif has_answer_warning:
+                warning_files += 1
                 rel_path = md_file.relative_to(target_dir)
-
+                print(f"[WARNUNG] {rel_path.name} — ungeschlossener ::: {{.answer}}-Block!")
+                log_file.write(f"[WARNUNG] Datei: {rel_path}\n")
+                for change in changes:
+                    log_file.write(f"  - {change}\n")
+                log_file.write("\n")
+            elif changes:
+                rel_path = md_file.relative_to(target_dir)
                 print(f"[GEPRÜFT] {rel_path.name} ({len(changes)} Hinweise)")
-
                 log_file.write(f"Datei: {rel_path}\n")
                 for change in changes:
                     log_file.write(f"  - {change}\n")
@@ -736,12 +839,21 @@ def main():
         log_file.write(f"Geprüfte Dateien: {total_files}\n")
         log_file.write(f"Geänderte Dateien: {changed_files}\n")
         log_file.write(f"Übersprungene Dateien: {skipped_files}\n")
+        log_file.write(f"Dateien mit ungeschlossenem {{.answer}}-Block: {warning_files}\n")
+        if warning_files == 0:
+            log_file.write("ERGEBNIS: OK — keine ungeschlossenen {.answer}-Blöcke gefunden.\n")
+        else:
+            log_file.write(f"ERGEBNIS: {warning_files} Datei(en) mit ungeschlossenem {{.answer}}-Block!\n")
 
     print("\n--- Vorgang abgeschlossen ---")
-    print(f"Geprüfte .md-Dateien gesamt: {total_files}")
-    print(f"Davon bereinigt und überschrieben: {changed_files}")
+    print(f"Geprüfte .md-Dateien gesamt:        {total_files}")
+    print(f"Davon bereinigt und überschrieben:  {changed_files}")
     print(f"Davon übersprungen (strict/Fehler): {skipped_files}")
-    print(f"Logfile wurde erstellt unter: {log_path}")
+    if warning_files == 0:
+        print("✅  Keine ungeschlossenen {.answer}-Blöcke gefunden.")
+    else:
+        print(f"⚠️   {warning_files} Datei(en) mit ungeschlossenem {{.answer}}-Block!")
+    print(f"Logfile: {log_path}")
 
 if __name__ == "__main__":
     main()

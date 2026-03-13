@@ -669,6 +669,73 @@ class BookStudio:
     def add_files(self):
         pre = self._get_current_state()
         files_healed = False
+
+        def get_order_meta(rel_path):
+            if not hasattr(self, "yaml_engine") or not self.yaml_engine:
+                return None, None
+            try:
+                return self.yaml_engine.get_required_order(rel_path)
+            except (AttributeError, OSError, ValueError, TypeError):
+                return None, None
+
+        def insert_required_by_order(rel_path, title, sort_key, group):
+            root_children = list(self.tree_book.get_children(""))
+
+            if group == "front":
+                insert_at = 0
+                for idx, node in enumerate(root_children):
+                    vals = self.tree_book.item(node, "values")
+                    node_path = vals[0] if vals else ""
+                    if node_path == "index.md":
+                        insert_at = idx + 1
+                        break
+
+                idx = insert_at
+                while idx < len(root_children):
+                    vals = self.tree_book.item(root_children[idx], "values")
+                    node_path = vals[0] if vals else ""
+                    other_key, other_group = get_order_meta(node_path)
+                    if other_group != "front":
+                        break
+                    if other_key is not None and other_key <= sort_key:
+                        idx += 1
+                        continue
+                    break
+
+                self.tree_book.insert("", idx, text=title, values=(rel_path,))
+                return
+
+            if group == "end":
+                first_end_idx = None
+                for idx, node in enumerate(root_children):
+                    vals = self.tree_book.item(node, "values")
+                    node_path = vals[0] if vals else ""
+                    _other_key, other_group = get_order_meta(node_path)
+                    if other_group == "end":
+                        first_end_idx = idx
+                        break
+
+                if first_end_idx is None:
+                    self.tree_book.insert("", "end", text=title, values=(rel_path,))
+                    return
+
+                idx = first_end_idx
+                while idx < len(root_children):
+                    vals = self.tree_book.item(root_children[idx], "values")
+                    node_path = vals[0] if vals else ""
+                    other_key, other_group = get_order_meta(node_path)
+                    if other_group != "end":
+                        idx += 1
+                        continue
+                    if other_key is not None and other_key > sort_key:
+                        idx += 1
+                        continue
+                    break
+
+                self.tree_book.insert("", idx, text=title, values=(rel_path,))
+                return
+
+            self.tree_book.insert("", "end", text=title, values=(rel_path,))
         
         # --- NEU: DEN "CURSOR" ERMITTELN ---
         target_parent = ""
@@ -692,15 +759,20 @@ class BookStudio:
             fallback_title = self.list_avail.item(i, "text").replace("[FEHLT] ", "")
             if self.yaml_engine.ensure_required_frontmatter(full_path, fallback_title):
                 files_healed = True
+
+            order_key, order_group = get_order_meta(rel_path)
             
+            # required + order => feste Position (Cursor wird ignoriert)
+            if order_group in {"front", "end"} and order_key is not None:
+                insert_required_by_order(rel_path, fallback_title, order_key, order_group)
             # --- NEU: AN DER CURSOR-POSITION EINFÜGEN ---
-            if target_index == "end":
+            elif target_index == "end":
                 # Standard-Verhalten (Ans Ende hängen)
                 self.tree_book.insert("", "end", text=fallback_title, values=(rel_path,))
             else:
                 # Am Cursor einfügen
                 self.tree_book.insert(target_parent, target_index, text=fallback_title, values=(rel_path,))
-                # Den Index um 1 erhöhen, damit die nächste Datei aus der Liste 
+                # Den Index um 1 erhöhen, damit die nächste Datei aus der Liste
                 # sauber unter die gerade eingefügte Datei rutscht!
                 target_index += 1
                 
