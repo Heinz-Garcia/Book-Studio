@@ -3,10 +3,11 @@ from tkinter import messagebox
 from pathlib import Path
 import re
 import zipfile
-import shutil
 from datetime import datetime
 import json
 import yaml
+from tkinter import ttk
+from ui_theme import COLORS, FONTS, center_on_parent, style_dialog
 
 # =========================================================================
 # 1. DER BUCH-DOKTOR (DIAGNOSE & SICHERHEIT)
@@ -19,8 +20,6 @@ class BookDoctor:
 
     def check_health(self, used_paths, unused_count):
         """Führt alle strengen Buch-Prüfungen durch."""
-        import yaml
-        import re
         if not self.current_book:
             return False, "Kein Projekt aktiv."
             
@@ -72,19 +71,19 @@ class BookDoctor:
                             if 'description' not in parsed_yaml:
                                 err.append(f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'description' fehlt im Frontmatter.")
                                 
-                    except Exception as exc:
+                    except yaml.YAMLError as exc:
                         err.append(f"❌ YAML-CRASH in {display_name}:\nQuarto wird hier abbrechen! Grund:\n{exc}")
                         
                     if '\t' in frontmatter:
                         err.append(f"❌ VERBOTENES ZEICHEN in {display_name}:\nYAML enthält Tabulatoren! Bitte durch Leerzeichen ersetzen.")
                         
-                    for i, line in enumerate(body.split('\n')):
+                    for line in body.split('\n'):
                         if line.strip() == '---':
                             err.append(f"❌ VERSTECKTER TRENNSTRICH in {display_name}:\nQuarto stürzt bei '---' im Text ab. (Bitte *** nutzen)")
                 else:
                     err.append(f"❌ FRONTMATTER DEFEKT in {display_name}: Die '---' Blöcke umschließen den Bereich nicht sauber.")
 
-            except Exception as e:
+            except OSError as e:
                 err.append(f"❌ Datei-Lesefehler bei {display_name}: {e}")
             
         if unused_count > 0:
@@ -92,7 +91,8 @@ class BookDoctor:
 
         report = "\n\n".join(err)
         if warn:
-            if err: report += "\n\n---\n\n"
+            if err:
+                report += "\n\n---\n\n"
             report += "\n".join(warn)
             
         return (len(err) == 0), report if report else "Das Buchprojekt ist in perfektem Zustand. ✅"
@@ -117,7 +117,8 @@ class BackupManager:
 
     def create_full_backup(self):
         """Erstellt eine komplette ZIP-Datei des Projekts."""
-        if not self.current_book: return None
+        if not self.current_book:
+            return None
         self.backup_dir.mkdir(exist_ok=True)
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -133,7 +134,8 @@ class BackupManager:
 
     def create_structure_backup(self, tree_data): # NEU: Nimmt jetzt die Daten direkt an!
         """Sichert die JSON-GUI-Struktur direkt aus dem Arbeitsspeicher für die Time Machine."""
-        if not self.current_book: return None
+        if not self.current_book:
+            return None
         self.backup_dir.mkdir(exist_ok=True)
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -147,7 +149,8 @@ class BackupManager:
 
     def show_restore_manager(self, preview_callback, apply_callback, cancel_callback):
         """Öffnet das modale Fenster für die Time Machine (Live-Preview aus JSON)."""
-        if not self.current_book: return
+        if not self.current_book:
+            return
         
         if not self.backup_dir.exists():
             messagebox.showinfo("Time Machine", "Keine Backups gefunden.")
@@ -161,14 +164,25 @@ class BackupManager:
             
         win = tk.Toplevel(self.root)
         win.title("⏪ Time Machine: Live-Preview")
-        win.geometry("500x400")
+        center_on_parent(win, self.root, 560, 430)
         
         win.transient(self.root)
         win.grab_set()
+        style_dialog(win)
         
-        tk.Label(win, text="Klicke auf ein Backup, um es im Hintergrund live anzusehen:", font=("Arial", 10, "bold")).pack(pady=10)
+        tk.Label(win, text="Klicke auf ein Backup, um es im Hintergrund live anzusehen:", bg=COLORS["app_bg"], fg=COLORS["heading"], font=FONTS["ui_semibold"]).pack(pady=12)
         
-        listbox = tk.Listbox(win, font=("Consolas", 10), selectbackground="#3498db")
+        listbox = tk.Listbox(
+            win,
+            font=("Consolas", 10),
+            selectbackground=COLORS["accent"],
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=COLORS["border"],
+            relief="flat",
+        )
         listbox.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
         
         for b in backups:
@@ -178,13 +192,14 @@ class BackupManager:
                 dt = datetime.strptime(raw_time, '%Y%m%d_%H%M%S')
                 nice_name = dt.strftime('%d.%m.%Y - %H:%M:%S Uhr')
                 listbox.insert(tk.END, f"{nice_name} ({b.name})")
-            except:
+            except ValueError:
                 listbox.insert(tk.END, b.name)
         
         # --- Events ---
-        def on_select_preview(event):
+        def on_select_preview(_event):
             sel = listbox.curselection()
-            if not sel: return
+            if not sel:
+                return
             
             # Wir holen uns den echten Dateinamen (steht in den Klammern)
             item_text = listbox.get(sel[0])
@@ -211,7 +226,7 @@ class BackupManager:
         win.protocol("WM_DELETE_WINDOW", on_cancel)
         
         # --- Buttons ---
-        btn_frame = tk.Frame(win)
+        btn_frame = ttk.Frame(win, padding=(0, 12))
         btn_frame.pack(pady=15)
-        tk.Button(btn_frame, text="✅ DIESE STRUKTUR ÜBERNEHMEN", bg="#27ae60", fg="white", font=("Arial", 10, "bold"), command=on_apply).pack(side=tk.LEFT, padx=10)
-        tk.Button(btn_frame, text="❌ Abbrechen", bg="#e74c3c", fg="white", command=on_cancel).pack(side=tk.LEFT)
+        ttk.Button(btn_frame, text="✅ DIESE STRUKTUR ÜBERNEHMEN", style="Accent.TButton", command=on_apply).pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text="Abbrechen", style="Tool.TButton", command=on_cancel).pack(side=tk.LEFT)

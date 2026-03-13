@@ -7,12 +7,22 @@ import json
 import re
 import os
 import platform
+import importlib
 from export_manager import ExportManager
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
 from yaml_engine import QuartoYamlEngine
 from book_doctor import BookDoctor, BackupManager
+from menu_manager import MenuManager
+from ui_actions_manager import UiActionsManager
+from sanitizer_config_editor import SanitizerConfigEditor
+from ui_theme import COLORS, apply_menu_theme, apply_ttk_theme, configure_root
+
+try:
+    sv_ttk = importlib.import_module("sv_ttk")
+except ModuleNotFoundError:
+    sv_ttk = None
 
 # =============================================================================
 # QUARTO BOOK STUDIO
@@ -32,8 +42,13 @@ class BookStudio:
                 
         self.root.title(f"📚 Quarto Book Studio {self.version_str}")
         # ----------------------------------------------
-        self.root.geometry("1300x900")
-        self.root.configure(bg="#f4f7f6")
+        configure_root(self.root)
+
+        # Letzte Fensterposition/-größe wiederherstellen
+        self._config_path = Path(__file__).parent / "studio_config.json"
+        saved_geo = self._load_window_geometry()
+        self.root.geometry(saved_geo)
+        self.root.protocol("WM_DELETE_WINDOW", self.close_app)
 
         self.base_path = Path(__file__).parent
         self.books = self._discover_projects()
@@ -44,6 +59,42 @@ class BookStudio:
         self.backup_mgr = None
         self.title_registry = {}
         self.status_registry = {}
+        self.available_templates = ["Standard"]
+        self.last_export_options = {
+            "format": "typst",
+            "template": "Standard",
+            "footnote_mode": "endnotes",
+        }
+        self.log_filter_labels = ["Alle", "Info", "Erfolg", "Warnung", "Fehler", "Header", "Meta"]
+        self.log_filter_map = {
+            "Alle": None,
+            "Info": {"info"},
+            "Erfolg": {"success"},
+            "Warnung": {"warning"},
+            "Fehler": {"error"},
+            "Header": {"header"},
+            "Meta": {"dim"},
+        }
+        self.log_filter_var = tk.StringVar(value="Alle")
+        self.log_auto_clear_var = tk.BooleanVar(value=False)
+        self.log_max_lines_var = tk.StringVar(value="500")
+        self.log_records = []
+        self._is_restoring_session = False
+        self._restored_session_state = self._load_session_state()
+
+        # UI-Attribute, die von UiActionsManager gesetzt werden
+        self.status = None
+        self.fmt_box = None
+        self.template_var = None
+        self.template_box = None
+        self.footnote_box = None
+        self.btn_render = None
+        self.log_output = None
+        self.log_menu = None
+        self.middle_panel = None
+        self._middle_sash_gap = None
+        self._pane_sash_positions = None
+        self._syncing_middle_pane = False
         
         self.current_profile_name = None 
         
@@ -51,19 +102,322 @@ class BookStudio:
         self.undo_stack = []
         self.redo_stack = []
         self.exporter = ExportManager(self) # NEU: Unser ausgelagerter Export-Manager
+        self.menu_manager = MenuManager(self)
+        self.ui_actions_manager = UiActionsManager(self)
         
         self._set_style()
         self.setup_ui()
         
         if self.books:
-            self.book_combo.current(0)
-            self.load_book(None)
+            self._restore_session_state()
 
         self.root.bind("<Control-z>", self.undo)
         self.root.bind("<Control-y>", self.redo)
         self.root.bind("<Control-Z>", self.redo)
         self.root.bind("<Control-s>", lambda e: self.save_project())
         self.root.bind("<F5>", lambda e: self.exporter.run_quarto_render())
+
+    # =========================================================================
+    # FENSTERPOSITION SPEICHERN / LADEN
+    # =========================================================================
+    def _load_window_geometry(self) -> str:
+        try:
+            cfg = self._read_config()
+            geo = cfg.get("window_geometry", "")
+            if geo and "x" in geo:
+                return geo
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+        return "1300x900"
+
+    def _save_window_geometry(self):
+        try:
+            self.root.update_idletasks()
+            cfg = self._read_config()
+            cfg["window_geometry"] = self.root.geometry()
+            self._write_config(cfg)
+        except (OSError, TypeError, ValueError):
+            pass
+
+    def _read_config(self):
+        if not self._config_path.exists():
+            return {}
+        with open(self._config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+
+    def _write_config(self, cfg):
+        with open(self._config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=4, ensure_ascii=False)
+
+    def _load_session_state(self):
+        try:
+            cfg = self._read_config()
+            session_state = cfg.get("session_state", {})
+            return session_state if isinstance(session_state, dict) else {}
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return {}
+
+    def _book_session_key(self, book_path):
+        try:
+            return str(book_path.relative_to(self.base_path))
+        except ValueError:
+            return book_path.name
+
+    def _save_session_state(self):
+        try:
+            cfg = self._read_config()
+            active_book_path = None
+            active_book_name = None
+            if self.current_book:
+                active_book_path = self._book_session_key(self.current_book)
+                active_book_name = self.current_book.name
+
+            cfg["session_state"] = {
+                "active_book_path": active_book_path,
+                "active_book_name": active_book_name,
+                "current_profile_name": self.current_profile_name,
+                "export_options": dict(self.last_export_options),
+                "ui_state": self._collect_ui_session_state(),
+            }
+            self._write_config(cfg)
+        except (OSError, TypeError, ValueError):
+            pass
+
+    def _collect_ui_session_state(self):
+        if not hasattr(self, "search_var") or not hasattr(self, "tree_book"):
+            return {}
+
+        return {
+            "search_text": self.search_var.get(),
+            "search_scope": self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links",
+            "status_filter": self.status_filter_var.get() if hasattr(self, "status_filter_var") else "Alle",
+            "log_filter": self.log_filter_var.get(),
+            "log_auto_clear": bool(self.log_auto_clear_var.get()),
+            "log_max_lines": self.log_max_lines_var.get(),
+            "avail_selected_paths": self._get_selected_paths(self.list_avail),
+            "tree_selected_paths": self._get_selected_paths(self.tree_book),
+            "avail_yview": list(self.list_avail.yview()),
+            "tree_yview": list(self.tree_book.yview()),
+        }
+
+    def _get_selected_paths(self, tree_widget):
+        selected_paths = []
+        for item_id in tree_widget.selection():
+            vals = tree_widget.item(item_id, "values")
+            if vals:
+                selected_paths.append(vals[0])
+        return selected_paths
+
+    def _find_tree_node_by_path(self, path, parent=""):
+        for node in self.tree_book.get_children(parent):
+            vals = self.tree_book.item(node, "values")
+            if vals and vals[0] == path:
+                return node
+            found = self._find_tree_node_by_path(path, node)
+            if found:
+                return found
+        return None
+
+    def _find_avail_node_by_path(self, path):
+        for node in self.list_avail.get_children(""):
+            vals = self.list_avail.item(node, "values")
+            if vals and vals[0] == path:
+                return node
+        return None
+
+    def _restore_ui_session_state(self, ui_state):
+        if not isinstance(ui_state, dict):
+            return
+
+        search_scope = ui_state.get("search_scope", "Links")
+        if hasattr(self, "search_scope_var") and search_scope in {"Links", "Rechts", "Beide"}:
+            self.search_scope_var.set(search_scope)
+
+        if hasattr(self, "search_var"):
+            self.search_var.set(ui_state.get("search_text", ""))
+
+        status_filter = ui_state.get("status_filter", "Alle")
+        if hasattr(self, "status_combo"):
+            valid_statuses = set(self.status_combo.cget("values"))
+            self.status_filter_var.set(status_filter if status_filter in valid_statuses else "Alle")
+
+        log_filter = ui_state.get("log_filter", "Alle")
+        self.log_filter_var.set(log_filter if log_filter in self.log_filter_labels else "Alle")
+        self.log_auto_clear_var.set(bool(ui_state.get("log_auto_clear", False)))
+        log_max_lines = str(ui_state.get("log_max_lines", "500"))
+        self.log_max_lines_var.set(log_max_lines if log_max_lines.isdigit() else "500")
+
+        self.on_title_search_change()
+        self.apply_status_filter()
+        self.refresh_log_view()
+
+        self.list_avail.selection_set(())
+        self.tree_book.selection_set(())
+
+        for path in ui_state.get("avail_selected_paths", []):
+            node = self._find_avail_node_by_path(path)
+            if node:
+                self.list_avail.selection_add(node)
+
+        for path in ui_state.get("tree_selected_paths", []):
+            node = self._find_tree_node_by_path(path)
+            if node:
+                self.tree_book.selection_add(node)
+
+        avail_yview = ui_state.get("avail_yview")
+        if isinstance(avail_yview, list) and avail_yview:
+            try:
+                self.list_avail.yview_moveto(float(avail_yview[0]))
+            except (TypeError, ValueError, tk.TclError):
+                pass
+
+        tree_yview = ui_state.get("tree_yview")
+        if isinstance(tree_yview, list) and tree_yview:
+            try:
+                self.tree_book.yview_moveto(float(tree_yview[0]))
+            except (TypeError, ValueError, tk.TclError):
+                pass
+
+        if not tree_yview:
+            tree_selection = self.tree_book.selection()
+            if tree_selection:
+                self.tree_book.see(tree_selection[0])
+
+        if not avail_yview:
+            avail_selection = self.list_avail.selection()
+            if avail_selection:
+                self.list_avail.see(avail_selection[0])
+
+    def _restore_session_state(self):
+        self._is_restoring_session = True
+        session_state = self._restored_session_state or {}
+
+        target_index = 0
+        target_book_path = session_state.get("active_book_path")
+        target_book_name = session_state.get("active_book_name")
+
+        for idx, book in enumerate(self.books):
+            if target_book_path and self._book_session_key(book) == target_book_path:
+                target_index = idx
+                break
+            if target_book_name and book.name == target_book_name:
+                target_index = idx
+                break
+
+        self.book_combo.current(target_index)
+        self.load_book(None)
+
+        export_options = session_state.get("export_options", {})
+        if isinstance(export_options, dict):
+            self.last_export_options.update(export_options)
+
+        profile_name = session_state.get("current_profile_name")
+        if profile_name and self.current_book:
+            profile_path = self.current_book / "bookconfig" / f"{profile_name}.json"
+            if profile_path.exists():
+                self._load_profile_from_file(profile_path, show_message=False, track_undo=False)
+
+        self._restore_ui_session_state(session_state.get("ui_state", {}))
+
+        self._is_restoring_session = False
+        self._save_session_state()
+
+    def close_app(self):
+        self._save_session_state()
+        self._save_window_geometry()
+        self.root.destroy()
+
+    def persist_app_state(self):
+        self._save_session_state()
+
+    def _get_max_log_lines(self):
+        try:
+            max_lines = int(self.log_max_lines_var.get())
+        except (TypeError, ValueError):
+            max_lines = 500
+        return max(50, max_lines)
+
+    def _get_visible_log_records(self):
+        filter_label = self.log_filter_var.get()
+        allowed_levels = self.log_filter_map.get(filter_label)
+        if allowed_levels is None:
+            return list(self.log_records)
+        return [record for record in self.log_records if record[1] in allowed_levels]
+
+    def _prune_log_records(self):
+        if self.log_auto_clear_var.get():
+            keep = self._get_max_log_lines()
+            if len(self.log_records) > keep:
+                self.log_records = self.log_records[-keep:]
+
+    def refresh_log_view(self):
+        if not self.log_output:
+            return
+        visible_records = self._get_visible_log_records()
+        try:
+            self.log_output.config(state="normal")
+            self.log_output.delete("1.0", tk.END)
+            for line, level in visible_records:
+                self.log_output.insert(tk.END, line, level)
+            self.log_output.see(tk.END)
+            self.log_output.config(state="disabled")
+        except tk.TclError:
+            pass
+
+    def on_log_preferences_changed(self):
+        self._prune_log_records()
+        self.refresh_log_view()
+        if not self._is_restoring_session:
+            self.persist_app_state()
+
+    def clear_log(self):
+        self.log_records.clear()
+        self.refresh_log_view()
+        if not self._is_restoring_session:
+            self.persist_app_state()
+
+    def copy_log_to_clipboard(self, copy_all=False):
+        if not self.log_output:
+            return
+        try:
+            if copy_all:
+                content = self.log_output.get("1.0", tk.END).strip()
+            else:
+                try:
+                    content = self.log_output.selection_get().strip()
+                except tk.TclError:
+                    content = self.log_output.get("1.0", tk.END).strip()
+            if not content:
+                return
+            self.root.clipboard_clear()
+            self.root.clipboard_append(content)
+            self.root.update()
+            self.status.config(text="Log in Zwischenablage kopiert", fg=COLORS["success"])
+        except tk.TclError:
+            pass
+
+    def open_sanitizer_config_editor(self):
+        config_path = self.base_path / "sanitizer_config.toml"
+        SanitizerConfigEditor(self.root, config_path, on_save=self._on_sanitizer_config_saved)
+
+    def _on_sanitizer_config_saved(self, _config):
+        self.log("⚙️ Sanitizer-Konfiguration gespeichert.", "success")
+        self.status.config(text="Sanitizer-Konfiguration gespeichert", fg="#27ae60")
+
+    # =========================================================================
+    # LOG-TERMINAL
+    # =========================================================================
+    def log(self, msg: str, level: str = "info"):
+        """Schreibt eine Zeile ins integrierte Log-Terminal.
+        level: 'info' | 'success' | 'error' | 'warning' | 'header' | 'dim'
+        """
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        line = f"[{timestamp}] {msg}\n"
+        self.log_records.append((line, level))
+        self._prune_log_records()
+        self.refresh_log_view()
 
     def _discover_projects(self):
         found = []
@@ -74,40 +428,53 @@ class BookStudio:
 
     def _set_style(self):
         s = ttk.Style()
-        s.theme_use('clam')
-        s.configure("Treeview", font=("Segoe UI", 10), rowheight=30, background="#ffffff", fieldbackground="#ffffff")
-        s.map("Treeview", background=[('selected', '#3498db')], foreground=[('selected', 'white')])
+        apply_ttk_theme(s, sv_ttk)
 
     # =========================================================================
     # GUI AUFBAU
     # =========================================================================
     def setup_ui(self):
-        tb = tk.Frame(self.root, bg="#2c3e50", pady=12)
+        self.menu_manager.build()
+
+        tb = tk.Frame(self.root, bg=COLORS["panel_dark"], pady=12)
         tb.pack(fill=tk.X)
-        tk.Label(tb, text="AKTIVES PROJEKT:", fg="#ecf0f1", bg="#2c3e50", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=(20, 10))
+        tk.Label(tb, text="AKTIVES PROJEKT:", fg="#f8fafc", bg=COLORS["panel_dark"], font=("Segoe UI Semibold", 10)).pack(side=tk.LEFT, padx=(20, 10))
         
-        self.book_combo = ttk.Combobox(tb, values=[b.name for b in self.books], state="readonly", width=50, font=("Arial", 10))
+        self.book_combo = ttk.Combobox(tb, values=[b.name for b in self.books], state="readonly", width=50, font=("Segoe UI", 10))
         self.book_combo.pack(side=tk.LEFT)
         self.book_combo.bind("<<ComboboxSelected>>", self.load_book)
         
-        self.profile_lbl = tk.Label(tb, text="Profil: [Standard]", fg="#f1c40f", bg="#2c3e50", font=("Consolas", 10, "bold"))
+        self.profile_lbl = tk.Label(tb, text="Profil: [Standard]", fg="#fbbf24", bg=COLORS["panel_dark"], font=("Consolas", 10, "bold"))
         self.profile_lbl.pack(side=tk.RIGHT, padx=20)
         
-        self.pane = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg="#bdc3c7", sashwidth=6)
+        self.pane = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg=COLORS["border"], sashwidth=8, sashrelief=tk.FLAT)
         self.pane.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # --- LINKS ---
         l_frame = tk.Frame(self.pane, bg="white")
-        self.pane.add(l_frame, width=450)
-        self.lbl_avail_count = tk.Label(l_frame, text="NICHT ZUGEORDNETE KAPITEL (0)", bg="#dfe6e9", font=("Arial", 9, "bold"), pady=5)
+        self.pane.add(l_frame, width=450, minsize=260, stretch="always")
+        self.lbl_avail_count = tk.Label(l_frame, text="NICHT ZUGEORDNETE KAPITEL (0)", bg=COLORS["surface_muted"], fg=COLORS["heading"], font=("Segoe UI Semibold", 9), pady=7)
         self.lbl_avail_count.pack(fill=tk.X)        
-        search_f = tk.Frame(l_frame, bg="#f9f9f9", pady=5)
+        search_f = tk.Frame(l_frame, bg=COLORS["surface_alt"], pady=6)
         search_f.pack(fill=tk.X)
-        tk.Label(search_f, text=" 🔍 Suche nach Titel: ", bg="#f9f9f9").pack(side=tk.LEFT)
+        tk.Label(search_f, text=" 🔍 Suche nach Titel: ", bg=COLORS["surface_alt"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
         
         self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *args: self._update_avail_list()) # Tcl 9 / Python 3.14 Fix
-        tk.Entry(search_f, textvariable=self.search_var, bd=1).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self.search_var.trace_add("write", lambda *args: self.on_title_search_change()) # Tcl 9 / Python 3.14 Fix
+        ttk.Entry(search_f, textvariable=self.search_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        self.search_scope_var = tk.StringVar(value="Links")
+        self.search_scope_box = ttk.Combobox(
+            search_f,
+            textvariable=self.search_scope_var,
+            values=["Links", "Rechts", "Beide"],
+            state="readonly",
+            width=8,
+        )
+        self.search_scope_box.pack(side=tk.LEFT, padx=(0, 5))
+        self.search_scope_box.bind("<<ComboboxSelected>>", self.on_title_search_change)
+
+        ttk.Button(search_f, text="Leeren", style="Tool.TButton", command=self.clear_title_search).pack(side=tk.LEFT, padx=(0, 5))
         
         self.list_avail = ttk.Treeview(l_frame, selectmode="extended", show="tree")
         self.list_avail.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -119,46 +486,24 @@ class BookStudio:
         
         # --- KONTEXTMENÜ LINKS ---
         self.avail_menu = tk.Menu(self.root, tearoff=0)
+        apply_menu_theme(self.avail_menu)
         self.avail_menu.add_command(label="📂 Im Explorer anzeigen", command=self.open_avail_in_explorer)
         self.list_avail.bind("<Button-3>", self.show_avail_menu)
         
         # --- MITTE ---
-        m_frame = tk.Frame(self.pane, bg="#f4f7f6", width=180)
-        self.pane.add(m_frame)
-        b_sty = {"width": 16, "pady": 4, "font": ("Segoe UI", 9)}
-        
-        tk.Button(m_frame, text="Hinzufügen ➡️", bg="#dff9fb", command=self.add_files, **b_sty).pack(pady=(40, 5))
-        tk.Button(m_frame, text="⬅️ Entfernen", bg="#fab1a0", command=self.remove_files, **b_sty).pack()
-        
-        tk.Frame(m_frame, height=20, bg="#f4f7f6").pack()
-        tk.Button(m_frame, text="⬆️ Hoch", command=self.move_up, **b_sty).pack(pady=2)
-        tk.Button(m_frame, text="⬇️ Runter", command=self.move_down, **b_sty).pack(pady=2)
-        tk.Button(m_frame, text="➡️ Einrücken", command=self.indent_item, **b_sty).pack(pady=(10, 2))
-        tk.Button(m_frame, text="⬅️ Ausrücken", command=self.outdent_item, **b_sty).pack(pady=2)
-
-        ttk.Separator(m_frame, orient='horizontal').pack(fill='x', pady=15, padx=10)
-        tk.Button(m_frame, text="↩️ Undo (Strg+Z)", bg="#ecf0f1", command=self.undo, **b_sty).pack(pady=2)
-        tk.Button(m_frame, text="↪️ Redo (Strg+Y)", bg="#ecf0f1", command=self.redo, **b_sty).pack(pady=2)
-        
-        ttk.Separator(m_frame, orient='horizontal').pack(fill='x', pady=15, padx=10)
-        # --- NEU: Der Hard Reset Button ---
-        tk.Button(m_frame, text="🔥 YAML Nuke", bg="#e74c3c", fg="white", font=("Segoe UI", 9, "bold"), command=self.reset_quarto_yml, width=16, pady=4).pack(pady=(2, 15))
-        # ----------------------------------
-        # --- NEU: Aufgeteilte Save-Buttons ---
-        tk.Button(m_frame, text="💾 Save JSON", bg="#fff9c4", command=self.quick_save_json, **b_sty).pack(pady=2)
-        tk.Button(m_frame, text="📝 Save JSON as...", bg="#ffeaa7", command=self.export_json, **b_sty).pack(pady=2)
-        tk.Button(m_frame, text="📂 Load JSON", bg="#fff9c4", command=self.import_json, **b_sty).pack(pady=2)
+        self.middle_panel = self.ui_actions_manager.build_middle_panel(self.pane)
+        self.pane.paneconfigure(self.middle_panel, width=196, minsize=196, stretch="never")
 
         # --- RECHTS ---
         r_frame = tk.Frame(self.pane, bg="white")
-        self.pane.add(r_frame, width=600)
+        self.pane.add(r_frame, width=600, minsize=320, stretch="always")
         
         # NEU: Ein kleiner Header-Frame für die rechte Seite
-        r_header = tk.Frame(r_frame, bg="#dfe6e9", pady=5)
+        r_header = tk.Frame(r_frame, bg=COLORS["surface_muted"], pady=6)
         r_header.pack(fill=tk.X)
-        tk.Label(r_header, text="BUCH-STRUKTUR", bg="#dfe6e9", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=5)
+        tk.Label(r_header, text="BUCH-STRUKTUR", bg=COLORS["surface_muted"], fg=COLORS["heading"], font=("Segoe UI Semibold", 9)).pack(side=tk.LEFT, padx=6)
         
-        tk.Label(r_header, text=" | Status-Filter: ", bg="#dfe6e9", font=("Arial", 9)).pack(side=tk.LEFT)
+        tk.Label(r_header, text=" | Status-Filter: ", bg=COLORS["surface_muted"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
         self.status_filter_var = tk.StringVar(value="Alle")
         self.status_combo = ttk.Combobox(r_header, textvariable=self.status_filter_var, state="readonly", width=15)
         self.status_combo.pack(side=tk.LEFT, padx=5)
@@ -182,76 +527,149 @@ class BookStudio:
         
         # --- KONTEXTMENÜ RECHTS ---
         self.tree_menu = tk.Menu(self.root, tearoff=0)
+        apply_menu_theme(self.tree_menu)
         self.tree_menu.add_command(label="📂 Im Explorer anzeigen", command=self.open_tree_in_explorer)
         self.tree_book.bind("<Button-3>", self.show_tree_menu)
         
-        # --- FOOTER ---
-        foot = tk.Frame(self.root, bg="#2c3e50", pady=15)
-        foot.pack(fill=tk.X, side=tk.BOTTOM)
-        
-        tk.Button(foot, text="💾 IN QUARTO SPEICHERN", bg="#27ae60", fg="white", font=("Arial", 11, "bold"), padx=25, command=self.save_project).pack(side=tk.LEFT, padx=20)
-        
-        tk.Label(foot, text="Format:", bg="#2c3e50", fg="white").pack(side=tk.LEFT)
-        self.fmt_box = ttk.Combobox(foot, values=["typst", "docx", "html", "pdf"], state="readonly", width=8)
-        self.fmt_box.current(0)
-        self.fmt_box.pack(side=tk.LEFT, padx=(5, 15))
-        
-        tk.Label(foot, text="Template:", bg="#2c3e50", fg="white").pack(side=tk.LEFT, padx=(10, 5))
-        self.template_var = tk.StringVar(value="Standard")
-        self.template_box = ttk.Combobox(foot, textvariable=self.template_var, state="readonly", width=15)
-        self.template_box.pack(side=tk.LEFT, padx=(0, 15))
-        
-        # --- NEU: FUSSNOTEN-SCHALTER ---
-        tk.Label(foot, text="Noten:", bg="#2c3e50", fg="white").pack(side=tk.LEFT)
-        self.footnote_box = ttk.Combobox(foot, values=["endnotes", "pandoc"], state="readonly", width=10)
-        self.footnote_box.current(0) # Standardmäßig auf "endnotes"
-        self.footnote_box.pack(side=tk.LEFT, padx=(5, 15))
-        # -------------------------------
-        
-        self.btn_render = tk.Button(foot, text="🖨️ RENDERN", bg="#2980b9", fg="white", font=("Arial", 10, "bold"), command=self.exporter.run_quarto_render, padx=15)
-        self.btn_render.pack(side=tk.LEFT)
-        
-        # --- NEU: Der Scrivener Export Button (läuft über ExportManager) ---
-        tk.Button(foot, text="📝 SCRIVENER (.md)", bg="#16a085", fg="white", font=("Arial", 10, "bold"), command=self.exporter.export_single_markdown, padx=15).pack(side=tk.LEFT, padx=(5, 15))
-        
-        tk.Button(foot, text="🔍 PREVIEW", bg="#9b59b6", fg="white", font=("Arial", 10, "bold"), command=self.open_preview, padx=15).pack(side=tk.LEFT, padx=(5, 15))
-        # --- NEU: DER SANITIZER BUTTON ---
-        tk.Button(foot, text="🧹 SANITIZER", bg="#d35400", fg="white", font=("Arial", 10, "bold"), command=self.run_sanitizer_pipeline, padx=15).pack(side=tk.LEFT, padx=(0, 15))
-        # ---------------------------------
-        tk.Button(foot, text="🩺 BUCH-DOKTOR", bg="#8e44ad", fg="white", font=("Arial", 10, "bold"), command=self.run_doctor, padx=15).pack(side=tk.LEFT, padx=15)
-        tk.Button(foot, text="📦 BACKUP", bg="#f39c12", fg="white", command=self.run_backup).pack(side=tk.LEFT)
-        tk.Button(foot, text="⏪ TIME MACHINE", bg="#c0392b", fg="white", command=self.open_time_machine).pack(side=tk.LEFT, padx=5)
+        # --- FOOTER --- (zuerst packen → landet ganz unten)
+        self.ui_actions_manager.build_footer(self.root)
 
-        self.status = tk.Label(foot, text="Bereit.", bg="#2c3e50", fg="#bdc3c7", font=("Consolas", 9))
-        self.status.pack(side=tk.RIGHT, padx=20)
+        # --- LOG-TERMINAL (danach packen → landet direkt über dem Footer) ---
+        self.ui_actions_manager.build_log_panel(self.root)
+        self.root.after(0, self._init_fixed_middle_pane_behavior)
 
-    def apply_status_filter(self, event=None):
-        if not self.current_book: return
-        target_status = self.status_filter_var.get()
-        
+    def _get_sash_positions(self):
+        if len(self.pane.panes()) < 3:
+            return None
+        return self.pane.sash_coord(0)[0], self.pane.sash_coord(1)[0]
+
+    def _remember_sash_positions(self):
+        self._pane_sash_positions = self._get_sash_positions()
+
+    def _init_fixed_middle_pane_behavior(self):
+        positions = self._get_sash_positions()
+        if not positions:
+            return
+        self._middle_sash_gap = positions[1] - positions[0]
+        self._pane_sash_positions = positions
+        self.pane.bind("<ButtonRelease-1>", self._on_pane_sash_drag, add="+")
+        self.pane.bind("<B1-Motion>", self._on_pane_sash_drag, add="+")
+        self.pane.bind("<Configure>", self._on_pane_configure, add="+")
+
+    def _on_pane_configure(self, _event=None):
+        if self._middle_sash_gap is None or self._syncing_middle_pane:
+            return
+        self.root.after_idle(self._sync_middle_pane_width)
+
+    def _on_pane_sash_drag(self, _event=None):
+        if self._middle_sash_gap is None or self._syncing_middle_pane:
+            return
+        self.root.after_idle(self._sync_middle_pane_width)
+
+    def _sync_middle_pane_width(self):
+        if self._syncing_middle_pane or self._middle_sash_gap is None:
+            return
+
+        positions = self._get_sash_positions()
+        if not positions:
+            return
+
+        if self._pane_sash_positions is None:
+            self._pane_sash_positions = positions
+            return
+
+        prev_left, prev_right = self._pane_sash_positions
+        left_x, right_x = positions
+        current_gap = right_x - left_x
+        if current_gap == self._middle_sash_gap:
+            self._pane_sash_positions = positions
+            return
+
+        delta_left = abs(left_x - prev_left)
+        delta_right = abs(right_x - prev_right)
+
+        self._syncing_middle_pane = True
+        try:
+            if delta_left >= delta_right:
+                self.pane.sash_place(1, left_x + self._middle_sash_gap, self.pane.sash_coord(1)[1])
+            else:
+                self.pane.sash_place(0, right_x - self._middle_sash_gap, self.pane.sash_coord(0)[1])
+        finally:
+            self._syncing_middle_pane = False
+
+        self._pane_sash_positions = self._get_sash_positions()
+
+    def apply_status_filter(self, _event=None):
+        self._apply_tree_filters()
+
+    def on_title_search_change(self, _event=None):
+        self._update_avail_list()
+        self._apply_tree_filters()
+
+    def clear_title_search(self):
+        self.search_var.set("")
+        if hasattr(self, "search_scope_var"):
+            self.search_scope_var.set("Links")
+        self.on_title_search_change()
+
+    def _apply_tree_filters(self):
+        if not self.current_book:
+            return
+
+        target_status = self.status_filter_var.get() if hasattr(self, "status_filter_var") else "Alle"
+        search_scope = self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links"
+        search_term = self.search_var.get().strip().lower() if hasattr(self, "search_var") else ""
+
+        search_on_right = search_scope in {"Rechts", "Beide"}
+        active_search_term = search_term if search_on_right else ""
+
+        first_match = [None]
+
         def walk_tree(node):
             vals = self.tree_book.item(node, "values")
+            node_text = self.tree_book.item(node, "text").lower()
+            children = self.tree_book.get_children(node)
+
+            child_matches = False
+            for child in children:
+                if walk_tree(child):
+                    child_matches = True
+
+            status_ok = True
+            path_text = ""
             if vals:
-                path = vals[0]
-                status = self.status_registry.get(path, "ohne Eintrag")
-                
-                # Wenn wir "Alle" auswählen oder der Status exakt passt -> Normale Farbe
-                if target_status == "Alle" or status == target_status:
-                    self.tree_book.item(node, tags=('normal',))
-                else:
-                    self.tree_book.item(node, tags=('dimmed',)) # Sonst Grau machen
-                    
-            for child in self.tree_book.get_children(node):
-                walk_tree(child)
-                
+                path_text = str(vals[0]).lower()
+                status = self.status_registry.get(vals[0], "ohne Eintrag")
+                status_ok = target_status == "Alle" or status == target_status
+
+            has_search_term = bool(active_search_term)
+            self_match = (not has_search_term) or (active_search_term in node_text or active_search_term in path_text)
+            search_ok = (not has_search_term) or self_match or child_matches
+
+            is_visible = status_ok and search_ok
+            self.tree_book.item(node, tags=("normal",) if is_visible else ("dimmed",))
+
+            if has_search_term and search_ok and children:
+                self.tree_book.item(node, open=True)
+
+            if has_search_term and self_match and status_ok and first_match[0] is None:
+                first_match[0] = node
+
+            return self_match or child_matches
+
         for root_node in self.tree_book.get_children():
             walk_tree(root_node)
+
+        if first_match[0] is not None:
+            self.tree_book.selection_set(first_match[0])
+            self.tree_book.see(first_match[0])
 
     # =========================================================================
     # LADEN & JSON IMPORT/EXPORT
     # =========================================================================
-    def load_book(self, event):
-        if not self.book_combo.get(): return
+    def load_book(self, _event):
+        if not self.book_combo.get():
+            return
         self.current_book = self.books[self.book_combo.current()]
         
         self.current_profile_name = None
@@ -279,22 +697,27 @@ class BookStudio:
         
         self.undo_stack.clear()
         self.redo_stack.clear()
-        for i in self.tree_book.get_children(): self.tree_book.delete(i)
+        for i in self.tree_book.get_children():
+            self.tree_book.delete(i)
         
         struct = self.yaml_engine.parse_chapters()
         self._build_tree_recursive("", struct)
         self._update_avail_list()
+        self._apply_tree_filters()
         
         self.status.config(text=f"Projekt geladen: {self.current_book.name}", fg="#2ecc71")
+        self.log(f"📚 Projekt geladen: {self.current_book.name}", "success")
         # NEU: Templates über das neue Modul entdecken
         from template_manager import TemplateManager
         tpls = TemplateManager.discover_templates(self.current_book)
-        self.template_box.config(values=tpls)
-        self.template_var.set("Standard")
+        self.available_templates = tpls if tpls else ["Standard"]
+        if not self._is_restoring_session:
+            self._save_session_state()
 
     def refresh_ui_titles(self):
         """Aktualisiert nur die Titel in der GUI, ohne die Struktur zu zerstören."""
-        if not self.current_book: return
+        if not self.current_book:
+            return
         
         # 1. Registries aus den Dateien neu einlesen (für Titel und Status)
         self.title_registry = self.yaml_engine.build_title_registry()
@@ -330,12 +753,13 @@ class BookStudio:
         self._update_avail_list()
         
         # 4. Den Status-Filter direkt wieder anwenden (Highlighting aktualisieren)
-        if hasattr(self, 'apply_status_filter'):
-            self.apply_status_filter()
+        if hasattr(self, '_apply_tree_filters'):
+            self._apply_tree_filters()
 
     def quick_save_json(self):
         """Überschreibt das aktuelle Profil ohne Dialog. Fallback auf 'Save As', wenn kein Profil existiert."""
-        if not self.current_book: return
+        if not self.current_book:
+            return
         
         # Wenn wir noch im [Standard] Profil sind, erzwingen wir den "Speichern als"-Dialog
         if not self.current_profile_name:
@@ -352,11 +776,13 @@ class BookStudio:
             
             # Kleines visuelles Feedback in der Statusleiste statt störendem Popup
             self.status.config(text=f"Profil '{self.current_profile_name}' gespeichert!", fg="#27ae60")
-        except Exception as e:
+            self._save_session_state()
+        except (OSError, TypeError, ValueError) as e:
             messagebox.showerror("Fehler", f"Konnte Profil nicht überschreiben:\n{e}")
     
     def export_json(self):
-        if not self.current_book: return
+        if not self.current_book:
+            return
         config_dir = self.current_book / "bookconfig"
         config_dir.mkdir(exist_ok=True)
         
@@ -366,7 +792,8 @@ class BookStudio:
             filetypes=[("JSON Dateien", "*.json")],
             title="Struktur speichern (JSON)"
         )
-        if not filepath: return
+        if not filepath:
+            return
         
         self.current_profile_name = Path(filepath).stem
         self.profile_lbl.config(text=f"Profil: [{self.current_profile_name}]")
@@ -375,12 +802,14 @@ class BookStudio:
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(tree_data, f, indent=4, ensure_ascii=False)
+            self._save_session_state()
             messagebox.showinfo("Erfolg", f"Struktur gespeichert unter:\n{Path(filepath).name}\n\nBeim Rendern wird Quarto die Ausgabedatei '{self.current_profile_name}' nennen!")
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             messagebox.showerror("Fehler", f"Konnte JSON nicht speichern:\n{e}")
 
     def import_json(self):
-        if not self.current_book: return
+        if not self.current_book:
+            return
         config_dir = self.current_book / "bookconfig"
         config_dir.mkdir(exist_ok=True)
         
@@ -389,30 +818,45 @@ class BookStudio:
             filetypes=[("JSON Dateien", "*.json")],
             title="Struktur laden (JSON)"
         )
-        if not filepath: return
-        
+        if not filepath:
+            return
+        self._load_profile_from_file(filepath)
+
+    def _load_profile_from_file(self, filepath, show_message=True, track_undo=True):
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 tree_data = json.load(f)
-                
-            pre_state = self._get_current_state()
-            for i in self.tree_book.get_children(): self.tree_book.delete(i)
-            
+
+            pre_state = self._get_current_state() if track_undo else None
+            for i in self.tree_book.get_children():
+                self.tree_book.delete(i)
+
             self._build_tree_from_json("", tree_data)
             self._update_avail_list()
-            self._push_undo(pre_state)
-            
+            if track_undo and pre_state is not None:
+                self._push_undo(pre_state)
+
             self.current_profile_name = Path(filepath).stem
             self.profile_lbl.config(text=f"Profil: [{self.current_profile_name}]")
-            
-            messagebox.showinfo("Erfolg", f"Profil '{self.current_profile_name}' geladen!\n\nKlicke auf 'IN QUARTO SPEICHERN' oder direkt auf 'RENDERN'.")
-        except Exception as e:
-            messagebox.showerror("Fehler", f"Konnte JSON nicht laden:\n{e}")
+            if not self._is_restoring_session:
+                self.log(f"📄 Profil geladen: {self.current_profile_name}", "success")
+            self._save_session_state()
+
+            if show_message:
+                messagebox.showinfo("Erfolg", f"Profil '{self.current_profile_name}' geladen!\n\nKlicke auf 'IN QUARTO SPEICHERN' oder direkt auf 'RENDERN'.")
+            return True
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
+            if show_message:
+                messagebox.showerror("Fehler", f"Konnte JSON nicht laden:\n{e}")
+            else:
+                self.log(f"⚠️  Konnte gespeichertes Profil nicht laden: {e}", "warning")
+            return False
 
     def _build_tree_from_json(self, parent_id, data):
         for item in data:
             path = item.get("path", "")
-            if path == "index.md": continue
+            if path == "index.md":
+                continue
             title = item.get("title", self.title_registry.get(path, f"[NEU] {Path(path).stem}"))
             node = self.tree_book.insert(parent_id, "end", text=title, values=(path,), open=True)
             if item.get("children"):
@@ -424,7 +868,8 @@ class BookStudio:
     def _build_tree_recursive(self, parent_id, data):
         for item in data:
             path = item["path"]
-            if path == "index.md": continue
+            if path == "index.md":
+                continue
             title = self.title_registry.get(path, f"[NEU] {Path(path).stem}")
             node = self.tree_book.insert(parent_id, "end", text=title, values=(path,), open=True)
             if item.get("children"):
@@ -435,11 +880,16 @@ class BookStudio:
         used_paths.append("index.md")
         self.list_avail.delete(*self.list_avail.get_children())
         search_term = self.search_var.get().lower()
+        search_scope = self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links"
+        apply_left_search = search_scope in {"Links", "Beide"}
         
         count = 0  # NEU: Zähler starten
         
         for path, title in sorted(self.title_registry.items(), key=lambda x: x[1]):
-            if path not in used_paths and (search_term in title.lower() or search_term in path.lower()):
+            if path in used_paths:
+                continue
+            title_or_path_match = (search_term in title.lower()) or (search_term in path.lower())
+            if (not apply_left_search) or title_or_path_match:
                 self.list_avail.insert("", "end", text=title, values=(path,))
                 count += 1  # NEU: Zähler hochzählen
                 
@@ -451,8 +901,10 @@ class BookStudio:
         res = []
         def walk(node):
             vals = self.tree_book.item(node, "values")
-            if vals: res.append(vals[0])
-            for c in self.tree_book.get_children(node): walk(c)
+            if vals:
+                res.append(vals[0])
+            for c in self.tree_book.get_children(node):
+                walk(c)
         walk("")
         return res
 
@@ -467,11 +919,15 @@ class BookStudio:
             data.append(item)
         return data
 
+    def get_tree_data_for_engine(self, node=""):
+        return self._get_tree_data_for_engine(node)
+
     # =========================================================================
     # SPEICHERN, DOKTOR, EDITOR (INKL. GEISTER-DATEI-ERKENNUNG)
     # =========================================================================
     def save_project(self, show_msg=True):
-        if not self.current_book: return False
+        if not self.current_book:
+            return False
         
         is_healthy, report = self.doctor.check_health(self._get_all_used_paths(), len(self.list_avail.get_children("")))
         if not is_healthy:
@@ -495,15 +951,17 @@ class BookStudio:
             if show_msg:
                 messagebox.showinfo("Speichern", msg)
             self.status.config(text="Zuletzt gespeichert: Gerade eben", fg="#27ae60")
+            self.log("💾 Struktur in _quarto.yml gespeichert.", "success")
             return True
             
-        except Exception as e:
+        except (OSError, ValueError, TypeError, RuntimeError) as e:
             messagebox.showerror("YAML Fehler", f"Konnte _quarto.yml nicht speichern:\n\n{str(e)}")
             return False
         
 
     def reset_quarto_yml(self):
-        if not self.current_book: return
+        if not self.current_book:
+            return
         
         msg = ("🚨 HARD RESET 🚨\n\n"
                "Möchtest du die _quarto.yml WIRKLICH auf eine saubere, leere Basis zurücksetzen?\n\n"
@@ -551,18 +1009,21 @@ class BookStudio:
                 # 4. Das Buch zwingen, sich im Book Studio komplett neu zu laden
                 self.load_book(None)
                 
-            except Exception as e:
+            except OSError as e:
                 messagebox.showerror("Fehler", f"Konnte YAML nicht resetten:\n{e}")
     
     def run_doctor(self):
-        if not self.current_book: return
+        if not self.current_book:
+            return
         self.doctor.run_doctor_manual(self._get_all_used_paths(), len(self.list_avail.get_children("")))
 
     def on_double_click(self, event):
         item = event.widget.identify_row(event.y)
-        if not item: return
+        if not item:
+            return
         vals = event.widget.item(item, "values")
-        if not vals: return
+        if not vals:
+            return
         f_path = self.current_book / vals[0]
         
         if f_path.exists():
@@ -595,7 +1056,8 @@ class BookStudio:
 
     def open_avail_in_explorer(self):
         sel = self.list_avail.selection()
-        if not sel: return
+        if not sel:
+            return
         self._open_in_explorer(self.list_avail.item(sel[0], "values"))
 
     def show_tree_menu(self, event):
@@ -606,11 +1068,13 @@ class BookStudio:
 
     def open_tree_in_explorer(self):
         sel = self.tree_book.selection()
-        if not sel: return
+        if not sel:
+            return
         self._open_in_explorer(self.tree_book.item(sel[0], "values"))
 
     def _open_in_explorer(self, vals):
-        if not vals: return
+        if not vals:
+            return
         f_path = self.current_book / vals[0]
         if not f_path.exists():
             messagebox.showwarning("Geister-Datei", "Die Datei existiert nicht mehr auf der Festplatte.")
@@ -623,7 +1087,7 @@ class BookStudio:
                 subprocess.Popen(["open", "-R", str(f_path.resolve())])
             else:
                 subprocess.Popen(["xdg-open", str(f_path.parent.resolve())])
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError) as e:
             messagebox.showerror("Fehler", f"Explorer konnte nicht geöffnet werden:\n{e}")
 
     # =========================================================================
@@ -636,7 +1100,8 @@ class BookStudio:
 
     
     def open_time_machine(self):
-        if not self.current_book: return
+        if not self.current_book:
+            return
         original_state = self._get_current_state()
         
         # Das Callback empfängt jetzt direkt die tree_data (JSON-Liste) aus dem Backup
@@ -658,7 +1123,8 @@ class BookStudio:
         self.backup_mgr.show_restore_manager(preview_callback, apply_callback, cancel_callback)
 
     def open_preview(self):
-        if not self.current_book: return
+        if not self.current_book:
+            return
         from preview_inspector import PreviewInspector
         tree_data = self._get_tree_data_for_engine()
         PreviewInspector(self.root, tree_data, self.yaml_engine)
@@ -787,7 +1253,8 @@ class BookStudio:
     def remove_files(self):
         pre = self._get_current_state()
         for i in self.tree_book.selection():
-            if not self.tree_book.exists(i): continue
+            if not self.tree_book.exists(i):
+                continue
             for child in [i] + self._get_all_tree_children(i):
                 txt, vals = self.tree_book.item(child, "text"), self.tree_book.item(child, "values")
                 if self.search_var.get().lower() in txt.lower():
@@ -796,7 +1263,8 @@ class BookStudio:
         self._push_undo(pre)
 
     def reset_structure(self):
-        if not self.current_book: return
+        if not self.current_book:
+            return
         
         msg = ("Möchtest du wirklich die komplette Buch-Struktur leeren?\n\n"
                "Alle Kapitel werden zurück in die linke Liste geschoben und die _quarto.yml wird zurückgesetzt.\n"
@@ -821,14 +1289,16 @@ class BookStudio:
     
     def _get_all_tree_children(self, item):
         res = list(self.tree_book.get_children(item))
-        for child in res: res.extend(self._get_all_tree_children(child))
+        for child in res:
+            res.extend(self._get_all_tree_children(child))
         return res
 
     def move_up(self):
         pre = self._get_current_state()
         for i in self.tree_book.selection():
             idx = self.tree_book.index(i)
-            if idx > 0: self.tree_book.move(i, self.tree_book.parent(i), idx-1)
+            if idx > 0:
+                self.tree_book.move(i, self.tree_book.parent(i), idx-1)
         self._push_undo(pre)
 
     def move_down(self):
@@ -851,22 +1321,28 @@ class BookStudio:
         pre = self._get_current_state()
         for i in reversed(self.tree_book.selection()):
             p = self.tree_book.parent(i)
-            if p: self.tree_book.move(i, self.tree_book.parent(p), self.tree_book.index(p)+1)
+            if p:
+                self.tree_book.move(i, self.tree_book.parent(p), self.tree_book.index(p)+1)
         self._push_undo(pre)
 
-    def on_drag_start(self, e): self.drag_data['item'] = self.tree_book.identify_row(e.y)
-    def on_drag_motion(self, e): 
-        if self.drag_data['item']: self.tree_book.config(cursor="fleur")
+    def on_drag_start(self, event):
+        self.drag_data['item'] = self.tree_book.identify_row(event.y)
+
+    def on_drag_motion(self, _event):
+        if self.drag_data['item']:
+            self.tree_book.config(cursor="fleur")
     
     def on_drop(self, e):
         self.tree_book.config(cursor="")
         drag, target = self.drag_data['item'], self.tree_book.identify_row(e.y)
         self.drag_data['item'] = None
-        if not drag or not target or drag == target: return
+        if not drag or not target or drag == target:
+            return
         
         p = self.tree_book.parent(target)
         while p:
-            if p == drag: return
+            if p == drag:
+                return
             p = self.tree_book.parent(p)
 
         bbox = self.tree_book.bbox(target)
@@ -893,19 +1369,23 @@ class BookStudio:
         return {"book": get_state("", self.tree_book), "avail": get_state("", self.list_avail)}
 
     def _restore_state(self, state):
-        for i in self.tree_book.get_children(): self.tree_book.delete(i)
-        for i in self.list_avail.get_children(): self.list_avail.delete(i)
+        for i in self.tree_book.get_children():
+            self.tree_book.delete(i)
+        for i in self.list_avail.get_children():
+            self.list_avail.delete(i)
         def rebuild(p, data, tree):
-            for d in data: rebuild(tree.insert(p, "end", text=d["text"], values=d["values"], open=d["open"]), d["children"], tree)
-        rebuild("", state["book"], self.tree_book); rebuild("", state["avail"], self.list_avail)
+            for d in data:
+                rebuild(tree.insert(p, "end", text=d["text"], values=d["values"], open=d["open"]), d["children"], tree)
+        rebuild("", state["book"], self.tree_book)
+        rebuild("", state["avail"], self.list_avail)
 
-    def undo(self, e=None):
+    def undo(self, _event=None):
         if self.undo_stack:
             self.redo_stack.append(self._get_current_state())
             self._restore_state(self.undo_stack.pop())
             self._mark_unsaved()  # <-- NEU
 
-    def redo(self, e=None):
+    def redo(self, _event=None):
         if self.redo_stack:
             self.undo_stack.append(self._get_current_state())
             self._restore_state(self.redo_stack.pop())
@@ -921,7 +1401,8 @@ class BookStudio:
     # SANITIZER PIPELINE (Inklusive Pre-Backup)
     # =========================================================================
     def run_sanitizer_pipeline(self):
-        if not self.current_book: return
+        if not self.current_book:
+            return
         
         content_dir = self.current_book / "content"
         if not content_dir.exists():
@@ -941,7 +1422,7 @@ class BookStudio:
                     custom_path = cfg.get("sanitizer_backup_path")
                     if custom_path:
                         backup_base_dir = Path(custom_path)
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
                 print(f"Fehler beim Lesen der Config: {e}")
 
         # 2. Zeitstempel-Ordnernamen generieren (Format: DDMMYY_HHMM)
@@ -967,50 +1448,46 @@ class BookStudio:
             # Stellt sicher, dass das Basis-Verzeichnis existiert
             backup_base_dir.mkdir(parents=True, exist_ok=True) 
             shutil.copytree(content_dir, backup_dir)
-        except Exception as e:
+        except (OSError, shutil.Error) as e:
             messagebox.showerror("Backup Fehler", f"Konnte das Pre-Backup nicht erstellen. Abbruch!\n\n{e}")
             return
 
-        # 5. Live-Log Fenster für den Sanitizer öffnen (wie beim Rendern)
-        log_win = tk.Toplevel(self.root)
-        log_win.title("🧹 Sanitizer Live-Log")
-        log_win.geometry("850x600")
-        
-        txt = tk.Text(log_win, bg="#1e1e1e", fg="#ecf0f1", font=("Consolas", 10), padx=10, pady=10)
-        txt.pack(fill=tk.BOTH, expand=True)
-        
+        # 5. Status melden und Thread starten
+        self.log("=" * 50, "dim")
+        self.log("🧹 SANITIZER PIPELINE GESTARTET", "header")
+        self.log("=" * 50, "dim")
+
         # 6. Thread starten, damit die GUI nicht einfriert
         def sanitizer_thread():
-            txt.insert(tk.END, f"✅ PRE-BACKUP ERFOLGREICH:\n{backup_dir}\n")
-            txt.insert(tk.END, "="*60 + "\n🚀 STARTE SANITIZER...\n" + "="*60 + "\n\n")
+            self.root.after(0, lambda: self.log(f"✅ PRE-BACKUP: {backup_dir}", "success"))
+            self.root.after(0, lambda: self.log("🚀 Starte Sanitizer...", "header"))
             
             # Sanitizer.py aufrufen und Output abfangen
             cmd = f'python Sanitizer.py "{self.current_book}"'
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=self.base_path)
             
-            for line in p.stdout: 
-                txt.insert(tk.END, line)
-                txt.see(tk.END)
+            for line in p.stdout:
+                stripped = line.rstrip()
+                if stripped:
+                    self.root.after(0, lambda ln=stripped: self.log(ln, "info"))
                 
             p.wait()
             
             if p.returncode == 0:
-                txt.insert(tk.END, "\n\n✅ SANITIZER-LAUF ABGESCHLOSSEN!")
-                txt.config(fg="#2ecc71")
+                self.root.after(0, lambda: self.log("✅ SANITIZER-LAUF ABGESCHLOSSEN!", "success"))
                 # GANZ WICHTIG: Die UI aktualisieren, falls der Sanitizer defektes Frontmatter repariert hat!
                 self.root.after(0, self.refresh_ui_titles)
             else:
-                txt.insert(tk.END, f"\n\n❌ FEHLER: Crash (Code {p.returncode})")
-                txt.config(fg="#e74c3c")
+                self.root.after(0, lambda: self.log(f"❌ FEHLER: Crash (Code {p.returncode})", "error"))
 
-        import threading
         threading.Thread(target=sanitizer_thread, daemon=True).start()
         
     # =========================================================================
     # RENDERING PIPELINE (Ghost-Render mit Pre-Processor)
     # =========================================================================
     def run_quarto_render(self):
-        if not self.current_book: return
+        if not self.current_book:
+            return
         
         # 1. Aktuellen (reinen) Stand ganz normal speichern
         if not self.save_project(show_msg=False):
@@ -1031,46 +1508,44 @@ class BookStudio:
         # 3. _quarto.yml TEMPORÄR auf den processed/ Ordner umbiegen (ohne GUI State zu zerstören!)
         self.yaml_engine.save_chapters(processed_tree, profile_name=self.current_profile_name, save_gui_state=False)
         
-        log_win = tk.Toplevel(self.root)
-        log_win.title(f"🖨️ Quarto Render Pipeline: {fmt.upper()}")
-        log_win.geometry("900x600")
-        
-        txt = tk.Text(log_win, bg="#1e1e1e", fg="#ecf0f1", font=("Consolas", 10), padx=10, pady=10)
-        txt.pack(fill=tk.BOTH, expand=True)
+        self.log("=" * 50, "dim")
+        self.log("🖨️  QUARTO RENDER: " + fmt.upper(), "header")
+        self.log("=" * 50, "dim")
         self.btn_render.config(state="disabled")
-        
+
         def render_thread():
             cmd = f"quarto render \"{self.current_book}\" --to {fmt}"
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            for line in p.stdout: txt.insert(tk.END, line); txt.see(tk.END)
+            for line in p.stdout:
+                stripped = line.rstrip()
+                if stripped:
+                    self.root.after(0, lambda ln=stripped: self.log(ln, "info"))
             p.wait()
-            
+
             # 4. AUFRÄUMEN: Nach dem Rendern sofort die Original-Struktur wiederherstellen!
             self.yaml_engine.save_chapters(original_tree, profile_name=self.current_profile_name, save_gui_state=False)
-            
+
             if p.returncode == 0:
                 try:
                     safe_profile = re.sub(r'[^a-zA-Z0-9_\-]', '_', self.current_profile_name) if self.current_profile_name else None
                     out_dir_name = f"_book_{safe_profile}" if safe_profile else "_book"
                     out_dir = self.current_book / "export" / out_dir_name
-                    
+
                     target_ext = ".pdf" if fmt in ["pdf", "typst"] else f".{fmt}"
                     found_files = list(out_dir.glob(f"*{target_ext}"))
-                    
+
                     if found_files:
                         file_to_open = found_files[0]
                         abs_path = str(file_to_open.resolve())
-                        
-                        # --- NEU: CLIPBOARD MAGIC ---
+
                         self.root.clipboard_clear()
                         self.root.clipboard_append(abs_path)
                         self.root.update()
-                        
-                        txt.insert(tk.END, f"\n\n=======================================\n✅ ERFOLG: {fmt.upper()} generiert!\n📋 IN ZWISCHENABLAGE KOPIERT:\n{abs_path}\n=======================================")
-                        txt.config(fg="#2ecc71")
+
+                        self.root.after(0, lambda: self.log(f"✅ ERFOLG: {fmt.upper()} generiert!", "success"))
+                        self.root.after(0, lambda: self.log(f"📋 Pfad in Zwischenablage: {abs_path}", "success"))
                         self.root.after(0, lambda: self.status.config(text="Render: Erfolgreich", fg="#2ecc71"))
-                        
-                        # --- AUTO-OPEN MAGIC ---
+
                         if platform.system() == 'Windows':
                             os.startfile(abs_path)
                         elif platform.system() == 'Darwin':
@@ -1078,16 +1553,14 @@ class BookStudio:
                         else:
                             subprocess.call(('xdg-open', abs_path))
                     else:
-                        txt.insert(tk.END, f"\n\n=======================================\n✅ ERFOLG: {fmt.upper()} generiert im export/ Ordner!\n=======================================")
-                        txt.config(fg="#2ecc71")
+                        self.root.after(0, lambda: self.log(f"✅ ERFOLG: {fmt.upper()} im export/ Ordner generiert.", "success"))
                         self.root.after(0, lambda: self.status.config(text="Render: Erfolgreich", fg="#2ecc71"))
 
-                except Exception as e:
-                    print(f"Auto-Open/Clipboard fehlgeschlagen: {e}")
-                    
+                except (tk.TclError, OSError, subprocess.SubprocessError) as auto_open_err:
+                    self.root.after(0, lambda err=auto_open_err: self.log(f"⚠️  Auto-Open fehlgeschlagen: {err}", "warning"))
+
             else:
-                txt.insert(tk.END, f"\n\n=======================================\n❌ FEHLER: Crash (Code {p.returncode})\n=======================================")
-                txt.config(fg="#e74c3c")
+                self.root.after(0, lambda: self.log(f"❌ FEHLER: Render-Crash (Code {p.returncode})", "error"))
                 self.root.after(0, lambda: self.status.config(text="Render: FEHLGESCHLAGEN", fg="#e74c3c"))
                 
             self.root.after(0, lambda: self.btn_render.config(state="normal"))
@@ -1095,6 +1568,6 @@ class BookStudio:
         threading.Thread(target=render_thread, daemon=True).start()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = BookStudio(root)
-    root.mainloop()
+    app_root = tk.Tk()
+    app = BookStudio(app_root)
+    app_root.mainloop()

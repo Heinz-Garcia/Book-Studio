@@ -33,7 +33,7 @@ class QuartoYamlEngine:
                 return h1_match.group(1).strip()
             
             return None
-        except Exception:
+        except (OSError, ValueError, TypeError):
             return None
 
     def build_title_registry(self):
@@ -54,12 +54,34 @@ class QuartoYamlEngine:
                 
                 title = self.extract_title_from_md(p)
                 if title: 
+                    content_role = self.extract_content_role_from_md(p)
+                    icons = []
                     if "required" in p.parts:
-                        title = f"📌 {title}" 
+                        icons.append("📌")
+                    if content_role == "outline":
+                        icons.append("🧭")
+                    if icons:
+                        title = f"{' '.join(icons)} {title}"
                     registry[rel_path] = title
                 else: 
                     registry[rel_path] = f"[FEHLT] {p.stem}"
         return registry
+
+    def extract_content_role_from_md(self, filepath):
+        """Liest content_role aus dem YAML-Frontmatter (z. B. outline/content)."""
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read(5000)
+
+            match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL | re.MULTILINE)
+            if match:
+                frontmatter = match.group(1)
+                role_match = re.search(r'^content_role:\s*["\']?(.*?)["\']?\s*$', frontmatter, re.MULTILINE)
+                if role_match:
+                    return role_match.group(1).strip().lower()
+            return None
+        except (OSError, ValueError, TypeError):
+            return None
 
     def build_status_registry(self):
         """Erstellt eine Registry aller Dateistatus für den Filter in der GUI (nur im content-Ordner)."""
@@ -88,7 +110,7 @@ class QuartoYamlEngine:
                 if status_match:
                     return status_match.group(1).strip()
             return "ohne Eintrag"
-        except Exception:
+        except (OSError, ValueError, TypeError):
             return "ohne Eintrag"
 
     def ensure_required_frontmatter(self, filepath, fallback_title=None):
@@ -345,9 +367,11 @@ class QuartoYamlEngine:
 
         # --- NEU: ZUSATZOPTIONEN (Templates etc.) INJIZIEREN ---
         if extra_format_options:
-            if "format" not in config: config["format"] = {}
+            if "format" not in config:
+                config["format"] = {}
             for fmt, options in extra_format_options.items():
-                if fmt not in config["format"]: config["format"][fmt] = {}
+                if fmt not in config["format"]:
+                    config["format"][fmt] = {}
                 for key, val in options.items():
                     config["format"][fmt][key] = val
         # ---------------------------------------------------------
@@ -464,7 +488,7 @@ class QuartoYamlEngine:
             self.gui_state_path.parent.mkdir(exist_ok=True)
             with open(self.gui_state_path, 'w', encoding='utf-8') as f:
                 json.dump(tree_data, f, indent=4, ensure_ascii=False)
-        except Exception:
+        except (OSError, TypeError, ValueError):
             pass
 
     def _load_gui_state(self):
@@ -472,7 +496,7 @@ class QuartoYamlEngine:
             try:
                 with open(self.gui_state_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except Exception:
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 return None
         return None
     
@@ -489,3 +513,6 @@ class QuartoYamlEngine:
             else:
                 lines.append(f"{base_indent}- {path}")
         return "\n".join(lines)
+    
+    def generate_yaml_string(self, tree_data, base_indent="  "):
+        return self._generate_yaml_string(tree_data, base_indent=base_indent)

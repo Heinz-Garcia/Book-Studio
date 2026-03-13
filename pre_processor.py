@@ -138,7 +138,8 @@ class PreProcessor:
         src = self.book_path / node["path"]
         dest = self.processed_dir / node["path"]
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if not src.exists(): return dest
+        if not src.exists():
+            return dest
         
         with open(src, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -164,7 +165,8 @@ class PreProcessor:
         src = self.book_path / node["path"]
         dest = self.processed_dir / node["path"]
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if not src.exists(): return dest
+        if not src.exists():
+            return dest
         
         with open(src, 'r', encoding='utf-8') as f:
             content = f.read()

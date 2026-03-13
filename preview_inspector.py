@@ -1,10 +1,12 @@
 import tkinter as tk
+from tkinter import ttk
+from ui_theme import COLORS, FONTS, center_on_parent, style_code_text, style_dialog
 
 class PreviewInspector(tk.Toplevel):
     def __init__(self, parent, tree_data, yaml_engine):
         super().__init__(parent)
         self.title("🔍 Struktur-Preview & Offset-Matrix")
-        self.geometry("900x700")
+        center_on_parent(self, parent, 900, 700)
         
         # Modal machen (blockiert Hauptfenster, bis es geschlossen wird)
         self.transient(parent)
@@ -17,19 +19,21 @@ class PreviewInspector(tk.Toplevel):
         self.generate_report()
         
     def setup_ui(self):
+        style_dialog(self)
         # Header
-        header = tk.Frame(self, bg="#2c3e50", pady=10)
+        header = tk.Frame(self, bg=COLORS["panel_dark"], pady=10)
         header.pack(fill=tk.X)
-        tk.Label(header, text="ARCHITEKTUR-INSPEKTOR (NUR LESEN)", fg="white", bg="#2c3e50", font=("Arial", 12, "bold")).pack()
+        tk.Label(header, text="ARCHITEKTUR-INSPEKTOR (NUR LESEN)", fg="white", bg=COLORS["panel_dark"], font=FONTS["title_large"]).pack()
         
         # Textfeld für den Report
-        self.txt = tk.Text(self, font=("Consolas", 10), bg="#1e1e1e", fg="#ecf0f1", padx=15, pady=15, wrap="word")
+        self.txt = tk.Text(self, wrap="word")
+        style_code_text(self.txt)
         self.txt.pack(fill=tk.BOTH, expand=True)
         
         # Footer
-        footer = tk.Frame(self, bg="#ecf0f1", pady=10)
+        footer = ttk.Frame(self, padding=(0, 10))
         footer.pack(fill=tk.X, side=tk.BOTTOM)
-        tk.Button(footer, text="Schließen", bg="#e74c3c", fg="white", font=("Arial", 10, "bold"), padx=20, command=self.destroy).pack()
+        ttk.Button(footer, text="Schließen", style="Tool.TButton", command=self.destroy).pack()
         
     def generate_report(self):
         report = []
@@ -40,7 +44,7 @@ class PreviewInspector(tk.Toplevel):
         report.append("="*70)
         report.append("So wird der 'chapters:' Block nach dem Flachklopfen aussehen:\n")
         
-        yaml_str = self.yaml_engine._generate_yaml_string(self.tree_data, base_indent="  ")
+        yaml_str = self.yaml_engine.generate_yaml_string(self.tree_data, base_indent="  ")
         report.append(yaml_str if yaml_str else "  [Leer - Baum enthält keine Struktur]")
         
         # TEIL 2: OFFSET MATRIX

@@ -2,3 +2,6 @@
 
 # Für das einfache Lesen und Schreiben von YAML Frontmatter in Markdown-Dateien
 PyYAML>=6.0.1
+
+# Modernes Tkinter/ttk Theme im Sun-Valley-Stil
+sv-ttk>=2.6.0

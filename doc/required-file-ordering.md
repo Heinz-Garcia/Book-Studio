@@ -11,6 +11,7 @@ Beispiel: `content/required/Impressum.md`
 **Schritt 2:** Im Frontmatter der Datei das `order`-Feld setzen.
 
 Für eine **vordere** Position (von oben gezählt, nach `index.md`):
+
 ```yaml
 ---
 title: "Widmung"
@@ -19,6 +20,7 @@ order: "10"
 ```
 
 Für eine **hintere** Position (von unten gezählt, `END-1` = absolute letzte Datei):
+
 ```yaml
 ---
 title: "Impressum"
@@ -33,14 +35,14 @@ order: "END-1"
 ## Positionslogik
 
 | `order`-Wert | Position in `_quarto.yml` |
-|---|---|
+| --- | --- |
 | `"10"`, `"20"`, `"30"` … | Direkt nach `index.md`, aufsteigend |
 | `"END-30"`, `"END-20"`, `"END-10"` | Ganz am Ende, `END-10` = absolut letzte Datei |
 | kein `order`-Feld | GUI-Reihenfolge bleibt unverändert |
 
 ## Beispiel-Reihenfolge in `_quarto.yml`
 
-```
+```text
 index.md
 [order: "10"]  → Widmung
 [order: "20"]  → Vorwort
@@ -58,7 +60,7 @@ index.md
 ## Konkretes Mapping (Band_Stoffwechselgesundheit)
 
 | Datei | order |
-|---|---|
+| --- | --- |
 | Titel.md | `"10"` |
 | Klappentext_vorne.md | `"20"` |
 | Impressum.md | `"30"` |

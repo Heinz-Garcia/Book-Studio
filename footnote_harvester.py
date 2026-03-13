@@ -1,5 +1,4 @@
 import re
-from pathlib import Path
 
 class FootnoteHarvester:
     def __init__(self, mode="endnotes", title="Anmerkungen"):

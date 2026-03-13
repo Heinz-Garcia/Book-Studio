@@ -11,6 +11,10 @@ Thumbs.db
 # VS Code Einstellungen (optional, falls du sie nicht teilen willst)
 .vscode/
 
+# Python Cache / Bytecode
+__pycache__/
+*.py[cod]
+
 # Buchinhalte
 /Band_Dummy/
 /Band_Stoffwechselgesundheit/

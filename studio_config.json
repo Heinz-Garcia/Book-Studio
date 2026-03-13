@@ -5,5 +5,36 @@
         "status": "bookstudio"
     },
     "frontmatter_update_mode": "append_only",
-    "sanitizer_backup_path": "C:/Users/Daniel/Documents/Python/IFJN/Sanitizer_Backups"
+    "sanitizer_backup_path": "C:/Users/Daniel/Documents/Python/IFJN/Sanitizer_Backups",
+    "window_geometry": "1561x833+2118+63",
+    "session_state": {
+        "active_book_path": "Band_Stoffwechselgesundheit",
+        "active_book_name": "Band_Stoffwechselgesundheit",
+        "current_profile_name": "Pandemie_Diabetes_All_files_Gemini_sorted_v.3",
+        "export_options": {
+            "format": "typst",
+            "template": "Standard",
+            "footnote_mode": "endnotes"
+        },
+        "ui_state": {
+            "search_text": "",
+            "search_scope": "Links",
+            "status_filter": "Alle",
+            "log_filter": "Alle",
+            "log_auto_clear": false,
+            "log_max_lines": "500",
+            "avail_selected_paths": [],
+            "tree_selected_paths": [
+                "content/20260222200620.md"
+            ],
+            "avail_yview": [
+                0.0,
+                1.0
+            ],
+            "tree_yview": [
+                0.0,
+                0.13513513513513514
+            ]
+        }
+    }
 }

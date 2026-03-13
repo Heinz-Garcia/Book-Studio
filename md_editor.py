@@ -1,6 +1,7 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
+from ui_theme import COLORS, FONTS, center_on_parent, style_code_text, style_dialog
 
 class MarkdownEditor(tk.Toplevel):
     def __init__(self, parent, file_path, on_save_callback=None):
@@ -9,7 +10,7 @@ class MarkdownEditor(tk.Toplevel):
         self.on_save_callback = on_save_callback
         
         self.title(f"📝 Markdown Editor: {self.file_path.name}")
-        self.geometry("850x650")
+        center_on_parent(self, parent, 850, 650)
         
         # Macht das Fenster "modal" (blockiert das Hauptfenster, bis der Editor geschlossen wird)
         self.transient(parent)
@@ -19,26 +20,25 @@ class MarkdownEditor(tk.Toplevel):
         self.load_file()
         
     def setup_ui(self):
+        style_dialog(self)
         # Toolbar
-        toolbar = tk.Frame(self, bg="#2c3e50", pady=8, padx=10)
+        toolbar = tk.Frame(self, bg=COLORS["panel_dark"], pady=8, padx=10)
         toolbar.pack(fill=tk.X)
         
-        tk.Button(toolbar, text="💾 Speichern & Schließen (Strg+S)", bg="#27ae60", fg="white", 
-                  font=("Arial", 10, "bold"), command=self.save_and_close).pack(side=tk.LEFT)
+        ttk.Button(toolbar, text="💾 Speichern & Schließen (Strg+S)", style="Accent.TButton", command=self.save_and_close).pack(side=tk.LEFT)
                   
         # --- FIXED: SPEICHERN ALS BUTTON hängt jetzt an der 'toolbar' ---
-        tk.Button(toolbar, text="📝 Speichern als...", bg="#f39c12", fg="white", 
-                  font=("Arial", 10, "bold"), command=self.save_as_file).pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar, text="📝 Speichern als...", style="Tool.TButton", command=self.save_as_file).pack(side=tk.LEFT, padx=5)
                   
-        tk.Button(toolbar, text="Abbrechen (Esc)", bg="#e74c3c", fg="white",
-                  command=self.destroy).pack(side=tk.LEFT, padx=10)
+        ttk.Button(toolbar, text="Abbrechen (Esc)", style="Tool.TButton", command=self.destroy).pack(side=tk.LEFT, padx=10)
         
         # Status Label für Pfad (als self-Variable, damit wir es updaten können)
-        self.path_label = tk.Label(toolbar, text=self.file_path.as_posix(), bg="#2c3e50", fg="#bdc3c7", font=("Consolas", 9))
+        self.path_label = tk.Label(toolbar, text=self.file_path.as_posix(), bg=COLORS["panel_dark"], fg="#cbd5e1", font=FONTS["mono"])
         self.path_label.pack(side=tk.RIGHT)
         
         # Editor Textfeld
-        self.text_area = tk.Text(self, font=("Consolas", 11), wrap="word", undo=True, bg="#fdfdfd", padx=10, pady=10)
+        self.text_area = tk.Text(self, wrap="word", undo=True)
+        style_code_text(self.text_area)
         self.text_area.pack(fill=tk.BOTH, expand=True)
         
         # Keybindings
@@ -50,7 +50,7 @@ class MarkdownEditor(tk.Toplevel):
             with open(self.file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             self.text_area.insert("1.0", content)
-        except Exception as e:
+        except (OSError, UnicodeError) as e:
             messagebox.showerror("Fehler", f"Datei konnte nicht geladen werden:\n{e}")
             self.destroy()
 
@@ -69,7 +69,7 @@ class MarkdownEditor(tk.Toplevel):
                 self.on_save_callback()
                 
             self.destroy()
-        except Exception as e:
+        except (OSError, UnicodeError) as e:
             messagebox.showerror("Fehler", f"Datei konnte nicht gespeichert werden:\n{e}")
             
     # --- FIXED: Saubere Einrückung für die Funktion ---
@@ -99,6 +99,6 @@ class MarkdownEditor(tk.Toplevel):
                     
                 messagebox.showinfo("Erfolg", f"Datei erfolgreich gespeichert unter:\n{self.file_path.name}")
                 
-            except Exception as e:
+            except (OSError, UnicodeError, tk.TclError) as e:
                 messagebox.showerror("Fehler", f"Konnte neue Datei nicht speichern:\n{e}")
                 # write a function that returns the current date

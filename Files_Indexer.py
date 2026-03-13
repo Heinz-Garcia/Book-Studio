@@ -9,11 +9,11 @@ csv_file = os.path.join(target_folder, 'buch_struktur_final.csv')
 def get_frontmatter_title(filepath):
     """Extrahiert den Titel aus dem YAML-Frontmatter."""
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read(2000) 
+        with open(filepath, 'r', encoding='utf-8') as source_file:
+            content = source_file.read(2000)
             match = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', content, re.MULTILINE)
             return match.group(1).strip() if match else "Kein Titel"
-    except Exception as e:
+    except (OSError, ValueError, TypeError):
         return "Lese-Fehler"
 
 data_rows = []
@@ -32,8 +32,8 @@ for file in os.listdir(target_folder):
         })
 
 # CSV schreiben
-with open(csv_file, 'w', newline='', encoding='utf-8') as f:
-    writer = csv.DictWriter(f, fieldnames=['DATEINAME', 'TITEL_FRONTMATTER'], delimiter=';')
+with open(csv_file, 'w', newline='', encoding='utf-8') as csv_handle:
+    writer = csv.DictWriter(csv_handle, fieldnames=['DATEINAME', 'TITEL_FRONTMATTER'], delimiter=';')
     writer.writeheader()
     writer.writerows(data_rows)
 
