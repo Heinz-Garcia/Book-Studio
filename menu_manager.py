@@ -59,6 +59,7 @@ class MenuManager:
         tools_menu = self._create_menu(menu_bar)
         tools_menu.add_command(label="🧹 Sanitizer", command=self.studio.run_sanitizer_pipeline)
         tools_menu.add_command(label="⚙️ Sanitizer-Konfiguration...", command=self.studio.open_sanitizer_config_editor)
+        tools_menu.add_command(label="📘 Quarto.yml konfigurieren...", command=self.studio.open_quarto_config_editor)
         tools_menu.add_command(label="🩺 Buch-Doktor", command=self.studio.run_doctor)
         tools_menu.add_command(label="📦 Backup", command=self.studio.run_backup)
         tools_menu.add_command(label="⏪ Time Machine", command=self.studio.open_time_machine)
@@ -78,9 +79,10 @@ class MenuManager:
         self.studio.root.config(menu=menu_bar)
 
     def _show_about_dialog(self):
+        app_title = getattr(self.studio, "app_name", "Quarto Book Studio")
         messagebox.showinfo(
             "Über Quarto Book Studio",
-            f"Quarto Book Studio {self.studio.version_str}\n\n"
+            f"{app_title}\n\n"
             "Kürzel:\n"
             "- Ctrl+S: Speichern\n"
             "- Ctrl+Z / Ctrl+Y: Undo / Redo\n"

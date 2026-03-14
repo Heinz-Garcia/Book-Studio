@@ -2,6 +2,8 @@ import importlib
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
+
+from dialog_dirty_utils import DirtyStateController, confirm_discard_changes
 from ui_theme import COLORS, ThemedTooltip, center_on_parent, style_dialog
 
 
@@ -122,11 +124,14 @@ class SanitizerConfigEditor(tk.Toplevel):
         self.field_vars = {}
         self.tag_rows = []
         self.tags_rows_frame = None
+        self._base_title = "Sanitizer-Konfiguration"
+        self._dirty_controller = DirtyStateController(self, self._base_title)
 
-        self.title("Sanitizer-Konfiguration")
+        self.title(self._base_title)
         self.resizable(True, True)
         self.transient(parent)
         self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self._request_close)
 
         width, height = 760, 680
         center_on_parent(self, parent, width, height)
@@ -134,6 +139,8 @@ class SanitizerConfigEditor(tk.Toplevel):
         self.config_data = self._load_config_with_defaults()
         self.schema = self._build_runtime_schema(self.config_data)
         self._build_ui()
+        self._capture_initial_dirty_snapshot()
+        self._start_dirty_watch()
 
     def _load_config_with_defaults(self):
         data = {}
@@ -242,7 +249,7 @@ class SanitizerConfigEditor(tk.Toplevel):
 
         button_row = ttk.Frame(content, padding=(16, 16))
         button_row.pack(fill=tk.X)
-        ttk.Button(button_row, text="Abbrechen", style="Tool.TButton", command=self.destroy).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(button_row, text="Abbrechen", style="Tool.TButton", command=self._request_close).pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Button(button_row, text="Speichern", style="Accent.TButton", command=self._save).pack(side=tk.RIGHT)
 
     def _build_mapping_section(self, parent, section_name):
@@ -363,6 +370,51 @@ class SanitizerConfigEditor(tk.Toplevel):
             return "float"
         return "string"
 
+    def _collect_dirty_snapshot(self):
+        snapshot = {
+            "tags": [
+                {
+                    "key": row["key_var"].get(),
+                    "value": row["value_var"].get(),
+                }
+                for row in self.tag_rows
+            ],
+            "sections": {},
+        }
+        for section_name, fields in self.field_vars.items():
+            section_snapshot = {}
+            for key, payload in fields.items():
+                section_snapshot[key] = payload["var"].get()
+            snapshot["sections"][section_name] = section_snapshot
+        return snapshot
+
+    def _capture_initial_dirty_snapshot(self):
+        initial_snapshot = self._collect_dirty_snapshot()
+        self._dirty_controller.capture_initial(initial_snapshot)
+
+    def _refresh_dirty_state(self):
+        current_snapshot = self._collect_dirty_snapshot()
+        self._dirty_controller.refresh(current_snapshot)
+
+    def _start_dirty_watch(self):
+        self._dirty_controller.start_polling(self._collect_dirty_snapshot, interval_ms=350)
+
+    def _stop_dirty_watch(self):
+        self._dirty_controller.stop_polling()
+
+    def _request_close(self):
+        self._refresh_dirty_state()
+        if self._dirty_controller.is_dirty:
+            proceed = confirm_discard_changes(
+                self,
+                "Ungespeicherte Änderungen",
+                "Es gibt ungespeicherte Änderungen.\n\nFenster wirklich schließen und Änderungen verwerfen?",
+            )
+            if not proceed:
+                return
+        self._stop_dirty_watch()
+        self.destroy()
+
     def _collect_config(self):
         config = {}
 
@@ -402,6 +454,8 @@ class SanitizerConfigEditor(tk.Toplevel):
             if self.on_save:
                 self.on_save(config)
             messagebox.showinfo("Gespeichert", "Sanitizer-Konfiguration wurde gespeichert.")
+            self._capture_initial_dirty_snapshot()
+            self._stop_dirty_watch()
             self.destroy()
         except (OSError, ValueError) as err:
             messagebox.showerror("Fehler", f"Konnte Konfiguration nicht speichern:\n{err}")

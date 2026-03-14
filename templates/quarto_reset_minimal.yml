@@ -1,0 +1,20 @@
+project:
+  type: book
+  output-dir: export/_book
+
+book:
+  title: "{{BOOK_TITLE}}"
+  chapters:
+    - index.md
+
+format:
+  typst:
+    keep-typ: true
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    section-numbering: 1.1.1
+    papersize: a4
+  html:
+    theme: cosmo
+    toc: true

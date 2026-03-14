@@ -50,6 +50,39 @@ Dieses Handbuch beschreibt die tägliche Arbeit mit dem Book Studio, die wichtig
 - Strukturaktionen (Hinzufügen/Entfernen/Sortieren/Einrücken).
 - Speichern, Rendern, zusätzliche Tools.
 
+### Quarto-Konfigurationsdialog
+
+- Aufruf über `Tools > 📘 Quarto.yml konfigurieren...`
+- Bearbeitet zentrale Felder von `_quarto.yml` mit Validierung und Dropdowns bei geschlossenen Wertemengen
+- Enthält Bereiche für Projekt, Buch-Metadaten, Verlagsspezifika, Typst und HTML
+- Verlagsspezifika umfassen u. a. `publisher`, `imprint`, `isbn-print`, `isbn-ebook`, `edition`, `rights-holder`, `rights-license`, `frontmatter-profile`
+- Typografie-Regeln umfassen `widows` (Schusterjungen) und `orphans` (Hurenkinder) mit den Werten `auto`, `1`–`4`
+- Erhält unbekannte YAML-Bereiche und aktualisiert nur die bearbeiteten Schlüssel
+- Zeigt kontextabhängige Empfehlungshinweise basierend auf `frontmatter-profile` und `rights-license` (ohne Auto-Überschreiben von Feldern)
+- Enthält die Aktion **Empfohlene Defaults anwenden**: setzt profilabhängige Empfehlungen für Typst/HTML-Felder im Dialog (nicht automatisch gespeichert)
+- Enthält die Aktion **Auf Dateistand zurücksetzen**: stellt alle Felder auf den beim Öffnen geladenen Zustand zurück (nicht automatisch gespeichert)
+- Bei ungespeicherten Änderungen fragt der Reset vorher per Sicherheitsdialog nach
+- Bei ungespeicherten Änderungen erscheint im Dialogtitel ein `*` als Dirty-Indikator
+
+Kurz-Mapping:
+
+- `frontmatter-profile`: `none` (ohne), `minimal` (Basis), `standard` (Standardbuch), `extended` (erweitert), `publisher-print` (Druck), `publisher-ebook` (eBook)
+- `rights-license`: `all-rights-reserved`, `cc-*` (Creative Commons), `public-domain`
+
+Hinweis: Die tatsächliche Wirkung von `widows`/`orphans` hängt von der verwendeten Typst-Vorlage und deren Auswertung dieser Optionen ab.
+
+### Sanitizer-Konfigurationsdialog
+
+- Aufruf über `Tools > 🧹 Sanitizer-Konfiguration...`
+- Bei ungespeicherten Änderungen erscheint im Dialogtitel ein `*` als Dirty-Indikator
+- Beim Schließen über `Abbrechen` oder Fenster-`X` wird bei ungespeicherten Änderungen eine Sicherheitsabfrage angezeigt
+
+### Export-Dialog
+
+- Öffnet vor dem Rendern die Export-Optionen (`Format`, `Template`, `Notenmodus`)
+- Bei geänderten Werten erscheint im Dialogtitel ein `*` als Dirty-Indikator
+- Beim Schließen über `Abbrechen` oder Fenster-`X` wird bei ungespeicherten Änderungen eine Sicherheitsabfrage angezeigt
+
 ### Integriertes Log-Terminal
 
 - Zeigt Laufzeitmeldungen, Warnungen und Fehler.
@@ -175,6 +208,15 @@ Beispiel:
 - Referenzsyntax ohne vorhandene Zieldefinition wird als nicht auflösbar behandelt.
 - Zeilensprünge beziehen sich auf den Analysezeitpunkt; nach späteren Dateiänderungen kann sich die exakte Position verschieben.
 - Bei extern geänderten Dateien kann der Volltext-Cache bis zum nächsten Refresh veraltete Inhalte anzeigen.
+
+## Konfiguration: Hard-Reset-Template
+
+Der Startzustand für **"_quarto.yml hart zurücksetzen"** kommt aus einem konfigurierbaren Template:
+
+- Config-Key in `studio_config.json`: `reset_quarto_template_path`
+- Standardpfad: `templates/quarto_reset_minimal.yml`
+
+Im Template kann der Platzhalter `{{BOOK_TITLE}}` verwendet werden. Beim Reset wird er automatisch durch den aktuellen Buchordnernamen ersetzt.
 
 ## 11) Unmanned Mode (CLI-Fernsteuerung)
 

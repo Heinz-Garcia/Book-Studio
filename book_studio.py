@@ -18,6 +18,7 @@ from menu_manager import MenuManager
 from markdown_asset_scanner import find_missing_image_refs
 from ui_actions_manager import UiActionsManager
 from sanitizer_config_editor import SanitizerConfigEditor
+from quarto_config_editor import QuartoConfigEditor
 from search_filter import matches_tree_node, normalize_search_term, should_include_available_item
 from ui_theme import COLORS, ThemedTooltip, apply_menu_theme, apply_ttk_theme, center_on_parent, configure_root, style_dialog
 
@@ -478,6 +479,18 @@ class BookStudio:
     def _on_sanitizer_config_saved(self, _config):
         self.log("⚙️ Sanitizer-Konfiguration gespeichert.", "success")
         self.status.config(text="Sanitizer-Konfiguration gespeichert", fg="#27ae60")
+
+    def open_quarto_config_editor(self):
+        if not self.current_book:
+            messagebox.showwarning("Kein Projekt", "Bitte zuerst ein Projekt auswählen.")
+            return
+        yaml_path = self.current_book / "_quarto.yml"
+        QuartoConfigEditor(self.root, yaml_path, on_save=self._on_quarto_config_saved)
+
+    def _on_quarto_config_saved(self, _config):
+        self.log("⚙️ Quarto-Konfiguration gespeichert.", "success")
+        self.status.config(text="Quarto-Konfiguration gespeichert", fg="#27ae60")
+        self.load_book(None)
 
     # =========================================================================
     # LOG-TERMINAL
@@ -1410,14 +1423,28 @@ class BookStudio:
         if messagebox.askyesno("🔥 _quarto.yml plattmachen", msg):
             yaml_path = self.current_book / "_quarto.yml"
             gui_path = self.current_book / "bookconfig" / ".gui_state.json"
-            
-            # 1. Ein sauberes, frisches Quarto-Skelett generieren
-            minimal_yaml = (
+
+            # 1. Ein sauberes, frisches Quarto-Skelett aus Template/Config generieren
+            try:
+                cfg = self._read_config()
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                cfg = {}
+
+            template_rel_path = cfg.get("reset_quarto_template_path", "templates/quarto_reset_minimal.yml")
+            if isinstance(template_rel_path, str) and template_rel_path.strip():
+                template_path = Path(template_rel_path.strip())
+            else:
+                template_path = Path("templates/quarto_reset_minimal.yml")
+
+            if not template_path.is_absolute():
+                template_path = self.base_path / template_path
+
+            default_template = (
                 "project:\n"
                 "  type: book\n"
                 "  output-dir: export/_book\n\n"
                 "book:\n"
-                f"  title: \"{self.current_book.name}\"\n"
+                "  title: \"{{BOOK_TITLE}}\"\n"
                 "  chapters:\n"
                 "    - index.md\n\n"
                 "format:\n"
@@ -1432,6 +1459,13 @@ class BookStudio:
                 "    theme: cosmo\n"
                 "    toc: true\n"
             )
+
+            try:
+                template_text = template_path.read_text(encoding="utf-8")
+            except OSError:
+                template_text = default_template
+
+            minimal_yaml = template_text.replace("{{BOOK_TITLE}}", self.current_book.name)
             
             try:
                 # 2. Die alte YAML erbarmungslos überschreiben

@@ -1,12 +1,16 @@
 import tkinter as tk
 from tkinter import ttk
+
+from dialog_dirty_utils import DirtyStateController, confirm_discard_changes
 from ui_theme import center_on_parent, style_dialog
 
 
 class ExportDialog(tk.Toplevel):
     def __init__(self, parent, templates, initial=None):
         super().__init__(parent)
-        self.title("Export-Optionen")
+        self._base_title = "Export-Optionen"
+        self.title(self._base_title)
+        self._dirty_controller = DirtyStateController(self, self._base_title)
         self.resizable(False, False)
 
         self.transient(parent)
@@ -29,8 +33,18 @@ class ExportDialog(tk.Toplevel):
         self.format_var = tk.StringVar(value=initial_format)
         self.template_var = tk.StringVar(value=initial_template)
         self.footnote_var = tk.StringVar(value=initial_footnote_mode)
+        self._initial_values = {
+            "format": initial_format,
+            "template": initial_template,
+            "footnote_mode": initial_footnote_mode,
+        }
+
+        self.format_var.trace_add("write", self._on_field_changed)
+        self.template_var.trace_add("write", self._on_field_changed)
+        self.footnote_var.trace_add("write", self._on_field_changed)
 
         self._build_ui()
+        self._dirty_controller.capture_initial(self._initial_values)
 
     def _build_ui(self):
         style_dialog(self)
@@ -82,7 +96,29 @@ class ExportDialog(tk.Toplevel):
         }
         self.destroy()
 
+    def _collect_values(self):
+        return {
+            "format": self.format_var.get(),
+            "template": self.template_var.get(),
+            "footnote_mode": self.footnote_var.get(),
+        }
+
+    def _on_field_changed(self, *_args):
+        self._refresh_dirty_state()
+
+    def _refresh_dirty_state(self):
+        self._dirty_controller.refresh(self._collect_values())
+
     def _cancel(self):
+        self._refresh_dirty_state()
+        if self._dirty_controller.is_dirty:
+            proceed = confirm_discard_changes(
+                self,
+                "Ungespeicherte Änderungen",
+                "Es gibt ungespeicherte Änderungen.\n\nDialog wirklich schließen und Änderungen verwerfen?",
+            )
+            if not proceed:
+                return
         self.result = None
         self.destroy()
 

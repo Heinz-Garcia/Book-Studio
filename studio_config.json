@@ -1,5 +1,6 @@
 {
     "help_manual_path": "doc/handbuch.md",
+    "reset_quarto_template_path": "templates/quarto_reset_minimal.yml",
     "frontmatter_requirements": {
         "title": "<filename>",
         "description": "<title>",
