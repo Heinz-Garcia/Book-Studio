@@ -1,1 +1,1 @@
-Quarto Book Studio v.36.0 (Page-brake enabled Edition)
+Quarto Book Studio v.36.2.0 (Content enabled search Edition)

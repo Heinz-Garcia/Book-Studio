@@ -33,8 +33,9 @@
             "footnote_mode": "endnotes"
         },
         "ui_state": {
-            "search_text": "",
-            "search_scope": "Links",
+            "search_text": "#pagebreak()",
+            "search_scope": "Rechts",
+            "search_mode": "Volltext",
             "file_state_filter": "Alle",
             "status_filter": "Alle",
             "log_filter": "Alle",
@@ -42,15 +43,15 @@
             "log_max_lines": "500",
             "avail_selected_paths": [],
             "tree_selected_paths": [
-                "content/required/Klappentext_hinten.md"
+                "content/required/Titel.md"
             ],
             "avail_yview": [
                 0.0,
                 1.0
             ],
             "tree_yview": [
-                0.8738738738738738,
-                1.0
+                0.0,
+                0.12612612612612611
             ]
         }
     }

@@ -17,7 +17,7 @@ from book_doctor import BookDoctor, BackupManager
 from menu_manager import MenuManager
 from ui_actions_manager import UiActionsManager
 from sanitizer_config_editor import SanitizerConfigEditor
-from ui_theme import COLORS, apply_menu_theme, apply_ttk_theme, configure_root
+from ui_theme import COLORS, ThemedTooltip, apply_menu_theme, apply_ttk_theme, configure_root
 
 try:
     sv_ttk = importlib.import_module("sv_ttk")
@@ -64,6 +64,7 @@ class BookStudio:
         self.title_registry = {}
         self.status_registry = {}
         self.file_state_registry = {}
+        self._content_search_cache = {}
         self.available_templates = ["Standard"]
         self.last_export_options = {
             "format": "typst",
@@ -247,6 +248,7 @@ class BookStudio:
         return {
             "search_text": self.search_var.get(),
             "search_scope": self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links",
+            "search_mode": self.search_mode_var.get() if hasattr(self, "search_mode_var") else "Titel/Pfad",
             "file_state_filter": self.file_state_filter_var.get() if hasattr(self, "file_state_filter_var") else "Alle",
             "status_filter": self.status_filter_var.get() if hasattr(self, "status_filter_var") else "Alle",
             "log_filter": self.log_filter_var.get(),
@@ -290,6 +292,10 @@ class BookStudio:
         search_scope = ui_state.get("search_scope", "Links")
         if hasattr(self, "search_scope_var") and search_scope in {"Links", "Rechts", "Beide"}:
             self.search_scope_var.set(search_scope)
+
+        search_mode = ui_state.get("search_mode", "Titel/Pfad")
+        if hasattr(self, "search_mode_var") and search_mode in {"Titel/Pfad", "Volltext"}:
+            self.search_mode_var.set(search_mode)
 
         if hasattr(self, "search_var"):
             self.search_var.set(ui_state.get("search_text", ""))
@@ -638,12 +644,18 @@ class BookStudio:
         
         # --- LINKS ---
         l_frame = tk.Frame(self.pane, bg="white")
-        self.pane.add(l_frame, width=450, minsize=260, stretch="always")
+        self.pane.add(l_frame, width=450, minsize=700, stretch="always")
         self.lbl_avail_count = tk.Label(l_frame, text="NICHT ZUGEORDNETE KAPITEL (0)", bg=COLORS["surface_muted"], fg=COLORS["heading"], font=("Segoe UI Semibold", 9), pady=7)
         self.lbl_avail_count.pack(fill=tk.X)        
         search_f = tk.Frame(l_frame, bg=COLORS["surface_alt"], pady=6)
         search_f.pack(fill=tk.X)
-        tk.Label(search_f, text=" 🔍 Suche nach Titel: ", bg=COLORS["surface_alt"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        search_label = tk.Label(search_f, text=" 🔍 Suche (Titel/Pfad/Volltext): ", bg=COLORS["surface_alt"], fg="#475569", font=("Segoe UI", 9))
+        search_label.pack(side=tk.LEFT)
+        ThemedTooltip(
+            search_label,
+            "Titel/Pfad: sucht in Titel und Dateipfad.\n"
+            "Volltext: durchsucht zusätzlich den Inhalt der Markdown-Dateien.",
+        )
         
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *args: self.on_title_search_change()) # Tcl 9 / Python 3.14 Fix
@@ -659,6 +671,22 @@ class BookStudio:
         )
         self.search_scope_box.pack(side=tk.LEFT, padx=(0, 5))
         self.search_scope_box.bind("<<ComboboxSelected>>", self.on_title_search_change)
+
+        self.search_mode_var = tk.StringVar(value="Titel/Pfad")
+        self.search_mode_box = ttk.Combobox(
+            search_f,
+            textvariable=self.search_mode_var,
+            values=["Titel/Pfad", "Volltext"],
+            state="readonly",
+            width=12,
+        )
+        self.search_mode_box.pack(side=tk.LEFT, padx=(0, 5))
+        self.search_mode_box.bind("<<ComboboxSelected>>", self.on_title_search_change)
+        ThemedTooltip(
+            self.search_mode_box,
+            "Titel/Pfad: sucht in Titel und Dateipfad.\n"
+            "Volltext: durchsucht zusätzlich den Inhalt der Markdown-Dateien.",
+        )
 
         tk.Label(search_f, text=" Status: ", bg=COLORS["surface_alt"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
         self.file_state_filter_var = tk.StringVar(value="Alle")
@@ -836,6 +864,33 @@ class BookStudio:
             self.search_scope_var.set("Links")
         self.on_title_search_change()
 
+    def _is_fulltext_search_enabled(self):
+        if not hasattr(self, "search_mode_var"):
+            return False
+        return self.search_mode_var.get() == "Volltext"
+
+    def _get_content_for_search(self, path):
+        if not self.current_book or not path:
+            return ""
+
+        cached = self._content_search_cache.get(path)
+        if cached is not None:
+            return cached
+
+        abs_path = self.current_book / path
+        if not abs_path.exists() or not abs_path.is_file():
+            self._content_search_cache[path] = ""
+            return ""
+
+        try:
+            text = abs_path.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+
+        lowered = text.lower()
+        self._content_search_cache[path] = lowered
+        return lowered
+
     def _apply_tree_filters(self):
         if not self.current_book:
             return
@@ -843,6 +898,7 @@ class BookStudio:
         target_status = self.status_filter_var.get() if hasattr(self, "status_filter_var") else "Alle"
         search_scope = self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links"
         search_term = self.search_var.get().strip().lower() if hasattr(self, "search_var") else ""
+        is_fulltext = self._is_fulltext_search_enabled()
 
         search_on_right = search_scope in {"Rechts", "Beide"}
         active_search_term = search_term if search_on_right else ""
@@ -862,14 +918,28 @@ class BookStudio:
             status_ok = True
             state_ok = True
             path_text = ""
+            raw_title = ""
+            content_text = ""
             if vals:
                 path_text = str(vals[0]).lower()
+                raw_title = self._raw_title_from_values(vals, self.tree_book.item(node, "text")).lower()
+                if is_fulltext:
+                    content_text = self._get_content_for_search(vals[0])
                 status = self.status_registry.get(vals[0], "ohne Eintrag")
                 status_ok = target_status == "Alle" or status == target_status
                 state_ok = self._path_matches_file_state_filter(vals[0])
 
             has_search_term = bool(active_search_term)
-            self_match = (not has_search_term) or (active_search_term in node_text or active_search_term in path_text)
+            if not has_search_term:
+                self_match = True
+            elif is_fulltext:
+                self_match = (
+                    (active_search_term in raw_title)
+                    or (active_search_term in path_text)
+                    or (active_search_term in content_text)
+                )
+            else:
+                self_match = (active_search_term in node_text) or (active_search_term in path_text)
             search_ok = (not has_search_term) or self_match or child_visible
 
             visible_self = status_ok and state_ok and search_ok
@@ -899,6 +969,7 @@ class BookStudio:
         if not self.book_combo.get():
             return
         self.current_book = self.books[self.book_combo.current()]
+        self._content_search_cache.clear()
         
         self.current_profile_name = None
         self.profile_lbl.config(text="Profil: [Standard]")
@@ -947,6 +1018,7 @@ class BookStudio:
         """Aktualisiert nur die Titel in der GUI, ohne die Struktur zu zerstören."""
         if not self.current_book:
             return
+        self._content_search_cache.clear()
         
         # 1. Registries aus den Dateien neu einlesen (für Titel und Status)
         self.title_registry = self.yaml_engine.build_title_registry()
@@ -1204,9 +1276,10 @@ class BookStudio:
         used_paths = self._get_all_used_paths()
         used_paths.append("index.md")
         self.list_avail.delete(*self.list_avail.get_children())
-        search_term = self.search_var.get().lower()
+        search_term = self.search_var.get().strip().lower()
         search_scope = self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links"
         apply_left_search = search_scope in {"Links", "Beide"}
+        is_fulltext = self._is_fulltext_search_enabled()
         
         count = 0  # NEU: Zähler starten
         
@@ -1215,8 +1288,15 @@ class BookStudio:
                 continue
             if not self._path_matches_file_state_filter(path):
                 continue
-            title_or_path_match = (search_term in title.lower()) or (search_term in path.lower())
-            if (not apply_left_search) or title_or_path_match:
+            if not apply_left_search or not search_term:
+                should_include = True
+            elif is_fulltext:
+                content_text = self._get_content_for_search(path)
+                should_include = (search_term in title.lower()) or (search_term in path.lower()) or (search_term in content_text)
+            else:
+                should_include = (search_term in title.lower()) or (search_term in path.lower())
+
+            if should_include:
                 tags = self._state_tags_for_path(path)
                 display_title = self._decorate_title_for_path(title, path)
                 self.list_avail.insert("", "end", text=display_title, values=(path,), tags=tags)
