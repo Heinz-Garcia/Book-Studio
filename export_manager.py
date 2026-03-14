@@ -137,6 +137,14 @@ class ExportManager:
         processor = PreProcessor(self.studio.current_book, footnote_mode=footnote_mode)
         original_tree = self.studio.get_tree_data_for_engine()
         processed_tree = processor.prepare_render_environment(original_tree)
+
+        # Verwaiste Fußnoten-Marker ins Log schreiben
+        if processor.harvester.orphan_warnings:
+            self.studio.log("⚠️  Verwaiste Fußnoten-Marker (keine Definition gefunden):", "warning")
+            from pathlib import Path
+            for file_key, label in processor.harvester.orphan_warnings:
+                rel = Path(file_key).name
+                self.studio.log(f"   [{label}] in {rel}", "warning")
         
         self.studio.yaml_engine.save_chapters(
             processed_tree, 

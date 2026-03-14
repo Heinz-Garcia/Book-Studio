@@ -396,7 +396,8 @@ class QuartoYamlEngine:
 
         Rückgabe: (sort_key: int, group: 'front'|'end'|None)
         """
-        if "required" not in Path(rel_path).parts:
+        normalized_parts = [p.lower() for p in str(rel_path).replace("\\", "/").split("/") if p]
+        if "required" not in normalized_parts:
             return None, None
 
         full_path = self.book_path / rel_path
@@ -405,19 +406,19 @@ class QuartoYamlEngine:
 
         try:
             with open(full_path, "r", encoding="utf-8") as f:
-                content = f.read(800)
-            match = re.match(r'^\uFEFF?---\s*[\r\n]+(.*?)[\r\n]+---', content, re.DOTALL)
+                content = f.read(12000)
+            match = re.search(r'^\s*\uFEFF?---\s*[\r\n]+(.*?)[\r\n]+---', content, re.DOTALL | re.MULTILINE)
             if not match:
                 return None, None
             fm = yaml.safe_load(match.group(1)) or {}
-            order_val = str(fm.get("order", "")).strip()
+            order_val = str(fm.get("order", "")).strip().strip('"\'')
             if not order_val:
                 return None, None
 
-            end_match = re.match(r'^END-(\d+)$', order_val, re.IGNORECASE)
+            end_match = re.match(r'^END\s*-\s*(\d+)$', order_val, re.IGNORECASE)
             if end_match:
                 return int(end_match.group(1)), "end"
-            if order_val.isdigit():
+            if re.match(r'^\d+$', order_val):
                 return int(order_val), "front"
         except (OSError, yaml.YAMLError, ValueError):
             pass

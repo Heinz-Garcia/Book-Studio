@@ -33,14 +33,18 @@ class BookStudio:
         self.root = root
         self.base_path = Path(__file__).parent
         
-        # --- NEU: Version dynamisch aus Datei laden ---
-        self.version_str = "v? (Unbekannt)" # Fallback, falls die Datei mal fehlt
+        # Name + Version vollständig aus version.txt
+        self.app_name = "Quarto Book Studio"   # Fallback
         version_file = self.base_path / "version.txt"
         if version_file.exists():
-            with open(version_file, "r", encoding="utf-8") as f:
-                self.version_str = f.read().strip()
-                
-        self.root.title(f"📚 Quarto Book Studio {self.version_str}")
+            try:
+                raw = version_file.read_text(encoding="utf-8").strip()
+                if raw:
+                    self.app_name = raw
+            except OSError:
+                pass
+
+        self.root.title(f"📚 {self.app_name}")
         # ----------------------------------------------
         configure_root(self.root)
 
@@ -59,6 +63,7 @@ class BookStudio:
         self.backup_mgr = None
         self.title_registry = {}
         self.status_registry = {}
+        self.file_state_registry = {}
         self.available_templates = ["Standard"]
         self.last_export_options = {
             "format": "typst",
@@ -150,6 +155,57 @@ class BookStudio:
         with open(self._config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=4, ensure_ascii=False)
 
+    def _default_editor_end_commands(self):
+        return [
+            {
+                "id": "pdf_pagebreak_end",
+                "label": "PDF-Seitenumbruch am Dateiende",
+                "append_text": "```{=typst}\n#pagebreak()\n```\n",
+                "detect_pattern": r'```\{=typst\}\s*#pagebreak(?:\([^\)]*\))?\s*```\s*\Z',
+                "marks_state": "pdf_pagebreak_end",
+            },
+            {
+                "id": "pdf_pagebreak_end_weak",
+                "label": "Schwacher PDF-Seitenumbruch am Dateiende",
+                "append_text": "```{=typst}\n#pagebreak(weak: true)\n```\n",
+                "detect_pattern": r'```\{=typst\}\s*#pagebreak\(weak:\s*true\)\s*```\s*\Z',
+                "marks_state": "pdf_pagebreak_end",
+            },
+        ]
+
+    def _get_editor_end_commands(self):
+        defaults = self._default_editor_end_commands()
+        try:
+            cfg = self._read_config()
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return defaults
+
+        commands = cfg.get("editor_end_commands")
+        if not isinstance(commands, list):
+            return defaults
+
+        normalized = []
+        for entry in commands:
+            if not isinstance(entry, dict):
+                continue
+            label = entry.get("label")
+            append_text = entry.get("append_text")
+            if not isinstance(label, str) or not label.strip():
+                continue
+            if not isinstance(append_text, str) or not append_text.strip():
+                continue
+            normalized.append(
+                {
+                    "id": str(entry.get("id") or label).strip(),
+                    "label": label.strip(),
+                    "append_text": append_text,
+                    "detect_pattern": entry.get("detect_pattern") if isinstance(entry.get("detect_pattern"), str) else None,
+                    "marks_state": entry.get("marks_state") if isinstance(entry.get("marks_state"), str) else None,
+                }
+            )
+
+        return normalized or defaults
+
     def _load_session_state(self):
         try:
             cfg = self._read_config()
@@ -191,6 +247,7 @@ class BookStudio:
         return {
             "search_text": self.search_var.get(),
             "search_scope": self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links",
+            "file_state_filter": self.file_state_filter_var.get() if hasattr(self, "file_state_filter_var") else "Alle",
             "status_filter": self.status_filter_var.get() if hasattr(self, "status_filter_var") else "Alle",
             "log_filter": self.log_filter_var.get(),
             "log_auto_clear": bool(self.log_auto_clear_var.get()),
@@ -236,6 +293,15 @@ class BookStudio:
 
         if hasattr(self, "search_var"):
             self.search_var.set(ui_state.get("search_text", ""))
+
+        file_state_filter = ui_state.get("file_state_filter", "Alle")
+        if file_state_filter == "Typst-Seitenumbruch (Dateiende)":
+            file_state_filter = "PDF-Seitenumbruch am Dateiende"
+        elif file_state_filter == "Beides":
+            file_state_filter = "Alle"
+        if hasattr(self, "file_state_filter_box"):
+            valid_file_filters = set(self.file_state_filter_box.cget("values"))
+            self.file_state_filter_var.set(file_state_filter if file_state_filter in valid_file_filters else "Alle")
 
         status_filter = ui_state.get("status_filter", "Alle")
         if hasattr(self, "status_combo"):
@@ -426,6 +492,126 @@ class BookStudio:
                 found.append(p.parent)
         return found
 
+    def _build_file_state_registry(self):
+        registry = {}
+        if not self.current_book:
+            self.file_state_registry = registry
+            return
+
+        pagebreak_patterns = []
+        for command in self._get_editor_end_commands():
+            if command.get("marks_state") != "pdf_pagebreak_end":
+                continue
+            pattern = command.get("detect_pattern")
+            if not pattern:
+                continue
+            try:
+                pagebreak_patterns.append(re.compile(pattern, re.DOTALL | re.MULTILINE))
+            except re.error:
+                continue
+
+        if not pagebreak_patterns:
+            pagebreak_patterns.append(
+                re.compile(r'```\{=typst\}\s*#pagebreak(?:\([^\)]*\))?\s*```\s*\Z', re.DOTALL)
+            )
+
+        for path in self.title_registry.keys():
+            state = {
+                "orphan_footnotes": False,
+                "pdf_pagebreak_end": False,
+            }
+
+            if not str(path).lower().endswith(".md"):
+                registry[path] = state
+                continue
+
+            abs_path = self.current_book / path
+            if not abs_path.exists() or not abs_path.is_file():
+                registry[path] = state
+                continue
+
+            try:
+                text = abs_path.read_text(encoding="utf-8")
+            except OSError:
+                registry[path] = state
+                continue
+
+            markers = set(re.findall(r'\[\^([^\]]+)\](?!:)', text))
+            definitions = set(re.findall(r'^\s*(?:\[cite_start\]\s*)?\[\^([^\]]+)\]:', text, re.MULTILINE))
+            state["orphan_footnotes"] = bool(markers - definitions)
+            state["pdf_pagebreak_end"] = any(pattern.search(text) for pattern in pagebreak_patterns)
+
+            registry[path] = state
+
+        self.file_state_registry = registry
+
+    def _path_matches_file_state_filter(self, path):
+        filter_value = self.file_state_filter_var.get() if hasattr(self, "file_state_filter_var") else "Alle"
+        if filter_value == "Alle":
+            return True
+
+        state = self.file_state_registry.get(path, {})
+        has_orphan = bool(state.get("orphan_footnotes"))
+        has_pagebreak = bool(state.get("pdf_pagebreak_end"))
+
+        if filter_value == "Verwaiste Fußnoten":
+            return has_orphan
+        if filter_value == "PDF-Seitenumbruch am Dateiende":
+            return has_pagebreak
+        return True
+
+    def _state_tags_for_path(self, path):
+        state = self.file_state_registry.get(path, {})
+        has_orphan = bool(state.get("orphan_footnotes"))
+        has_pagebreak = bool(state.get("pdf_pagebreak_end"))
+        if has_orphan and has_pagebreak:
+            return ("state_both",)
+        if has_orphan:
+            return ("state_orphan",)
+        if has_pagebreak:
+            return ("state_pagebreak",)
+        return ()
+
+    def _tree_tags_for_path(self, path, is_visible=True):
+        if not is_visible:
+            return ("dimmed",)
+        return ("normal",) + self._state_tags_for_path(path)
+    def _status_code_for_path(self, path):
+        state = self.file_state_registry.get(path, {})
+        has_orphan = bool(state.get("orphan_footnotes"))
+        has_pagebreak = bool(state.get("pdf_pagebreak_end"))
+        if has_orphan and has_pagebreak:
+            return "●↵"
+        if has_orphan:
+            return "●"
+        if has_pagebreak:
+            return "↵"
+        return ""
+
+    def _is_technical_content_node(self, path):
+        normalized = str(path or "").replace("\\", "/").strip()
+        return normalized in {"content", "content/"}
+
+    def _decorate_title_for_path(self, title, path):
+        if not path:
+            return title
+
+        state = self.file_state_registry.get(path, {})
+        suffixes = []
+        if state.get("orphan_footnotes"):
+            suffixes.append("●")
+        if state.get("pdf_pagebreak_end"):
+            suffixes.append("↵")
+
+        if not suffixes:
+            return title
+        return f"{title} {' '.join(suffixes)}"
+
+    def _raw_title_from_values(self, values, fallback_text):
+        if values and len(values) > 1 and values[1]:
+            return values[1]
+        return fallback_text
+
     def _set_style(self):
         s = ttk.Style()
         apply_ttk_theme(s, sv_ttk)
@@ -474,10 +660,25 @@ class BookStudio:
         self.search_scope_box.pack(side=tk.LEFT, padx=(0, 5))
         self.search_scope_box.bind("<<ComboboxSelected>>", self.on_title_search_change)
 
+        tk.Label(search_f, text=" Status: ", bg=COLORS["surface_alt"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self.file_state_filter_var = tk.StringVar(value="Alle")
+        self.file_state_filter_box = ttk.Combobox(
+            search_f,
+            textvariable=self.file_state_filter_var,
+            values=["Alle", "Verwaiste Fußnoten", "PDF-Seitenumbruch am Dateiende"],
+            state="readonly",
+            width=30,
+        )
+        self.file_state_filter_box.pack(side=tk.LEFT, padx=(0, 5))
+        self.file_state_filter_box.bind("<<ComboboxSelected>>", self.on_file_state_filter_change)
+
         ttk.Button(search_f, text="Leeren", style="Tool.TButton", command=self.clear_title_search).pack(side=tk.LEFT, padx=(0, 5))
-        
+
         self.list_avail = ttk.Treeview(l_frame, selectmode="extended", show="tree")
         self.list_avail.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.list_avail.tag_configure('state_orphan', foreground='#ff6a00')
+        self.list_avail.tag_configure('state_pagebreak', foreground='#004dff')
+        self.list_avail.tag_configure('state_both', foreground='#b000ff')
         sl = tk.Scrollbar(l_frame, command=self.list_avail.yview)
         sl.pack(side=tk.RIGHT, fill=tk.Y)
         self.list_avail.config(yscrollcommand=sl.set)
@@ -508,13 +709,28 @@ class BookStudio:
         self.status_combo = ttk.Combobox(r_header, textvariable=self.status_filter_var, state="readonly", width=15)
         self.status_combo.pack(side=tk.LEFT, padx=5)
         self.status_combo.bind("<<ComboboxSelected>>", self.apply_status_filter)
+
+        ttk.Button(r_header, text="Reload Tree", style="Tool.TButton", command=self.reload_tree).pack(side=tk.LEFT, padx=(8, 4))
+
+        tk.Label(r_header, text=" | Legende: ", bg=COLORS["surface_muted"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        tk.Label(r_header, text="● = Verwaiste Fußnoten", bg=COLORS["surface_muted"], fg="#ff6a00", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(r_header, text="↵ = PDF-Seitenumbruch am Dateiende", bg=COLORS["surface_muted"], fg="#004dff", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(r_header, text="(Marker stehen hinter dem Titel)", bg=COLORS["surface_muted"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
         
-        self.tree_book = ttk.Treeview(r_frame, selectmode="extended", show="tree")
+        self.tree_book = ttk.Treeview(r_frame, selectmode="extended", columns=("path", "raw_title", "status"), show="tree headings", displaycolumns=())
+        self.tree_book.heading("#0", text="Kapitel")
+        self.tree_book.column("#0", stretch=True, width=480)
+        self.tree_book.column("path", width=0, minwidth=0, stretch=False)
+        self.tree_book.column("raw_title", width=0, minwidth=0, stretch=False)
+        self.tree_book.column("status", width=0, minwidth=0, stretch=False)
         self.tree_book.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         # NEU: Farben (Tags) für den Filter definieren
         self.tree_book.tag_configure('dimmed', foreground='#bdc3c7')
         self.tree_book.tag_configure('normal', foreground='black')
+        self.tree_book.tag_configure('state_orphan', foreground='#ff6a00')
+        self.tree_book.tag_configure('state_pagebreak', foreground='#004dff')
+        self.tree_book.tag_configure('state_both', foreground='#b000ff')
         
         sr = tk.Scrollbar(r_frame, command=self.tree_book.yview)
         sr.pack(side=tk.RIGHT, fill=tk.Y)
@@ -602,9 +818,17 @@ class BookStudio:
     def apply_status_filter(self, _event=None):
         self._apply_tree_filters()
 
+    def on_file_state_filter_change(self, _event=None):
+        self._update_avail_list()
+        self._apply_tree_filters()
+        if not self._is_restoring_session:
+            self.persist_app_state()
+
     def on_title_search_change(self, _event=None):
         self._update_avail_list()
         self._apply_tree_filters()
+        if not self._is_restoring_session:
+            self.persist_app_state()
 
     def clear_title_search(self):
         self.search_var.set("")
@@ -630,24 +854,28 @@ class BookStudio:
             node_text = self.tree_book.item(node, "text").lower()
             children = self.tree_book.get_children(node)
 
-            child_matches = False
+            child_visible = False
             for child in children:
                 if walk_tree(child):
-                    child_matches = True
+                    child_visible = True
 
             status_ok = True
+            state_ok = True
             path_text = ""
             if vals:
                 path_text = str(vals[0]).lower()
                 status = self.status_registry.get(vals[0], "ohne Eintrag")
                 status_ok = target_status == "Alle" or status == target_status
+                state_ok = self._path_matches_file_state_filter(vals[0])
 
             has_search_term = bool(active_search_term)
             self_match = (not has_search_term) or (active_search_term in node_text or active_search_term in path_text)
-            search_ok = (not has_search_term) or self_match or child_matches
+            search_ok = (not has_search_term) or self_match or child_visible
 
-            is_visible = status_ok and search_ok
-            self.tree_book.item(node, tags=("normal",) if is_visible else ("dimmed",))
+            visible_self = status_ok and state_ok and search_ok
+            is_visible = visible_self or child_visible
+            node_path = vals[0] if vals else ""
+            self.tree_book.item(node, tags=self._tree_tags_for_path(node_path, is_visible=is_visible))
 
             if has_search_term and search_ok and children:
                 self.tree_book.item(node, open=True)
@@ -655,7 +883,7 @@ class BookStudio:
             if has_search_term and self_match and status_ok and first_match[0] is None:
                 first_match[0] = node
 
-            return self_match or child_matches
+            return is_visible
 
         for root_node in self.tree_book.get_children():
             walk_tree(root_node)
@@ -680,6 +908,7 @@ class BookStudio:
         
         self.yaml_engine = QuartoYamlEngine(self.current_book)
         self.title_registry = self.yaml_engine.build_title_registry()
+        self._build_file_state_registry()
         
         # NEU: Check ob engine den Status holen kann
         if hasattr(self.yaml_engine, 'build_status_registry'):
@@ -721,6 +950,7 @@ class BookStudio:
         
         # 1. Registries aus den Dateien neu einlesen (für Titel und Status)
         self.title_registry = self.yaml_engine.build_title_registry()
+        self._build_file_state_registry()
         
         # Falls die Status-Registry existiert (für den neuen Filter) laden wir sie auch
         if hasattr(self.yaml_engine, 'build_status_registry'):
@@ -739,7 +969,9 @@ class BookStudio:
                 path = vals[0]
                 # Den frisch geänderten Titel aus der Registry holen
                 new_title = self.title_registry.get(path, f"[NEU] {Path(path).stem}")
-                self.tree_book.item(node, text=new_title)
+                display_title = self._decorate_title_for_path(new_title, path)
+                status_code = self._status_code_for_path(path)
+                self.tree_book.item(node, text=display_title, values=(path, new_title, status_code), tags=self._tree_tags_for_path(path))
                 
             # Rekursiv durch alle Kinder (Unterkapitel) gehen
             for child in self.tree_book.get_children(node):
@@ -755,6 +987,87 @@ class BookStudio:
         # 4. Den Status-Filter direkt wieder anwenden (Highlighting aktualisieren)
         if hasattr(self, '_apply_tree_filters'):
             self._apply_tree_filters()
+
+    def reload_tree(self):
+        if not self.current_book:
+            return
+        self.refresh_ui_titles()
+        order_updated = self._reapply_required_order_in_tree()
+        if hasattr(self, '_apply_tree_filters'):
+            self._apply_tree_filters()
+        if order_updated:
+            self.status.config(text="Baum neu geladen (ORDER aktualisiert)", fg="#27ae60")
+            self.log("🔄 Baum neu geladen (Titel/Status/Dateimarker + ORDER aktualisiert).", "success")
+        else:
+            self.status.config(text="Baum neu geladen", fg="#27ae60")
+            self.log("🔄 Baum neu geladen (Titel/Status/Dateimarker aktualisiert).", "success")
+        if not self._is_restoring_session:
+            self.persist_app_state()
+
+    def _reapply_required_order_in_tree(self):
+        if not self.current_book or not hasattr(self, "yaml_engine") or not self.yaml_engine:
+            return False
+
+        if not self.tree_book.get_children(""):
+            return False
+
+        index_node = None
+        front_nodes = []
+        end_nodes = []
+
+        original_pos = 0
+
+        def collect_nodes(parent_id=""):
+            nonlocal index_node, original_pos
+            for node in self.tree_book.get_children(parent_id):
+                values = self.tree_book.item(node, "values")
+                path = values[0] if values else ""
+                if parent_id == "" and path == "index.md":
+                    index_node = node
+
+                sort_key, group = self.yaml_engine.get_required_order(path) if path else (None, None)
+                if sort_key is not None:
+                    if group == "front":
+                        front_nodes.append((sort_key, original_pos, node))
+                    elif group == "end":
+                        end_nodes.append((sort_key, original_pos, node))
+
+                original_pos += 1
+                collect_nodes(node)
+
+        collect_nodes("")
+
+        if not front_nodes and not end_nodes:
+            return False
+
+        changed = False
+
+        if front_nodes:
+            front_nodes.sort(key=lambda entry: (entry[0], entry[1]))
+            insert_at = self.tree_book.index(index_node) + 1 if index_node else 0
+            for _sort_key, _original_pos, node in front_nodes:
+                current_parent = self.tree_book.parent(node)
+                current_index = self.tree_book.index(node)
+                if current_parent != "" or current_index != insert_at:
+                    self.tree_book.move(node, "", insert_at)
+                    changed = True
+                insert_at += 1
+
+        if end_nodes:
+            end_nodes.sort(key=lambda entry: (-entry[0], entry[1]))
+            for _sort_key, _original_pos, node in end_nodes:
+                current_parent = self.tree_book.parent(node)
+                if current_parent != "":
+                    self.tree_book.move(node, "", "end")
+                    changed = True
+                    continue
+
+                siblings = list(self.tree_book.get_children(""))
+                if not siblings or siblings[-1] != node:
+                    self.tree_book.move(node, "", "end")
+                    changed = True
+
+        return changed
 
     def quick_save_json(self):
         """Überschreibt das aktuelle Profil ohne Dialog. Fallback auf 'Save As', wenn kein Profil existiert."""
@@ -857,8 +1170,14 @@ class BookStudio:
             path = item.get("path", "")
             if path == "index.md":
                 continue
+            if self._is_technical_content_node(path):
+                if item.get("children"):
+                    self._build_tree_from_json(parent_id, item["children"])
+                continue
             title = item.get("title", self.title_registry.get(path, f"[NEU] {Path(path).stem}"))
-            node = self.tree_book.insert(parent_id, "end", text=title, values=(path,), open=True)
+            display_title = self._decorate_title_for_path(title, path)
+            status_code = self._status_code_for_path(path)
+            node = self.tree_book.insert(parent_id, "end", text=display_title, values=(path, title, status_code), open=True, tags=self._tree_tags_for_path(path))
             if item.get("children"):
                 self._build_tree_from_json(node, item["children"])
 
@@ -870,8 +1189,14 @@ class BookStudio:
             path = item["path"]
             if path == "index.md":
                 continue
+            if self._is_technical_content_node(path):
+                if item.get("children"):
+                    self._build_tree_recursive(parent_id, item["children"])
+                continue
             title = self.title_registry.get(path, f"[NEU] {Path(path).stem}")
-            node = self.tree_book.insert(parent_id, "end", text=title, values=(path,), open=True)
+            display_title = self._decorate_title_for_path(title, path)
+            status_code = self._status_code_for_path(path)
+            node = self.tree_book.insert(parent_id, "end", text=display_title, values=(path, title, status_code), open=True, tags=self._tree_tags_for_path(path))
             if item.get("children"):
                 self._build_tree_recursive(node, item["children"])
 
@@ -888,9 +1213,13 @@ class BookStudio:
         for path, title in sorted(self.title_registry.items(), key=lambda x: x[1]):
             if path in used_paths:
                 continue
+            if not self._path_matches_file_state_filter(path):
+                continue
             title_or_path_match = (search_term in title.lower()) or (search_term in path.lower())
             if (not apply_left_search) or title_or_path_match:
-                self.list_avail.insert("", "end", text=title, values=(path,))
+                tags = self._state_tags_for_path(path)
+                display_title = self._decorate_title_for_path(title, path)
+                self.list_avail.insert("", "end", text=display_title, values=(path,), tags=tags)
                 count += 1  # NEU: Zähler hochzählen
                 
         # NEU: Das Label oben updaten!
@@ -911,9 +1240,15 @@ class BookStudio:
     def _get_tree_data_for_engine(self, node=""):
         data = []
         for child in self.tree_book.get_children(node):
+            values = self.tree_book.item(child, "values")
+            path = values[0] if values else ""
+            if self._is_technical_content_node(path):
+                data.extend(self._get_tree_data_for_engine(child))
+                continue
+            raw_title = self._raw_title_from_values(values, self.tree_book.item(child, "text"))
             item = {
-                "title": self.tree_book.item(child, "text"),
-                "path": self.tree_book.item(child, "values")[0],
+                "title": raw_title,
+                "path": path,
                 "children": self._get_tree_data_for_engine(child)
             }
             data.append(item)
@@ -1027,7 +1362,7 @@ class BookStudio:
         f_path = self.current_book / vals[0]
         
         if f_path.exists():
-            MarkdownEditor(self.root, f_path, on_save_callback=self.refresh_ui_titles)
+            MarkdownEditor(self.root, f_path, self.refresh_ui_titles, self._get_editor_end_commands())
         else:
             dead_path = vals[0]
             msg = (f"Die Datei wurde auf der Festplatte nicht gefunden:\n{dead_path}\n\n"
@@ -1040,7 +1375,8 @@ class BookStudio:
                 if event.widget == self.tree_book:
                     for child in self._get_all_tree_children(item):
                         txt, c_vals = self.tree_book.item(child, "text"), self.tree_book.item(child, "values")
-                        self.list_avail.insert("", "end", text=txt, values=c_vals)
+                        if c_vals:
+                            self.list_avail.insert("", "end", text=txt, values=(c_vals[0],))
                         
                 event.widget.delete(item)
                 self._push_undo(pre)

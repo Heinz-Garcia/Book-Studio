@@ -1,1 +1,1 @@
-v.35.0 (Common GUI Edition)
+Quarto Book Studio v.36.0 (Page-brake enabled Edition)

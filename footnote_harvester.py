@@ -12,44 +12,53 @@ class FootnoteHarvester:
         self.global_counter = 1
         self.harvested = [] # Speichert Tuples: (neue_id, text) für das finale Endnoten-Kapitel
         
-        # --- NEU: Das 2-Pass-System (Globale Lexika) ---
-        self.definitions = {} # Unser globales Lexikon: Speichert ALLE Quellen aus allen Dateien
-        self.file_mapping = {} # Merkt sich, welche Quelle welche fortlaufende Nummer bekommen hat
-        # -----------------------------------------------
+        # --- Das 2-Pass-System (Globale Lexika) ---
+        self.definitions = {} # Globales Lexikon: (file_key, label) -> Inhalt
+        self.file_mapping = {} # (file_key, label) -> fortlaufende Nummer
+        self.orphan_warnings = [] # Verwaiste Marker ohne Definition: (file_key, label)
+        # -------------------------------------------
 
-    def extract_definitions(self, text):
-        """PASS 1: Findet alle Fußnoten-Definitionen (egal wo sie stehen), speichert sie und entfernt sie aus dem Text."""
+    def extract_definitions(self, text, file_key=""):
+        """PASS 1: Findet alle Fußnoten-Definitionen, speichert sie datei-scoped und entfernt sie aus dem Text.
         
-        # NEU: Wir suchen nach [^Label]: gefolgt von beliebigem Text bis zum nächsten [^Label]: oder Dateiende
-        # Das (?=...) ist ein Lookahead. Wir suchen also bis vor die nächste Definition.
-        pattern = re.compile(r'\[\^([^\]]+)\]:\s*(.*?)(?=\[\^[^\]]+\]:|$)', re.DOTALL)
+        file_key: eindeutiger Bezeichner der Quelldatei (z.B. Pfad als String).
+        So können [^1] in Datei A und [^1] in Datei B als verschiedene Fußnoten behandelt werden.
+        """
+        # Definitionen müssen am Zeilenanfang stehen ([^Label]:).
+        # \Z statt $ verhindert, dass die letzte Definition Body-Text nach sich "auffrißt".
+        pattern = re.compile(r'^\[\^([^\]]+)\]:\s*(.*?)(?=^\[\^[^\]]+\]:|\Z)', re.DOTALL | re.MULTILINE)
         
-        # 1. Alle Treffer ins Lexikon aufnehmen
+        # 1. Alle Treffer ins Lexikon aufnehmen — Key ist (file_key, label)
         for match in pattern.finditer(text):
             note_id = match.group(1)
             note_content = match.group(2).strip()
-            self.definitions[note_id] = note_content
+            self.definitions[(file_key, note_id)] = note_content
             
         # 2. Die gefundenen Definitionen komplett aus dem Fließtext löschen
         clean_text = pattern.sub('', text)
         
         return clean_text.strip()
 
-    def replace_markers(self, text):
-        """PASS 2: Nutzt das globale Lexikon, um alle Verweise durch saubere Zahlen zu ersetzen."""
+    def replace_markers(self, text, file_key=""):
+        """PASS 2: Nutzt das globale Lexikon, um alle Verweise durch saubere fortlaufende Zahlen zu ersetzen.
+        
+        file_key: muss derselbe Wert sein wie beim zugehörigen extract_definitions-Aufruf,
+        damit Marker korrekt ihrer datei-scoped Definition zugeordnet werden.
+        """
         def inline_repl(m):
             old_id = m.group(1)
+            scoped_key = (file_key, old_id)
             
-            # Prüfen, ob wir die Quelle im weltweiten Lexikon gefunden haben
-            if old_id in self.definitions:
+            # Prüfen, ob wir die Quelle im datei-scoped Lexikon gefunden haben
+            if scoped_key in self.definitions:
                 
-                # Wenn diese Quelle noch keine Nummer hat, bekommt sie jetzt die nächste
-                if old_id not in self.file_mapping:
-                    self.file_mapping[old_id] = self.global_counter
-                    self.harvested.append((self.global_counter, self.definitions[old_id]))
+                # Wenn diese Quelle noch keine globale Nummer hat, bekommt sie jetzt die nächste
+                if scoped_key not in self.file_mapping:
+                    self.file_mapping[scoped_key] = self.global_counter
+                    self.harvested.append((self.global_counter, self.definitions[scoped_key]))
                     self.global_counter += 1
                 
-                new_id = self.file_mapping[old_id]
+                new_id = self.file_mapping[scoped_key]
                 
                 # Konfigurierbares Ausgabeformat anwenden
                 if self.mode == "endnotes":
@@ -57,10 +66,13 @@ class FootnoteHarvester:
                 else:
                     return f"[^{new_id}]"
                     
-            # Falls die Quelle nicht existiert, belassen wir den Marker unberührt
+            # Falls die Quelle nicht im Lexikon existiert, Marker unberührt lassen
+            # Marker ohne Definition: als verwaist merken und unberührt lassen
+            if (file_key, old_id) not in self.orphan_warnings:
+                self.orphan_warnings.append((file_key, old_id))
             return m.group(0)
 
-        # Sucht nach [^1] im Text und jagt es durch unsere Ersetzungs-Funktion
+        # Sucht nach [^Label] im Text und jagt es durch die Ersetzungs-Funktion
         clean_text = re.sub(r'\[\^([^\]]+)\]', inline_repl, text)
         return clean_text.strip()
 

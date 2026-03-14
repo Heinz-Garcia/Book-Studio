@@ -33,13 +33,17 @@ class PreProcessor:
         # 1b. Übrig gebliebene eklige 4er-Doppelpunkte auf saubere 3er kürzen
         text = re.sub(r'^::::\s*$', r':::', text, flags=re.MULTILINE)
         
-        # 2. @-ZITATIONEN IN FUSSNOTEN UMWANDELN (Absolut robust!)
-        # Schritt A: Definitionen (egal ob Zeilenanfang oder Leerzeichen davor)
-        # Wir zwingen ein \n davor, damit sie für den Harvester immer sauber auf einer neuen Zeile stehen!
+        # 2. @-ZITATIONEN IN FUSSNOTEN UMWANDELN
+        # Schritt A: [@Label]: Definition (Quarto/Pandoc-Stil mit Klammern)
+        # Muss VOR Schritt B laufen, damit [@Label] nicht doppelt verarbeitet wird.
+        # Wandelt sowohl die Definitionszeile als auch den Marker in einem Schritt um.
+        text = re.sub(r'\[@([a-zA-Z0-9_-]+)\]', r'[^\1]', text)
+        
+        # Schritt B: @Label: Definitionen am Zeilenanfang oder nach Leerzeichen (ohne Klammern)
         text = re.sub(r'(^|\s)@([a-zA-Z0-9_-]+):', r'\1\n[^\2]:', text)
         
-        # Schritt B: Verweise im Text (mit Leerzeichen, Klammern oder am Zeilenanfang)
-        text = re.sub(r'(^|\s|\(|\[)@([a-zA-Z0-9_-]+)', r'\1[^\2]', text)
+        # Schritt C: Bare @Label Verweise im Text (Leerzeichen, Klammern — KEIN \[ mehr, da Schritt A das übernimmt)
+        text = re.sub(r'(^|\s|\()@([a-zA-Z0-9_-]+)', r'\1[^\2]', text)
         
         return text
     # =========================================================================
@@ -59,8 +63,8 @@ class PreProcessor:
                     _, body = self._extract_parts(content)
                     body = self._sanitize_markdown(body)
                     
-                    # Füllt das Lexikon, ohne den Text schon zu verändern
-                    self.harvester.extract_definitions(body)
+                    # Füllt das Lexikon (datei-scoped), ohne den Text schon zu verändern
+                    self.harvester.extract_definitions(body, file_key=str(path))
                     
             if node.get("children"):
                 self._gather_all_definitions(node["children"])
@@ -152,9 +156,9 @@ class PreProcessor:
         # 2. H1 bereinigen
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
         
-        # 3. Lexikon anwenden (Zuerst alte Definitionen unten abschneiden, dann Marker im Text ersetzen)
-        body = self.harvester.extract_definitions(body)
-        body = self.harvester.replace_markers(body)
+        # 3. Lexikon anwenden (Definitionen entfernen, Marker ersetzen) — datei-scoped
+        body = self.harvester.extract_definitions(body, file_key=str(src))
+        body = self.harvester.replace_markers(body, file_key=str(src))
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
@@ -179,9 +183,9 @@ class PreProcessor:
         # 2. H1 bereinigen
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
         
-        # 3. Lexikon anwenden
-        body = self.harvester.extract_definitions(body)
-        body = self.harvester.replace_markers(body)
+        # 3. Lexikon anwenden — datei-scoped
+        body = self.harvester.extract_definitions(body, file_key=str(src))
+        body = self.harvester.replace_markers(body, file_key=str(src))
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
@@ -200,9 +204,9 @@ class PreProcessor:
                 # 1. Text waschen
                 body = self._sanitize_markdown(body)
                 
-                # 2. Lexikon anwenden
-                body = self.harvester.extract_definitions(body)
-                body = self.harvester.replace_markers(body)
+                # 2. Lexikon anwenden — datei-scoped
+                body = self.harvester.extract_definitions(body, file_key=str(src))
+                body = self.harvester.replace_markers(body, file_key=str(src))
                 
                 # 3. Überschriften einrücken
                 def shift_heading(m):
