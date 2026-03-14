@@ -1,1 +1,1 @@
-Quarto Book Studio v.37.0.0 (Online-Help and Image-aware Edition)
+Quarto Book Studio v.38.0.0 (WYSIWYG-mode in Editor and Unmanned Operation Edition)

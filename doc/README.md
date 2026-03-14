@@ -15,6 +15,10 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 - Required-File-Ordering (Front/END-Slots): [required-file-ordering.md](required-file-ordering.md)
 - Suche & Bildprüfung (Volltext, Marker, Dialog): [search-und-bildpruefung.md](search-und-bildpruefung.md)
 
+## CLI-Beispiele
+
+- Unmanned-Trigger Beispiele (JSON-Vorlagen + Aufrufe): [../examples/README.md](../examples/README.md)
+
 ## Hilfe-Menü / Handbuch
 
 - Über `Hilfe > 📘 Handbuch öffnen` wird eine konfigurierte Markdown-Datei im internen Markdown-Editor geöffnet.

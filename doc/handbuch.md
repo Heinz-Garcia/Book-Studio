@@ -4,7 +4,7 @@ Stand: März 2026
 
 Dieses Handbuch beschreibt die tägliche Arbeit mit dem Book Studio, die wichtigsten Workflows und die erweiterten Qualitätsfunktionen (insbesondere Bildreferenzen in Markdown).
 
-## Quick Reference (Top 10)
+## Quick Reference (Top 11)
 
 1. **Projekt wechseln:** Oben im Dropdown **AKTIVES PROJEKT** auswählen.
 2. **Kapitel zuweisen:** Links Datei doppelklicken oder mit Aktionen nach rechts übernehmen.
@@ -16,6 +16,7 @@ Dieses Handbuch beschreibt die tägliche Arbeit mit dem Book Studio, die wichtig
 8. **Direkt zur Problemstelle springen:** Im Fehlende-Bilder-Dialog Doppelklick oder Enter auf `L<Zeile>: ...`.
 9. **Sicher speichern:** `Strg+S` oder **In Quarto speichern**.
 10. **Rendern starten:** `F5` oder **Export > Buch rendern...**.
+11. **Unmanned Mode (CLI):** Für externe Orchestrierung `python unmanned_trigger.py ...` nutzen (Details siehe Kapitel **11) Unmanned Mode (CLI-Fernsteuerung)**).
 
 ## 1) Schnellstart
 
@@ -175,7 +176,83 @@ Beispiel:
 - Zeilensprünge beziehen sich auf den Analysezeitpunkt; nach späteren Dateiänderungen kann sich die exakte Position verschieben.
 - Bei extern geänderten Dateien kann der Volltext-Cache bis zum nächsten Refresh veraltete Inhalte anzeigen.
 
-## 11) Empfohlener täglicher Ablauf
+## 11) Unmanned Mode (CLI-Fernsteuerung)
+
+Für die Ansteuerung durch eine externe Applikation steht ein CLI-Trigger bereit:
+
+- Modul: `unmanned_trigger.py`
+
+### Minimalaufruf
+
+```bash
+python unmanned_trigger.py \
+  --book-path "Band_Stoffwechselgesundheit" \
+  --structure-json "Band_Stoffwechselgesundheit/bookconfig/Pandemie_Diabetes_All_files_Gemini_sorted_v.3.json" \
+  --md-source-path "Band_Stoffwechselgesundheit/content" \
+  --format typst \
+  --template Standard \
+  --footnote-mode endnotes
+```
+
+### Erweiterter Aufruf (für externe Orchestrierung)
+
+```bash
+python unmanned_trigger.py \
+  --book-path "Band_Stoffwechselgesundheit" \
+  --structure-json "Band_Stoffwechselgesundheit/bookconfig/Pandemie_Diabetes_All_files_Gemini_sorted_v.3.json" \
+  --md-source-path "Band_Stoffwechselgesundheit/content" \
+  --format typst \
+  --template "EXT: typstdoc" \
+  --footnote-mode endnotes \
+  --run-id "nightly-2026-03-14" \
+  --job-id "pipeline-4711" \
+  --log-file "logs/unmanned-run.log" \
+  --timeout-sec 1800 \
+  --strict
+```
+
+### Wichtige Parameter
+
+- `--book-path` (Pflicht): Ziel-Buchprojekt mit `_quarto.yml`
+- `--structure-json` (Pflicht): Buchstruktur-JSON
+- `--md-source-path` (Pflicht): Quellenpfad für Markdown-Dateien
+- `--format` (optional): z. B. `typst`, `pdf`, `html`, `docx`, `epub`
+- `--template` (optional): `Standard`, lokales Template oder `EXT: <name>`
+- `--footnote-mode` (optional): z. B. `endnotes`
+- `--profile-name` (optional): beeinflusst den Quarto-Output-Ordner
+- `--sync-md-sources` (optional): kopiert Quellen ins Buchprojekt
+- `--no-render` (optional): nur vorbereiten, nicht rendern
+- `--export-settings-json` (optional): Exportparameter als JSON-Objekt
+- `--run-id` / `--job-id` (optional): IDs für Nachverfolgung (werden im Log-Prefix ausgegeben)
+- `--log-file` (optional): persistentes Logfile (stdout/stderr + Render-Output)
+- `--timeout-sec` (optional): Timeout in Sekunden für den Render-Schritt
+- `--strict` (optional): Abbruch bei Warnungen (aktuell bei verwaisten Fußnotenmarkern)
+
+Beispiel-Datei für `--export-settings-json`:
+
+- `examples/unmanned_request.json`
+- `examples/unmanned_request_ext_typstdoc.json` (Extension-Template-Beispiel)
+- `examples/unmanned_request_prepare_only.json` (für `--no-render` / Prepare-only)
+
+### Verhalten
+
+1. Struktur-JSON wird validiert.
+2. Referenzierte Markdown-Dateien werden gegen `md-source-path` geprüft.
+3. Optionaler Source-Sync (`--sync-md-sources`).
+4. Pre-Processing + temporäre Renderstruktur.
+5. Optionaler Strict-Check auf Warnungen (derzeit: verwaiste Fußnotenmarker).
+6. Quarto-Render wird ausgeführt (außer bei `--no-render`).
+7. `_quarto.yml` wird danach wieder auf die ursprüngliche Struktur zurückgesetzt.
+
+### Exit-Codes
+
+- `0` = erfolgreich
+- `1` = Laufzeit-/Konfigurationsfehler
+- `2` = fehlende Markdown-Quellen
+- `3` = Strict-Mode-Abbruch wegen Warnungen
+- `124` = Render-Timeout
+
+## 12) Empfohlener täglicher Ablauf
 
 1. Projekt öffnen
 2. Volltextsuche für kritische Begriffe nutzen
