@@ -1,1 +1,1 @@
-Quarto Book Studio v.39.0.0 (Full-featured Quarto.yml Configurability Edition)
+Quarto Book Studio v.40.0.0 (Refactored Edition)

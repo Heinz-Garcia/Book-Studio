@@ -5,10 +5,12 @@ import subprocess
 import threading
 import json
 import re
-import os
 import platform
 import importlib
+import logging
 from export_manager import ExportManager
+from log_manager import LogManager
+from session_manager import SessionManager
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
@@ -27,6 +29,8 @@ try:
 except ModuleNotFoundError:
     sv_ttk = None
 
+logger = logging.getLogger(__name__)
+
 # =============================================================================
 # QUARTO BOOK STUDIO
 # =============================================================================
@@ -44,8 +48,8 @@ class BookStudio:
                 raw = version_file.read_text(encoding="utf-8").strip()
                 if raw:
                     self.app_name = raw
-            except OSError:
-                pass
+            except OSError as error:
+                self._report_nonfatal_error("version.txt konnte nicht gelesen werden", error)
 
         self.root.title(f"📚 {self.app_name}")
         # ----------------------------------------------
@@ -88,8 +92,10 @@ class BookStudio:
         self.log_auto_clear_var = tk.BooleanVar(value=False)
         self.log_max_lines_var = tk.StringVar(value="500")
         self.log_records = []
-        self._is_restoring_session = False
-        self._restored_session_state = self._load_session_state()
+        self.is_restoring_session = False
+        self.log_manager = LogManager(self)
+        self.session_manager = SessionManager(self)
+        self.restored_session_state = self.session_manager.load()
 
         # UI-Attribute, die von UiActionsManager gesetzt werden
         self.status = None
@@ -135,8 +141,8 @@ class BookStudio:
             geo = cfg.get("window_geometry", "")
             if geo and "x" in geo:
                 return geo
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
-            pass
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+            self._report_nonfatal_error("Fenstergeometrie konnte nicht geladen werden", error)
         return "1300x900"
 
     def _save_window_geometry(self):
@@ -145,8 +151,8 @@ class BookStudio:
             cfg = self._read_config()
             cfg["window_geometry"] = self.root.geometry()
             self._write_config(cfg)
-        except (OSError, TypeError, ValueError):
-            pass
+        except (OSError, TypeError, ValueError) as error:
+            self._report_nonfatal_error("Fenstergeometrie konnte nicht gespeichert werden", error)
 
     def _read_config(self):
         if not self._config_path.exists():
@@ -158,6 +164,13 @@ class BookStudio:
     def _write_config(self, cfg):
         with open(self._config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=4, ensure_ascii=False)
+
+    def _report_nonfatal_error(self, context, error):
+        message = f"⚠️ {context}: {error}"
+        if hasattr(self, "log_manager") and self.log_output:
+            self.log(message, "warning")
+            return
+        logger.warning(message)
 
     def _default_editor_end_commands(self):
         return [
@@ -181,7 +194,8 @@ class BookStudio:
         defaults = self._default_editor_end_commands()
         try:
             cfg = self._read_config()
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+            self._report_nonfatal_error("Editor-End-Commands konnten nicht aus Config geladen werden", error)
             return defaults
 
         commands = cfg.get("editor_end_commands")
@@ -210,193 +224,37 @@ class BookStudio:
 
         return normalized or defaults
 
+    # --- Session (delegated to SessionManager) ---
+
     def _load_session_state(self):
-        try:
-            cfg = self._read_config()
-            session_state = cfg.get("session_state", {})
-            return session_state if isinstance(session_state, dict) else {}
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
-            return {}
+        return self.session_manager.load()
 
     def _book_session_key(self, book_path):
-        try:
-            return str(book_path.relative_to(self.base_path))
-        except ValueError:
-            return book_path.name
+        return self.session_manager.book_key(book_path)
 
     def _save_session_state(self):
-        try:
-            cfg = self._read_config()
-            active_book_path = None
-            active_book_name = None
-            if self.current_book:
-                active_book_path = self._book_session_key(self.current_book)
-                active_book_name = self.current_book.name
+        self.session_manager.save()
 
-            cfg["session_state"] = {
-                "active_book_path": active_book_path,
-                "active_book_name": active_book_name,
-                "current_profile_name": self.current_profile_name,
-                "export_options": dict(self.last_export_options),
-                "ui_state": self._collect_ui_session_state(),
-            }
-            self._write_config(cfg)
-        except (OSError, TypeError, ValueError):
-            pass
+    def read_config(self) -> dict:
+        return self._read_config()
 
-    def _collect_ui_session_state(self):
-        if not hasattr(self, "search_var") or not hasattr(self, "tree_book"):
-            return {}
+    def write_config(self, cfg: dict):
+        self._write_config(cfg)
 
-        return {
-            "search_text": self.search_var.get(),
-            "search_scope": self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links",
-            "search_mode": self.search_mode_var.get() if hasattr(self, "search_mode_var") else "Titel/Pfad",
-            "file_state_filter": self.file_state_filter_var.get() if hasattr(self, "file_state_filter_var") else "Alle",
-            "status_filter": self.status_filter_var.get() if hasattr(self, "status_filter_var") else "Alle",
-            "log_filter": self.log_filter_var.get(),
-            "log_auto_clear": bool(self.log_auto_clear_var.get()),
-            "log_max_lines": self.log_max_lines_var.get(),
-            "avail_selected_paths": self._get_selected_paths(self.list_avail),
-            "tree_selected_paths": self._get_selected_paths(self.tree_book),
-            "avail_yview": list(self.list_avail.yview()),
-            "tree_yview": list(self.tree_book.yview()),
-        }
-
-    def _get_selected_paths(self, tree_widget):
-        selected_paths = []
-        for item_id in tree_widget.selection():
-            vals = tree_widget.item(item_id, "values")
-            if vals:
-                selected_paths.append(vals[0])
-        return selected_paths
+    def load_profile_from_file(self, filepath, show_message=True, track_undo=True):
+        return self._load_profile_from_file(filepath, show_message, track_undo)
 
     def _find_tree_node_by_path(self, path, parent=""):
-        for node in self.tree_book.get_children(parent):
-            vals = self.tree_book.item(node, "values")
-            if vals and vals[0] == path:
-                return node
-            found = self._find_tree_node_by_path(path, node)
-            if found:
-                return found
-        return None
+        return self.session_manager.find_tree_node(path, parent)
 
     def _find_avail_node_by_path(self, path):
-        for node in self.list_avail.get_children(""):
-            vals = self.list_avail.item(node, "values")
-            if vals and vals[0] == path:
-                return node
-        return None
+        return self.session_manager.find_avail_node(path)
 
     def _restore_ui_session_state(self, ui_state):
-        if not isinstance(ui_state, dict):
-            return
-
-        search_scope = ui_state.get("search_scope", "Links")
-        if hasattr(self, "search_scope_var") and search_scope in {"Links", "Rechts", "Beide"}:
-            self.search_scope_var.set(search_scope)
-
-        search_mode = ui_state.get("search_mode", "Titel/Pfad")
-        if hasattr(self, "search_mode_var") and search_mode in {"Titel/Pfad", "Volltext"}:
-            self.search_mode_var.set(search_mode)
-
-        if hasattr(self, "search_var"):
-            self.search_var.set(ui_state.get("search_text", ""))
-
-        file_state_filter = ui_state.get("file_state_filter", "Alle")
-        if file_state_filter == "Typst-Seitenumbruch (Dateiende)":
-            file_state_filter = "PDF-Seitenumbruch am Dateiende"
-        elif file_state_filter == "Beides":
-            file_state_filter = "Alle"
-        if hasattr(self, "file_state_filter_box"):
-            valid_file_filters = set(self.file_state_filter_box.cget("values"))
-            self.file_state_filter_var.set(file_state_filter if file_state_filter in valid_file_filters else "Alle")
-
-        status_filter = ui_state.get("status_filter", "Alle")
-        if hasattr(self, "status_combo"):
-            valid_statuses = set(self.status_combo.cget("values"))
-            self.status_filter_var.set(status_filter if status_filter in valid_statuses else "Alle")
-
-        log_filter = ui_state.get("log_filter", "Alle")
-        self.log_filter_var.set(log_filter if log_filter in self.log_filter_labels else "Alle")
-        self.log_auto_clear_var.set(bool(ui_state.get("log_auto_clear", False)))
-        log_max_lines = str(ui_state.get("log_max_lines", "500"))
-        self.log_max_lines_var.set(log_max_lines if log_max_lines.isdigit() else "500")
-
-        self.on_title_search_change()
-        self.apply_status_filter()
-        self.refresh_log_view()
-
-        self.list_avail.selection_set(())
-        self.tree_book.selection_set(())
-
-        for path in ui_state.get("avail_selected_paths", []):
-            node = self._find_avail_node_by_path(path)
-            if node:
-                self.list_avail.selection_add(node)
-
-        for path in ui_state.get("tree_selected_paths", []):
-            node = self._find_tree_node_by_path(path)
-            if node:
-                self.tree_book.selection_add(node)
-
-        avail_yview = ui_state.get("avail_yview")
-        if isinstance(avail_yview, list) and avail_yview:
-            try:
-                self.list_avail.yview_moveto(float(avail_yview[0]))
-            except (TypeError, ValueError, tk.TclError):
-                pass
-
-        tree_yview = ui_state.get("tree_yview")
-        if isinstance(tree_yview, list) and tree_yview:
-            try:
-                self.tree_book.yview_moveto(float(tree_yview[0]))
-            except (TypeError, ValueError, tk.TclError):
-                pass
-
-        if not tree_yview:
-            tree_selection = self.tree_book.selection()
-            if tree_selection:
-                self.tree_book.see(tree_selection[0])
-
-        if not avail_yview:
-            avail_selection = self.list_avail.selection()
-            if avail_selection:
-                self.list_avail.see(avail_selection[0])
+        self.session_manager.restore_ui(ui_state)
 
     def _restore_session_state(self):
-        self._is_restoring_session = True
-        session_state = self._restored_session_state or {}
-
-        target_index = 0
-        target_book_path = session_state.get("active_book_path")
-        target_book_name = session_state.get("active_book_name")
-
-        for idx, book in enumerate(self.books):
-            if target_book_path and self._book_session_key(book) == target_book_path:
-                target_index = idx
-                break
-            if target_book_name and book.name == target_book_name:
-                target_index = idx
-                break
-
-        self.book_combo.current(target_index)
-        self.load_book(None)
-
-        export_options = session_state.get("export_options", {})
-        if isinstance(export_options, dict):
-            self.last_export_options.update(export_options)
-
-        profile_name = session_state.get("current_profile_name")
-        if profile_name and self.current_book:
-            profile_path = self.current_book / "bookconfig" / f"{profile_name}.json"
-            if profile_path.exists():
-                self._load_profile_from_file(profile_path, show_message=False, track_undo=False)
-
-        self._restore_ui_session_state(session_state.get("ui_state", {}))
-
-        self._is_restoring_session = False
-        self._save_session_state()
+        self.session_manager.restore()
 
     def close_app(self):
         self._save_session_state()
@@ -406,71 +264,19 @@ class BookStudio:
     def persist_app_state(self):
         self._save_session_state()
 
-    def _get_max_log_lines(self):
-        try:
-            max_lines = int(self.log_max_lines_var.get())
-        except (TypeError, ValueError):
-            max_lines = 500
-        return max(50, max_lines)
-
-    def _get_visible_log_records(self):
-        filter_label = self.log_filter_var.get()
-        allowed_levels = self.log_filter_map.get(filter_label)
-        if allowed_levels is None:
-            return list(self.log_records)
-        return [record for record in self.log_records if record[1] in allowed_levels]
-
-    def _prune_log_records(self):
-        if self.log_auto_clear_var.get():
-            keep = self._get_max_log_lines()
-            if len(self.log_records) > keep:
-                self.log_records = self.log_records[-keep:]
+    # --- Log terminal (delegated to LogManager) ---
 
     def refresh_log_view(self):
-        if not self.log_output:
-            return
-        visible_records = self._get_visible_log_records()
-        try:
-            self.log_output.config(state="normal")
-            self.log_output.delete("1.0", tk.END)
-            for line, level in visible_records:
-                self.log_output.insert(tk.END, line, level)
-            self.log_output.see(tk.END)
-            self.log_output.config(state="disabled")
-        except tk.TclError:
-            pass
+        self.log_manager.refresh_view()
 
     def on_log_preferences_changed(self):
-        self._prune_log_records()
-        self.refresh_log_view()
-        if not self._is_restoring_session:
-            self.persist_app_state()
+        self.log_manager.on_preferences_changed()
 
     def clear_log(self):
-        self.log_records.clear()
-        self.refresh_log_view()
-        if not self._is_restoring_session:
-            self.persist_app_state()
+        self.log_manager.clear()
 
     def copy_log_to_clipboard(self, copy_all=False):
-        if not self.log_output:
-            return
-        try:
-            if copy_all:
-                content = self.log_output.get("1.0", tk.END).strip()
-            else:
-                try:
-                    content = self.log_output.selection_get().strip()
-                except tk.TclError:
-                    content = self.log_output.get("1.0", tk.END).strip()
-            if not content:
-                return
-            self.root.clipboard_clear()
-            self.root.clipboard_append(content)
-            self.root.update()
-            self.status.config(text="Log in Zwischenablage kopiert", fg=COLORS["success"])
-        except tk.TclError:
-            pass
+        self.log_manager.copy_to_clipboard(copy_all)
 
     def open_sanitizer_config_editor(self):
         config_path = self.base_path / "sanitizer_config.toml"
@@ -499,12 +305,7 @@ class BookStudio:
         """Schreibt eine Zeile ins integrierte Log-Terminal.
         level: 'info' | 'success' | 'error' | 'warning' | 'header' | 'dim'
         """
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        line = f"[{timestamp}] {msg}\n"
-        self.log_records.append((line, level))
-        self._prune_log_records()
-        self.refresh_log_view()
+        self.log_manager.log(msg, level)
 
     def _discover_projects(self):
         found = []
@@ -885,13 +686,13 @@ class BookStudio:
     def on_file_state_filter_change(self, _event=None):
         self._update_avail_list()
         self._apply_tree_filters()
-        if not self._is_restoring_session:
+        if not self.is_restoring_session:
             self.persist_app_state()
 
     def on_title_search_change(self, _event=None):
         self._update_avail_list()
         self._apply_tree_filters()
-        if not self._is_restoring_session:
+        if not self.is_restoring_session:
             self.persist_app_state()
 
     def clear_title_search(self):
@@ -1045,7 +846,7 @@ class BookStudio:
         from template_manager import TemplateManager
         tpls = TemplateManager.discover_templates(self.current_book)
         self.available_templates = tpls if tpls else ["Standard"]
-        if not self._is_restoring_session:
+        if not self.is_restoring_session:
             self._save_session_state()
 
     def refresh_ui_titles(self):
@@ -1107,7 +908,7 @@ class BookStudio:
         else:
             self.status.config(text="Baum neu geladen", fg="#27ae60")
             self.log("🔄 Baum neu geladen (Titel/Status/Dateimarker aktualisiert).", "success")
-        if not self._is_restoring_session:
+        if not self.is_restoring_session:
             self.persist_app_state()
 
     def _reapply_required_order_in_tree(self):
@@ -1257,7 +1058,7 @@ class BookStudio:
 
             self.current_profile_name = Path(filepath).stem
             self.profile_lbl.config(text=f"Profil: [{self.current_profile_name}]")
-            if not self._is_restoring_session:
+            if not self.is_restoring_session:
                 self.log(f"📄 Profil geladen: {self.current_profile_name}", "success")
             self._save_session_state()
 
@@ -1492,7 +1293,8 @@ class BookStudio:
     def open_help_manual(self):
         try:
             cfg = self._read_config()
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+            self._report_nonfatal_error("Handbuch-Konfiguration konnte nicht gelesen werden", error)
             cfg = {}
 
         manual_setting = cfg.get("help_manual_path", "")
@@ -1715,8 +1517,8 @@ class BookStudio:
                 self.root.update()
                 if self.status:
                     self.status.config(text="Fehlende Bildpfade in Zwischenablage kopiert", fg=COLORS["success"])
-            except tk.TclError:
-                pass
+            except tk.TclError as error:
+                self._report_nonfatal_error("Zwischenablage konnte nicht beschrieben werden", error)
 
         ttk.Button(footer, text="In Zwischenablage kopieren", style="Tool.TButton", command=copy_to_clipboard).pack(side=tk.LEFT)
         ttk.Button(footer, text="An markierter Zeile öffnen", style="Tool.TButton", command=open_clicked_reference).pack(side=tk.LEFT, padx=8)
@@ -2073,7 +1875,7 @@ class BookStudio:
                     if custom_path:
                         backup_base_dir = Path(custom_path)
             except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
-                print(f"Fehler beim Lesen der Config: {e}")
+                self.log(f"⚠️  Konnte studio_config.json für Sanitizer-Backup nicht lesen: {e}", "warning")
 
         # 2. Zeitstempel-Ordnernamen generieren (Format: DDMMYY_HHMM)
         from datetime import datetime
@@ -2131,91 +1933,6 @@ class BookStudio:
                 self.root.after(0, lambda: self.log(f"❌ FEHLER: Crash (Code {p.returncode})", "error"))
 
         threading.Thread(target=sanitizer_thread, daemon=True).start()
-        
-    # =========================================================================
-    # RENDERING PIPELINE (Ghost-Render mit Pre-Processor)
-    # =========================================================================
-    def run_quarto_render(self):
-        if not self.current_book:
-            return
-        
-        # 1. Aktuellen (reinen) Stand ganz normal speichern
-        if not self.save_project(show_msg=False):
-            self.status.config(text="Render abgebrochen (Speicherfehler in der YAML)", fg="#e74c3c")
-            return
-            
-        fmt = self.fmt_box.get()
-        self.status.config(text=f"Rendere {fmt} (Pre-Processing läuft)...", fg="#3498db")
-        
-        # 2. PRE-PROCESSING STARTEN
-        from pre_processor import PreProcessor
-        processor = PreProcessor(self.current_book)
-        original_tree = self._get_tree_data_for_engine()
-        
-        # Erstellt den processed/ Ordner und liefert den Baum mit den neuen Pfaden zurück
-        processed_tree = processor.prepare_render_environment(original_tree)
-        
-        # 3. _quarto.yml TEMPORÄR auf den processed/ Ordner umbiegen (ohne GUI State zu zerstören!)
-        self.yaml_engine.save_chapters(processed_tree, profile_name=self.current_profile_name, save_gui_state=False)
-        
-        self.log("=" * 50, "dim")
-        self.log("🖨️  QUARTO RENDER: " + fmt.upper(), "header")
-        self.log("=" * 50, "dim")
-        self.btn_render.config(state="disabled")
-
-        def render_thread():
-            cmd = f"quarto render \"{self.current_book}\" --to {fmt}"
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            for line in p.stdout:
-                stripped = line.rstrip()
-                if stripped:
-                    self.root.after(0, lambda ln=stripped: self.log(ln, "info"))
-            p.wait()
-
-            # 4. AUFRÄUMEN: Nach dem Rendern sofort die Original-Struktur wiederherstellen!
-            self.yaml_engine.save_chapters(original_tree, profile_name=self.current_profile_name, save_gui_state=False)
-
-            if p.returncode == 0:
-                try:
-                    safe_profile = re.sub(r'[^a-zA-Z0-9_\-]', '_', self.current_profile_name) if self.current_profile_name else None
-                    out_dir_name = f"_book_{safe_profile}" if safe_profile else "_book"
-                    out_dir = self.current_book / "export" / out_dir_name
-
-                    target_ext = ".pdf" if fmt in ["pdf", "typst"] else f".{fmt}"
-                    found_files = list(out_dir.glob(f"*{target_ext}"))
-
-                    if found_files:
-                        file_to_open = found_files[0]
-                        abs_path = str(file_to_open.resolve())
-
-                        self.root.clipboard_clear()
-                        self.root.clipboard_append(abs_path)
-                        self.root.update()
-
-                        self.root.after(0, lambda: self.log(f"✅ ERFOLG: {fmt.upper()} generiert!", "success"))
-                        self.root.after(0, lambda: self.log(f"📋 Pfad in Zwischenablage: {abs_path}", "success"))
-                        self.root.after(0, lambda: self.status.config(text="Render: Erfolgreich", fg="#2ecc71"))
-
-                        if platform.system() == 'Windows':
-                            os.startfile(abs_path)
-                        elif platform.system() == 'Darwin':
-                            subprocess.call(('open', abs_path))
-                        else:
-                            subprocess.call(('xdg-open', abs_path))
-                    else:
-                        self.root.after(0, lambda: self.log(f"✅ ERFOLG: {fmt.upper()} im export/ Ordner generiert.", "success"))
-                        self.root.after(0, lambda: self.status.config(text="Render: Erfolgreich", fg="#2ecc71"))
-
-                except (tk.TclError, OSError, subprocess.SubprocessError) as auto_open_err:
-                    self.root.after(0, lambda err=auto_open_err: self.log(f"⚠️  Auto-Open fehlgeschlagen: {err}", "warning"))
-
-            else:
-                self.root.after(0, lambda: self.log(f"❌ FEHLER: Render-Crash (Code {p.returncode})", "error"))
-                self.root.after(0, lambda: self.status.config(text="Render: FEHLGESCHLAGEN", fg="#e74c3c"))
-                
-            self.root.after(0, lambda: self.btn_render.config(state="normal"))
-                
-        threading.Thread(target=render_thread, daemon=True).start()
 
 if __name__ == "__main__":
     app_root = tk.Tk()

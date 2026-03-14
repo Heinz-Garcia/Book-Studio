@@ -1,7 +1,10 @@
 import yaml
 import re
 import json
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 class QuartoYamlEngine:
     def __init__(self, book_path):
@@ -148,7 +151,7 @@ class QuartoYamlEngine:
                         config_data.get("frontmatter_update_mode", frontmatter_update_mode)
                     ).strip().lower()
             except (OSError, ValueError, TypeError) as e:
-                print(f"Fehler beim Lesen der studio_config.json: {e}")
+                logger.warning("Fehler beim Lesen der studio_config.json: %s", e)
 
         try:
             with open(filepath, "r", encoding="utf-8") as f:
@@ -285,7 +288,7 @@ class QuartoYamlEngine:
             return True
 
         except (OSError, ValueError, TypeError) as e:
-            print(f"Fehler beim Auto-Healing: {e}")
+            logger.warning("Fehler beim Auto-Healing für %s: %s", filepath, e)
             return False
     # =========================================================================
     # QUARTO YAML PARSING & SAVING
@@ -420,8 +423,8 @@ class QuartoYamlEngine:
                 return int(end_match.group(1)), "end"
             if re.match(r'^\d+$', order_val):
                 return int(order_val), "front"
-        except (OSError, yaml.YAMLError, ValueError):
-            pass
+        except (OSError, yaml.YAMLError, ValueError) as error:
+            logger.warning("ORDER-Frontmatter konnte nicht gelesen werden (%s): %s", rel_path, error)
 
         return None, None
 
@@ -489,15 +492,16 @@ class QuartoYamlEngine:
             self.gui_state_path.parent.mkdir(exist_ok=True)
             with open(self.gui_state_path, 'w', encoding='utf-8') as f:
                 json.dump(tree_data, f, indent=4, ensure_ascii=False)
-        except (OSError, TypeError, ValueError):
-            pass
+        except (OSError, TypeError, ValueError) as error:
+            logger.warning("GUI-State konnte nicht gespeichert werden (%s): %s", self.gui_state_path, error)
 
     def _load_gui_state(self):
         if self.gui_state_path.exists():
             try:
                 with open(self.gui_state_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+                logger.warning("GUI-State konnte nicht geladen werden (%s): %s", self.gui_state_path, error)
                 return None
         return None
     

@@ -2,10 +2,13 @@ import argparse
 import re
 import unicodedata
 import importlib
+import logging
 import sys
 import subprocess
 from pathlib import Path
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 try:
     tomllib = importlib.import_module("tomllib")
@@ -78,16 +81,19 @@ def _load_config(config_path=None):
     }
 
     if not config_path.exists():
+        logger.warning("Sanitizer-Config nicht gefunden, nutze Defaults: %s", config_path)
         return _defaults
 
     if tomllib is None:
+        logger.warning("tomllib/tomli nicht verfügbar, Sanitizer nutzt Defaults")
         return _defaults
 
     try:
         with open(config_path, "rb") as f:
             config = tomllib.load(f)
         return config
-    except (OSError, ValueError):
+    except (OSError, ValueError) as error:
+        logger.warning("Sanitizer-Config konnte nicht gelesen werden (%s): %s", config_path, error)
         return _defaults
 
 
@@ -101,9 +107,9 @@ def _repair_encoding(content):
         if repaired != content:
             changes.append("Encoding-Fehler repariert (UTF-8 Mojibake/CP1252 behoben)")
             return repaired, changes
-    except (UnicodeEncodeError, UnicodeDecodeError):
+    except (UnicodeEncodeError, UnicodeDecodeError) as error:
         # Kein Mojibake oder gemischtes Encoding – unverändert lassen
-        pass
+        logger.debug("Encoding-Reparatur übersprungen: %s", error)
     return content, changes
 
 
@@ -549,7 +555,7 @@ def _prompt_and_reveal_file(filepath, unclosed_entries):
         input("Bitte Datei prüfen und mit Enter fortfahren...")
     except EOFError:
         # Nicht-interaktive Umgebungen dürfen weiterlaufen.
-        pass
+        print("Hinweis: Nicht-interaktive Umgebung erkannt – fortgesetzt ohne Eingabe.")
 
 
 def sanitize_file(filepath, header_mode="repair"):
