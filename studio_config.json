@@ -1,4 +1,5 @@
 {
+    "help_manual_path": "doc/handbuch.md",
     "frontmatter_requirements": {
         "title": "<filename>",
         "description": "<title>",
@@ -33,7 +34,7 @@
             "footnote_mode": "endnotes"
         },
         "ui_state": {
-            "search_text": "#pagebreak()",
+            "search_text": "",
             "search_scope": "Rechts",
             "search_mode": "Volltext",
             "file_state_filter": "Alle",

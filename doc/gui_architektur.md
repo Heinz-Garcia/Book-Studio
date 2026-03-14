@@ -20,6 +20,7 @@ Verantwortlich für:
 - Laden/Verwalten von Projektdaten
 - Tree-Operationen und Kern-Use-Cases
 - Delegation an UI-Module (`MenuManager`, `UiActionsManager`)
+- Delegation an Fachmodule für Suche/Scanning (`search_filter`, `markdown_asset_scanner`)
 
 Nicht verantwortlich für:
 
@@ -55,6 +56,38 @@ Regel:
 - Nur UI-Aufbau, kein inhaltlicher Workflow.
 - Commands zeigen auf `studio`-Methoden.
 
+### search_filter.py
+
+Rolle: Entkoppelte Such- und Match-Logik für GUI-Filter.
+
+Verantwortlich für:
+
+- Normalisierung des Suchbegriffs
+- Match-Entscheidungen für Titel/Pfad vs. Volltext
+- Reine, testbare Funktionen ohne GUI-Abhängigkeiten
+
+Regel:
+
+- Keine Tk-Imports oder Widget-Zugriffe.
+- Nur datengetriebene Entscheidungen zurückgeben.
+
+### markdown_asset_scanner.py
+
+Rolle: Erkennung fehlender lokaler Bildreferenzen in Markdown.
+
+Verantwortlich für:
+
+- Parsen von Inline-Bildsyntax (`![](...)`)
+- Parsen von Referenz-Bildsyntax (`![...][id]` + `[id]: ...`)
+- URL-Schemes ignorieren (`http`, `https`, `data`, `mailto`)
+- Auflösen relativer Pfade (Dateiordner + Buch-Root)
+- Rückgabe von Treffern inkl. Zeilennummern für den Editor-Sprung
+
+Regel:
+
+- Keine UI-Dialoge im Scanner.
+- Scanner liefert nur strukturierte Daten; Anzeige entscheidet die GUI.
+
 ## Attributvertrag (UI-State)
 
 Folgende UI-Attribute werden in `BookStudio.__init__` vorab deklariert und durch `UiActionsManager` gesetzt:
@@ -82,6 +115,22 @@ Warum:
 6. Log-Ausgaben immer über `studio.log(msg, level)` — niemals direkt in `log_output` schreiben.
    Levels: `info` | `success` | `error` | `warning` | `header` | `dim`
 7. Render-/Prozess-Output direkt ins integrierte Log-Terminal (kein `tk.Toplevel` für Log-Fenster mehr).
+8. Suchlogik nicht mehr inline in Widgets duplizieren; neue Suchvarianten in `search_filter.py` ergänzen.
+9. Markdown-Asset-Prüfungen ausschließlich über `markdown_asset_scanner.py` implementieren.
+
+## Aktuelle Features (März 2026)
+
+- Umschaltbare Suche: `Titel/Pfad` oder `Volltext`
+- Such-Scope: `Links` | `Rechts` | `Beide`
+- Dateistatus-Marker:
+  - `●` = verwaiste Fußnoten
+  - `↵` = PDF-Seitenumbruch am Dateiende
+  - `🖼` = fehlende Bildreferenzen
+- Kontextmenü (links/rechts): `🖼 Fehlende Bilder anzeigen`
+- Dialog für fehlende Bilder:
+  - Zeilenweise Trefferliste (`L<Zeile>: <Pfad>`)
+  - Kopieren in Zwischenablage
+  - Doppelklick/Enter öffnet `MarkdownEditor` an der Trefferzeile
 
 ## Änderungs-Checkliste
 

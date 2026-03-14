@@ -70,6 +70,8 @@ class MenuManager:
         menu_bar.add_cascade(label="Tools", menu=tools_menu)
 
         help_menu = self._create_menu(menu_bar)
+        help_menu.add_command(label="📘 Handbuch öffnen", command=self.studio.open_help_manual)
+        help_menu.add_separator()
         help_menu.add_command(label="ℹ️ Über", command=self._show_about_dialog)
         menu_bar.add_cascade(label="Hilfe", menu=help_menu)
 

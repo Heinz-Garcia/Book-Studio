@@ -2,6 +2,10 @@
 
 Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 
+## Handbuch
+
+- Vollständiges Benutzerhandbuch (aus Hilfe-Menü): [handbuch.md](handbuch.md)
+
 ## GUI & Struktur
 
 - GUI-Architektur und Modulgrenzen: [gui_architektur.md](gui_architektur.md)
@@ -9,6 +13,13 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 ## Bedienung
 
 - Required-File-Ordering (Front/END-Slots): [required-file-ordering.md](required-file-ordering.md)
+- Suche & Bildprüfung (Volltext, Marker, Dialog): [search-und-bildpruefung.md](search-und-bildpruefung.md)
+
+## Hilfe-Menü / Handbuch
+
+- Über `Hilfe > 📘 Handbuch öffnen` wird eine konfigurierte Markdown-Datei im internen Markdown-Editor geöffnet.
+- Die Datei wird über `studio_config.json` gesteuert:
+  - `help_manual_path`: relativer oder absoluter Pfad zu einer `.md`-Datei.
 
 ## Vorlagen
 

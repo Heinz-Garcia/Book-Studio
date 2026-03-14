@@ -15,9 +15,11 @@ from md_editor import MarkdownEditor
 from yaml_engine import QuartoYamlEngine
 from book_doctor import BookDoctor, BackupManager
 from menu_manager import MenuManager
+from markdown_asset_scanner import find_missing_image_refs
 from ui_actions_manager import UiActionsManager
 from sanitizer_config_editor import SanitizerConfigEditor
-from ui_theme import COLORS, ThemedTooltip, apply_menu_theme, apply_ttk_theme, configure_root
+from search_filter import matches_tree_node, normalize_search_term, should_include_available_item
+from ui_theme import COLORS, ThemedTooltip, apply_menu_theme, apply_ttk_theme, center_on_parent, configure_root, style_dialog
 
 try:
     sv_ttk = importlib.import_module("sv_ttk")
@@ -525,6 +527,10 @@ class BookStudio:
             state = {
                 "orphan_footnotes": False,
                 "pdf_pagebreak_end": False,
+                "missing_images": False,
+                "missing_images_count": 0,
+                "missing_image_targets": (),
+                "missing_image_refs": (),
             }
 
             if not str(path).lower().endswith(".md"):
@@ -546,6 +552,12 @@ class BookStudio:
             definitions = set(re.findall(r'^\s*(?:\[cite_start\]\s*)?\[\^([^\]]+)\]:', text, re.MULTILINE))
             state["orphan_footnotes"] = bool(markers - definitions)
             state["pdf_pagebreak_end"] = any(pattern.search(text) for pattern in pagebreak_patterns)
+            missing_image_refs = find_missing_image_refs(text, abs_path, self.current_book)
+            missing_images = [target for _, target in missing_image_refs]
+            state["missing_images"] = bool(missing_image_refs)
+            state["missing_images_count"] = len(missing_image_refs)
+            state["missing_image_targets"] = tuple(sorted(set(missing_images)))
+            state["missing_image_refs"] = tuple(missing_image_refs)
 
             registry[path] = state
 
@@ -559,11 +571,14 @@ class BookStudio:
         state = self.file_state_registry.get(path, {})
         has_orphan = bool(state.get("orphan_footnotes"))
         has_pagebreak = bool(state.get("pdf_pagebreak_end"))
+        has_missing_images = bool(state.get("missing_images"))
 
         if filter_value == "Verwaiste Fußnoten":
             return has_orphan
         if filter_value == "PDF-Seitenumbruch am Dateiende":
             return has_pagebreak
+        if filter_value == "Fehlende Bilder":
+            return has_missing_images
         return True
 
     def _state_tags_for_path(self, path):
@@ -586,13 +601,16 @@ class BookStudio:
         state = self.file_state_registry.get(path, {})
         has_orphan = bool(state.get("orphan_footnotes"))
         has_pagebreak = bool(state.get("pdf_pagebreak_end"))
-        if has_orphan and has_pagebreak:
-            return "●↵"
+        has_missing_images = bool(state.get("missing_images"))
+
+        status_codes = []
         if has_orphan:
-            return "●"
+            status_codes.append("●")
         if has_pagebreak:
-            return "↵"
-        return ""
+            status_codes.append("↵")
+        if has_missing_images:
+            status_codes.append("🖼")
+        return "".join(status_codes)
 
     def _is_technical_content_node(self, path):
         normalized = str(path or "").replace("\\", "/").strip()
@@ -608,6 +626,8 @@ class BookStudio:
             suffixes.append("●")
         if state.get("pdf_pagebreak_end"):
             suffixes.append("↵")
+        if state.get("missing_images"):
+            suffixes.append("🖼")
 
         if not suffixes:
             return title
@@ -693,7 +713,7 @@ class BookStudio:
         self.file_state_filter_box = ttk.Combobox(
             search_f,
             textvariable=self.file_state_filter_var,
-            values=["Alle", "Verwaiste Fußnoten", "PDF-Seitenumbruch am Dateiende"],
+            values=["Alle", "Verwaiste Fußnoten", "PDF-Seitenumbruch am Dateiende", "Fehlende Bilder"],
             state="readonly",
             width=30,
         )
@@ -717,6 +737,7 @@ class BookStudio:
         self.avail_menu = tk.Menu(self.root, tearoff=0)
         apply_menu_theme(self.avail_menu)
         self.avail_menu.add_command(label="📂 Im Explorer anzeigen", command=self.open_avail_in_explorer)
+        self.avail_menu.add_command(label="🖼 Fehlende Bilder anzeigen", command=self.show_avail_missing_images)
         self.list_avail.bind("<Button-3>", self.show_avail_menu)
         
         # --- MITTE ---
@@ -743,6 +764,7 @@ class BookStudio:
         tk.Label(r_header, text=" | Legende: ", bg=COLORS["surface_muted"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
         tk.Label(r_header, text="● = Verwaiste Fußnoten", bg=COLORS["surface_muted"], fg="#ff6a00", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
         tk.Label(r_header, text="↵ = PDF-Seitenumbruch am Dateiende", bg=COLORS["surface_muted"], fg="#004dff", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(r_header, text="🖼 = Fehlende Bilder", bg=COLORS["surface_muted"], fg="#dc2626", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
         tk.Label(r_header, text="(Marker stehen hinter dem Titel)", bg=COLORS["surface_muted"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
         
         self.tree_book = ttk.Treeview(r_frame, selectmode="extended", columns=("path", "raw_title", "status"), show="tree headings", displaycolumns=())
@@ -773,6 +795,7 @@ class BookStudio:
         self.tree_menu = tk.Menu(self.root, tearoff=0)
         apply_menu_theme(self.tree_menu)
         self.tree_menu.add_command(label="📂 Im Explorer anzeigen", command=self.open_tree_in_explorer)
+        self.tree_menu.add_command(label="🖼 Fehlende Bilder anzeigen", command=self.show_tree_missing_images)
         self.tree_book.bind("<Button-3>", self.show_tree_menu)
         
         # --- FOOTER --- (zuerst packen → landet ganz unten)
@@ -897,7 +920,7 @@ class BookStudio:
 
         target_status = self.status_filter_var.get() if hasattr(self, "status_filter_var") else "Alle"
         search_scope = self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links"
-        search_term = self.search_var.get().strip().lower() if hasattr(self, "search_var") else ""
+        search_term = normalize_search_term(self.search_var.get()) if hasattr(self, "search_var") else ""
         is_fulltext = self._is_fulltext_search_enabled()
 
         search_on_right = search_scope in {"Rechts", "Beide"}
@@ -930,16 +953,14 @@ class BookStudio:
                 state_ok = self._path_matches_file_state_filter(vals[0])
 
             has_search_term = bool(active_search_term)
-            if not has_search_term:
-                self_match = True
-            elif is_fulltext:
-                self_match = (
-                    (active_search_term in raw_title)
-                    or (active_search_term in path_text)
-                    or (active_search_term in content_text)
-                )
-            else:
-                self_match = (active_search_term in node_text) or (active_search_term in path_text)
+            self_match = matches_tree_node(
+                search_term=active_search_term,
+                node_text=node_text,
+                path_text=path_text,
+                raw_title=raw_title,
+                content_text=content_text,
+                is_fulltext=is_fulltext,
+            )
             search_ok = (not has_search_term) or self_match or child_visible
 
             visible_self = status_ok and state_ok and search_ok
@@ -1276,7 +1297,7 @@ class BookStudio:
         used_paths = self._get_all_used_paths()
         used_paths.append("index.md")
         self.list_avail.delete(*self.list_avail.get_children())
-        search_term = self.search_var.get().strip().lower()
+        search_term = normalize_search_term(self.search_var.get())
         search_scope = self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links"
         apply_left_search = search_scope in {"Links", "Beide"}
         is_fulltext = self._is_fulltext_search_enabled()
@@ -1288,13 +1309,15 @@ class BookStudio:
                 continue
             if not self._path_matches_file_state_filter(path):
                 continue
-            if not apply_left_search or not search_term:
-                should_include = True
-            elif is_fulltext:
-                content_text = self._get_content_for_search(path)
-                should_include = (search_term in title.lower()) or (search_term in path.lower()) or (search_term in content_text)
-            else:
-                should_include = (search_term in title.lower()) or (search_term in path.lower())
+            content_text = self._get_content_for_search(path) if is_fulltext and search_term else ""
+            should_include = should_include_available_item(
+                search_term=search_term,
+                apply_left_search=apply_left_search,
+                is_fulltext=is_fulltext,
+                title=title,
+                path=path,
+                content_text=content_text,
+            )
 
             if should_include:
                 tags = self._state_tags_for_path(path)
@@ -1432,6 +1455,42 @@ class BookStudio:
             return
         self.doctor.run_doctor_manual(self._get_all_used_paths(), len(self.list_avail.get_children("")))
 
+    def open_help_manual(self):
+        try:
+            cfg = self._read_config()
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            cfg = {}
+
+        manual_setting = cfg.get("help_manual_path", "")
+        if not isinstance(manual_setting, str) or not manual_setting.strip():
+            messagebox.showwarning(
+                "Handbuch nicht konfiguriert",
+                "Bitte setze in studio_config.json den Eintrag 'help_manual_path'\n"
+                "auf eine Markdown-Datei (relativ zum Projekt oder absolut).",
+            )
+            return
+
+        manual_path = Path(manual_setting.strip())
+        if not manual_path.is_absolute():
+            manual_path = self.base_path / manual_path
+
+        manual_path = manual_path.resolve()
+        if not manual_path.exists() or not manual_path.is_file():
+            messagebox.showerror(
+                "Handbuch nicht gefunden",
+                f"Die konfigurierte Handbuch-Datei existiert nicht:\n{manual_path}",
+            )
+            return
+
+        if manual_path.suffix.lower() != ".md":
+            messagebox.showwarning(
+                "Ungültiges Handbuch-Format",
+                f"Die konfigurierte Datei ist keine Markdown-Datei:\n{manual_path}",
+            )
+            return
+
+        MarkdownEditor(self.root, manual_path, self.refresh_ui_titles, self._get_editor_end_commands())
+
     def on_double_click(self, event):
         item = event.widget.identify_row(event.y)
         if not item:
@@ -1476,6 +1535,12 @@ class BookStudio:
             return
         self._open_in_explorer(self.list_avail.item(sel[0], "values"))
 
+    def show_avail_missing_images(self):
+        sel = self.list_avail.selection()
+        if not sel:
+            return
+        self._show_missing_images_for_values(self.list_avail.item(sel[0], "values"))
+
     def show_tree_menu(self, event):
         item = self.tree_book.identify_row(event.y)
         if item:
@@ -1487,6 +1552,141 @@ class BookStudio:
         if not sel:
             return
         self._open_in_explorer(self.tree_book.item(sel[0], "values"))
+
+    def show_tree_missing_images(self):
+        sel = self.tree_book.selection()
+        if not sel:
+            return
+        self._show_missing_images_for_values(self.tree_book.item(sel[0], "values"))
+
+    def _show_missing_images_for_values(self, vals):
+        if not vals:
+            return
+
+        file_path = vals[0]
+        state = self.file_state_registry.get(file_path, {})
+        missing_refs = list(state.get("missing_image_refs") or ())
+
+        if not str(file_path).lower().endswith(".md"):
+            messagebox.showinfo("Fehlende Bilder", "Die Auswahl ist keine Markdown-Datei.")
+            return
+
+        if not missing_refs:
+            messagebox.showinfo("Fehlende Bilder", "Keine fehlenden Bildreferenzen gefunden.")
+            return
+
+        self._open_missing_images_dialog(file_path, missing_refs)
+
+    def _open_missing_images_dialog(self, file_path, missing_refs):
+        win = tk.Toplevel(self.root)
+        style_dialog(win, "Fehlende Bilder")
+        win.transient(self.root)
+        win.grab_set()
+        center_on_parent(win, self.root, 760, 460)
+
+        header = tk.Frame(win, bg=COLORS["surface_muted"], padx=12, pady=10)
+        header.pack(fill=tk.X)
+        tk.Label(
+            header,
+            text=f"Datei: {file_path}",
+            bg=COLORS["surface_muted"],
+            fg=COLORS["heading"],
+            font=("Segoe UI Semibold", 10),
+            anchor="w",
+        ).pack(fill=tk.X)
+        tk.Label(
+            header,
+            text=f"Nicht gefundene Bildreferenzen: {len(missing_refs)}",
+            bg=COLORS["surface_muted"],
+            fg=COLORS["danger_text"],
+            font=("Segoe UI", 9),
+            anchor="w",
+        ).pack(fill=tk.X, pady=(2, 0))
+        tk.Label(
+            header,
+            text="Doppelklick oder Enter auf einer Zeile öffnet den Editor an der passenden Stelle.",
+            bg=COLORS["surface_muted"],
+            fg=COLORS["text_muted"],
+            font=("Segoe UI", 8),
+            anchor="w",
+        ).pack(fill=tk.X, pady=(2, 0))
+
+        body = tk.Frame(win, bg=COLORS["surface"], padx=12, pady=10)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        text = tk.Text(
+            body,
+            wrap="none",
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            font=("Consolas", 10),
+            relief="solid",
+            bd=1,
+        )
+        yscroll = ttk.Scrollbar(body, orient="vertical", command=text.yview)
+        xscroll = ttk.Scrollbar(body, orient="horizontal", command=text.xview)
+        text.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+
+        text.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll.grid(row=1, column=0, sticky="ew")
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+
+        content = "\n".join(f"L{line_number}: {target}" for line_number, target in missing_refs)
+        text.insert("1.0", content)
+        text.configure(state="disabled")
+        text.focus_set()
+
+        def open_clicked_reference(event=None):
+            try:
+                line_index = text.index(f"@{event.x},{event.y} linestart") if event else text.index("insert linestart")
+                line_text = text.get(line_index, f"{line_index} lineend").strip()
+            except tk.TclError:
+                return
+
+            match = re.match(r"^L(\d+):", line_text)
+            if not match:
+                return
+
+            line_number = int(match.group(1))
+            abs_path = self.current_book / file_path
+            if not abs_path.exists():
+                messagebox.showwarning("Datei fehlt", "Die ausgewählte Datei existiert nicht mehr.")
+                return
+
+            win.destroy()
+            MarkdownEditor(
+                self.root,
+                abs_path,
+                self.refresh_ui_titles,
+                self._get_editor_end_commands(),
+                initial_line=line_number,
+            )
+
+            if event is not None:
+                return "break"
+
+        text.bind("<Double-1>", open_clicked_reference)
+        text.bind("<Return>", open_clicked_reference)
+        win.bind("<Return>", open_clicked_reference)
+
+        footer = tk.Frame(win, bg=COLORS["app_bg"], padx=12, pady=10)
+        footer.pack(fill=tk.X)
+
+        def copy_to_clipboard():
+            try:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(content)
+                self.root.update()
+                if self.status:
+                    self.status.config(text="Fehlende Bildpfade in Zwischenablage kopiert", fg=COLORS["success"])
+            except tk.TclError:
+                pass
+
+        ttk.Button(footer, text="In Zwischenablage kopieren", style="Tool.TButton", command=copy_to_clipboard).pack(side=tk.LEFT)
+        ttk.Button(footer, text="An markierter Zeile öffnen", style="Tool.TButton", command=open_clicked_reference).pack(side=tk.LEFT, padx=8)
+        ttk.Button(footer, text="Schließen", style="Tool.TButton", command=win.destroy).pack(side=tk.RIGHT)
 
     def _open_in_explorer(self, vals):
         if not vals:
