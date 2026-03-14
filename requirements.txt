@@ -5,3 +5,6 @@ PyYAML>=6.0.1
 
 # Modernes Tkinter/ttk Theme im Sun-Valley-Stil
 sv-ttk>=2.6.0
+
+# Kleine Regression-Suite für Nicht-GUI-Kernlogik
+pytest>=8.3.0

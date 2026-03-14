@@ -1,13 +1,92 @@
 import re
 import shutil
 from pathlib import Path
+import hashlib
+import yaml
 from footnote_harvester import FootnoteHarvester
 
 class PreProcessor:
-    def __init__(self, book_path, footnote_mode="endnotes"):
+    def __init__(self, book_path, footnote_mode="endnotes", enable_footnote_backlinks=True, output_format="typst"):
         self.book_path = Path(book_path)
         self.processed_dir = self.book_path / "processed"
-        self.harvester = FootnoteHarvester(mode=footnote_mode, title="Anmerkungen")
+        self.footnote_mode = footnote_mode
+        self.enable_footnote_backlinks = bool(enable_footnote_backlinks)
+        self.output_format = str(output_format) if output_format else "typst"
+        _use_typst_links = (
+            footnote_mode == "endnotes"
+            and "typst" in self.output_format.lower()
+        )
+        self.harvester = FootnoteHarvester(
+            mode=footnote_mode,
+            title="Anmerkungen",
+            use_typst_links=_use_typst_links,
+        )
+
+    def _uses_harvester(self):
+        return self.footnote_mode in {"endnotes", "pandoc"}
+
+    def _namespace_local_footnotes(self, text, source_path):
+        if self.footnote_mode != "footnotes":
+            return text
+
+        path_text = str(source_path).replace("\\", "/")
+        prefix = re.sub(r"[^A-Za-z0-9_]+", "_", Path(path_text).stem).strip("_") or "note"
+        digest = hashlib.sha1(path_text.encode("utf-8")).hexdigest()[:8]
+        namespace = f"{prefix}_{digest}"
+
+        def replace_definition(match):
+            label = match.group(1)
+            return f"[^{namespace}_{label}]:"
+
+        def replace_marker(match):
+            label = match.group(1)
+            return f"[^{namespace}_{label}]"
+
+        text = re.sub(r'\[\^([^\]]+)\]:', replace_definition, text)
+        text = re.sub(r'\[\^([^\]]+)\](?!:)', replace_marker, text)
+        return text
+
+    def _footnote_anchor_id(self, label, index):
+        safe_label = re.sub(r"[^A-Za-z0-9_-]+", "-", str(label)).strip("-") or "note"
+        return f"fnref-{safe_label}-{index}"
+
+    def _inject_footnote_backlinks(self, text):
+        if self.footnote_mode != "footnotes" or not self.enable_footnote_backlinks:
+            return text
+
+        ref_counts = {}
+        ref_targets = {}
+
+        def replace_marker(match):
+            label = match.group(1)
+            next_index = ref_counts.get(label, 0) + 1
+            ref_counts[label] = next_index
+            anchor_id = self._footnote_anchor_id(label, next_index)
+            ref_targets.setdefault(label, []).append(anchor_id)
+            return f"[]{{#{anchor_id}}}[^{label}]"
+
+        text = re.sub(r'\[\^([^\]]+)\](?!:)', replace_marker, text)
+
+        definition_pattern = re.compile(
+            r'^\[\^([^\]]+)\]:\s*(.*?)(?=^\[\^[^\]]+\]:|\Z)',
+            re.DOTALL | re.MULTILINE,
+        )
+
+        def replace_definition(match):
+            label = match.group(1)
+            body = match.group(2).rstrip()
+            targets = ref_targets.get(label, [])
+            if not targets:
+                return match.group(0)
+            if len(targets) == 1:
+                backlink_text = f" [↩](#{targets[0]})"
+            else:
+                backlink_parts = [f"[↩{i + 1}](#{target})" for i, target in enumerate(targets)]
+                backlink_text = " " + " ".join(backlink_parts)
+            return f"[^{label}]: {body}{backlink_text}\n"
+
+        text = definition_pattern.sub(replace_definition, text)
+        return text
 
     def _extract_parts(self, content):
         """Trennt Frontmatter extrem robust vom Text ab, selbst bei Windows-BOMs."""
@@ -15,6 +94,51 @@ class PreProcessor:
         if match:
             return match.group(0), content[match.end():]
         return "", content
+
+    def _sanitize_frontmatter_for_render(self, frontmatter):
+        """Entfernt nicht-numerisches `order` im processed-Klon (Quarto verlangt Number)."""
+        if not frontmatter:
+            return frontmatter
+
+        match = re.match(
+            r'^(\uFEFF?)---\s*[\r\n]+(.*?)[\r\n]+---\s*[\r\n]*$',
+            frontmatter,
+            re.DOTALL,
+        )
+        if not match:
+            return frontmatter
+
+        bom = match.group(1)
+        frontmatter_body = match.group(2)
+        newline = "\r\n" if "\r\n" in frontmatter else "\n"
+
+        try:
+            parsed = yaml.safe_load(frontmatter_body) or {}
+        except yaml.YAMLError:
+            return frontmatter
+
+        order_val = parsed.get("order")
+        if order_val is None:
+            return frontmatter
+
+        is_numeric_order = False
+        if isinstance(order_val, (int, float)):
+            is_numeric_order = True
+        elif isinstance(order_val, str) and re.fullmatch(r"\d+", order_val.strip()):
+            is_numeric_order = True
+
+        if is_numeric_order:
+            return frontmatter
+
+        parsed.pop("order", None)
+        dumped = yaml.safe_dump(
+            parsed,
+            sort_keys=False,
+            allow_unicode=True,
+            default_flow_style=False,
+        ).rstrip("\r\n")
+
+        return f"{bom}---{newline}{dumped}{newline}---{newline}"
 
     # =========================================================================
     # NEU: DER WASCHGANG FÜR KAPUTTE MARKDOWN-SYNTAX
@@ -33,17 +157,49 @@ class PreProcessor:
         # 1b. Übrig gebliebene eklige 4er-Doppelpunkte auf saubere 3er kürzen
         text = re.sub(r'^::::\s*$', r':::', text, flags=re.MULTILINE)
         
-        # 2. @-ZITATIONEN IN FUSSNOTEN UMWANDELN
-        # Schritt A: [@Label]: Definition (Quarto/Pandoc-Stil mit Klammern)
-        # Muss VOR Schritt B laufen, damit [@Label] nicht doppelt verarbeitet wird.
-        # Wandelt sowohl die Definitionszeile als auch den Marker in einem Schritt um.
-        text = re.sub(r'\[@([a-zA-Z0-9_-]+)\]', r'[^\1]', text)
-        
-        # Schritt B: @Label: Definitionen am Zeilenanfang oder nach Leerzeichen (ohne Klammern)
-        text = re.sub(r'(^|\s)@([a-zA-Z0-9_-]+):', r'\1\n[^\2]:', text)
-        
-        # Schritt C: Bare @Label Verweise im Text (Leerzeichen, Klammern — KEIN \[ mehr, da Schritt A das übernimmt)
-        text = re.sub(r'(^|\s|\()@([a-zA-Z0-9_-]+)', r'\1[^\2]', text)
+        # 2. @-ZITATIONEN ROBUST IN FUSSNOTEN UMWANDELN
+        # Ziel: Auch Varianten wie [@Key, S. 331] oder [vgl. @Key1; @Key2] sicher abfangen.
+
+        # A) Definitionszeilen mit Klammernotation normalisieren:
+        #    [@Key, S. 331]: Text  ->  [^Key]: Text
+        text = re.sub(
+            r'^([ \t]*)\[@([a-zA-Z0-9_-]+)(?:[^\]]*)\]:',
+            r'\1[^\2]:',
+            text,
+            flags=re.MULTILINE,
+        )
+
+        # B) Definitionszeilen ohne Klammern normalisieren:
+        #    @Key: Text -> [^Key]: Text
+        text = re.sub(
+            r'^([ \t]*)@([a-zA-Z0-9_-]+):',
+            r'\1[^\2]:',
+            text,
+            flags=re.MULTILINE,
+        )
+
+        # C) Klammer-Zitationsgruppen in Marker umwandeln:
+        #    [@Key, S. 331] -> [^Key]
+        #    [vgl. @A; @B]  -> [^A][^B]
+        def _replace_citation_group(match):
+            group_content = match.group(1)
+            labels = re.findall(r'@([a-zA-Z0-9_-]+)', group_content)
+            if not labels:
+                return match.group(0)
+            unique_labels = []
+            seen = set()
+            for label in labels:
+                if label in seen:
+                    continue
+                seen.add(label)
+                unique_labels.append(label)
+            return ''.join(f'[^{label}]' for label in unique_labels)
+
+        text = re.sub(r'\[([^\]\n]*@[^\]\n]*)\]', _replace_citation_group, text)
+
+        # D) Bare @Label-Verweise im Fließtext umwandeln (ohne E-Mail/Teilwörter zu beschädigen)
+        #    Beispiel: "... (siehe @Key)" -> "... (siehe [^Key])"
+        text = re.sub(r'(?<![\w\[\^])@([a-zA-Z0-9_-]+)', r'[^\1]', text)
         
         return text
     # =========================================================================
@@ -53,6 +209,8 @@ class PreProcessor:
         PASS 1: Liest alle Dateien heimlich vorab ein, bereinigt sie (Waschgang) 
         und füllt das globale Lexikon im FootnoteHarvester.
         """
+        if not self._uses_harvester():
+            return
         for node in nodes:
             if not node["path"].startswith("PART:"):
                 path = self.book_path / node["path"]
@@ -62,6 +220,7 @@ class PreProcessor:
                         
                     _, body = self._extract_parts(content)
                     body = self._sanitize_markdown(body)
+                    body = self._namespace_local_footnotes(body, path)
                     
                     # Füllt das Lexikon (datei-scoped), ohne den Text schon zu verändern
                     self.harvester.extract_definitions(body, file_key=str(path))
@@ -125,7 +284,7 @@ class PreProcessor:
                 processed_tree.append(new_chapter)
 
         # Ganz am Ende die gesammelten Endnoten generieren
-        if self.harvester.harvested:
+        if self._uses_harvester() and self.harvester.harvested:
             endnotes_filename = "Endnoten.md"
             endnotes_dest = self.processed_dir / endnotes_filename
             self.harvester.generate_endnotes_file(endnotes_dest)
@@ -149,16 +308,20 @@ class PreProcessor:
             content = f.read()
             
         frontmatter, body = self._extract_parts(content)
+        frontmatter = self._sanitize_frontmatter_for_render(frontmatter)
         
         # 1. Text waschen
         body = self._sanitize_markdown(body)
+        body = self._namespace_local_footnotes(body, src)
+        body = self._inject_footnote_backlinks(body)
         
         # 2. H1 bereinigen
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
         
         # 3. Lexikon anwenden (Definitionen entfernen, Marker ersetzen) — datei-scoped
-        body = self.harvester.extract_definitions(body, file_key=str(src))
-        body = self.harvester.replace_markers(body, file_key=str(src))
+        if self._uses_harvester():
+            body = self.harvester.extract_definitions(body, file_key=str(src))
+            body = self.harvester.replace_markers(body, file_key=str(src))
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
@@ -176,16 +339,20 @@ class PreProcessor:
             content = f.read()
             
         frontmatter, body = self._extract_parts(content)
+        frontmatter = self._sanitize_frontmatter_for_render(frontmatter)
         
         # 1. Text waschen
         body = self._sanitize_markdown(body)
+        body = self._namespace_local_footnotes(body, src)
+        body = self._inject_footnote_backlinks(body)
         
         # 2. H1 bereinigen
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
         
         # 3. Lexikon anwenden — datei-scoped
-        body = self.harvester.extract_definitions(body, file_key=str(src))
-        body = self.harvester.replace_markers(body, file_key=str(src))
+        if self._uses_harvester():
+            body = self.harvester.extract_definitions(body, file_key=str(src))
+            body = self.harvester.replace_markers(body, file_key=str(src))
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
@@ -203,10 +370,13 @@ class PreProcessor:
                 
                 # 1. Text waschen
                 body = self._sanitize_markdown(body)
+                body = self._namespace_local_footnotes(body, src)
+                body = self._inject_footnote_backlinks(body)
                 
                 # 2. Lexikon anwenden — datei-scoped
-                body = self.harvester.extract_definitions(body, file_key=str(src))
-                body = self.harvester.replace_markers(body, file_key=str(src))
+                if self._uses_harvester():
+                    body = self.harvester.extract_definitions(body, file_key=str(src))
+                    body = self.harvester.replace_markers(body, file_key=str(src))
                 
                 # 3. Überschriften einrücken
                 def shift_heading(m):

@@ -16,7 +16,8 @@ Dieses Handbuch beschreibt die tägliche Arbeit mit dem Book Studio, die wichtig
 8. **Direkt zur Problemstelle springen:** Im Fehlende-Bilder-Dialog Doppelklick oder Enter auf `L<Zeile>: ...`.
 9. **Sicher speichern:** `Strg+S` oder **In Quarto speichern**.
 10. **Rendern starten:** `F5` oder **Export > Buch rendern...**.
-11. **Unmanned Mode (CLI):** Für externe Orchestrierung `python unmanned_trigger.py ...` nutzen (Details siehe Kapitel **11) Unmanned Mode (CLI-Fernsteuerung)**).
+11. **Doctor-Funde anspringen:** `F4` / `Shift+F4` für nächsten/vorherigen `☠`-Eintrag, danach `Enter` zum Öffnen an der Problemstelle.
+12. **Unmanned Mode (CLI):** Für externe Orchestrierung `python unmanned_trigger.py ...` nutzen (Details siehe Kapitel **11) Unmanned Mode (CLI-Fernsteuerung)**).
 
 ## 1) Schnellstart
 
@@ -25,6 +26,53 @@ Dieses Handbuch beschreibt die tägliche Arbeit mit dem Book Studio, die wichtig
 3. Kapitel per Doppelklick oder Buttons zwischen links/rechts verschieben.
 4. Reihenfolge und Ebenen rechts finalisieren (inkl. Einrücken/Ausrücken).
 5. Struktur speichern und anschließend rendern.
+
+### Projekt-Root ändern (zentral)
+
+Über `studio_config.json` kann der Such-Root für Projekte (`_quarto.yml`) zentral gesetzt werden:
+
+- Schlüssel: `content_root_path`
+- Relativer Wert: relativ zum Book-Studio-Codeordner
+- Absoluter Wert: beliebiger Ordner auf dem System
+
+Beispiel:
+
+```json
+"content_root_path": "D:/Meine_Buchprojekte"
+```
+
+Wenn der Pfad ungültig ist, nutzt die App automatisch den Code-Ordner als Fallback.
+
+GUI-Variante:
+
+- `Tools -> 🧩 Studio-Konfiguration...`
+- Enthält derzeit:
+  - `content_root_path`
+  - `log_font_size`
+  - `abort_on_first_preflight_error`
+  - `abort_on_first_render_colon_warning`
+  - `default_export_format`
+  - `default_export_template`
+  - `default_footnote_mode`
+  - `log_auto_clear_default`
+  - `log_max_lines_default`
+- Button `Auf Standard zurücksetzen` setzt alle Felder im Dialog auf den Standardzustand
+- Änderungen werden sofort angewendet (Projektliste neu geladen, Log-Font live aktualisiert)
+
+Beispielblock für `studio_config.json` (Render-/Log-Defaults):
+
+```json
+{
+  "abort_on_first_preflight_error": true,
+  "abort_on_first_render_colon_warning": true,
+  "log_font_size": 12,
+  "log_auto_clear_default": false,
+  "log_max_lines_default": 500,
+  "default_export_format": "typst",
+  "default_export_template": "EXT: typstdoc",
+  "default_footnote_mode": "endnotes"
+}
+```
 
 ## 2) Oberfläche im Überblick
 
@@ -41,6 +89,8 @@ Dieses Handbuch beschreibt die tägliche Arbeit mit dem Book Studio, die wichtig
 - Zeigt die Kapitelhierarchie für `_quarto.yml`.
 - Unterstützt Drag-and-drop sowie Strukturaktionen.
 - Statusmarker werden hinter dem Kapitelnamen angezeigt.
+- `F4` springt zum nächsten Buch-Doktor-Fund, `Shift+F4` zum vorherigen.
+- `Enter` öffnet den selektierten Eintrag; bei `☠` direkt an der ersten bekannten Problemzeile.
 - Kontextmenü:
   - Im Explorer anzeigen
   - Fehlende Bilder anzeigen
@@ -87,6 +137,9 @@ Hinweis: Die tatsächliche Wirkung von `widows`/`orphans` hängt von der verwend
 
 - Zeigt Laufzeitmeldungen, Warnungen und Fehler.
 - Filterbar nach Level.
+- Kann über die horizontale Trennleiste nach oben vergrößert werden.
+- Doppelklick auf die Trennleiste setzt die Log-Höhe auf den Standardwert zurück.
+- Schriftgröße konfigurierbar über `studio_config.json` mit `log_font_size` (Integer, z. B. `9`, gültig `7` bis `24`).
 
 ## 3) Suche und Filter
 
@@ -115,6 +168,7 @@ Hinweis: Volltext nutzt einen Cache pro geladenem Buch und ist deshalb bei sehr 
 - **●**: Verwaiste Fußnoten gefunden.
 - **↵**: PDF-Seitenumbruch am Dateiende erkannt.
 - **🖼**: Fehlende Bildreferenzen erkannt.
+- **☠**: Buch-Doktor hat einen kritischen Befund für diese Datei gefunden.
 
 Marker erscheinen direkt am Kapitelnamen und helfen bei der schnellen Sichtprüfung ohne extra Reports.
 
@@ -177,10 +231,17 @@ Das ist der schnellste Weg, um konkrete Probleme direkt zu korrigieren.
 
 - Nutzt die Quarto-Render-Pipeline.
 - Ausgabe und Fehler erscheinen im Log-Terminal.
+- Bei aktiviertem `abort_on_first_preflight_error` wird beim ersten Render-Vorabcheck-Fehler sofort abgebrochen.
+- Log-Zeilen im Muster `[datei.md] Lx` sind klickbar und öffnen direkt die Datei an der Zeile.
 
 ### Buch-Doktor
 
 - Prüft Konsistenz, fehlende/fehlerhafte Einträge und weitere Gesundheitsaspekte.
+- Schreibt Befunde ins integrierte Log statt in Popup-Dialoge.
+- Markiert betroffene Dateien in der Buchstruktur mit `☠`.
+- Selektiert nach einem Lauf automatisch den ersten problematischen Eintrag.
+- `F4` / `Shift+F4` navigieren durch die markierten Doctor-Funde.
+- `Enter` oder Doppelklick auf einen `☠`-Eintrag öffnet direkt die erste bekannte Problemstelle im Markdown-Editor.
 
 ## 8) Required-Dateien und feste Reihenfolgen
 

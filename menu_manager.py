@@ -58,6 +58,7 @@ class MenuManager:
 
         tools_menu = self._create_menu(menu_bar)
         tools_menu.add_command(label="🧹 Sanitizer", command=self.studio.run_sanitizer_pipeline)
+        tools_menu.add_command(label="🧩 Studio-Konfiguration...", command=self.studio.open_app_config_editor)
         tools_menu.add_command(label="⚙️ Sanitizer-Konfiguration...", command=self.studio.open_sanitizer_config_editor)
         tools_menu.add_command(label="📘 Quarto.yml konfigurieren...", command=self.studio.open_quarto_config_editor)
         tools_menu.add_command(label="🩺 Buch-Doktor", command=self.studio.run_doctor)

@@ -1,4 +1,5 @@
 import tkinter as tk
+import re
 from ui_theme import COLORS
 
 
@@ -53,12 +54,49 @@ class LogManager:
         try:
             log_output.config(state="normal")
             log_output.delete("1.0", tk.END)
+            link_index = 0
             for line, level in visible:
+                line_start = log_output.index(tk.END)
                 log_output.insert(tk.END, line, level)
+                self._apply_clickable_links(log_output, line, line_start, link_index)
+                link_index += 1
             log_output.see(tk.END)
             log_output.config(state="disabled")
         except tk.TclError:
             pass
+
+    def _apply_clickable_links(self, log_output, line: str, line_start: str, link_index: int):
+        if not hasattr(self.studio, "open_log_target"):
+            return
+
+        link_pattern = re.compile(r'\[([^\]\n]+\.(?:md|markdown))\](?:\s+L(\d+))?', re.IGNORECASE)
+        for match_idx, match in enumerate(link_pattern.finditer(line)):
+            rel_path = match.group(1)
+            line_number = int(match.group(2)) if match.group(2) else None
+            start = f"{line_start}+{match.start()}c"
+            end = f"{line_start}+{match.end()}c"
+            tag = f"log_link_{link_index}_{match_idx}"
+            log_output.tag_add(tag, start, end)
+            log_output.tag_configure(
+                tag,
+                foreground="#60a5fa",
+                underline=True,
+                font=("Consolas", 10, "bold"),
+                background="#0f172a",
+            )
+            log_output.tag_raise(tag)
+            log_output.tag_bind(tag, "<Enter>", lambda _e: log_output.configure(cursor="hand2"))
+            log_output.tag_bind(tag, "<Leave>", lambda _e: log_output.configure(cursor="xterm"))
+            log_output.tag_bind(
+                tag,
+                "<Button-1>",
+                lambda _e, path=rel_path, ln=line_number: self.studio.open_log_target(path, ln),
+            )
+            log_output.tag_bind(
+                tag,
+                "<Double-1>",
+                lambda _e, path=rel_path, ln=line_number: self.studio.open_log_target(path, ln),
+            )
 
     def on_preferences_changed(self):
         self._prune_records()

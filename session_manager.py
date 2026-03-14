@@ -20,8 +20,9 @@ class SessionManager:
             return {}
 
     def book_key(self, book_path) -> str:
+        root_path = getattr(self.studio, "projects_root_path", self.studio.base_path)
         try:
-            return str(book_path.relative_to(self.studio.base_path))
+            return str(book_path.relative_to(root_path))
         except ValueError:
             return book_path.name
 

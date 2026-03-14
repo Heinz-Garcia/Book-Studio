@@ -18,74 +18,204 @@ class BookDoctor:
         self.current_book = Path(current_book) if current_book else None
         self.title_registry = title_registry
 
-    def check_health(self, used_paths, unused_count):
-        """Führt alle strengen Buch-Prüfungen durch."""
+    def analyze_health(self, used_paths, unused_count, include_index=True):
+        """Liefert strukturierte Befunde inkl. betroffener Pfade für die GUI."""
         if not self.current_book:
-            return False, "Kein Projekt aktiv."
-            
+            return {
+                "is_healthy": False,
+                "errors": ["Kein Projekt aktiv."],
+                "warnings": [],
+                "issues_by_path": {},
+                "issue_details_by_path": {},
+                "issue_first_line_by_path": {},
+                "report": "Kein Projekt aktiv.",
+                "error_count": 1,
+                "warning_count": 0,
+            }
+
         err = []
         warn = []
-        
-        # NEU: Wir zwingen den Doktor, auch die unsichtbare index.md zu röntgen!
+        issues_by_path = {}
+        issue_details_by_path = {}
+        issue_first_line_by_path = {}
+
+        def record_issue(path, message, line_number=None):
+            err.append(message)
+            if path:
+                issues_by_path.setdefault(path, []).append(message)
+                issue_details_by_path.setdefault(path, []).append(
+                    {"message": message, "line_number": line_number}
+                )
+                if line_number and path not in issue_first_line_by_path:
+                    issue_first_line_by_path[path] = line_number
+
+        def body_start_line(content, match):
+            return content[: match.start(2)].count("\n") + 1
+
+        def sanitize_markdown_preview(text):
+            text = re.sub(
+                r':{3,4}\s*\\?\[BOX:\s*(.*?)\\?\](.*?):{3,4}',
+                r'::: {.callout-note title="\1"}\n\2\n:::',
+                text,
+                flags=re.DOTALL,
+            )
+            text = re.sub(r'^::::\s*$', r':::', text, flags=re.MULTILINE)
+            text = re.sub(r'\[@([a-zA-Z0-9_-]+)\]', r'[^\1]', text)
+            text = re.sub(r'(^|\s)@([a-zA-Z0-9_-]+):', r'\1\n[^\2]:', text)
+            text = re.sub(r'(^|\s|\()@([a-zA-Z0-9_-]+)', r'\1[^\2]', text)
+            return text
+
+        def find_fenced_div_issues(body, base_line_number):
+            issues = []
+            stack = []
+            marker_pattern = re.compile(r'^\s*(:{3,})(\s*.*)$')
+            code_fence_pattern = re.compile(r'^\s*(```+|~~~+)')
+            in_code_block = False
+
+            for offset, raw_line in enumerate(body.splitlines()):
+                line = raw_line.rstrip("\r")
+                line_number = base_line_number + offset
+
+                if code_fence_pattern.match(line):
+                    in_code_block = not in_code_block
+                    continue
+
+                if in_code_block:
+                    continue
+
+                marker_match = marker_pattern.match(line)
+                if marker_match:
+                    colon_count = len(marker_match.group(1))
+                    tail = marker_match.group(2).strip()
+
+                    if tail:
+                        stack.append((colon_count, line_number))
+                    else:
+                        if stack:
+                            top_colon_count, _top_line = stack[-1]
+                            if colon_count >= top_colon_count:
+                                stack.pop()
+                            else:
+                                issues.append((
+                                    line_number,
+                                    "❌ FENCED-DIV FEHLER: Schließender :::-Marker passt nicht zur Öffnung.",
+                                ))
+                        else:
+                            issues.append((
+                                line_number,
+                                "❌ FENCED-DIV FEHLER: Schließender :::-Marker ohne passende Öffnung.",
+                            ))
+                    continue
+
+                if ":::" in line and not line.lstrip().startswith("```"):
+                    issues.append((
+                        line_number,
+                        "❌ FENCED-DIV WARNZEICHEN: ':::' im Fließtext gefunden (möglicherweise defekter Div-Block).",
+                    ))
+
+            for _colon_count, open_line in stack:
+                issues.append((
+                    open_line,
+                    "❌ FENCED-DIV FEHLER: Öffnender :::-Marker ohne passenden Abschluss.",
+                ))
+
+            return issues
+
         paths_to_check = list(used_paths)
-        if "index.md" not in paths_to_check:
+        if include_index and "index.md" not in paths_to_check:
             paths_to_check.insert(0, "index.md")
-        
-        if not (self.current_book / "index.md").exists():
-            err.append("❌ Root: 'index.md' fehlt komplett!")
-            
+
+        if include_index and not (self.current_book / "index.md").exists():
+            record_issue("index.md", "❌ Root: 'index.md' fehlt komplett!")
+
         for p_str in paths_to_check:
             full_p = self.current_book / p_str
-            
-            # --- NEU: Wir holen uns den echten Titel aus der Registry! ---
+
             doc_title = self.title_registry.get(p_str, "Unbekannter Titel")
-            # Falls die Registry [FEHLT] anzeigt, bereinigen wir das für die Ausgabe etwas
-            clean_title = doc_title.replace("[FEHLT] ", "") 
+            clean_title = doc_title.replace("[FEHLT] ", "")
             display_name = f"'{clean_title}' ({Path(p_str).name})"
-            # -------------------------------------------------------------
 
             if not full_p.exists():
-                err.append(f"❌ Geister-Datei: {display_name} existiert nicht.")
+                record_issue(p_str, f"❌ Geister-Datei: {display_name} existiert nicht.")
                 continue
-                
+
             if doc_title.startswith("[FEHLT]") and p_str != "index.md":
-                err.append(f"❌ Frontmatter-Fehler: {display_name} hat gar keinen YAML Titel.")
-                
+                record_issue(p_str, f"❌ Frontmatter-Fehler: {display_name} hat gar keinen YAML Titel.", line_number=1)
+
             try:
                 with open(full_p, 'r', encoding='utf-8') as f:
                     content = f.read()
-                    
+
                 match = re.match(r'^\uFEFF?---\s*[\r\n]+(.*?)[\r\n]+---\s*[\r\n]+(.*)', content, re.DOTALL)
                 if match:
                     frontmatter = match.group(1)
                     body = match.group(2)
-                    
+
                     try:
                         parsed_yaml = yaml.safe_load(frontmatter)
-                        
+
                         if not parsed_yaml:
-                            err.append(f"❌ LEERES FRONTMATTER in {display_name}: Der YAML-Block ist leer.")
+                            record_issue(p_str, f"❌ LEERES FRONTMATTER in {display_name}: Der YAML-Block ist leer.", line_number=1)
                         else:
                             if 'title' not in parsed_yaml:
-                                err.append(f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'title' fehlt im Frontmatter.")
+                                record_issue(p_str, f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'title' fehlt im Frontmatter.", line_number=1)
                             if 'description' not in parsed_yaml:
-                                err.append(f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'description' fehlt im Frontmatter.")
-                                
+                                record_issue(p_str, f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'description' fehlt im Frontmatter.", line_number=1)
+
                     except yaml.YAMLError as exc:
-                        err.append(f"❌ YAML-CRASH in {display_name}:\nQuarto wird hier abbrechen! Grund:\n{exc}")
-                        
+                        line_number = None
+                        problem_mark = getattr(exc, "problem_mark", None)
+                        if problem_mark is not None:
+                            line_number = int(problem_mark.line) + 2
+                        record_issue(p_str, f"❌ YAML-CRASH in {display_name}: Quarto wird hier abbrechen! Grund: {exc}", line_number=line_number)
+
                     if '\t' in frontmatter:
-                        err.append(f"❌ VERBOTENES ZEICHEN in {display_name}:\nYAML enthält Tabulatoren! Bitte durch Leerzeichen ersetzen.")
-                        
-                    for line in body.split('\n'):
+                        tab_line = None
+                        for idx, line in enumerate(frontmatter.splitlines(), start=2):
+                            if '\t' in line:
+                                tab_line = idx
+                                break
+                        record_issue(p_str, f"❌ VERBOTENES ZEICHEN in {display_name}: YAML enthält Tabulatoren! Bitte durch Leerzeichen ersetzen.", line_number=tab_line)
+
+                    body_line_number = body_start_line(content, match)
+                    seen_fenced_issue_keys = set()
+                    for offset, line in enumerate(body.split('\n')):
                         if line.strip() == '---':
-                            err.append(f"❌ VERSTECKTER TRENNSTRICH in {display_name}:\nQuarto stürzt bei '---' im Text ab. (Bitte *** nutzen)")
+                            record_issue(
+                                p_str,
+                                f"❌ VERSTECKTER TRENNSTRICH in {display_name}: Quarto stürzt bei '---' im Text ab. (Bitte *** nutzen)",
+                                line_number=body_line_number + offset,
+                            )
+
+                    for line_number, fence_message in find_fenced_div_issues(body, body_line_number):
+                        issue_key = (line_number, fence_message)
+                        if issue_key in seen_fenced_issue_keys:
+                            continue
+                        seen_fenced_issue_keys.add(issue_key)
+                        record_issue(
+                            p_str,
+                            f"{fence_message} in {display_name}",
+                            line_number=line_number,
+                        )
+
+                    sanitized_body = sanitize_markdown_preview(body)
+                    if sanitized_body != body:
+                        for line_number, fence_message in find_fenced_div_issues(sanitized_body, body_line_number):
+                            issue_key = (line_number, fence_message)
+                            if issue_key in seen_fenced_issue_keys:
+                                continue
+                            seen_fenced_issue_keys.add(issue_key)
+                            record_issue(
+                                p_str,
+                                f"{fence_message} in {display_name} (nach Pre-Processing)",
+                                line_number=line_number,
+                            )
                 else:
-                    err.append(f"❌ FRONTMATTER DEFEKT in {display_name}: Die '---' Blöcke umschließen den Bereich nicht sauber.")
+                    record_issue(p_str, f"❌ FRONTMATTER DEFEKT in {display_name}: Die '---' Blöcke umschließen den Bereich nicht sauber.", line_number=1)
 
             except OSError as e:
-                err.append(f"❌ Datei-Lesefehler bei {display_name}: {e}")
-            
+                record_issue(p_str, f"❌ Datei-Lesefehler bei {display_name}: {e}")
+
         if unused_count > 0:
             warn.append(f"⚠️ Hinweis: {unused_count} Markdown-Dateien liegen aktuell ungenutzt im Datei-Pool.")
 
@@ -94,16 +224,30 @@ class BookDoctor:
             if err:
                 report += "\n\n---\n\n"
             report += "\n".join(warn)
-            
-        return (len(err) == 0), report if report else "Das Buchprojekt ist in perfektem Zustand. ✅"
+
+        if not report:
+            report = "Das Buchprojekt ist in perfektem Zustand. ✅"
+
+        return {
+            "is_healthy": len(err) == 0,
+            "errors": err,
+            "warnings": warn,
+            "issues_by_path": issues_by_path,
+            "issue_details_by_path": issue_details_by_path,
+            "issue_first_line_by_path": issue_first_line_by_path,
+            "report": report,
+            "error_count": len(err),
+            "warning_count": len(warn),
+        }
+
+    def check_health(self, used_paths, unused_count):
+        """Führt alle strengen Buch-Prüfungen durch."""
+        analysis = self.analyze_health(used_paths, unused_count)
+        return analysis["is_healthy"], analysis["report"]
 
     def run_doctor_manual(self, used_paths, unused_count):
-        """Manuelle Ausführung mit direkter GUI-Rückmeldung."""
-        is_healthy, report = self.check_health(used_paths, unused_count)
-        if is_healthy:
-            messagebox.showinfo("Buch-Doktor 🩺", report)
-        else:
-            messagebox.showerror("Buch-Doktor 🩺", f"KRITISCHER BEFUND:\n\n{report}")
+        """Manuelle Ausführung liefert strukturierte Befunde für die Haupt-GUI."""
+        return self.analyze_health(used_paths, unused_count)
 
 
 # =========================================================================

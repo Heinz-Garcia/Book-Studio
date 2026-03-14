@@ -19,6 +19,7 @@ from book_doctor import BookDoctor, BackupManager
 from menu_manager import MenuManager
 from markdown_asset_scanner import find_missing_image_refs
 from ui_actions_manager import UiActionsManager
+from app_config_editor import AppConfigEditor
 from sanitizer_config_editor import SanitizerConfigEditor
 from quarto_config_editor import QuartoConfigEditor
 from search_filter import matches_tree_node, normalize_search_term, should_include_available_item
@@ -62,6 +63,7 @@ class BookStudio:
         self.root.protocol("WM_DELETE_WINDOW", self.close_app)
 
         self.base_path = Path(__file__).parent
+        self.projects_root_path = self._get_projects_root_path()
         self.books = self._discover_projects()
         self.current_book = None
         
@@ -71,13 +73,11 @@ class BookStudio:
         self.title_registry = {}
         self.status_registry = {}
         self.file_state_registry = {}
+        self.doctor_issue_registry = {}
+        self.doctor_issue_line_registry = {}
         self._content_search_cache = {}
         self.available_templates = ["Standard"]
-        self.last_export_options = {
-            "format": "typst",
-            "template": "Standard",
-            "footnote_mode": "endnotes",
-        }
+        self.last_export_options = self._get_default_export_options()
         self.log_filter_labels = ["Alle", "Info", "Erfolg", "Warnung", "Fehler", "Header", "Meta"]
         self.log_filter_map = {
             "Alle": None,
@@ -89,8 +89,9 @@ class BookStudio:
             "Meta": {"dim"},
         }
         self.log_filter_var = tk.StringVar(value="Alle")
-        self.log_auto_clear_var = tk.BooleanVar(value=False)
-        self.log_max_lines_var = tk.StringVar(value="500")
+        log_auto_clear_default, log_max_lines_default = self._get_log_preference_defaults()
+        self.log_auto_clear_var = tk.BooleanVar(value=log_auto_clear_default)
+        self.log_max_lines_var = tk.StringVar(value=log_max_lines_default)
         self.log_records = []
         self.is_restoring_session = False
         self.log_manager = LogManager(self)
@@ -107,6 +108,9 @@ class BookStudio:
         self.log_output = None
         self.log_menu = None
         self.middle_panel = None
+        self.main_vertical_pane = None
+        self.log_panel = None
+        self._default_log_panel_height = 170
         self._middle_sash_gap = None
         self._pane_sash_positions = None
         self._syncing_middle_pane = False
@@ -131,6 +135,8 @@ class BookStudio:
         self.root.bind("<Control-Z>", self.redo)
         self.root.bind("<Control-s>", lambda e: self.save_project())
         self.root.bind("<F5>", lambda e: self.exporter.run_quarto_render())
+        self.root.bind("<F4>", self.focus_next_doctor_issue)
+        self.root.bind("<Shift-F4>", self.focus_previous_doctor_issue)
 
     # =========================================================================
     # FENSTERPOSITION SPEICHERN / LADEN
@@ -171,6 +177,92 @@ class BookStudio:
             self.log(message, "warning")
             return
         logger.warning(message)
+
+    def _get_projects_root_path(self) -> Path:
+        default_root = self.base_path
+        try:
+            cfg = self._read_config()
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+            self._report_nonfatal_error("Projekt-Root konnte nicht aus Config geladen werden", error)
+            return default_root
+
+        raw_value = cfg.get("content_root_path", ".")
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            return default_root
+
+        configured_path = Path(raw_value.strip()).expanduser()
+        root_path = configured_path if configured_path.is_absolute() else (self.base_path / configured_path)
+        root_path = root_path.resolve()
+        if not root_path.exists() or not root_path.is_dir():
+            self._report_nonfatal_error(
+                "Konfigurierter content_root_path ist ungültig, verwende Code-Ordner",
+                root_path,
+            )
+            return default_root
+        return root_path
+
+    def get_log_font_size(self) -> int:
+        default_size = 9
+        min_size = 7
+        max_size = 24
+        try:
+            cfg = self._read_config()
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+            self._report_nonfatal_error("Log-Fontgröße konnte nicht aus Config geladen werden", error)
+            return default_size
+
+        value = cfg.get("log_font_size", default_size)
+        try:
+            font_size = int(value)
+        except (TypeError, ValueError):
+            return default_size
+        return max(min_size, min(max_size, font_size))
+
+    def _get_default_export_options(self):
+        defaults = {
+            "format": "typst",
+            "template": "Standard",
+            "footnote_mode": "endnotes",
+        }
+        try:
+            cfg = self._read_config()
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+            self._report_nonfatal_error("Export-Defaults konnten nicht aus Config geladen werden", error)
+            return defaults
+
+        fmt = str(cfg.get("default_export_format", defaults["format"])).strip().lower()
+        if fmt not in {"typst", "docx", "html", "pdf"}:
+            fmt = defaults["format"]
+
+        template = str(cfg.get("default_export_template", defaults["template"]))
+        template = template.strip() if template.strip() else defaults["template"]
+
+        footnote_mode = str(cfg.get("default_footnote_mode", defaults["footnote_mode"])).strip().lower()
+        if footnote_mode not in {"footnotes", "endnotes", "pandoc"}:
+            footnote_mode = defaults["footnote_mode"]
+
+        return {
+            "format": fmt,
+            "template": template,
+            "footnote_mode": footnote_mode,
+        }
+
+    def _get_log_preference_defaults(self):
+        default_auto_clear = False
+        default_max_lines = "500"
+        try:
+            cfg = self._read_config()
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+            self._report_nonfatal_error("Log-Defaults konnten nicht aus Config geladen werden", error)
+            return default_auto_clear, default_max_lines
+
+        auto_clear = bool(cfg.get("log_auto_clear_default", default_auto_clear))
+        try:
+            max_lines = int(cfg.get("log_max_lines_default", int(default_max_lines)))
+        except (TypeError, ValueError):
+            max_lines = int(default_max_lines)
+        max_lines = max(50, min(50000, max_lines))
+        return auto_clear, str(max_lines)
 
     def _default_editor_end_commands(self):
         return [
@@ -282,6 +374,86 @@ class BookStudio:
         config_path = self.base_path / "sanitizer_config.toml"
         SanitizerConfigEditor(self.root, config_path, on_save=self._on_sanitizer_config_saved)
 
+    def open_app_config_editor(self):
+        templates = list(getattr(self, "available_templates", None) or ["Standard"])
+        AppConfigEditor(self.root, self._config_path, on_save=self._on_app_config_saved, templates=templates)
+
+    def _on_app_config_saved(self, updates):
+        cfg = self._read_config()
+        cfg.update(updates)
+        self._write_config(cfg)
+
+        self.projects_root_path = self._get_projects_root_path()
+        self._reload_books_from_current_root()
+        self._apply_log_font_size()
+        self._apply_log_preferences_from_config()
+        self._apply_export_defaults_from_config()
+
+        self.log("⚙️ Studio-Konfiguration gespeichert.", "success")
+        self.status.config(text="Studio-Konfiguration gespeichert", fg="#27ae60")
+
+    def _apply_log_font_size(self):
+        if not self.log_output:
+            return
+        font_size = self.get_log_font_size()
+        try:
+            self.log_output.configure(font=("Consolas", font_size))
+        except tk.TclError:
+            pass
+
+    def _apply_log_preferences_from_config(self):
+        auto_clear, max_lines = self._get_log_preference_defaults()
+        self.log_auto_clear_var.set(auto_clear)
+        self.log_max_lines_var.set(max_lines)
+        self.on_log_preferences_changed()
+
+    def _apply_export_defaults_from_config(self):
+        self.last_export_options = self._get_default_export_options()
+        self.persist_app_state()
+
+    def _clear_current_project_view(self):
+        self.current_book = None
+        self.yaml_engine = None
+        self.doctor = None
+        self.backup_mgr = None
+        self.title_registry = {}
+        self.status_registry = {}
+        self.file_state_registry = {}
+        self.doctor_issue_registry = {}
+        self.doctor_issue_line_registry = {}
+        self.current_profile_name = None
+        self.profile_lbl.config(text="Profil: [Standard]")
+        self._content_search_cache.clear()
+
+        self.list_avail.delete(*self.list_avail.get_children())
+        for item in self.tree_book.get_children():
+            self.tree_book.delete(item)
+
+    def _reload_books_from_current_root(self):
+        previous_book = self.current_book
+        previous_name = previous_book.name if previous_book else None
+
+        self.books = self._discover_projects()
+        self.book_combo.config(values=[b.name for b in self.books])
+
+        if not self.books:
+            self.book_combo.set("")
+            self._clear_current_project_view()
+            self.status.config(text="Keine Projekte unter content_root_path gefunden", fg="#f59e0b")
+            return
+
+        target_index = 0
+        if previous_book and previous_book in self.books:
+            target_index = self.books.index(previous_book)
+        elif previous_name:
+            for idx, book in enumerate(self.books):
+                if book.name == previous_name:
+                    target_index = idx
+                    break
+
+        self.book_combo.current(target_index)
+        self.load_book(None)
+
     def _on_sanitizer_config_saved(self, _config):
         self.log("⚙️ Sanitizer-Konfiguration gespeichert.", "success")
         self.status.config(text="Sanitizer-Konfiguration gespeichert", fg="#27ae60")
@@ -307,9 +479,116 @@ class BookStudio:
         """
         self.log_manager.log(msg, level)
 
+    def _sanitize_log_line_for_navigation(self, line_text: str) -> str:
+        if not isinstance(line_text, str):
+            return ""
+        cleaned = re.sub(r"\x1b\[[0-9;]*m", "", line_text)
+        cleaned = re.sub(r"^\[\d{2}:\d{2}:\d{2}\]\s*", "", cleaned)
+        return cleaned.strip()
+
+    def _extract_doctor_path_from_log_line(self, line_text: str):
+        sanitized = self._sanitize_log_line_for_navigation(line_text)
+        match = re.search(r"\[([^\]]+\.md)\]", sanitized)
+        if not match:
+            return None
+        return match.group(1).strip()
+
+    def _extract_issue_line_from_log_line(self, line_text: str):
+        sanitized = self._sanitize_log_line_for_navigation(line_text)
+        match = re.search(r"\bL(\d+)\b", sanitized)
+        if not match:
+            return None
+        return int(match.group(1))
+
+    def _extract_log_target_from_line(self, line_text: str):
+        rel_path = self._extract_doctor_path_from_log_line(line_text)
+        if not rel_path:
+            return None, None
+        target_line = self._extract_issue_line_from_log_line(line_text)
+        if target_line is None:
+            target_line = self.doctor_issue_line_registry.get(rel_path)
+        return rel_path, target_line
+
+    def _find_nearest_doctor_path_in_log(self, log_line_number: int):
+        if not self.log_output:
+            return None
+        if log_line_number <= 0:
+            return None
+
+        for current_line in range(log_line_number, 0, -1):
+            line_text = self.log_output.get(f"{current_line}.0", f"{current_line}.end")
+            path = self._extract_doctor_path_from_log_line(line_text)
+            if path:
+                return path
+        return None
+
+    def on_log_double_click(self, event):
+        if not self.current_book or not self.log_output:
+            return None
+
+        try:
+            index = self.log_output.index(f"@{event.x},{event.y}")
+            line_number = int(str(index).split(".")[0])
+        except (tk.TclError, ValueError):
+            return None
+
+        clicked_line_text = self.log_output.get(f"{line_number}.0", f"{line_number}.end")
+        rel_path, target_line = self._extract_log_target_from_line(clicked_line_text)
+        if not rel_path:
+            rel_path = self._find_nearest_doctor_path_in_log(line_number)
+            target_line = self.doctor_issue_line_registry.get(rel_path) if rel_path else None
+        if not rel_path:
+            return None
+
+        return self.open_log_target(rel_path, target_line)
+
+    def on_log_click(self, event):
+        if not self.current_book or not self.log_output:
+            return None
+
+        try:
+            index = self.log_output.index(f"@{event.x},{event.y}")
+            line_number = int(str(index).split(".")[0])
+        except (tk.TclError, ValueError):
+            return None
+
+        clicked_line_text = self.log_output.get(f"{line_number}.0", f"{line_number}.end")
+        rel_path, target_line = self._extract_log_target_from_line(clicked_line_text)
+        if not rel_path:
+            return None
+
+        return self.open_log_target(rel_path, target_line)
+
+    def open_log_target(self, rel_path, target_line=None):
+        if not self.current_book or not rel_path:
+            return "break"
+
+        target_file = self.current_book / rel_path
+        if not target_file.exists():
+            self.log(f"⚠️ Ziel-Datei aus Log nicht gefunden: {rel_path}", "warning")
+            return "break"
+
+        node = self._find_tree_node_by_path(rel_path)
+        if node:
+            self.tree_book.selection_set(node)
+            self.tree_book.focus(node)
+            self.tree_book.see(node)
+
+        MarkdownEditor(
+            self.root,
+            target_file,
+            self.on_markdown_saved,
+            self._get_editor_end_commands(),
+            initial_line=target_line,
+        )
+        if self.status:
+            line_hint = f" (Zeile {target_line})" if isinstance(target_line, int) and target_line > 0 else ""
+            self.status.config(text=f"Log-Navigation: {Path(rel_path).name}{line_hint}", fg="#27ae60")
+        return "break"
+
     def _discover_projects(self):
         found = []
-        for p in self.base_path.rglob("_quarto.yml"):
+        for p in self.projects_root_path.rglob("_quarto.yml"):
             if not any(x in p.parts for x in ['.venv', '_book', '.backups', '.git', 'bookconfig', 'export', 'processed']):
                 found.append(p.parent)
         return found
@@ -411,11 +690,13 @@ class BookStudio:
         if not is_visible:
             return ("dimmed",)
         return ("normal",) + self._state_tags_for_path(path)
+
     def _status_code_for_path(self, path):
         state = self.file_state_registry.get(path, {})
         has_orphan = bool(state.get("orphan_footnotes"))
         has_pagebreak = bool(state.get("pdf_pagebreak_end"))
         has_missing_images = bool(state.get("missing_images"))
+        has_doctor_issue = path in self.doctor_issue_registry
 
         status_codes = []
         if has_orphan:
@@ -424,6 +705,8 @@ class BookStudio:
             status_codes.append("↵")
         if has_missing_images:
             status_codes.append("🖼")
+        if has_doctor_issue:
+            status_codes.append("☠")
         return "".join(status_codes)
 
     def _is_technical_content_node(self, path):
@@ -442,10 +725,150 @@ class BookStudio:
             suffixes.append("↵")
         if state.get("missing_images"):
             suffixes.append("🖼")
+        if path in self.doctor_issue_registry:
+            suffixes.append("☠")
 
         if not suffixes:
             return title
         return f"{title} {' '.join(suffixes)}"
+
+    def _refresh_tree_titles_from_current_state(self):
+        if not hasattr(self, "tree_book") or not self.tree_book:
+            return
+
+        def update_tree(node):
+            values = self.tree_book.item(node, "values")
+            if values:
+                path = values[0]
+                raw_title = self._raw_title_from_values(values, self.tree_book.item(node, "text"))
+                display_title = self._decorate_title_for_path(raw_title, path)
+                status_code = self._status_code_for_path(path)
+                self.tree_book.item(node, text=display_title, values=(path, raw_title, status_code))
+
+            for child in self.tree_book.get_children(node):
+                update_tree(child)
+
+        for root_item in self.tree_book.get_children():
+            update_tree(root_item)
+
+        if hasattr(self, "_apply_tree_filters"):
+            self._apply_tree_filters()
+
+    def _log_doctor_analysis(self, analysis, context_label):
+        error_count = analysis.get("error_count", 0)
+        warning_count = analysis.get("warning_count", 0)
+        issue_details_by_path = analysis.get("issue_details_by_path", {})
+        warnings = analysis.get("warnings", [])
+
+        self.log(f"{'=' * 50}", "dim")
+        if error_count:
+            self.log(f"🩺 {context_label}: {error_count} kritische Befunde, {warning_count} Hinweise", "header")
+        elif warning_count:
+            self.log(f"🩺 {context_label}: keine kritischen Befunde, aber {warning_count} Hinweise", "header")
+        else:
+            self.log(f"🩺 {context_label}: keine Befunde", "success")
+
+        for path, issues in issue_details_by_path.items():
+            base_title = self.title_registry.get(path, Path(path).name)
+            self.log(f"☠ {base_title} [{path}]", "error")
+            for issue in issues:
+                line_number = issue.get("line_number")
+                prefix = f"L{line_number}: " if isinstance(line_number, int) and line_number > 0 else ""
+                self.log(f"   {prefix}{issue.get('message', '')}", "error")
+
+        if error_count and issue_details_by_path:
+            self.log("💡 Navigation: F4 = nächster Fund, Shift+F4 = vorheriger Fund, Enter = Problemstelle öffnen", "dim")
+
+        for warning in warnings:
+            self.log(warning, "warning")
+
+    def _select_first_doctor_issue(self):
+        if not self.doctor_issue_registry:
+            return
+
+        for path in self._get_all_used_paths():
+            if path not in self.doctor_issue_registry:
+                continue
+            node = self._find_tree_node_by_path(path)
+            if not node:
+                continue
+            self.tree_book.selection_set(node)
+            self.tree_book.focus(node)
+            self.tree_book.see(node)
+            return
+
+    def _doctor_issue_paths_in_tree_order(self):
+        if not self.doctor_issue_registry:
+            return []
+        return [path for path in self._get_all_used_paths() if path in self.doctor_issue_registry]
+
+    def _focus_doctor_issue(self, step):
+        issue_paths = self._doctor_issue_paths_in_tree_order()
+        if not issue_paths:
+            if self.status:
+                self.status.config(text="Keine Buch-Doktor-Befunde vorhanden", fg="#64748b")
+            return "break"
+
+        selected = self.tree_book.selection()
+        current_path = None
+        if selected:
+            vals = self.tree_book.item(selected[0], "values")
+            if vals:
+                current_path = vals[0]
+
+        if current_path in issue_paths:
+            current_index = issue_paths.index(current_path)
+            target_path = issue_paths[(current_index + step) % len(issue_paths)]
+        else:
+            target_path = issue_paths[0] if step >= 0 else issue_paths[-1]
+
+        node = self._find_tree_node_by_path(target_path)
+        if node:
+            self.tree_book.selection_set(node)
+            self.tree_book.focus(node)
+            self.tree_book.see(node)
+            issue_count = len(self.doctor_issue_registry.get(target_path, []))
+            self.status.config(
+                text=f"Buch-Doktor-Fund: {Path(target_path).name} ({issue_count} Problem{'e' if issue_count != 1 else ''})",
+                fg="#b91c1c",
+            )
+        return "break"
+
+    def focus_next_doctor_issue(self, _event=None):
+        return self._focus_doctor_issue(1)
+
+    def focus_previous_doctor_issue(self, _event=None):
+        return self._focus_doctor_issue(-1)
+
+    def _run_doctor_check(self, context_label, emit_success_log=False):
+        if not self.current_book or not self.doctor:
+            return False, None
+
+        analysis = self.doctor.analyze_health(
+            self._get_all_used_paths(),
+            len(self.list_avail.get_children("")),
+        )
+        self.doctor_issue_registry = analysis.get("issues_by_path", {})
+        self.doctor_issue_line_registry = analysis.get("issue_first_line_by_path", {})
+        self._refresh_tree_titles_from_current_state()
+        self._select_first_doctor_issue()
+
+        has_findings = bool(analysis.get("error_count") or analysis.get("warning_count"))
+        if has_findings or emit_success_log:
+            self._log_doctor_analysis(analysis, context_label)
+
+        if analysis["is_healthy"]:
+            self.status.config(text=f"{context_label}: keine kritischen Befunde", fg="#27ae60")
+        else:
+            self.status.config(
+                text=f"{context_label}: {analysis['error_count']} kritische Befunde - siehe Log",
+                fg="#e74c3c",
+            )
+
+        return analysis["is_healthy"], analysis
+
+    def run_doctor_preflight(self, context_label, emit_success_log=False):
+        return self._run_doctor_check(context_label, emit_success_log=emit_success_log)
 
     def _raw_title_from_values(self, values, fallback_text):
         if values and len(values) > 1 and values[1]:
@@ -472,9 +895,18 @@ class BookStudio:
         
         self.profile_lbl = tk.Label(tb, text="Profil: [Standard]", fg="#fbbf24", bg=COLORS["panel_dark"], font=("Consolas", 10, "bold"))
         self.profile_lbl.pack(side=tk.RIGHT, padx=20)
-        
-        self.pane = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg=COLORS["border"], sashwidth=8, sashrelief=tk.FLAT)
-        self.pane.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.main_vertical_pane = tk.PanedWindow(
+            self.root,
+            orient=tk.VERTICAL,
+            bg=COLORS["border"],
+            sashwidth=8,
+            sashrelief=tk.FLAT,
+        )
+        self.main_vertical_pane.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.pane = tk.PanedWindow(self.main_vertical_pane, orient=tk.HORIZONTAL, bg=COLORS["border"], sashwidth=8, sashrelief=tk.FLAT)
+        self.main_vertical_pane.add(self.pane, minsize=320, stretch="always")
         
         # --- LINKS ---
         l_frame = tk.Frame(self.pane, bg="white")
@@ -546,6 +978,8 @@ class BookStudio:
         self.list_avail.config(yscrollcommand=sl.set)
         
         self.list_avail.bind("<Double-1>", self.on_double_click)
+        self.list_avail.bind("<Return>", self.on_activate_selected)
+        self.list_avail.bind("<KP_Enter>", self.on_activate_selected)
         
         # --- KONTEXTMENÜ LINKS ---
         self.avail_menu = tk.Menu(self.root, tearoff=0)
@@ -574,12 +1008,6 @@ class BookStudio:
         self.status_combo.bind("<<ComboboxSelected>>", self.apply_status_filter)
 
         ttk.Button(r_header, text="Reload Tree", style="Tool.TButton", command=self.reload_tree).pack(side=tk.LEFT, padx=(8, 4))
-
-        tk.Label(r_header, text=" | Legende: ", bg=COLORS["surface_muted"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        tk.Label(r_header, text="● = Verwaiste Fußnoten", bg=COLORS["surface_muted"], fg="#ff6a00", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Label(r_header, text="↵ = PDF-Seitenumbruch am Dateiende", bg=COLORS["surface_muted"], fg="#004dff", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Label(r_header, text="🖼 = Fehlende Bilder", bg=COLORS["surface_muted"], fg="#dc2626", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Label(r_header, text="(Marker stehen hinter dem Titel)", bg=COLORS["surface_muted"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
         
         self.tree_book = ttk.Treeview(r_frame, selectmode="extended", columns=("path", "raw_title", "status"), show="tree headings", displaycolumns=())
         self.tree_book.heading("#0", text="Kapitel")
@@ -604,6 +1032,8 @@ class BookStudio:
         self.tree_book.bind("<B1-Motion>", self.on_drag_motion)
         self.tree_book.bind("<ButtonRelease-1>", self.on_drop)
         self.tree_book.bind("<Double-1>", self.on_double_click)
+        self.tree_book.bind("<Return>", self.on_activate_selected)
+        self.tree_book.bind("<KP_Enter>", self.on_activate_selected)
         
         # --- KONTEXTMENÜ RECHTS ---
         self.tree_menu = tk.Menu(self.root, tearoff=0)
@@ -615,9 +1045,45 @@ class BookStudio:
         # --- FOOTER --- (zuerst packen → landet ganz unten)
         self.ui_actions_manager.build_footer(self.root)
 
-        # --- LOG-TERMINAL (danach packen → landet direkt über dem Footer) ---
-        self.ui_actions_manager.build_log_panel(self.root)
+        # --- LOG-TERMINAL (resizable über vertikalen Split) ---
+        self.log_panel = self.ui_actions_manager.build_log_panel(self.main_vertical_pane)
+        self.main_vertical_pane.add(self.log_panel, minsize=110, height=self._default_log_panel_height, stretch="never")
+        self.root.after(0, self._init_vertical_log_pane)
         self.root.after(0, self._init_fixed_middle_pane_behavior)
+
+    def _set_vertical_log_pane_height(self, log_height=None):
+        if not self.main_vertical_pane:
+            return
+        try:
+            total_height = self.main_vertical_pane.winfo_height()
+            if total_height <= 0:
+                return
+            if log_height is None:
+                log_height = self._default_log_panel_height
+            sash_y = max(320, total_height - log_height)
+            self.main_vertical_pane.sash_place(0, 1, sash_y)
+        except tk.TclError:
+            pass
+
+    def _init_vertical_log_pane(self):
+        self._set_vertical_log_pane_height()
+        self.main_vertical_pane.bind("<Double-Button-1>", self._on_vertical_pane_double_click, add="+")
+
+    def _on_vertical_pane_double_click(self, event):
+        if not self.main_vertical_pane or len(self.main_vertical_pane.panes()) < 2:
+            return None
+        try:
+            _sash_x, sash_y = self.main_vertical_pane.sash_coord(0)
+        except tk.TclError:
+            return None
+
+        if abs(event.y - sash_y) > 10:
+            return None
+
+        self._set_vertical_log_pane_height()
+        if self.status:
+            self.status.config(text="Log-Höhe auf Standard zurückgesetzt", fg="#64748b")
+        return "break"
 
     def _get_sash_positions(self):
         if len(self.pane.panes()) < 3:
@@ -826,6 +1292,8 @@ class BookStudio:
             self.status_filter_var.set("Alle")
         else:
             self.status_registry = {}
+
+        self.doctor_issue_registry = {}
             
         self.doctor = BookDoctor(self.current_book, self.title_registry)
         self.backup_mgr = BackupManager(self.root, self.current_book)
@@ -894,6 +1362,53 @@ class BookStudio:
         # 4. Den Status-Filter direkt wieder anwenden (Highlighting aktualisieren)
         if hasattr(self, '_apply_tree_filters'):
             self._apply_tree_filters()
+
+    def on_markdown_saved(self, saved_file_path=None):
+        self.refresh_ui_titles()
+
+        if not saved_file_path or not self.current_book or not self.doctor:
+            return
+
+        try:
+            file_path = Path(saved_file_path).resolve()
+        except (TypeError, ValueError, OSError):
+            return
+
+        try:
+            rel_path = file_path.relative_to(self.current_book).as_posix()
+        except ValueError:
+            return
+
+        if not rel_path.lower().endswith(".md"):
+            return
+
+        had_issue_before = rel_path in self.doctor_issue_registry
+        analysis = self.doctor.analyze_health([rel_path], 0, include_index=False)
+
+        issues = analysis.get("issues_by_path", {}).get(rel_path, [])
+        if issues:
+            self.doctor_issue_registry[rel_path] = issues
+            first_line = analysis.get("issue_first_line_by_path", {}).get(rel_path)
+            if isinstance(first_line, int) and first_line > 0:
+                self.doctor_issue_line_registry[rel_path] = first_line
+            else:
+                self.doctor_issue_line_registry.pop(rel_path, None)
+
+            issue_details = analysis.get("issue_details_by_path", {}).get(rel_path, [])
+            file_label = self.title_registry.get(rel_path, Path(rel_path).name)
+            self.log(f"🩺 Datei-Check: {file_label} [{rel_path}]", "warning")
+            for issue in issue_details:
+                line_number = issue.get("line_number")
+                prefix = f"L{line_number}: " if isinstance(line_number, int) and line_number > 0 else ""
+                self.log(f"   {prefix}{issue.get('message', '')}", "warning")
+        else:
+            self.doctor_issue_registry.pop(rel_path, None)
+            self.doctor_issue_line_registry.pop(rel_path, None)
+            if had_issue_before:
+                self.log(f"✅ Datei-Check bestanden: {rel_path} (Totenkopf entfernt)", "success")
+
+        self._refresh_tree_titles_from_current_state()
+        self._update_avail_list()
 
     def reload_tree(self):
         if not self.current_book:
@@ -1177,14 +1692,16 @@ class BookStudio:
     # =========================================================================
     # SPEICHERN, DOKTOR, EDITOR (INKL. GEISTER-DATEI-ERKENNUNG)
     # =========================================================================
-    def save_project(self, show_msg=True):
+    def save_project(self, show_msg=True, run_doctor_check=True):
         if not self.current_book:
             return False
-        
-        is_healthy, report = self.doctor.check_health(self._get_all_used_paths(), len(self.list_avail.get_children("")))
-        if not is_healthy:
-            messagebox.showerror("DOKTOR-STOPP", f"Bitte beheben:\n\n{report}")
-            return False
+
+        if run_doctor_check:
+            is_healthy, analysis = self._run_doctor_check("Buch-Doktor Vorabcheck", emit_success_log=False)
+            if not is_healthy:
+                if analysis is not None:
+                    self.log("⛔ Speichern/Rendern gestoppt. Bitte behebe die markierten Dateien in der Buch-Struktur.", "error")
+                return False
             
         try:
             # 1. ZUERST den aktuellen Baum aus der GUI auslesen!
@@ -1288,7 +1805,7 @@ class BookStudio:
     def run_doctor(self):
         if not self.current_book:
             return
-        self.doctor.run_doctor_manual(self._get_all_used_paths(), len(self.list_avail.get_children("")))
+        self._run_doctor_check("Buch-Doktor", emit_success_log=True)
 
     def open_help_manual(self):
         try:
@@ -1325,19 +1842,29 @@ class BookStudio:
             )
             return
 
-        MarkdownEditor(self.root, manual_path, self.refresh_ui_titles, self._get_editor_end_commands())
+        MarkdownEditor(self.root, manual_path, self.on_markdown_saved, self._get_editor_end_commands())
 
-    def on_double_click(self, event):
-        item = event.widget.identify_row(event.y)
+    def _open_item_from_widget(self, widget, item):
         if not item:
-            return
-        vals = event.widget.item(item, "values")
+            return None
+
+        vals = widget.item(item, "values")
         if not vals:
-            return
+            return None
         f_path = self.current_book / vals[0]
         
         if f_path.exists():
-            MarkdownEditor(self.root, f_path, self.refresh_ui_titles, self._get_editor_end_commands())
+            initial_line = None
+            if widget == self.tree_book:
+                initial_line = self.doctor_issue_line_registry.get(vals[0])
+            MarkdownEditor(
+                self.root,
+                f_path,
+                self.on_markdown_saved,
+                self._get_editor_end_commands(),
+                initial_line=initial_line,
+            )
+            return True
         else:
             dead_path = vals[0]
             msg = (f"Die Datei wurde auf der Festplatte nicht gefunden:\n{dead_path}\n\n"
@@ -1347,14 +1874,34 @@ class BookStudio:
             if messagebox.askyesno("Geister-Datei 👻", msg):
                 pre = self._get_current_state()
                 
-                if event.widget == self.tree_book:
+                if widget == self.tree_book:
                     for child in self._get_all_tree_children(item):
                         txt, c_vals = self.tree_book.item(child, "text"), self.tree_book.item(child, "values")
                         if c_vals:
                             self.list_avail.insert("", "end", text=txt, values=(c_vals[0],))
                         
-                event.widget.delete(item)
+                widget.delete(item)
                 self._push_undo(pre)
+                return True
+        return None
+
+    def on_double_click(self, event):
+        item = event.widget.identify_row(event.y)
+        self._open_item_from_widget(event.widget, item)
+
+    def on_activate_selected(self, event):
+        widget = event.widget
+        selection = widget.selection()
+        if not selection:
+            focus_item = widget.focus()
+            if focus_item:
+                selection = (focus_item,)
+        if not selection:
+            return None
+        result = self._open_item_from_widget(widget, selection[0])
+        if result:
+            return "break"
+        return None
 
     # =========================================================================
     # KONTEXTMENÜ-FUNKTIONEN (Im Explorer öffnen)
@@ -1495,7 +2042,7 @@ class BookStudio:
             MarkdownEditor(
                 self.root,
                 abs_path,
-                self.refresh_ui_titles,
+                self.on_markdown_saved,
                 self._get_editor_end_commands(),
                 initial_line=line_number,
             )

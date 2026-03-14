@@ -268,7 +268,10 @@ class MarkdownEditor(tk.Toplevel):
                 self._render_preview(force=False)
 
             if self.on_save_callback:
-                self.on_save_callback()
+                try:
+                    self.on_save_callback(self.file_path)
+                except TypeError:
+                    self.on_save_callback()
 
             if close_after_save:
                 self.destroy()
@@ -373,7 +376,10 @@ class MarkdownEditor(tk.Toplevel):
                 
                 # 3. Das Wichtigste: Das Hauptfenster zwingen, die Liste neu zu laden!
                 if self.on_save_callback:
-                    self.on_save_callback()
+                    try:
+                        self.on_save_callback(self.file_path)
+                    except TypeError:
+                        self.on_save_callback()
                     
                 messagebox.showinfo("Erfolg", f"Datei erfolgreich gespeichert unter:\n{self.file_path.name}")
                 

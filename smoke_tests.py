@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import shutil
+import subprocess
 import tempfile
 import tkinter as tk
 from pathlib import Path
@@ -128,6 +130,30 @@ def run_non_gui_smoke(project_root: Path) -> list[tuple[str, bool, str]]:
     except (OSError, RuntimeError, TypeError, ValueError, ImportError, AttributeError) as exc:
         record("Frontmatter-Ergänzung", False, str(exc))
 
+    try:
+        source_book = project_root / "Band_Dummy"
+        if not source_book.exists():
+            raise FileNotFoundError("Band_Dummy fehlt")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            book_copy = tmp_root / "Band_Dummy"
+            shutil.copytree(source_book, book_copy)
+
+            render_proc = subprocess.run(
+                ["quarto", "render", str(book_copy), "--to", "typst"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if render_proc.returncode != 0:
+                detail = (render_proc.stderr or render_proc.stdout or "Render fehlgeschlagen").strip()
+                raise RuntimeError(detail)
+
+        record("Buch-Generierung (Quarto Render)", True)
+    except (FileNotFoundError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        record("Buch-Generierung (Quarto Render)", False, str(exc))
+
     return results
 
 
@@ -174,6 +200,17 @@ def run_gui_smoke(project_root: Path) -> list[tuple[str, bool, str]]:
         record("SanitizerConfigEditor öffnet", True)
     except (RuntimeError, TypeError, OSError, ImportError, AttributeError, tk.TclError) as exc:
         record("SanitizerConfigEditor öffnet", False, str(exc))
+
+    try:
+        from app_config_editor import AppConfigEditor
+
+        config_path = project_root / "studio_config.json"
+        dialog = AppConfigEditor(root, config_path=config_path)
+        dialog.update_idletasks()
+        dialog.destroy()
+        record("AppConfigEditor öffnet", True)
+    except (RuntimeError, TypeError, OSError, ImportError, AttributeError, tk.TclError) as exc:
+        record("AppConfigEditor öffnet", False, str(exc))
 
     root.destroy()
     return results

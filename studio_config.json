@@ -1,6 +1,13 @@
 {
     "help_manual_path": "doc/handbuch.md",
     "reset_quarto_template_path": "templates/quarto_reset_minimal.yml",
+    "content_root_path": ".",
+    "abort_on_first_preflight_error": false,
+    "abort_on_first_render_colon_warning": false,
+    "enable_footnote_backlinks": false,
+    "default_export_format": "typst",
+    "default_export_template": "EXT: typstdoc",
+    "default_footnote_mode": "footnotes",
     "frontmatter_requirements": {
         "title": "<filename>",
         "description": "<title>",
@@ -24,15 +31,18 @@
             "marks_state": "pdf_pagebreak_end"
         }
     ],
-    "window_geometry": "1755x826+1995+31",
+    "window_geometry": "1755x905+1995+31",
+    "log_font_size": 12,
+    "log_auto_clear_default": false,
+    "log_max_lines_default": 500,
     "session_state": {
         "active_book_path": "Band_Stoffwechselgesundheit",
         "active_book_name": "Band_Stoffwechselgesundheit",
-        "current_profile_name": "Pandemie_Diabetes_All_files_Gemini_sorted_v.3",
+        "current_profile_name": null,
         "export_options": {
             "format": "typst",
-            "template": "Standard",
-            "footnote_mode": "endnotes"
+            "template": "EXT: typstdoc",
+            "footnote_mode": "footnotes"
         },
         "ui_state": {
             "search_text": "",
@@ -44,16 +54,14 @@
             "log_auto_clear": false,
             "log_max_lines": "500",
             "avail_selected_paths": [],
-            "tree_selected_paths": [
-                "content/required/Titel.md"
-            ],
+            "tree_selected_paths": [],
             "avail_yview": [
                 0.0,
                 1.0
             ],
             "tree_yview": [
-                0.0,
-                0.12612612612612611
+                0.06306306306306306,
+                0.2072072072072072
             ]
         }
     }

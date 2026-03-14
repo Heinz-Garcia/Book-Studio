@@ -1,21 +1,25 @@
 import re
 
 class FootnoteHarvester:
-    def __init__(self, mode="endnotes", title="Anmerkungen"):
+    def __init__(self, mode="endnotes", title="Anmerkungen", use_typst_links=False):
         """
-        mode="endnotes": Ersetzt Fußnoten durch hochgestellte Zahlen (^[1]^) und baut ein festes Endnoten-Kapitel.
+        mode="endnotes": Ersetzt Fußnoten durch hochgestellte Zahlen und baut ein Endnoten-Kapitel.
+          use_typst_links=True: erzeugt Typst-native #link/<#label>-Anker (klickbare PDF-Links).
         mode="pandoc": Sammelt die Noten, belässt aber die Quarto-Syntax [^1] für klassische Fußnoten.
+        mode="footnotes" wird nicht hier verarbeitet; in diesem Modus lässt der PreProcessor den Fußnoten-Text unverändert.
         """
         self.mode = mode
         self.title = title
-        
+        self.use_typst_links = use_typst_links
+
         self.global_counter = 1
         self.harvested = [] # Speichert Tuples: (neue_id, text) für das finale Endnoten-Kapitel
-        
+
         # --- Das 2-Pass-System (Globale Lexika) ---
         self.definitions = {} # Globales Lexikon: (file_key, label) -> Inhalt
         self.file_mapping = {} # (file_key, label) -> fortlaufende Nummer
         self.orphan_warnings = [] # Verwaiste Marker ohne Definition: (file_key, label)
+        self._ref_anchors = {} # new_id -> [back-link-anchor, ...] für Typst-Rücksprünge
         # -------------------------------------------
 
     def extract_definitions(self, text, file_key=""):
@@ -62,7 +66,15 @@ class FootnoteHarvester:
                 
                 # Konfigurierbares Ausgabeformat anwenden
                 if self.mode == "endnotes":
-                    return f"^[{new_id}]^" 
+                    if self.use_typst_links:
+                        ref_count = len(self._ref_anchors.get(new_id, [])) + 1
+                        ref_anchor = f"fnref-{new_id}-{ref_count}"
+                        self._ref_anchors.setdefault(new_id, []).append(ref_anchor)
+                        return (
+                            f"`#label(\"{ref_anchor}\")`{{=typst}}"
+                            f"`#super[#link(<fn-{new_id}>)[{new_id}]]`{{=typst}}"
+                        )
+                    return f"^[{new_id}]^"
                 else:
                     return f"[^{new_id}]"
                     
@@ -87,7 +99,18 @@ class FootnoteHarvester:
             
             for note_id, text in self.harvested:
                 if self.mode == "endnotes":
-                    f.write(f"**[{note_id}]** {text}\n\n")
+                    if self.use_typst_links:
+                        anchors = self._ref_anchors.get(note_id, [])
+                        if len(anchors) == 1:
+                            backlink_str = f" `#link(<{anchors[0]}>)[↩]`{{=typst}}"
+                        elif len(anchors) > 1:
+                            parts = [f"`#link(<{a}>)[↩{i+1}]`{{=typst}}" for i, a in enumerate(anchors)]
+                            backlink_str = " " + " ".join(parts)
+                        else:
+                            backlink_str = ""
+                        f.write(f"`#label(\"fn-{note_id}\")`{{=typst}}**[{note_id}]** {text}{backlink_str}\n\n")
+                    else:
+                        f.write(f"**[{note_id}]** {text}\n\n")
                 else:
                     f.write(f"[^{note_id}]: {text}\n\n")
                     

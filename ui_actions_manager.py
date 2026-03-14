@@ -40,8 +40,6 @@ class UiActionsManager:
             {"text": "➡️ Einrücken", "command": self.studio.indent_item, "pack": {"pady": (10, 2)}},
             {"text": "⬅️ Ausrücken", "command": self.studio.outdent_item, "pack": {"pady": 2}},
             {"separator": True, "ttk": True},
-            {"text": "↩️ Undo (Strg+Z)", "style": "Tool.TButton", "command": self.studio.undo, "pack": {"pady": 2}},
-            {"text": "↪️ Redo (Strg+Y)", "style": "Tool.TButton", "command": self.studio.redo, "pack": {"pady": 2}},
         ]
 
         for spec in button_specs:
@@ -53,6 +51,59 @@ class UiActionsManager:
                 continue
 
             self._create_button(middle_frame, spec)
+
+        undo_redo_row = tk.Frame(middle_frame, bg=COLORS["app_bg"])
+        undo_redo_row.pack(fill=tk.X, padx=10, pady=(0, 4))
+        ttk.Button(
+            undo_redo_row,
+            text="↩ Undo",
+            command=self.studio.undo,
+            style="Tool.TButton",
+            width=8,
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
+        ttk.Button(
+            undo_redo_row,
+            text="↪ Redo",
+            command=self.studio.redo,
+            style="Tool.TButton",
+            width=8,
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(3, 0))
+
+        self._add_middle_icon_legend(middle_frame)
+
+    def _add_middle_icon_legend(self, middle_frame):
+        ttk.Separator(middle_frame, orient="horizontal").pack(fill="x", pady=(14, 8), padx=10)
+
+        legend = tk.Frame(middle_frame, bg=COLORS["app_bg"])
+        legend.pack(fill=tk.X, padx=8)
+
+        tk.Label(
+            legend,
+            text="Icon-Legende",
+            bg=COLORS["app_bg"],
+            fg=COLORS["heading"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w", pady=(0, 4))
+
+        legend_lines = [
+            "📌 required",
+            "🧭 Nur Gliederungspunkt",
+            "● Verwaiste Fußnoten",
+            "↵ Seitenumbruch-Ende",
+            "🖼 Fehlende Bilder",
+            "☠ Buch-Doktor-Fehler",
+            "📌/🧭 vor dem Titel",
+            "hinter den Titel ●/↵/🖼/☠",
+        ]
+        for line in legend_lines:
+            tk.Label(
+                legend,
+                text=line,
+                bg=COLORS["app_bg"],
+                fg="#475569",
+                font=("Segoe UI", 8),
+                justify="left",
+            ).pack(anchor="w")
 
     def _create_button(self, parent, spec):
         kwargs = dict(self._middle_button_style)
@@ -73,7 +124,6 @@ class UiActionsManager:
     # =========================================================================
     def build_log_panel(self, parent):
         outer = tk.Frame(parent, bg=COLORS["log_panel"], height=170)
-        outer.pack(fill=tk.X, side=tk.BOTTOM)
         outer.pack_propagate(False)
 
         # Header-Leiste
@@ -183,9 +233,12 @@ class UiActionsManager:
             state="disabled", wrap=tk.WORD,
         )
         style_code_text(self.studio.log_output)
-        self.studio.log_output.configure(font=("Consolas", 9), padx=8, pady=6, state="disabled")
+        log_font_size = self.studio.get_log_font_size() if hasattr(self.studio, "get_log_font_size") else 9
+        self.studio.log_output.configure(font=("Consolas", log_font_size), padx=8, pady=6, state="disabled")
         self.studio.log_output.pack(fill=tk.BOTH, expand=True)
         self.studio.log_output.bind("<Button-3>", self._show_log_menu)
+        self.studio.log_output.bind("<Double-1>", self._on_log_double_click)
+        self.studio.log_output.bind("<Button-1>", self._on_log_click, add="+")
 
         # Farb-Tags definieren
         w = self.studio.log_output
@@ -267,3 +320,13 @@ class UiActionsManager:
             self.studio.log_menu.tk_popup(event.x_root, event.y_root)
         finally:
             self.studio.log_menu.grab_release()
+
+    def _on_log_double_click(self, event):
+        if hasattr(self.studio, "on_log_double_click"):
+            return self.studio.on_log_double_click(event)
+        return None
+
+    def _on_log_click(self, event):
+        if hasattr(self.studio, "on_log_click"):
+            return self.studio.on_log_click(event)
+        return None

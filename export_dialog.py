@@ -75,7 +75,7 @@ class ExportDialog(tk.Toplevel):
         ttk.Combobox(
             wrapper,
             textvariable=self.footnote_var,
-            values=["endnotes", "pandoc"],
+            values=["footnotes", "endnotes", "pandoc"],
             state="readonly",
             width=22,
         ).grid(row=3, column=1, sticky="w", pady=6)
