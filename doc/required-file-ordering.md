@@ -69,6 +69,7 @@ index.md
 | Einleitung.md | `"60"` |
 | These.md | `"70"` |
 | Literaturverzeichnis.md | `"END-50"` |
+| Credits.md | `"END-45"` |
 | Glossar.md | `"END-40"` |
 | UeberAutor.md | `"END-30"` |
 | Klappentext_hinten.md | `"END-20"` |
