@@ -141,7 +141,13 @@ def run_non_gui_smoke(project_root: Path) -> list[tuple[str, bool, str]]:
             shutil.copytree(source_book, book_copy)
 
             render_proc = subprocess.run(
-                ["quarto", "render", str(book_copy), "--to", "typst"],
+                [
+                    sys.executable,
+                    str(project_root / "quarto_render_safe.py"),
+                    str(book_copy),
+                    "--to",
+                    "typst",
+                ],
                 capture_output=True,
                 text=True,
                 check=False,

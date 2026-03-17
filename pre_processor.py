@@ -140,6 +140,34 @@ class PreProcessor:
 
         return f"{bom}---{newline}{dumped}{newline}---{newline}"
 
+    def _prune_unused_footnote_definitions(self, text):
+        """Entfernt ungenutzte Fußnoten-Definitionen im footnotes-Modus aus dem processed-Text."""
+        if self.footnote_mode != "footnotes":
+            return text
+
+        definition_pattern = re.compile(
+            r'^\[\^([^\]]+)\]:\s*(.*?)(?=^\[\^[^\]]+\]:|\Z)',
+            re.DOTALL | re.MULTILINE,
+        )
+        matches = list(definition_pattern.finditer(text))
+        if not matches:
+            return text
+
+        used_labels = set(re.findall(r'\[\^([^\]]+)\](?!:)', text))
+
+        parts = []
+        cursor = 0
+        for match in matches:
+            start, end = match.span()
+            parts.append(text[cursor:start])
+            label = match.group(1)
+            if label in used_labels:
+                parts.append(match.group(0))
+            cursor = end
+        parts.append(text[cursor:])
+
+        return ''.join(parts).strip()
+
     # =========================================================================
     # NEU: DER WASCHGANG FÜR KAPUTTE MARKDOWN-SYNTAX
     # =========================================================================
@@ -322,6 +350,8 @@ class PreProcessor:
         if self._uses_harvester():
             body = self.harvester.extract_definitions(body, file_key=str(src))
             body = self.harvester.replace_markers(body, file_key=str(src))
+        else:
+            body = self._prune_unused_footnote_definitions(body)
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
@@ -353,6 +383,8 @@ class PreProcessor:
         if self._uses_harvester():
             body = self.harvester.extract_definitions(body, file_key=str(src))
             body = self.harvester.replace_markers(body, file_key=str(src))
+        else:
+            body = self._prune_unused_footnote_definitions(body)
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
@@ -377,6 +409,8 @@ class PreProcessor:
                 if self._uses_harvester():
                     body = self.harvester.extract_definitions(body, file_key=str(src))
                     body = self.harvester.replace_markers(body, file_key=str(src))
+                else:
+                    body = self._prune_unused_footnote_definitions(body)
                 
                 # 3. Überschriften einrücken
                 def shift_heading(m):

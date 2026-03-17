@@ -64,6 +64,33 @@ def test_prepare_render_environment_keeps_numeric_order_in_processed_frontmatter
     assert "order: 5" in processed
 
 
+def test_prepare_render_environment_prunes_unused_footnote_definitions_in_footnotes_mode(tmp_path: Path) -> None:
+    book = _create_book(tmp_path)
+    source = book / "content" / "chapter.md"
+    _write(
+        source,
+        "---\n"
+        "title: \"Kapitel\"\n"
+        "description: \"Kapitel\"\n"
+        "---\n\n"
+        "Text mit Referenz[^used].\n\n"
+        "[^used]: Verwendete Notiz.\n"
+        "[^unused]: Unbenutzte Notiz.\n",
+    )
+
+    processor = PreProcessor(book, footnote_mode="footnotes")
+    tree_data = [{"title": "Kapitel", "path": "content/chapter.md", "children": []}]
+
+    processor.prepare_render_environment(tree_data)
+
+    processed = (book / "processed" / "content" / "chapter.md").read_text(encoding="utf-8")
+    original = source.read_text(encoding="utf-8")
+
+    assert "Verwendete Notiz." in processed
+    assert "Unbenutzte Notiz." not in processed
+    assert "[^unused]:" in original
+
+
 def test_prepare_render_environment_converts_bracket_citations_with_locators_to_endnotes(tmp_path: Path) -> None:
     book = _create_book(tmp_path)
     source = book / "content" / "chapter.md"

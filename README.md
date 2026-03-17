@@ -115,7 +115,7 @@ Hinweis zum Render-Vorabcheck:
 
 - `👁️ 1. Watchdog starten (Struktur bewachen)` – Architektur-/Struktur-Watchdog
 - `🩺 2. Buch-Doktor (Health Check)` – Projektprüfung (Default Build Task)
-- `🖨️ 3. Aktuelles Buch rendern (Typst/PDF)` – Quarto Render für aktives Buch
+- `🖨️ 3. Aktuelles Buch rendern (Typst/PDF)` – sicherer Render für das aktive Buch über temporäre Kopie (`processed`/`END-x` kompatibel)
 - `🎨 4. Book Studio (Inhaltsverzeichnis GUI)` – GUI starten
 - `🧪 7. Smoke-Tests ausführen` – Smoke inkl. GUI
 - `🧪 8. Smoke-Tests (ohne GUI)` – schnelle CI-/Headless-Variante

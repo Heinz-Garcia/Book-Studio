@@ -6,6 +6,8 @@ import re
 import os
 import sys
 import platform
+import json
+from datetime import datetime
 from pathlib import Path
 
 from pre_processor import PreProcessor
@@ -18,6 +20,73 @@ class ExportManager:
         self._processed_colon_occurrences = []
         self._logged_missing_labels = set()
         self._logged_colon_warning_hint = False
+        self._active_render_log_handle = None
+        self._active_render_log_path = None
+
+    def _write_active_render_log(self, message: str):
+        handle = self._active_render_log_handle
+        if handle is None:
+            return
+        try:
+            handle.write(f"{message}\n")
+            handle.flush()
+        except OSError:
+            return
+
+    def _start_render_log(self, target_fmt, selected_tpl, footnote_mode, enable_footnote_backlinks):
+        current_book = getattr(self.studio, "current_book", None)
+        if not current_book:
+            return
+
+        book_root = Path(current_book)
+        log_dir = book_root / "export" / "render_logs"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_fmt = re.sub(r"[^A-Za-z0-9._-]", "_", str(target_fmt or "unknown"))
+        log_path = log_dir / f"render_{timestamp}_{safe_fmt}.log"
+
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            self._active_render_log_handle = log_path.open("w", encoding="utf-8")
+            self._active_render_log_path = log_path
+        except OSError as error:
+            self._active_render_log_handle = None
+            self._active_render_log_path = None
+            self.studio.log(f"⚠️ Render-Log konnte nicht angelegt werden: {error}", "warning")
+            return
+
+        profile_name = getattr(self.studio, "current_profile_name", None)
+        self._write_active_render_log("=== Quarto Book Studio Render Log ===")
+        self._write_active_render_log(f"started_at={datetime.now().isoformat(timespec='seconds')}")
+        self._write_active_render_log(f"book={book_root}")
+        self._write_active_render_log(f"format={target_fmt}")
+        self._write_active_render_log(f"template={selected_tpl}")
+        self._write_active_render_log(f"footnote_mode={footnote_mode}")
+        self._write_active_render_log(f"footnote_backlinks={bool(enable_footnote_backlinks)}")
+        self._write_active_render_log(f"profile={profile_name if profile_name else 'default'}")
+        self._write_active_render_log("--- render output ---")
+        self.studio.log(f"🧾 Render-Log: {log_path}", "dim")
+
+    def _finalize_render_log(self, status, primary_returncode=None, fallback_returncode=None):
+        handle = self._active_render_log_handle
+        path = self._active_render_log_path
+        if handle is not None:
+            self._write_active_render_log("--- summary ---")
+            self._write_active_render_log(f"finished_at={datetime.now().isoformat(timespec='seconds')}")
+            self._write_active_render_log(f"status={status}")
+            if primary_returncode is not None:
+                self._write_active_render_log(f"primary_returncode={primary_returncode}")
+            if fallback_returncode is not None:
+                self._write_active_render_log(f"fallback_returncode={fallback_returncode}")
+            try:
+                handle.close()
+            except OSError:
+                pass
+
+        self._active_render_log_handle = None
+        self._active_render_log_path = None
+
+        if path is not None:
+            self.studio.log(f"🧾 Render-Log gespeichert: {path}", "dim")
 
     def _iter_tree_paths(self, tree_data):
         for item in tree_data:
@@ -310,6 +379,7 @@ class ExportManager:
             )
         shown = []
         seen = set()
+        max_hits = 20
         for item in normalized_entries:
             source_path = item.get("source_path")
             line_number = item.get("line_number")
@@ -322,7 +392,7 @@ class ExportManager:
                 continue
             seen.add(key)
             shown.append((source_path, line_number, issue_kind, is_structural))
-            if len(shown) >= 6:
+            if len(shown) >= max_hits:
                 break
 
         for source_path, line_number, issue_kind, is_structural in shown:
@@ -334,6 +404,12 @@ class ExportManager:
                 )
             else:
                 self.studio.log(f"   🔎 {title} [{source_path}] L{line_number}", "warning")
+
+        if len(normalized_entries) > len(shown):
+            self.studio.log(
+                f"… {len(normalized_entries) - len(shown)} weitere mögliche Treffer ausgeblendet (Log-Limit).",
+                "warning",
+            )
 
         primary_path, primary_line, _primary_kind, _primary_structural = shown[0]
         self.studio.log(f"👉 KLICK: [{primary_path}] L{primary_line}", "header")
@@ -409,13 +485,13 @@ class ExportManager:
 
     def _log_render_line(self, stripped_line: str):
         self.studio.log(stripped_line, "info")
+        self._write_active_render_log(stripped_line)
 
         sanitized_line = re.sub(r"\x1b\[[0-9;]*m", "", stripped_line)
 
         if (
             "The following string was found in the document:" in sanitized_line
             and ":::" in sanitized_line
-            and self.has_structural_colon_occurrences()
         ):
             self._log_colon_warning_hint()
 
@@ -591,22 +667,69 @@ class ExportManager:
                 rel = Path(file_key).name
                 self.studio.log(f"   [{label}] in {rel}", "warning")
         
-        self.studio.yaml_engine.save_chapters(
-            processed_tree, 
-            profile_name=self.studio.current_profile_name, 
-            save_gui_state=False,
-            extra_format_options=extra_opts
-        )
-        
         self.studio.log(f"{'='*50}", "dim")
         self.studio.log(f"🖨️  EXPORT PIPELINE: {target_fmt.upper()}", "header")
         self.studio.log(f"{'='*50}", "dim")
+        self._start_render_log(target_fmt, selected_tpl, footnote_mode, enable_footnote_backlinks)
 
         def render_thread():
-            cmd = f"quarto render \"{self.studio.current_book}\" --to {target_fmt}"
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            aborted_on_colon_warning = False
-            for line in p.stdout:
+            self.studio.root.after(
+                0,
+                lambda: self.studio.log(
+                    "🛡️ Render startet über sichere temporäre Kopie (processed + ORDER-kompatibel).",
+                    "dim",
+                ),
+            )
+            return_code, aborted_on_colon_warning = self._run_safe_render(
+                target_fmt,
+                footnote_mode,
+                enable_footnote_backlinks,
+                profile_name=self.studio.current_profile_name,
+                extra_format_options=extra_opts,
+            )
+
+            if aborted_on_colon_warning:
+                self._finalize_render_log("aborted_on_first_colon_warning", primary_returncode=return_code)
+                return
+
+            if return_code == 0:
+                self._finalize_render_log("success", primary_returncode=return_code)
+                self._handle_render_success(target_fmt)
+            else:
+                self._finalize_render_log("failed", primary_returncode=return_code)
+                self.studio.root.after(0, lambda: self.studio.log(f"❌ FEHLER: Code {return_code}", "error"))
+                self.studio.root.after(0, lambda: self.studio.status.config(text="Render fehlgeschlagen", fg="#e74c3c"))
+
+        threading.Thread(target=render_thread, daemon=True).start()
+
+    def _run_safe_render(self, target_fmt, footnote_mode, enable_footnote_backlinks, profile_name=None, extra_format_options=None):
+        safe_script = Path(__file__).resolve().parent / "quarto_render_safe.py"
+        if not safe_script.exists():
+            self.studio.root.after(0, lambda: self.studio.log("❌ Fallback-Skript nicht gefunden: quarto_render_safe.py", "error"))
+            return 2, False
+
+        cmd = [
+            sys.executable,
+            str(safe_script),
+            str(self.studio.current_book),
+            "--to",
+            target_fmt,
+            "--footnote-mode",
+            footnote_mode,
+            "--footnote-backlinks" if enable_footnote_backlinks else "--no-footnote-backlinks",
+        ]
+        if profile_name:
+            cmd.extend(["--profile-name", str(profile_name)])
+        if extra_format_options:
+            cmd.extend([
+                "--extra-format-options-json",
+                json.dumps(extra_format_options, ensure_ascii=False, separators=(",", ":")),
+            ])
+        self._write_active_render_log(f"safe_command={' '.join(str(part) for part in cmd)}")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        aborted_on_colon_warning = False
+        if proc.stdout is not None:
+            for line in proc.stdout:
                 stripped = line.rstrip()
                 if stripped:
                     self.studio.root.after(0, lambda ln=stripped: self._log_render_line(ln))
@@ -617,7 +740,7 @@ class ExportManager:
                     ):
                         aborted_on_colon_warning = True
                         try:
-                            p.terminate()
+                            proc.terminate()
                         except OSError:
                             pass
                         self.studio.root.after(
@@ -632,58 +755,8 @@ class ExportManager:
                             lambda: self.studio.status.config(text="Render abgebrochen (erster :::-Warnhinweis)", fg="#e74c3c"),
                         )
                         break
-            p.wait()
-
-            if aborted_on_colon_warning:
-                self.studio.yaml_engine.save_chapters(original_tree, profile_name=self.studio.current_profile_name, save_gui_state=False)
-                return
-
-            self.studio.yaml_engine.save_chapters(original_tree, profile_name=self.studio.current_profile_name, save_gui_state=False)
-
-            if p.returncode == 0:
-                self._handle_render_success(target_fmt)
-            else:
-                self.studio.root.after(
-                    0,
-                    lambda: self.studio.log(
-                        f"⚠️ Primärer Render fehlgeschlagen (Code {p.returncode}). Starte robusten Fallback über temporäre Kopie...",
-                        "warning",
-                    ),
-                )
-                retry_code = self._run_safe_render_fallback(target_fmt, footnote_mode, enable_footnote_backlinks)
-                if retry_code == 0:
-                    self._handle_render_success(target_fmt)
-                else:
-                    self.studio.root.after(0, lambda: self.studio.log(f"❌ FEHLER: Code {p.returncode}", "error"))
-                    self.studio.root.after(0, lambda: self.studio.log(f"❌ Fallback ebenfalls fehlgeschlagen (Code {retry_code})", "error"))
-                    self.studio.root.after(0, lambda: self.studio.status.config(text="Render fehlgeschlagen", fg="#e74c3c"))
-
-        threading.Thread(target=render_thread, daemon=True).start()
-
-    def _run_safe_render_fallback(self, target_fmt, footnote_mode, enable_footnote_backlinks):
-        safe_script = Path(__file__).resolve().parent / "quarto_render_safe.py"
-        if not safe_script.exists():
-            self.studio.root.after(0, lambda: self.studio.log("❌ Fallback-Skript nicht gefunden: quarto_render_safe.py", "error"))
-            return 2
-
-        cmd = [
-            sys.executable,
-            str(safe_script),
-            str(self.studio.current_book),
-            "--to",
-            target_fmt,
-            "--footnote-mode",
-            footnote_mode,
-            "--footnote-backlinks" if enable_footnote_backlinks else "--no-footnote-backlinks",
-        ]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-        if proc.stdout is not None:
-            for line in proc.stdout:
-                stripped = line.rstrip()
-                if stripped:
-                    self.studio.root.after(0, lambda ln=stripped: self._log_render_line(ln))
         proc.wait()
-        return proc.returncode
+        return proc.returncode, aborted_on_colon_warning
 
     # =========================================================================
     # HILFSFUNKTIONEN (Auto-Open & UI)

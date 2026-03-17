@@ -31,14 +31,14 @@
             "marks_state": "pdf_pagebreak_end"
         }
     ],
-    "window_geometry": "1755x905+1995+31",
+    "window_geometry": "1536x773+0+0",
     "log_font_size": 12,
     "log_auto_clear_default": false,
     "log_max_lines_default": 500,
     "session_state": {
         "active_book_path": "Band_Stoffwechselgesundheit",
         "active_book_name": "Band_Stoffwechselgesundheit",
-        "current_profile_name": null,
+        "current_profile_name": "Required_Test",
         "export_options": {
             "format": "typst",
             "template": "EXT: typstdoc",
@@ -54,14 +54,16 @@
             "log_auto_clear": false,
             "log_max_lines": "500",
             "avail_selected_paths": [],
-            "tree_selected_paths": [],
+            "tree_selected_paths": [
+                "content/required/Widmung.md"
+            ],
             "avail_yview": [
                 0.0,
-                1.0
+                0.12
             ],
             "tree_yview": [
-                0.06306306306306306,
-                0.2072072072072072
+                0.2,
+                1.0
             ]
         }
     }

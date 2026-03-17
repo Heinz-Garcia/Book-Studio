@@ -195,14 +195,14 @@ class QuartoConfigEditor(tk.Toplevel):
         body.pack(fill=tk.X)
 
         self.book_title_var = tk.StringVar(value=self._get_nested("book", "title", default=""))
-        self.book_subtitle_var = tk.StringVar(value=self._get_nested("book", "subtitle", default=""))
+        self.book_subtitle_var = tk.StringVar(value=self._get_root_or_book("subtitle", default=""))
         self.author_var = tk.StringVar(value=self._normalize_author(self._get_nested("author", default="")))
         lang_value = str(self._get_nested("lang", default="de"))
         if lang_value not in self.LANG_OPTIONS:
             lang_value = "de"
         self.lang_var = tk.StringVar(value=lang_value)
-        self.book_description_var = tk.StringVar(value=self._get_nested("book", "description", default=""))
-        self.book_keywords_var = tk.StringVar(value=self._normalize_keywords(self._get_nested("book", "keywords", default=[])))
+        self.book_description_var = tk.StringVar(value=self._get_root_or_book("description", default=""))
+        self.book_keywords_var = tk.StringVar(value=self._normalize_keywords(self._get_root_or_book("keywords", default=[])))
 
         self._add_row(body, "Buchtitel", ttk.Entry(body, textvariable=self.book_title_var, width=50), 0)
         self._add_row(body, "Untertitel", ttk.Entry(body, textvariable=self.book_subtitle_var, width=50), 1)
@@ -223,17 +223,17 @@ class QuartoConfigEditor(tk.Toplevel):
         body = tk.Frame(frame, bg=COLORS["app_bg"], padx=12, pady=10)
         body.pack(fill=tk.X)
 
-        self.publisher_var = tk.StringVar(value=self._get_nested("book", "publisher", default=""))
-        self.imprint_var = tk.StringVar(value=self._get_nested("book", "imprint", default=""))
-        self.isbn_print_var = tk.StringVar(value=self._get_nested("book", "isbn-print", default=""))
-        self.isbn_ebook_var = tk.StringVar(value=self._get_nested("book", "isbn-ebook", default=""))
-        self.edition_var = tk.StringVar(value=str(self._get_nested("book", "edition", default="1")))
-        self.rights_holder_var = tk.StringVar(value=self._get_nested("book", "rights-holder", default=""))
-        rights_license = str(self._get_nested("book", "rights-license", default="all-rights-reserved"))
+        self.publisher_var = tk.StringVar(value=self._get_root_or_book("publisher", default=""))
+        self.imprint_var = tk.StringVar(value=self._get_root_or_book("imprint", default=""))
+        self.isbn_print_var = tk.StringVar(value=self._get_root_or_book("isbn-print", default=""))
+        self.isbn_ebook_var = tk.StringVar(value=self._get_root_or_book("isbn-ebook", default=""))
+        self.edition_var = tk.StringVar(value=str(self._get_root_or_book("edition", default="1")))
+        self.rights_holder_var = tk.StringVar(value=self._get_root_or_book("rights-holder", default=""))
+        rights_license = str(self._get_root_or_book("rights-license", default="all-rights-reserved"))
         if rights_license not in self.RIGHTS_LICENSE_OPTIONS:
             rights_license = "all-rights-reserved"
         self.rights_license_var = tk.StringVar(value=rights_license)
-        frontmatter_profile = str(self._get_nested("book", "frontmatter-profile", default="standard"))
+        frontmatter_profile = str(self._get_root_or_book("frontmatter-profile", default="standard"))
         if frontmatter_profile not in self.FRONTMATTER_PROFILE_OPTIONS:
             frontmatter_profile = "standard"
         self.frontmatter_profile_var = tk.StringVar(value=frontmatter_profile)
@@ -438,6 +438,11 @@ class QuartoConfigEditor(tk.Toplevel):
                 return default
             cur = cur[key]
         return cur
+
+    def _get_root_or_book(self, key, default=None):
+        if isinstance(self.config_data, dict) and key in self.config_data:
+            return self.config_data[key]
+        return self._get_nested("book", key, default=default)
 
     def _set_nested(self, target, keys, value):
         cur = target
@@ -764,20 +769,35 @@ class QuartoConfigEditor(tk.Toplevel):
         self._set_nested(updated, ("project", "type"), project_type)
         self._set_nested(updated, ("project", "output-dir"), output_dir)
         self._set_nested(updated, ("book", "title"), title)
-        self._set_nested(updated, ("book", "subtitle"), subtitle)
-        self._set_nested(updated, ("book", "description"), description)
-        self._set_nested(updated, ("book", "keywords"), keywords)
+        self._set_nested(updated, ("subtitle",), subtitle)
+        self._set_nested(updated, ("description",), description)
+        self._set_nested(updated, ("keywords",), keywords)
         self._set_nested(updated, ("author",), author)
         self._set_nested(updated, ("lang",), lang)
 
-        self._set_nested(updated, ("book", "publisher"), publisher)
-        self._set_nested(updated, ("book", "imprint"), imprint)
-        self._set_nested(updated, ("book", "isbn-print"), isbn_print)
-        self._set_nested(updated, ("book", "isbn-ebook"), isbn_ebook)
-        self._set_nested(updated, ("book", "edition"), edition)
-        self._set_nested(updated, ("book", "rights-holder"), rights_holder)
-        self._set_nested(updated, ("book", "rights-license"), rights_license)
-        self._set_nested(updated, ("book", "frontmatter-profile"), frontmatter_profile)
+        self._set_nested(updated, ("publisher",), publisher)
+        self._set_nested(updated, ("imprint",), imprint)
+        self._set_nested(updated, ("isbn-print",), isbn_print)
+        self._set_nested(updated, ("isbn-ebook",), isbn_ebook)
+        self._set_nested(updated, ("edition",), edition)
+        self._set_nested(updated, ("rights-holder",), rights_holder)
+        self._set_nested(updated, ("rights-license",), rights_license)
+        self._set_nested(updated, ("frontmatter-profile",), frontmatter_profile)
+
+        for legacy_key in (
+            "subtitle",
+            "description",
+            "keywords",
+            "publisher",
+            "imprint",
+            "isbn-print",
+            "isbn-ebook",
+            "edition",
+            "rights-holder",
+            "rights-license",
+            "frontmatter-profile",
+        ):
+            self._remove_nested(updated, ("book", legacy_key))
 
         self._set_nested(updated, ("format", "typst", "keep-typ"), bool(self.typst_keep_typ_var.get()))
         self._set_nested(updated, ("format", "typst", "toc"), bool(self.typst_toc_var.get()))

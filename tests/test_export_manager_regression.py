@@ -409,7 +409,7 @@ def test_log_render_line_emits_missing_label_hints_for_backtick_format(tmp_path:
     assert any("[content/chapter.md] L42" in message for message, _level in studio.logged)
 
 
-def test_log_render_line_does_not_emit_source_hint_for_raw_valid_colon_warning(tmp_path: Path) -> None:
+def test_log_render_line_emits_source_hint_for_raw_valid_colon_warning(tmp_path: Path) -> None:
     book = tmp_path / "book"
 
     class Studio:
@@ -431,8 +431,8 @@ def test_log_render_line_does_not_emit_source_hint_for_raw_valid_colon_warning(t
 
     manager._log_render_line("The following string was found in the document: :::")
 
-    assert not any("Früher Treffer für ':::'" in message for message, _level in studio.logged)
-    assert not any("👉 KLICK: [content/chapter.md] L23" in message for message, _level in studio.logged)
+    assert any("Früher Treffer für ':::': keine strukturellen Defekte erkannt" in message for message, _level in studio.logged)
+    assert any("👉 KLICK: [content/chapter.md] L23" in message for message, _level in studio.logged)
 
 
 def test_log_render_line_emits_source_hint_for_structural_colon_warning(tmp_path: Path) -> None:
@@ -501,3 +501,98 @@ def test_is_raw_colon_warning_line_detects_quarto_warning_line() -> None:
 
     assert manager.is_raw_colon_warning_line("The following string was found in the document: :::") is True
     assert manager.is_raw_colon_warning_line("INFO: something else") is False
+
+
+def test_run_quarto_render_writes_detailed_render_log_file(tmp_path: Path, monkeypatch) -> None:
+    book = tmp_path / "book"
+    (book / "export").mkdir(parents=True, exist_ok=True)
+
+    class Root:
+        def after(self, _delay, callback):
+            callback()
+
+    class Status:
+        def __init__(self):
+            self.last = None
+
+        def config(self, **kwargs):
+            self.last = kwargs
+
+    class YamlEngine:
+        def save_chapters(self, *_args, **_kwargs):
+            return None
+
+    class Studio:
+        def __init__(self):
+            self.current_book = book
+            self.root = Root()
+            self.available_templates = ["Standard"]
+            self.last_export_options = {}
+            self.status = Status()
+            self.logged = []
+            self.current_profile_name = "default"
+            self.yaml_engine = YamlEngine()
+            self.title_registry = {}
+
+        def run_doctor_preflight(self, _context_label, emit_success_log=False):
+            return True, {"error_count": 0, "emit_success_log": emit_success_log}
+
+        def persist_app_state(self):
+            return None
+
+        def save_project(self, **_kwargs):
+            return True
+
+        def get_tree_data_for_engine(self):
+            return []
+
+        def log(self, message, level="info"):
+            self.logged.append((message, level))
+
+    class FakePreProcessor:
+        def __init__(self, *_args, **_kwargs):
+            self.harvester = type("Harvester", (), {"orphan_warnings": []})()
+
+        def prepare_render_environment(self, tree):
+            return tree
+
+    class FakePopen:
+        def __init__(self, *_args, **_kwargs):
+            self.stdout = ["quarto: render started\n", "quarto: render done\n"]
+            self.returncode = 0
+
+        def wait(self):
+            return self.returncode
+
+    class ImmediateThread:
+        def __init__(self, target, daemon=False):
+            self.target = target
+            self.daemon = daemon
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(export_manager.ExportDialog, "ask", staticmethod(lambda *_args, **_kwargs: {
+        "format": "typst",
+        "footnote_mode": "endnotes",
+        "template": "Standard",
+    }))
+    monkeypatch.setattr(export_manager, "PreProcessor", FakePreProcessor)
+    monkeypatch.setattr(export_manager.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(export_manager.threading, "Thread", ImmediateThread)
+
+    studio = Studio()
+    manager = ExportManager(studio)
+
+    manager.run_quarto_render()
+
+    log_dir = book / "export" / "render_logs"
+    log_files = list(log_dir.glob("render_*.log"))
+    assert len(log_files) == 1
+    content = log_files[0].read_text(encoding="utf-8")
+    assert "=== Quarto Book Studio Render Log ===" in content
+    assert "safe_command=" in content
+    assert "quarto: render started" in content
+    assert "quarto: render done" in content
+    assert "status=success" in content
+    assert "primary_returncode=0" in content
