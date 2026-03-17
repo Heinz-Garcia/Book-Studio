@@ -12,6 +12,32 @@ class UiActionsManager:
             "style": "Soft.TButton",
         }
 
+    def _root(self):
+        return getattr(self.studio, "root", None)
+
+    def _get_attr(self, name, default=None):
+        return getattr(self.studio, name, default)
+
+    def _set_attr(self, name, value):
+        setattr(self.studio, name, value)
+        return value
+
+    def _host_method(self, name):
+        method = getattr(self.studio, name, None)
+        return method if callable(method) else None
+
+    def _call_host(self, name, *args, **kwargs):
+        method = self._host_method(name)
+        if method is None:
+            return None
+        return method(*args, **kwargs)
+
+    def _register_widget(self, register_method_name, attr_name, widget):
+        register = self._host_method(register_method_name)
+        if register is not None:
+            return register(widget)
+        return self._set_attr(attr_name, widget)
+
     def build_middle_panel(self, parent):
         middle_frame = tk.Frame(parent, bg=COLORS["app_bg"], width=196)
         middle_frame.pack_propagate(False)
@@ -26,19 +52,23 @@ class UiActionsManager:
 
         tk.Label(footer, text="Aktionen über Menü: Datei / Export / Tools", bg=COLORS["panel_dark"], fg=COLORS["text_soft"], font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=20)
 
-        self.studio.status = tk.Label(footer, text="Bereit.", bg=COLORS["panel_dark"], fg="#cbd5e1", font=("Consolas", 9))
-        self.studio.status.pack(side=tk.RIGHT, padx=20)
+        status = self._register_widget(
+            "register_status_widget",
+            "status",
+            tk.Label(footer, text="Bereit.", bg=COLORS["panel_dark"], fg="#cbd5e1", font=("Consolas", 9)),
+        )
+        status.pack(side=tk.RIGHT, padx=20)
         return footer
 
     def _add_middle_buttons(self, middle_frame):
         button_specs = [
-            {"text": "Hinzufügen ➡️", "style": "Accent.TButton", "command": self.studio.add_files, "pack": {"pady": (36, 6)}},
-            {"text": "⬅️ Entfernen", "style": "Soft.TButton", "command": self.studio.remove_files, "pack": {}},
+            {"text": "Hinzufügen ➡️", "style": "Accent.TButton", "command": self._host_method("add_files"), "pack": {"pady": (36, 6)}},
+            {"text": "⬅️ Entfernen", "style": "Soft.TButton", "command": self._host_method("remove_files"), "pack": {}},
             {"separator": True, "options": {"height": 20, "bg": COLORS["app_bg"]}},
-            {"text": "⬆️ Hoch", "command": self.studio.move_up, "pack": {"pady": 2}},
-            {"text": "⬇️ Runter", "command": self.studio.move_down, "pack": {"pady": 2}},
-            {"text": "➡️ Einrücken", "command": self.studio.indent_item, "pack": {"pady": (10, 2)}},
-            {"text": "⬅️ Ausrücken", "command": self.studio.outdent_item, "pack": {"pady": 2}},
+            {"text": "⬆️ Hoch", "command": self._host_method("move_up"), "pack": {"pady": 2}},
+            {"text": "⬇️ Runter", "command": self._host_method("move_down"), "pack": {"pady": 2}},
+            {"text": "➡️ Einrücken", "command": self._host_method("indent_item"), "pack": {"pady": (10, 2)}},
+            {"text": "⬅️ Ausrücken", "command": self._host_method("outdent_item"), "pack": {"pady": 2}},
             {"separator": True, "ttk": True},
         ]
 
@@ -57,14 +87,14 @@ class UiActionsManager:
         ttk.Button(
             undo_redo_row,
             text="↩ Undo",
-            command=self.studio.undo,
+            command=self._host_method("undo"),
             style="Tool.TButton",
             width=8,
         ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
         ttk.Button(
             undo_redo_row,
             text="↪ Redo",
-            command=self.studio.redo,
+            command=self._host_method("redo"),
             style="Tool.TButton",
             width=8,
         ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(3, 0))
@@ -158,8 +188,8 @@ class UiActionsManager:
 
         filter_box = ttk.Combobox(
             filter_group,
-            textvariable=self.studio.log_filter_var,
-            values=self.studio.log_filter_labels,
+            textvariable=self._call_host("get_log_filter_var") or self._get_attr("log_filter_var"),
+            values=self._call_host("get_log_filter_labels") or self._get_attr("log_filter_labels", []),
             state="readonly",
             width=9,
                 style="Log.TCombobox",
@@ -180,7 +210,7 @@ class UiActionsManager:
 
         max_lines_box = ttk.Combobox(
             filter_group,
-            textvariable=self.studio.log_max_lines_var,
+            textvariable=self._call_host("get_log_max_lines_var") or self._get_attr("log_max_lines_var"),
             values=["200", "500", "1000", "2000"],
             state="readonly",
             width=6,
@@ -203,7 +233,7 @@ class UiActionsManager:
         auto_clear_toggle = ttk.Checkbutton(
             filter_group,
             text="Auto-Clear",
-            variable=self.studio.log_auto_clear_var,
+            variable=self._call_host("get_log_auto_clear_var") or self._get_attr("log_auto_clear_var"),
             command=self._on_log_preferences_changed,
             style="LogSwitch.TCheckbutton",
         )
@@ -228,20 +258,21 @@ class UiActionsManager:
         tk.Frame(outer, bg="#ffffff", height=2).pack(fill=tk.X, side=tk.BOTTOM)
 
         # Text-Widget
-        self.studio.log_output = ScrolledText(
+        log_output = self._register_widget("register_log_output_widget", "log_output", ScrolledText(
             outer,
             state="disabled", wrap=tk.WORD,
-        )
-        style_code_text(self.studio.log_output)
-        log_font_size = self.studio.get_log_font_size() if hasattr(self.studio, "get_log_font_size") else 9
-        self.studio.log_output.configure(font=("Consolas", log_font_size), padx=8, pady=6, state="disabled")
-        self.studio.log_output.pack(fill=tk.BOTH, expand=True)
-        self.studio.log_output.bind("<Button-3>", self._show_log_menu)
-        self.studio.log_output.bind("<Double-1>", self._on_log_double_click)
-        self.studio.log_output.bind("<Button-1>", self._on_log_click, add="+")
+        ))
+        style_code_text(log_output)
+        get_log_font_size = self._host_method("get_log_font_size")
+        log_font_size = get_log_font_size() if callable(get_log_font_size) else 9
+        log_output.configure(font=("Consolas", log_font_size), padx=8, pady=6, state="disabled")
+        log_output.pack(fill=tk.BOTH, expand=True)
+        log_output.bind("<Button-3>", self._show_log_menu)
+        log_output.bind("<Double-1>", self._on_log_double_click)
+        log_output.bind("<Button-1>", self._on_log_click, add="+")
 
         # Farb-Tags definieren
-        w = self.studio.log_output
+        w = log_output
         w.tag_configure("info",    foreground="#c9d1d9")
         w.tag_configure("success", foreground="#3fb950")
         w.tag_configure("error",   foreground="#f85149")
@@ -249,12 +280,12 @@ class UiActionsManager:
         w.tag_configure("header",  foreground="#58a6ff")
         w.tag_configure("dim",     foreground="#484f58")
 
-        self.studio.log_menu = tk.Menu(self.studio.root, tearoff=0)
-        apply_menu_theme(self.studio.log_menu)
-        self.studio.log_menu.add_command(label="Kopieren", command=self._copy_log)
-        self.studio.log_menu.add_command(label="Alles kopieren", command=lambda: self._copy_log(copy_all=True))
-        self.studio.log_menu.add_separator()
-        self.studio.log_menu.add_command(label="Leeren", command=self._clear_log)
+        log_menu = self._register_widget("register_log_menu_widget", "log_menu", tk.Menu(self._root(), tearoff=0))
+        apply_menu_theme(log_menu)
+        log_menu.add_command(label="Kopieren", command=self._copy_log)
+        log_menu.add_command(label="Alles kopieren", command=lambda: self._copy_log(copy_all=True))
+        log_menu.add_separator()
+        log_menu.add_command(label="Leeren", command=self._clear_log)
 
         return outer
 
@@ -307,26 +338,25 @@ class UiActionsManager:
         return tk.Frame(parent, bg=COLORS["log_chip_border"], width=1)
 
     def _on_log_preferences_changed(self, _event=None):
-        self.studio.on_log_preferences_changed()
+        self._call_host("on_log_preferences_changed")
 
     def _clear_log(self):
-        self.studio.clear_log()
+        self._call_host("clear_log")
 
     def _copy_log(self, copy_all=False):
-        self.studio.copy_log_to_clipboard(copy_all=copy_all)
+        self._call_host("copy_log_to_clipboard", copy_all=copy_all)
 
     def _show_log_menu(self, event):
+        log_menu = self._get_attr("log_menu")
+        if log_menu is None:
+            return None
         try:
-            self.studio.log_menu.tk_popup(event.x_root, event.y_root)
+            log_menu.tk_popup(event.x_root, event.y_root)
         finally:
-            self.studio.log_menu.grab_release()
+            log_menu.grab_release()
 
     def _on_log_double_click(self, event):
-        if hasattr(self.studio, "on_log_double_click"):
-            return self.studio.on_log_double_click(event)
-        return None
+        return self._call_host("on_log_double_click", event)
 
     def _on_log_click(self, event):
-        if hasattr(self.studio, "on_log_click"):
-            return self.studio.on_log_click(event)
-        return None
+        return self._call_host("on_log_click", event)

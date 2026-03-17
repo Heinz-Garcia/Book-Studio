@@ -22,25 +22,53 @@ class FootnoteHarvester:
         self._ref_anchors = {} # new_id -> [back-link-anchor, ...] für Typst-Rücksprünge
         # -------------------------------------------
 
+    def _parse_definition_start(self, line):
+        """Erkennt den Start einer Fußnoten-Definition mit optional leichter Einrückung."""
+        return re.match(r'^\s{0,3}\[\^([^\]]+)\]:\s?(.*)$', line)
+
     def extract_definitions(self, text, file_key=""):
         """PASS 1: Findet alle Fußnoten-Definitionen, speichert sie datei-scoped und entfernt sie aus dem Text.
         
         file_key: eindeutiger Bezeichner der Quelldatei (z.B. Pfad als String).
         So können [^1] in Datei A und [^1] in Datei B als verschiedene Fußnoten behandelt werden.
         """
-        # Definitionen müssen am Zeilenanfang stehen ([^Label]:).
-        # \Z statt $ verhindert, dass die letzte Definition Body-Text nach sich "auffrißt".
-        pattern = re.compile(r'^\[\^([^\]]+)\]:\s*(.*?)(?=^\[\^[^\]]+\]:|\Z)', re.DOTALL | re.MULTILINE)
-        
-        # 1. Alle Treffer ins Lexikon aufnehmen — Key ist (file_key, label)
-        for match in pattern.finditer(text):
-            note_id = match.group(1)
-            note_content = match.group(2).strip()
-            self.definitions[(file_key, note_id)] = note_content
-            
-        # 2. Die gefundenen Definitionen komplett aus dem Fließtext löschen
-        clean_text = pattern.sub('', text)
-        
+        lines = text.splitlines(keepends=True)
+        clean_parts = []
+        active_label = None
+        active_content_parts = []
+
+        def flush_active_definition():
+            nonlocal active_label, active_content_parts
+            if active_label is None:
+                return
+            note_content = "".join(active_content_parts).strip()
+            self.definitions[(file_key, active_label)] = note_content
+            active_label = None
+            active_content_parts = []
+
+        for line in lines:
+            start_match = self._parse_definition_start(line)
+            if start_match:
+                flush_active_definition()
+                active_label = start_match.group(1)
+                first_content = start_match.group(2)
+                active_content_parts.append(first_content)
+                if line.endswith("\n"):
+                    active_content_parts.append("\n")
+                continue
+
+            if active_label is not None:
+                # Pandoc-kompatibel: Fortsetzungszeilen sind eingerückt oder leer.
+                if line.strip() == "" or line.startswith((" ", "\t")):
+                    active_content_parts.append(line)
+                    continue
+
+                flush_active_definition()
+
+            clean_parts.append(line)
+
+        flush_active_definition()
+        clean_text = "".join(clean_parts)
         return clean_text.strip()
 
     def replace_markers(self, text, file_key=""):

@@ -114,7 +114,12 @@ class QuartoConfigEditor(tk.Toplevel):
             with self.yaml_path.open("r", encoding="utf-8") as handle:
                 loaded = yaml.safe_load(handle) or {}
             return loaded if isinstance(loaded, dict) else {}
-        except (OSError, yaml.YAMLError, ValueError, TypeError):
+        except (OSError, yaml.YAMLError, ValueError, TypeError) as exc:
+            messagebox.showerror(
+                "Fehler beim Laden von _quarto.yml",
+                f"Die Datei konnte nicht gelesen oder geparst werden:\n{self.yaml_path}\n\nGrund:\n{exc}",
+                parent=self,
+            )
             return {}
 
     def _build_ui(self):

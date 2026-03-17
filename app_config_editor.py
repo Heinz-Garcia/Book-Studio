@@ -21,6 +21,9 @@ class AppConfigEditor(tk.Toplevel):
         "default_footnote_mode": "endnotes",
         "log_auto_clear_default": False,
         "log_max_lines_default": 500,
+        "prep_sources": [],
+        "prep_dest_folder": "",
+        "indexer_target_folder": "",
     }
 
     def __init__(self, parent, config_path, on_save=None, templates=None):
@@ -52,6 +55,9 @@ class AppConfigEditor(tk.Toplevel):
         self.default_footnote_mode_var = tk.StringVar(value=self._sanitize_footnote_mode(self.config_data.get("default_footnote_mode", self.DEFAULTS["default_footnote_mode"])))
         self.log_auto_clear_default_var = tk.BooleanVar(value=bool(self.config_data.get("log_auto_clear_default", self.DEFAULTS["log_auto_clear_default"])))
         self.log_max_lines_default_var = tk.StringVar(value=str(self._sanitize_log_max_lines(self.config_data.get("log_max_lines_default", self.DEFAULTS["log_max_lines_default"]))))
+        self.prep_sources_var = tk.StringVar(value=self._serialize_sources(self.config_data.get("prep_sources", self.DEFAULTS["prep_sources"])))
+        self.prep_dest_folder_var = tk.StringVar(value=str(self.config_data.get("prep_dest_folder", self.DEFAULTS["prep_dest_folder"])))
+        self.indexer_target_folder_var = tk.StringVar(value=str(self.config_data.get("indexer_target_folder", self.DEFAULTS["indexer_target_folder"])))
         self._initial_values = {
             "content_root_path": self.content_root_var.get(),
             "log_font_size": self.log_font_size_var.get(),
@@ -63,6 +69,9 @@ class AppConfigEditor(tk.Toplevel):
             "default_footnote_mode": self.default_footnote_mode_var.get(),
             "log_auto_clear_default": self.log_auto_clear_default_var.get(),
             "log_max_lines_default": self.log_max_lines_default_var.get(),
+            "prep_sources": self.prep_sources_var.get(),
+            "prep_dest_folder": self.prep_dest_folder_var.get(),
+            "indexer_target_folder": self.indexer_target_folder_var.get(),
         }
 
         self.content_root_var.trace_add("write", self._on_field_changed)
@@ -75,6 +84,9 @@ class AppConfigEditor(tk.Toplevel):
         self.default_footnote_mode_var.trace_add("write", self._on_field_changed)
         self.log_auto_clear_default_var.trace_add("write", self._on_field_changed)
         self.log_max_lines_default_var.trace_add("write", self._on_field_changed)
+        self.prep_sources_var.trace_add("write", self._on_field_changed)
+        self.prep_dest_folder_var.trace_add("write", self._on_field_changed)
+        self.indexer_target_folder_var.trace_add("write", self._on_field_changed)
 
         center_on_parent(self, parent, 840, 520)
         self._build_ui()
@@ -111,6 +123,17 @@ class AppConfigEditor(tk.Toplevel):
         except (TypeError, ValueError):
             amount = 500
         return max(50, min(50000, amount))
+
+    def _serialize_sources(self, value):
+        if isinstance(value, list):
+            parts = [str(item).strip() for item in value if str(item).strip()]
+            return "; ".join(parts)
+        if isinstance(value, str):
+            return value.strip()
+        return ""
+
+    def _parse_sources(self, value):
+        return [item.strip() for item in str(value or "").split(";") if item.strip()]
 
     def _build_ui(self):
         style_dialog(self)
@@ -232,14 +255,27 @@ class AppConfigEditor(tk.Toplevel):
             width=10,
         ).grid(row=13, column=1, sticky="w", pady=6)
 
+        ttk.Separator(wrapper, orient="horizontal").grid(row=14, column=0, columnspan=3, sticky="we", pady=(8, 8))
+        ttk.Label(wrapper, text="Tools: Merge-Quellpfade (; getrennt):").grid(row=15, column=0, sticky="w", pady=6)
+        ttk.Entry(wrapper, textvariable=self.prep_sources_var, width=58).grid(row=15, column=1, sticky="we", pady=6)
+        ttk.Button(wrapper, text="Ordner +", style="Tool.TButton", command=self._add_prep_source_folder).grid(row=15, column=2, sticky="e", padx=(8, 0), pady=6)
+
+        ttk.Label(wrapper, text="Tools: Merge-Zielordner:").grid(row=16, column=0, sticky="w", pady=6)
+        ttk.Entry(wrapper, textvariable=self.prep_dest_folder_var, width=58).grid(row=16, column=1, sticky="we", pady=6)
+        ttk.Button(wrapper, text="Ordner...", style="Tool.TButton", command=self._browse_prep_dest_folder).grid(row=16, column=2, sticky="e", padx=(8, 0), pady=6)
+
+        ttk.Label(wrapper, text="Tools: Indexer-Zielordner:").grid(row=17, column=0, sticky="w", pady=6)
+        ttk.Entry(wrapper, textvariable=self.indexer_target_folder_var, width=58).grid(row=17, column=1, sticky="we", pady=6)
+        ttk.Button(wrapper, text="Ordner...", style="Tool.TButton", command=self._browse_indexer_target_folder).grid(row=17, column=2, sticky="e", padx=(8, 0), pady=6)
+
         hint = (
             "Relative Pfade gelten relativ zum Book-Studio-Codeordner. "
             "Nach dem Speichern wird die Projektliste neu geladen."
         )
-        ttk.Label(wrapper, text=hint, font=("Segoe UI", 8)).grid(row=14, column=0, columnspan=3, sticky="w", pady=(6, 10))
+        ttk.Label(wrapper, text=hint, font=("Segoe UI", 8)).grid(row=18, column=0, columnspan=3, sticky="w", pady=(6, 10))
 
         button_row = ttk.Frame(wrapper)
-        button_row.grid(row=15, column=0, columnspan=3, sticky="e", pady=(2, 0))
+        button_row.grid(row=19, column=0, columnspan=3, sticky="e", pady=(2, 0))
         ttk.Button(button_row, text="Abbrechen", style="Tool.TButton", command=self._cancel).pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Button(button_row, text="Speichern", style="Accent.TButton", command=self._save).pack(side=tk.RIGHT)
         ttk.Button(button_row, text="Auf Standard zurücksetzen", style="Tool.TButton", command=self._reset_defaults).pack(side=tk.RIGHT, padx=(0, 8))
@@ -253,6 +289,25 @@ class AppConfigEditor(tk.Toplevel):
         if selected:
             self.content_root_var.set(selected)
 
+    def _add_prep_source_folder(self):
+        selected = filedialog.askdirectory(parent=self, title="Merge-Quellordner hinzufügen")
+        if not selected:
+            return
+        current = self._parse_sources(self.prep_sources_var.get())
+        if selected not in current:
+            current.append(selected)
+        self.prep_sources_var.set("; ".join(current))
+
+    def _browse_prep_dest_folder(self):
+        selected = filedialog.askdirectory(parent=self, title="Merge-Zielordner auswählen")
+        if selected:
+            self.prep_dest_folder_var.set(selected)
+
+    def _browse_indexer_target_folder(self):
+        selected = filedialog.askdirectory(parent=self, title="Indexer-Zielordner auswählen")
+        if selected:
+            self.indexer_target_folder_var.set(selected)
+
     def _collect_values(self):
         return {
             "content_root_path": self.content_root_var.get().strip() or ".",
@@ -265,6 +320,9 @@ class AppConfigEditor(tk.Toplevel):
             "default_footnote_mode": self.default_footnote_mode_var.get().strip().lower(),
             "log_auto_clear_default": bool(self.log_auto_clear_default_var.get()),
             "log_max_lines_default": self.log_max_lines_default_var.get().strip() or "500",
+            "prep_sources": self._parse_sources(self.prep_sources_var.get()),
+            "prep_dest_folder": self.prep_dest_folder_var.get().strip(),
+            "indexer_target_folder": self.indexer_target_folder_var.get().strip(),
         }
 
     def _on_field_changed(self, *_args):
@@ -293,6 +351,9 @@ class AppConfigEditor(tk.Toplevel):
         self.default_footnote_mode_var.set(self.DEFAULTS["default_footnote_mode"])
         self.log_auto_clear_default_var.set(self.DEFAULTS["log_auto_clear_default"])
         self.log_max_lines_default_var.set(str(self.DEFAULTS["log_max_lines_default"]))
+        self.prep_sources_var.set(self._serialize_sources(self.DEFAULTS["prep_sources"]))
+        self.prep_dest_folder_var.set(self.DEFAULTS["prep_dest_folder"])
+        self.indexer_target_folder_var.set(self.DEFAULTS["indexer_target_folder"])
 
     def _save(self):
         values = self._collect_values()
@@ -320,6 +381,30 @@ class AppConfigEditor(tk.Toplevel):
         footnote_mode = self._sanitize_footnote_mode(values["default_footnote_mode"])
         log_max_lines_default = self._sanitize_log_max_lines(values["log_max_lines_default"])
 
+        for key, title in (
+            ("prep_dest_folder", "Merge-Zielordner"),
+            ("indexer_target_folder", "Indexer-Zielordner"),
+        ):
+            raw_value = str(values.get(key, "")).strip()
+            if not raw_value:
+                continue
+            resolved_path = Path(raw_value).expanduser()
+            if not resolved_path.is_absolute():
+                resolved_path = self.config_path.parent / resolved_path
+            resolved_path = resolved_path.resolve()
+            if not resolved_path.exists() or not resolved_path.is_dir():
+                messagebox.showerror("Ungültiger Pfad", f"{title} ist kein existierender Ordner:\n{resolved_path}")
+                return
+
+        for source in values["prep_sources"]:
+            source_path = Path(source).expanduser()
+            if not source_path.is_absolute():
+                source_path = self.config_path.parent / source_path
+            source_path = source_path.resolve()
+            if not source_path.exists() or not source_path.is_dir():
+                messagebox.showerror("Ungültiger Pfad", f"Merge-Quellordner existiert nicht:\n{source_path}")
+                return
+
         payload = {
             "content_root_path": values["content_root_path"],
             "log_font_size": font_size,
@@ -331,6 +416,9 @@ class AppConfigEditor(tk.Toplevel):
             "default_footnote_mode": footnote_mode,
             "log_auto_clear_default": values["log_auto_clear_default"],
             "log_max_lines_default": log_max_lines_default,
+            "prep_sources": values["prep_sources"],
+            "prep_dest_folder": values["prep_dest_folder"],
+            "indexer_target_folder": values["indexer_target_folder"],
         }
         if callable(self.on_save):
             self.on_save(payload)

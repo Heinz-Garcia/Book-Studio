@@ -1,34 +1,41 @@
-import os
-import shutil
+import argparse
 import csv
-import re
+import json
 import logging
-from datetime import datetime
+import os
+import re
+import shutil
+from pathlib import Path
 
-# --- KONFIGURATION ---
-# Trage hier deine tatsächlichen Pfade ein
-sources = [
-    r'C:\Users\Daniel\Documents\Python\IFJN\Baende\Stoffwechselgesundheit\Ich_frage_nur_(src)_(PANDOC_clean.01.03)\src', 
-    r'C:\Users\Daniel\Documents\Python\IFJN\Baende\Stoffwechselgesundheit\Ich_frage_nur_(src)\src', 
-    r'C:\Users\Daniel\Documents\Python\IFJN\Baende\Stoffwechselgesundheit\Ich_frage_nur_(src.bk2)'
-]
-dest_folder = r'C:\Users\Daniel\Documents\Python\IFJN\_tmp_Diabetes_Generat'
 
-# Dateien, die im Zielordner generiert werden
-mapping_csv = os.path.join(dest_folder, 'buch_struktur_mapping.csv')
-log_file = os.path.join(dest_folder, 'migration.log')
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
 
-# Zielordner erstellen, falls nicht vorhanden
-os.makedirs(dest_folder, exist_ok=True)
 
-# --- LOGGING SETUP ---
-# Erstellt ein detailliertes Logbuch mit Zeitstempeln
-logging.basicConfig(
-    filename=log_file, 
-    level=logging.INFO, 
-    format='%(asctime)s | %(levelname)s | %(message)s',
-    encoding='utf-8'
-)
+def _resolve_path(value: str, base: Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = (base / path).resolve()
+    return path
+
+
+def _load_config(config_path: Path) -> dict:
+    if not config_path.exists():
+        return {}
+    try:
+        with config_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Sammelt Markdown-Dateien aus konfigurierten Quellordnern.")
+    parser.add_argument("--config", default="studio_config.json", help="Pfad zur Konfigurationsdatei (Default: studio_config.json)")
+    parser.add_argument("--sources", nargs="*", help="Optionale Quellordner-Overrides")
+    parser.add_argument("--dest", help="Optionaler Zielordner-Override")
+    return parser.parse_args()
 
 def get_frontmatter_title(filepath):
     """Extrahiert den Titel aus dem YAML-Frontmatter."""
@@ -37,66 +44,97 @@ def get_frontmatter_title(filepath):
             content = f.read(2000) 
             match = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', content, re.MULTILINE)
             return match.group(1).strip() if match else "Kein Titel gefunden"
-    except Exception as e:
-        logging.error(f"Fehler beim Lesen von {filepath}: {e}")
+    except OSError as e:
+        logging.error("Fehler beim Lesen von %s: %s", filepath, e)
         return "Lese-Fehler"
 
-data_rows = []
 
-print("🚀 Starte Prozess. Details werden in die Log-Datei geschrieben...")
-logging.info("=== NEUER MERGE-LAUF GESTARTET ===")
+def main() -> int:
+    args = _parse_args()
+    project_root = _project_root()
+    config_path = _resolve_path(args.config, project_root)
+    config = _load_config(config_path)
 
-for src in sources:
-    if not os.path.exists(src):
-        logging.warning(f"Quellordner nicht gefunden und uebersprungen: {src}")
-        continue
-        
-    logging.info(f"Starte rekursive Durchsuchung von: {src}")
-    
-    # os.walk iteriert rekursiv durch alle Verzeichnisse und Unterverzeichnisse
-    for root, dirs, files in os.walk(src):
-        for file in files:
-            if file.endswith('.md'):
-                old_path = os.path.join(root, file)
-                title = get_frontmatter_title(old_path)
-                
-                # Duplikat-Check und neuer Dateiname
-                base_name, ext = os.path.splitext(file)
-                target_name = file
-                target_path = os.path.join(dest_folder, target_name)
-                counter = 1
-                
-                while os.path.exists(target_path):
-                    target_name = f"{base_name}_{counter}{ext}"
-                    target_path = os.path.join(dest_folder, target_name)
-                    counter += 1
-                
-                if target_name != file:
-                    logging.info(f"Namenskonflikt gelöst: '{file}' umbenannt in '{target_name}'")
-                
-                # Kopieren
-                try:
-                    shutil.copy2(old_path, target_path)
-                    logging.info(f"Kopiert: {old_path} -> {target_path}")
-                except Exception as e:
-                    logging.error(f"Fehler beim Kopieren von {old_path}: {e}")
-                    continue
-                
-                # Mapping für die CSV speichern
-                data_rows.append({
-                    'DATEINAME_ZIEL': target_name,
-                    'TITEL_FRONTMATTER': title,
-                    'PFAD_QUELLE': old_path
-                })
+    configured_sources = args.sources if args.sources else config.get("prep_sources", [])
+    configured_dest = args.dest if args.dest else config.get("prep_dest_folder", "")
 
-# --- CSV SCHREIBEN ---
-logging.info("Erstelle Mapping-CSV...")
-with open(mapping_csv, 'w', newline='', encoding='utf-8') as f:
-    writer = csv.DictWriter(f, fieldnames=['DATEINAME_ZIEL', 'TITEL_FRONTMATTER', 'PFAD_QUELLE'], delimiter=';')
-    writer.writeheader()
-    writer.writerows(data_rows)
+    if not configured_sources:
+        print("❌ Keine Merge-Quellpfade konfiguriert. Bitte in Studio-Konfiguration 'prep_sources' setzen.")
+        return 2
+    if not configured_dest:
+        print("❌ Kein Merge-Zielordner konfiguriert. Bitte in Studio-Konfiguration 'prep_dest_folder' setzen.")
+        return 2
 
-logging.info(f"=== LAUF BEENDET. {len(data_rows)} Dateien verarbeitet. ===")
+    sources = [_resolve_path(str(src), project_root) for src in configured_sources if str(src).strip()]
+    dest_folder = _resolve_path(str(configured_dest), project_root)
 
-print(f"✅ Fertig! {len(data_rows)} .md-Dateien wurden gesammelt.")
-print(f"📂 Alle Dateien + CSV + Logbuch liegen hier: {dest_folder}")
+    mapping_csv = dest_folder / "buch_struktur_mapping.csv"
+    log_file = dest_folder / "migration.log"
+
+    dest_folder.mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        filename=str(log_file),
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)s | %(message)s',
+        encoding='utf-8'
+    )
+
+    data_rows = []
+
+    print("🚀 Starte Prozess. Details werden in die Log-Datei geschrieben...")
+    logging.info("=== NEUER MERGE-LAUF GESTARTET ===")
+
+    for src in sources:
+        if not src.exists() or not src.is_dir():
+            logging.warning("Quellordner nicht gefunden und uebersprungen: %s", src)
+            continue
+
+        logging.info("Starte rekursive Durchsuchung von: %s", src)
+
+        for root, _dirs, files in os.walk(src):
+            for file in files:
+                if file.endswith('.md'):
+                    old_path = Path(root) / file
+                    title = get_frontmatter_title(str(old_path))
+
+                    base_name, ext = os.path.splitext(file)
+                    target_name = file
+                    target_path = dest_folder / target_name
+                    counter = 1
+
+                    while target_path.exists():
+                        target_name = f"{base_name}_{counter}{ext}"
+                        target_path = dest_folder / target_name
+                        counter += 1
+
+                    if target_name != file:
+                        logging.info("Namenskonflikt gelöst: '%s' umbenannt in '%s'", file, target_name)
+
+                    try:
+                        shutil.copy2(old_path, target_path)
+                        logging.info("Kopiert: %s -> %s", old_path, target_path)
+                    except OSError as e:
+                        logging.error("Fehler beim Kopieren von %s: %s", old_path, e)
+                        continue
+
+                    data_rows.append({
+                        'DATEINAME_ZIEL': target_name,
+                        'TITEL_FRONTMATTER': title,
+                        'PFAD_QUELLE': str(old_path)
+                    })
+
+    logging.info("Erstelle Mapping-CSV...")
+    with mapping_csv.open('w', newline='', encoding='utf-8') as handle:
+        writer = csv.DictWriter(handle, fieldnames=['DATEINAME_ZIEL', 'TITEL_FRONTMATTER', 'PFAD_QUELLE'], delimiter=';')
+        writer.writeheader()
+        writer.writerows(data_rows)
+
+    logging.info("=== LAUF BEENDET. %s Dateien verarbeitet. ===", len(data_rows))
+
+    print(f"✅ Fertig! {len(data_rows)} .md-Dateien wurden gesammelt.")
+    print(f"📂 Alle Dateien + CSV + Logbuch liegen hier: {dest_folder}")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())

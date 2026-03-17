@@ -29,3 +29,23 @@ preserve_frontmatter_style_in_repair = true
 [logging]
 # Verbose-Logging für debugging
 verbose = true
+
+[__config]
+# Konfiguration für UI-Constraints und Enums
+# Format: [__config.section.key] mit 'enum' Liste für Dropdown-Werte
+
+[__config.tags.C]
+# Verfügbare CSS-Klassen für Tag [C]
+enum = [".author", ".note", ".warning", ".tip", ".highlight"]
+
+[__config.tags.Q]
+# Verfügbare CSS-Klassen für Tag [Q]
+enum = [".Inquirer", ".question", ".help", ".faq"]
+
+[__config.tags.A]
+# Verfügbare CSS-Klassen für Tag [A]
+enum = [".answer", ".info", ".success", ".solution"]
+
+[__config.tags.MONO]
+# Verfügbare CSS-Klassen für Tag [MONO]
+enum = [".monospace", ".code", ".fixed", ".teletype"]

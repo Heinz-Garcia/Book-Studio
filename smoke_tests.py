@@ -4,6 +4,7 @@ import argparse
 import importlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import tkinter as tk
 from pathlib import Path

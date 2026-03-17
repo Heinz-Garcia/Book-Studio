@@ -16,6 +16,162 @@ except ModuleNotFoundError:
         tomllib = None
 
 
+def _parse_toml_value(value_str: str):
+    """Parsiert einen TOML-Wert (Boolean, Int, Float, String)."""
+    value_str = value_str.strip()
+
+    # Boolean
+    if value_str.lower() == "true":
+        return True
+    if value_str.lower() == "false":
+        return False
+
+    # Array (einfach: nur Strings in Anführungszeichen)
+    if value_str.startswith("[") and value_str.endswith("]"):
+        # Nutze tomllib zum korrekt parsen
+        try:
+            import importlib
+            try:
+                tomllib = importlib.import_module("tomllib")
+            except ModuleNotFoundError:
+                tomllib = importlib.import_module("tomli")
+            
+            # Parsiere als TOML array
+            dummy_toml = f"arr = {value_str}"
+            parsed = tomllib.loads(dummy_toml)
+            return parsed.get("arr", [])
+        except Exception:
+            # Fallback: simple parsing
+            content = value_str[1:-1]
+            items = [item.strip().strip('"\'') for item in content.split(",")]
+            return [item for item in items if item]
+
+    # String (quoted)
+    if (value_str.startswith('"') and value_str.endswith('"')) or (
+        value_str.startswith("'") and value_str.endswith("'")
+    ):
+        # Entferne Quotes und unescape
+        content = value_str[1:-1]
+        content = content.replace('\\"', '"').replace("\\\\", "\\")
+        return content
+
+    # Int/Float
+    try:
+        if "." in value_str:
+            return float(value_str)
+        return int(value_str)
+    except ValueError:
+        pass
+
+    # Default: string
+    return value_str
+
+
+def _infer_type(value):
+    """Leitet einen Typ vom Wert ab."""
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, list):
+        return "array"
+    return "string"
+
+
+def extract_enum_constraints(config_path: Path) -> dict:
+    """
+    Extrahiert Enum-Constraints aus dem __config Abschnitt der TOML-Datei.
+    Nutzt tomllib zum korrekten Parsen der Struktur.
+    Rückgabe: {section.key: [values, ...], ...}
+    Beispiel: {'tags.C': ['.author', '.note', '.warning'], ...}
+    """
+    constraints = {}
+    
+    if not config_path.exists() or tomllib is None:
+        return constraints
+    
+    try:
+        with open(config_path, "rb") as f:
+            full_toml = tomllib.load(f)
+        
+        config_section = full_toml.get("__config", {})
+        
+        # Iteriere über __config.section.key.enum Struktur
+        for section_name, section_dict in config_section.items():
+            if section_name == "__meta__" or not isinstance(section_dict, dict):
+                continue
+            
+            for key_name, key_dict in section_dict.items():
+                if not isinstance(key_dict, dict):
+                    continue
+                
+                enum_values = key_dict.get("enum")
+                if isinstance(enum_values, list):
+                    constraints[f"{section_name}.{key_name}"] = enum_values
+    except Exception:
+        pass
+    
+    return constraints
+
+
+def parse_toml_with_comments(config_path: Path):
+    """
+    Parst eine TOML-Datei mit Kommentarextraktion.
+    Rückgabe: {section: {key: {value, type, doc, comments_before}}}
+    """
+    result = {}
+
+    if not config_path.exists():
+        return result
+
+    lines = config_path.read_text(encoding="utf-8").splitlines()
+
+    current_section = None
+    pending_comments = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Kommentarzeile sammeln
+        if stripped.startswith("#"):
+            comment_text = stripped[1:].strip()
+            pending_comments.append(comment_text)
+            continue
+
+        # Leerzeile
+        if not stripped:
+            continue
+
+        # Section [name]
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section_name = stripped[1:-1].strip()
+            current_section = section_name
+            result[section_name] = {"__meta__": {"comments_before": pending_comments.copy()}}
+            pending_comments = []
+            continue
+
+        # Key = Value
+        if "=" in stripped and current_section:
+            key, _, value_str = stripped.partition("=")
+            key = key.strip()
+            value_str = value_str.strip()
+
+            # Parse TOML-Wert
+            value = _parse_toml_value(value_str)
+
+            result[current_section][key] = {
+                "value": value,
+                "type": _infer_type(value),
+                "doc": " ".join(pending_comments) if pending_comments else "",
+                "comments_before": pending_comments.copy(),
+            }
+            pending_comments = []
+
+    return result
+
+
 SANITIZER_SCHEMA = {
     "tags": {
         "__meta__": {
@@ -115,6 +271,16 @@ SANITIZER_SCHEMA = {
         },
     },
 }
+def _extract_label_from_doc(doc_text: str, key: str) -> str:
+    """Extrahiert ein Label aus Dokumenttext oder generiert eines vom Key."""
+    if not doc_text:
+        # Fallback: Key in schöne Form wandeln (snake_case -> Title Case)
+        return key.replace("_", " ").title()
+    # Erste Zeile des Docs als Label, oder ganzes Doc wenn sehr kurz
+    lines = doc_text.split("\n")
+    return lines[0].strip() if lines[0].strip() else key.replace("_", " ").title()
+
+
 class SanitizerConfigEditor(tk.Toplevel):
     def __init__(self, parent, config_path, on_save=None):
         super().__init__(parent)
@@ -136,68 +302,81 @@ class SanitizerConfigEditor(tk.Toplevel):
         width, height = 760, 680
         center_on_parent(self, parent, width, height)
 
-        self.config_data = self._load_config_with_defaults()
-        self.schema = self._build_runtime_schema(self.config_data)
+        # Parse TOML mit Kommentaren (Single Source of Truth)
+        self.config_parsed = parse_toml_with_comments(self.config_path)
+        self.config_data = self._extract_config_values()
+        self.enum_constraints = extract_enum_constraints(self.config_path)
+        self.schema = self._build_runtime_schema()
         self._build_ui()
         self._capture_initial_dirty_snapshot()
         self._start_dirty_watch()
 
-    def _load_config_with_defaults(self):
-        data = {}
-        if self.config_path.exists() and tomllib is not None:
-            try:
-                with open(self.config_path, "rb") as f:
-                    loaded = tomllib.load(f)
-                if isinstance(loaded, dict):
-                    data = loaded
-            except (OSError, ValueError):
-                data = {}
-
-        merged = {}
-        for section_name, section_schema in SANITIZER_SCHEMA.items():
-            current_section = data.get(section_name, {})
-            merged_section = {}
-            for key, spec in section_schema.items():
+    def _extract_config_values(self):
+        """Extrahiert nur die Werte aus der geparsten TOML."""
+        result = {}
+        for section_name, section_dict in self.config_parsed.items():
+            result[section_name] = {}
+            for key, spec in section_dict.items():
                 if key == "__meta__":
                     continue
-                merged_section[key] = current_section.get(key, spec.get("default"))
-            for key, value in current_section.items():
-                if key not in merged_section:
-                    merged_section[key] = value
-            merged[section_name] = merged_section
-        for section_name, section_data in data.items():
-            if section_name not in merged and isinstance(section_data, dict):
-                merged[section_name] = dict(section_data)
-        return merged
+                result[section_name][key] = spec.get("value")
+        return result
 
-    def _build_runtime_schema(self, config_data):
+    def _build_runtime_schema(self):
+        """
+        Baue Laufzeit-Schema aus geparster TOML mit Metadaten aus Kommentaren.
+        Fallback zu SANITIZER_SCHEMA für fehlende Dokumentation.
+        """
         runtime_schema = {}
-        section_names = list(SANITIZER_SCHEMA.keys())
-        for section_name in config_data.keys():
+
+        # Alle Sections aus der Datei (plus fallback aus Schema)
+        section_names = list(self.config_parsed.keys())
+        for section_name in SANITIZER_SCHEMA.keys():
             if section_name not in section_names:
                 section_names.append(section_name)
 
         for section_name in section_names:
-            base_section = SANITIZER_SCHEMA.get(section_name, {})
-            config_section = config_data.get(section_name, {})
-            section_schema = dict(base_section)
-            if "__meta__" not in section_schema:
-                section_schema["__meta__"] = {
-                    "label": section_name.replace("_", " ").title(),
-                    "doc": "Benutzerdefinierte TOML-Sektion ohne hinterlegte Dokumentation.",
+            parsed_section = self.config_parsed.get(section_name, {})
+            schema_section = SANITIZER_SCHEMA.get(section_name, {})
+            config_section = self.config_data.get(section_name, {})
+
+            section_schema = {}
+            section_meta = parsed_section.get("__meta__", {})
+
+            # Section-Metadaten aus Kommentaren oder Fallback
+            section_doc = "\n".join(section_meta.get("comments_before", []))
+            section_label = schema_section.get("__meta__", {}).get("label") or section_name.replace("_", " ").title()
+
+            section_schema["__meta__"] = {
+                "label": section_label,
+                "doc": section_doc or schema_section.get("__meta__", {}).get("doc", ""),
+                "kind": schema_section.get("__meta__", {}).get("kind", "section"),
+            }
+
+            # Alle Keys aus der Datei + Schema
+            all_keys = set(k for k in parsed_section.keys() if k != "__meta__")
+            all_keys.update(k for k in schema_section.keys() if k != "__meta__")
+
+            for key in sorted(all_keys):
+                parsed_spec = parsed_section.get(key, {})
+                schema_spec = schema_section.get(key, {})
+
+                # Priorität: geparste TOML > SCHEMA
+                value = config_section.get(key, schema_spec.get("default"))
+                field_type = parsed_spec.get("type") or schema_spec.get("type") or self._infer_type(value)
+                doc = parsed_spec.get("doc") or schema_spec.get("doc", "")
+                label = _extract_label_from_doc(doc, key) or schema_spec.get("label", key)
+
+                section_schema[key] = {
+                    "type": field_type,
+                    "label": label,
+                    "doc": doc,
+                    "default": schema_spec.get("default", value),
+                    "value": value,
                 }
 
-            for key, value in config_section.items():
-                if key not in section_schema:
-                    inferred_type = self._infer_type(value)
-                    section_schema[key] = {
-                        "type": inferred_type,
-                        "label": key,
-                        "doc": "Benutzerdefinierter TOML-Eintrag ohne hinterlegte Dokumentation.",
-                        "default": value,
-                    }
-
             runtime_schema[section_name] = section_schema
+
         return runtime_schema
 
     def _build_ui(self):
@@ -281,11 +460,11 @@ class SanitizerConfigEditor(tk.Toplevel):
         tag_section = self.config_data.get(section_name, {})
         for key, value in tag_section.items():
             spec = section_schema.get(key, {})
-            self._add_tag_row(key, value, spec.get("doc", "Benutzerdefinierter Tag-Eintrag."))
+            self._add_tag_row(section_name, key, value, spec.get("doc", "Benutzerdefinierter Tag-Eintrag."))
 
-        ttk.Button(body, text="+ Eintrag hinzufügen", style="Tool.TButton", command=lambda: self._add_tag_row("", "", "Benutzerdefinierter Tag-Eintrag.")).pack(anchor="w", pady=(8, 0))
+        ttk.Button(body, text="+ Eintrag hinzufügen", style="Tool.TButton", command=lambda: self._add_tag_row(section_name, "", "", "Benutzerdefinierter Tag-Eintrag.")).pack(anchor="w", pady=(8, 0))
 
-    def _add_tag_row(self, key, value, doc_text):
+    def _add_tag_row(self, section_name, key, value, doc_text):
         row = tk.Frame(self.tags_rows_frame, bg=COLORS["app_bg"])
         row.pack(fill=tk.X, pady=2)
 
@@ -294,19 +473,31 @@ class SanitizerConfigEditor(tk.Toplevel):
 
         key_entry = ttk.Entry(row, textvariable=key_var, width=20)
         key_entry.pack(side=tk.LEFT, padx=(0, 8))
-        value_entry = ttk.Entry(row, textvariable=value_var)
-        value_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Prüfe, ob ein Enum für tags.key existiert
+        enum_key = f"{section_name}.{key}" if key else None
+        enum_values = self.enum_constraints.get(enum_key, []) if enum_key else []
+        
+        if enum_values:
+            # Dropdown verwenden
+            value_widget = ttk.Combobox(row, textvariable=value_var, values=enum_values, state="readonly", width=30)
+        else:
+            # Text-Input verwenden
+            value_widget = ttk.Entry(row, textvariable=value_var)
+        
+        value_widget.pack(side=tk.LEFT, fill=tk.X, expand=True)
         remove_btn = ttk.Button(row, text="Entfernen", style="Tool.TButton", command=lambda: self._remove_tag_row(row))
         remove_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         ThemedTooltip(key_entry, doc_text)
-        ThemedTooltip(value_entry, doc_text)
+        ThemedTooltip(value_widget, doc_text)
         ThemedTooltip(remove_btn, "Entfernt diesen Tag-Eintrag aus der Konfiguration.")
 
         self.tag_rows.append({
             "frame": row,
             "key_var": key_var,
             "value_var": value_var,
+            "section": section_name,
         })
 
     def _remove_tag_row(self, row):
@@ -461,22 +652,41 @@ class SanitizerConfigEditor(tk.Toplevel):
             messagebox.showerror("Fehler", f"Konnte Konfiguration nicht speichern:\n{err}")
 
     def _render_toml(self, config):
+        """
+        Rendert eine TOML-Datei, wobei Originalkommentare aus der geparsten Datei bewahrt werden.
+        Dies ist die dateigetriebene Speicher-Logik für Priorität 4.
+        Der __config Abschnitt wird am Ende bewahrt.
+        """
         lines = ["# Sanitizer-Konfiguration für Quarto/Pandoc -> Typst Pipeline", ""]
         section_names = list(self.schema.keys())
         for section_name in config.keys():
-            if section_name not in section_names:
+            if section_name not in section_names and section_name != "__config":
                 section_names.append(section_name)
 
         for idx, section_name in enumerate(section_names):
+            # Überspringe __config und alle seine Sub-Sections
+            if section_name == "__config" or section_name.startswith("__config."):
+                continue
+
             section_data = config.get(section_name, {})
+            parsed_section = self.config_parsed.get(section_name, {})
             section_schema = self.schema.get(section_name, {})
             meta = section_schema.get("__meta__", {})
 
-            if meta.get("doc"):
+            # Sektions-Kommentare aus dem Original bewahren
+            section_meta = parsed_section.get("__meta__", {})
+            comments_before = section_meta.get("comments_before", [])
+            if comments_before:
+                for line in comments_before:
+                    lines.append(f"# {line}")
+            elif meta.get("doc"):
+                # Fallback zu dem doc aus dem Schema
                 for line in meta["doc"].splitlines():
                     lines.append(f"# {line}")
+
             lines.append(f"[{section_name}]")
 
+            # Bestimme die Reihenfolge der Keys
             ordered_keys = [key for key in section_schema.keys() if key != "__meta__"]
             for key in section_data.keys():
                 if key not in ordered_keys:
@@ -485,15 +695,62 @@ class SanitizerConfigEditor(tk.Toplevel):
             for key in ordered_keys:
                 if key not in section_data:
                     continue
-                spec = section_schema.get(key, {})
-                doc = spec.get("doc")
-                if doc:
-                    for line in doc.splitlines():
+
+                # Originalkommentare aus der geparsten Datei
+                parsed_key_spec = parsed_section.get(key, {})
+                key_comments_before = parsed_key_spec.get("comments_before", [])
+
+                if key_comments_before:
+                    for line in key_comments_before:
                         lines.append(f"# {line}")
+                else:
+                    # Fallback zu dem doc aus dem Schema
+                    spec = section_schema.get(key, {})
+                    doc = spec.get("doc")
+                    if doc:
+                        for line in doc.splitlines():
+                            lines.append(f"# {line}")
+
                 lines.append(f"{key} = {self._to_toml_value(section_data[key])}")
 
-            if idx < len(section_names) - 1:
+            if idx < len([s for s in section_names if s != "__config"]) - 1:
                 lines.append("")
+
+        # Anhängen von __config am Ende
+        # __config hat nested structure, daher nutzen wir tomllib direkter Struktur
+        if self.config_path.exists() and tomllib is not None:
+            try:
+                with open(self.config_path, "rb") as f:
+                    full_toml = tomllib.load(f)
+                config_section = full_toml.get("__config", {})
+                
+                if config_section:
+                    lines.append("")
+                    lines.append("[__config]")
+                    lines.append("# Konfiguration für UI-Constraints und Enums")
+                    lines.append("# Format: [__config.section.key] mit 'enum' Liste für Dropdown-Werte")
+                    
+                    # Iteriere über subsections (tags, features, etc.)
+                    for subsection_name in sorted(config_section.keys()):
+                        subsection_dict = config_section[subsection_name]
+                        if not isinstance(subsection_dict, dict):
+                            continue
+                        
+                        # Iteriere über keys in Subsection (C, Q, A, etc.)
+                        for key_name in sorted(subsection_dict.keys()):
+                            key_dict = subsection_dict[key_name]
+                            if not isinstance(key_dict, dict):
+                                continue
+                            
+                            # Render [__config.subsection.key]
+                            lines.append(f"[__config.{subsection_name}.{key_name}]")
+                            
+                            # Render Keys in dieser subsection (enum = [...])
+                            for enum_key in sorted(key_dict.keys()):
+                                enum_value = key_dict[enum_key]
+                                lines.append(f"{enum_key} = {self._to_toml_value(enum_value)}")
+            except Exception:
+                pass
 
         lines.append("")
         return "\n".join(lines)
@@ -503,5 +760,9 @@ class SanitizerConfigEditor(tk.Toplevel):
             return "true" if value else "false"
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return str(value)
+        if isinstance(value, list):
+            # Render as TOML array
+            items = [f'"{item}"' if isinstance(item, str) else str(item) for item in value]
+            return "[" + ", ".join(items) + "]"
         escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'

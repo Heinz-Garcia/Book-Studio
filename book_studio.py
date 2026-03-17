@@ -8,6 +8,7 @@ import re
 import platform
 import importlib
 import logging
+import sys
 from export_manager import ExportManager
 from log_manager import LogManager
 from session_manager import SessionManager
@@ -355,6 +356,66 @@ class BookStudio:
 
     def persist_app_state(self):
         self._save_session_state()
+
+    # --- Manager host API ---
+
+    def schedule_ui(self, callback, delay=0):
+        if callable(callback):
+            return self.root.after(delay, callback)
+        return None
+
+    def update_status(self, text, fg):
+        if self.status is not None:
+            self.status.config(text=text, fg=fg)
+
+    def copy_text_to_clipboard(self, text):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+
+    def get_current_book(self):
+        return self.current_book
+
+    def get_current_profile_name(self):
+        return self.current_profile_name
+
+    def get_title_for_path(self, path):
+        return self.title_registry.get(path, Path(path).name)
+
+    def get_available_templates(self):
+        return list(self.available_templates)
+
+    def get_last_export_options(self):
+        return dict(self.last_export_options)
+
+    def set_last_export_options(self, options):
+        self.last_export_options = dict(options)
+
+    def get_yaml_engine(self):
+        return self.yaml_engine
+
+    def register_status_widget(self, widget):
+        self.status = widget
+        return widget
+
+    def register_log_output_widget(self, widget):
+        self.log_output = widget
+        return widget
+
+    def register_log_menu_widget(self, widget):
+        self.log_menu = widget
+        return widget
+
+    def get_log_filter_var(self):
+        return self.log_filter_var
+
+    def get_log_filter_labels(self):
+        return list(self.log_filter_labels)
+
+    def get_log_max_lines_var(self):
+        return self.log_max_lines_var
+
+    def get_log_auto_clear_var(self):
+        return self.log_auto_clear_var
 
     # --- Log terminal (delegated to LogManager) ---
 
@@ -2462,8 +2523,8 @@ class BookStudio:
             self.root.after(0, lambda: self.log("🚀 Starte Sanitizer...", "header"))
             
             # Sanitizer.py aufrufen und Output abfangen
-            cmd = f'python Sanitizer.py "{self.current_book}"'
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=self.base_path)
+            cmd = [sys.executable, "Sanitizer.py", str(self.current_book)]
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=self.base_path)
             
             for line in p.stdout:
                 stripped = line.rstrip()

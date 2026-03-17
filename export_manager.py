@@ -23,6 +23,112 @@ class ExportManager:
         self._active_render_log_handle = None
         self._active_render_log_path = None
 
+    def _log(self, message, level="info"):
+        self.studio.log(message, level)
+
+    def _current_book(self):
+        getter = getattr(self.studio, "get_current_book", None)
+        if callable(getter):
+            return getter()
+        return getattr(self.studio, "current_book", None)
+
+    def _current_profile_name(self):
+        getter = getattr(self.studio, "get_current_profile_name", None)
+        if callable(getter):
+            return getter()
+        return getattr(self.studio, "current_profile_name", None)
+
+    def _title_for_path(self, source_path):
+        getter = getattr(self.studio, "get_title_for_path", None)
+        if callable(getter):
+            return getter(source_path)
+        title_registry = getattr(self.studio, "title_registry", {}) or {}
+        return title_registry.get(source_path, Path(source_path).name)
+
+    def _root(self):
+        return getattr(self.studio, "root", None)
+
+    def _after(self, delay, callback):
+        scheduler = getattr(self.studio, "schedule_ui", None)
+        if callable(scheduler):
+            return scheduler(callback, delay=delay)
+        root = self._root()
+        if root is not None and hasattr(root, "after"):
+            return root.after(delay, callback)
+        return callback()
+
+    def _set_status(self, text, fg):
+        updater = getattr(self.studio, "update_status", None)
+        if callable(updater):
+            updater(text, fg)
+            return
+        status = getattr(self.studio, "status", None)
+        if status is not None and hasattr(status, "config"):
+            status.config(text=text, fg=fg)
+
+    def _copy_to_clipboard(self, text):
+        copier = getattr(self.studio, "copy_text_to_clipboard", None)
+        if callable(copier):
+            copier(text)
+            return
+        root = self._root()
+        if root is None:
+            return
+        root.clipboard_clear()
+        root.clipboard_append(text)
+
+    def _available_templates(self):
+        getter = getattr(self.studio, "get_available_templates", None)
+        if callable(getter):
+            return getter() or ["Standard"]
+        return getattr(self.studio, "available_templates", None) or ["Standard"]
+
+    def _last_export_options(self):
+        getter = getattr(self.studio, "get_last_export_options", None)
+        if callable(getter):
+            return getter() or {}
+        return getattr(self.studio, "last_export_options", {})
+
+    def _set_last_export_options(self, selected):
+        setter = getattr(self.studio, "set_last_export_options", None)
+        if callable(setter):
+            setter(selected)
+            return
+        self.studio.last_export_options = dict(selected)
+
+    def _persist_app_state(self):
+        persist = getattr(self.studio, "persist_app_state", None)
+        if callable(persist):
+            persist()
+
+    def _get_tree_data_for_engine(self):
+        getter = getattr(self.studio, "get_tree_data_for_engine", None)
+        return getter() if callable(getter) else []
+
+    def _run_doctor_preflight(self, context_label, emit_success_log=False):
+        runner = getattr(self.studio, "run_doctor_preflight", None)
+        if callable(runner):
+            return runner(context_label, emit_success_log=emit_success_log)
+        return False, None
+
+    def _save_project(self, show_msg=False, run_doctor_check=False):
+        saver = getattr(self.studio, "save_project", None)
+        if callable(saver):
+            return saver(show_msg=show_msg, run_doctor_check=run_doctor_check)
+        return False
+
+    def _read_config(self):
+        reader = getattr(self.studio, "read_config", None)
+        if callable(reader):
+            return reader() or {}
+        return {}
+
+    def _yaml_engine(self):
+        getter = getattr(self.studio, "get_yaml_engine", None)
+        if callable(getter):
+            return getter()
+        return getattr(self.studio, "yaml_engine", None)
+
     def _write_active_render_log(self, message: str):
         handle = self._active_render_log_handle
         if handle is None:
@@ -34,7 +140,7 @@ class ExportManager:
             return
 
     def _start_render_log(self, target_fmt, selected_tpl, footnote_mode, enable_footnote_backlinks):
-        current_book = getattr(self.studio, "current_book", None)
+        current_book = self._current_book()
         if not current_book:
             return
 
@@ -51,10 +157,10 @@ class ExportManager:
         except OSError as error:
             self._active_render_log_handle = None
             self._active_render_log_path = None
-            self.studio.log(f"⚠️ Render-Log konnte nicht angelegt werden: {error}", "warning")
+            self._log(f"⚠️ Render-Log konnte nicht angelegt werden: {error}", "warning")
             return
 
-        profile_name = getattr(self.studio, "current_profile_name", None)
+        profile_name = self._current_profile_name()
         self._write_active_render_log("=== Quarto Book Studio Render Log ===")
         self._write_active_render_log(f"started_at={datetime.now().isoformat(timespec='seconds')}")
         self._write_active_render_log(f"book={book_root}")
@@ -64,7 +170,7 @@ class ExportManager:
         self._write_active_render_log(f"footnote_backlinks={bool(enable_footnote_backlinks)}")
         self._write_active_render_log(f"profile={profile_name if profile_name else 'default'}")
         self._write_active_render_log("--- render output ---")
-        self.studio.log(f"🧾 Render-Log: {log_path}", "dim")
+        self._log(f"🧾 Render-Log: {log_path}", "dim")
 
     def _finalize_render_log(self, status, primary_returncode=None, fallback_returncode=None):
         handle = self._active_render_log_handle
@@ -86,7 +192,7 @@ class ExportManager:
         self._active_render_log_path = None
 
         if path is not None:
-            self.studio.log(f"🧾 Render-Log gespeichert: {path}", "dim")
+            self._log(f"🧾 Render-Log gespeichert: {path}", "dim")
 
     def _iter_tree_paths(self, tree_data):
         for item in tree_data:
@@ -99,7 +205,7 @@ class ExportManager:
 
     def collect_processed_fenced_div_hits(self, processed_tree):
         findings = []
-        current_book = getattr(self.studio, "current_book", None)
+        current_book = self._current_book()
         if not current_book:
             return findings
 
@@ -177,19 +283,19 @@ class ExportManager:
             return False
 
         abort_first = self.should_abort_on_first_preflight_error()
-        self.studio.log("⚠️ Render-Vorabcheck (Buch-Doktor): ':::' in processed-Dateien gefunden.", "warning")
+        self._log("⚠️ Render-Vorabcheck (Buch-Doktor): ':::' in processed-Dateien gefunden.", "warning")
 
         if abort_first:
             first = findings[0]
             source_path = first["source_path"]
-            title = self.studio.title_registry.get(source_path, Path(source_path).name)
+            title = self._title_for_path(source_path)
             line_number = first["line_number"]
-            self.studio.log(
+            self._log(
                 f"☠ {title} [{source_path}] L{line_number}: defekter ':::'-Block ({first['issue_kind']}, Quelle {first['processed_path']})",
                 "error",
             )
             if len(findings) > 1:
-                self.studio.log(
+                self._log(
                     f"⛔ Abbruch beim ersten Fehler. Weitere {len(findings)-1} Befunde erst nach Korrektur sichtbar.",
                     "warning",
                 )
@@ -198,50 +304,41 @@ class ExportManager:
             hidden_count = max(0, len(findings) - max_lines)
             for finding in findings[:max_lines]:
                 source_path = finding["source_path"]
-                title = self.studio.title_registry.get(source_path, Path(source_path).name)
+                title = self._title_for_path(source_path)
                 line_number = finding["line_number"]
-                self.studio.log(
+                self._log(
                     f"☠ {title} [{source_path}] L{line_number}: defekter ':::'-Block ({finding['issue_kind']}, Quelle {finding['processed_path']})",
                     "error",
                 )
             if hidden_count:
-                self.studio.log(
+                self._log(
                     f"… {hidden_count} weitere ':::'-Befunde ausgeblendet (Log-Limit).",
                     "warning",
                 )
 
-        self.studio.log("💡 Tipp: Klick auf [Pfad] Lx im Log öffnet direkt Datei+Zeile.", "dim")
+        self._log("💡 Tipp: Klick auf [Pfad] Lx im Log öffnet direkt Datei+Zeile.", "dim")
         return abort_first
 
     def should_abort_on_first_preflight_error(self):
         default_value = True
-        read_config = getattr(self.studio, "read_config", None)
-        if not callable(read_config):
-            return default_value
         try:
-            cfg = read_config() or {}
+            cfg = self._read_config()
         except (OSError, TypeError, ValueError):
             return default_value
         return bool(cfg.get("abort_on_first_preflight_error", default_value))
 
     def should_abort_on_first_render_colon_warning(self):
         default_value = False
-        read_config = getattr(self.studio, "read_config", None)
-        if not callable(read_config):
-            return default_value
         try:
-            cfg = read_config() or {}
+            cfg = self._read_config()
         except (OSError, TypeError, ValueError):
             return default_value
         return bool(cfg.get("abort_on_first_render_colon_warning", default_value))
 
     def should_enable_footnote_backlinks(self):
         default_value = True
-        read_config = getattr(self.studio, "read_config", None)
-        if not callable(read_config):
-            return default_value
         try:
-            cfg = read_config() or {}
+            cfg = self._read_config()
         except (OSError, TypeError, ValueError):
             return default_value
         return bool(cfg.get("enable_footnote_backlinks", default_value))
@@ -260,7 +357,7 @@ class ExportManager:
 
     def build_processed_label_occurrences(self, processed_tree):
         occurrences = {}
-        current_book = getattr(self.studio, "current_book", None)
+        current_book = self._current_book()
         if not current_book:
             return occurrences
 
@@ -291,7 +388,7 @@ class ExportManager:
     def build_processed_colon_occurrences(self, processed_tree):
         structural_occurrences = []
         raw_occurrences = []
-        current_book = getattr(self.studio, "current_book", None)
+        current_book = self._current_book()
         if not current_book:
             return structural_occurrences
 
@@ -342,7 +439,7 @@ class ExportManager:
 
         entries = self._processed_colon_occurrences
         if not entries:
-            self.studio.log("📌 ':::'-Warnung: keine passende Stelle im processed-Baum gefunden.", "warning")
+            self._log("📌 ':::'-Warnung: keine passende Stelle im processed-Baum gefunden.", "warning")
             return
 
         def _entry_dict(entry):
@@ -365,15 +462,15 @@ class ExportManager:
             normalized_entries.append(entry_dict)
 
         if not normalized_entries:
-            self.studio.log("📌 ':::'-Warnung: keine passende Stelle im processed-Baum gefunden.", "warning")
+            self._log("📌 ':::'-Warnung: keine passende Stelle im processed-Baum gefunden.", "warning")
             return
 
         has_structural_hits = any(bool(item.get("is_structural")) for item in normalized_entries)
 
         if has_structural_hits:
-            self.studio.log("📌 Früher Treffer für ':::': strukturell auffällige Stelle(n):", "warning")
+            self._log("📌 Früher Treffer für ':::': strukturell auffällige Stelle(n):", "warning")
         else:
-            self.studio.log(
+            self._log(
                 "📌 Früher Treffer für ':::': keine strukturellen Defekte erkannt – nur mögliche Auslöser.",
                 "warning",
             )
@@ -396,26 +493,26 @@ class ExportManager:
                 break
 
         for source_path, line_number, issue_kind, is_structural in shown:
-            title = self.studio.title_registry.get(source_path, Path(source_path).name)
+            title = self._title_for_path(source_path)
             if is_structural:
-                self.studio.log(
+                self._log(
                     f"   ☠ {title} [{source_path}] L{line_number}: defekter ':::'-Block ({issue_kind})",
                     "error",
                 )
             else:
-                self.studio.log(f"   🔎 {title} [{source_path}] L{line_number}", "warning")
+                self._log(f"   🔎 {title} [{source_path}] L{line_number}", "warning")
 
         if len(normalized_entries) > len(shown):
-            self.studio.log(
+            self._log(
                 f"… {len(normalized_entries) - len(shown)} weitere mögliche Treffer ausgeblendet (Log-Limit).",
                 "warning",
             )
 
         primary_path, primary_line, _primary_kind, _primary_structural = shown[0]
-        self.studio.log(f"👉 KLICK: [{primary_path}] L{primary_line}", "header")
+        self._log(f"👉 KLICK: [{primary_path}] L{primary_line}", "header")
         if len(shown) > 1:
             alt_path, alt_line, _alt_kind, _alt_structural = shown[1]
-            self.studio.log(f"👉 Alternative: [{alt_path}] L{alt_line}", "header")
+            self._log(f"👉 Alternative: [{alt_path}] L{alt_line}", "header")
 
     def _log_missing_label_hint(self, label):
         if label in self._logged_missing_labels:
@@ -424,7 +521,7 @@ class ExportManager:
 
         entries = self._processed_label_occurrences.get(label, [])
         if not entries:
-            self.studio.log(f"📌 Fehlendes Label <{label}>: keine Quelle im processed-Baum gefunden.", "error")
+            self._log(f"📌 Fehlendes Label <{label}>: keine Quelle im processed-Baum gefunden.", "error")
             return
 
         shown = []
@@ -438,20 +535,20 @@ class ExportManager:
             if len(shown) >= 6:
                 break
 
-        self.studio.log(f"📌 Fehlendes Label <{label}> – mögliche Quellen:", "error")
+        self._log(f"📌 Fehlendes Label <{label}> – mögliche Quellen:", "error")
         for source_path, line_number in shown:
-            title = self.studio.title_registry.get(source_path, Path(source_path).name)
-            self.studio.log(f"   ☠ {title} [{source_path}] L{line_number}", "error")
+            title = self._title_for_path(source_path)
+            self._log(f"   ☠ {title} [{source_path}] L{line_number}", "error")
 
         primary_path, primary_line = shown[0]
-        self.studio.log(f"👉 KLICK: [{primary_path}] L{primary_line}", "header")
+        self._log(f"👉 KLICK: [{primary_path}] L{primary_line}", "header")
         if len(shown) > 1:
             alt_path, alt_line = shown[1]
-            self.studio.log(f"👉 Alternative: [{alt_path}] L{alt_line}", "header")
+            self._log(f"👉 Alternative: [{alt_path}] L{alt_line}", "header")
 
     def candidate_registry_paths_for_error_file(self, abs_file_path: Path):
         candidates = []
-        current_book = getattr(self.studio, "current_book", None)
+        current_book = self._current_book()
         if not current_book:
             return candidates
 
@@ -472,7 +569,7 @@ class ExportManager:
             if title:
                 return str(title), candidate
 
-        yaml_engine = getattr(self.studio, "yaml_engine", None)
+        yaml_engine = self._yaml_engine()
         if yaml_engine and abs_file_path.exists() and abs_file_path.suffix.lower() == ".md":
             try:
                 extracted = yaml_engine.extract_title_from_md(abs_file_path)
@@ -484,7 +581,7 @@ class ExportManager:
         return abs_file_path.stem, abs_file_path.name
 
     def _log_render_line(self, stripped_line: str):
-        self.studio.log(stripped_line, "info")
+        self._log(stripped_line, "info")
         self._write_active_render_log(stripped_line)
 
         sanitized_line = re.sub(r"\x1b\[[0-9;]*m", "", stripped_line)
@@ -513,19 +610,20 @@ class ExportManager:
 
         abs_file_path = Path(file_str)
         title, shown_path = self.resolve_error_file_title(abs_file_path)
-        self.studio.log(f"📌 Betroffener Titel: {title} [{shown_path}]", "error")
+        self._log(f"📌 Betroffener Titel: {title} [{shown_path}]", "error")
 
     # =========================================================================
     # 1. SCRIVENER EXPORT (SINGLE MARKDOWN)
     # =========================================================================
     def export_single_markdown(self):
-        if not self.studio.current_book:
+        current_book = self._current_book()
+        if not current_book:
             return
         
-        export_dir = self.studio.current_book / "export"
+        export_dir = current_book / "export"
         export_dir.mkdir(exist_ok=True)
         
-        default_name = f"{self.studio.current_book.name}_Scrivener.md"
+        default_name = f"{current_book.name}_Scrivener.md"
         filepath = filedialog.asksaveasfilename(
             initialdir=export_dir,
             initialfile=default_name,
@@ -536,11 +634,11 @@ class ExportManager:
         if not filepath:
             return
         
-        tree_data = self.studio.get_tree_data_for_engine()
+        tree_data = self._get_tree_data_for_engine()
         
         try:
             with open(filepath, 'w', encoding='utf-8') as out_f:
-                out_f.write(f"# {self.studio.current_book.name}\n\n")
+                out_f.write(f"# {current_book.name}\n\n")
                 self._write_tree_to_file(tree_data, out_f, 0)
                 
             messagebox.showinfo("Erfolg", "Markdown erfolgreich exportiert!\n\nDu kannst diese Datei nun in Scrivener über 'Importieren und aufteilen' einlesen.")
@@ -560,7 +658,7 @@ class ExportManager:
                 if item.get("children"):
                     self._write_tree_to_file(item["children"], out_file, level_offset + 1)
             else:
-                src = self.studio.current_book / path_str
+                src = self._current_book() / path_str
                 if src.exists():
                     with open(src, 'r', encoding='utf-8') as f:
                         content = f.read()
@@ -583,31 +681,31 @@ class ExportManager:
     # 2. QUARTO RENDER PIPELINE
     # =========================================================================
     def run_quarto_render(self):
-        if not self.studio.current_book:
+        if not self._current_book():
             return
 
-        is_healthy, analysis = self.studio.run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
+        is_healthy, analysis = self._run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
         if not is_healthy:
             if analysis is not None:
-                self.studio.log("⛔ Rendern abgebrochen. Bitte behebe die markierten Dateien in der Buch-Struktur.", "error")
-            self.studio.status.config(text="Render abgebrochen (Buch-Doktor-Befund)", fg="#e74c3c")
+                self._log("⛔ Rendern abgebrochen. Bitte behebe die markierten Dateien in der Buch-Struktur.", "error")
+            self._set_status("Render abgebrochen (Buch-Doktor-Befund)", "#e74c3c")
             return
 
-        templates = getattr(self.studio, "available_templates", None) or ["Standard"]
+        templates = self._available_templates()
         selected = ExportDialog.ask(
-            self.studio.root,
+            self._root(),
             templates,
-            initial=self.studio.last_export_options,
+            initial=self._last_export_options(),
         )
         if not selected:
-            self.studio.status.config(text="Export abgebrochen", fg="#95a5a6")
+            self._set_status("Export abgebrochen", "#95a5a6")
             return
 
-        self.studio.last_export_options = dict(selected)
-        self.studio.persist_app_state()
+        self._set_last_export_options(selected)
+        self._persist_app_state()
         
-        if not self.studio.save_project(show_msg=False, run_doctor_check=False):
-            self.studio.status.config(text="Render abgebrochen (Speicherfehler)", fg="#e74c3c")
+        if not self._save_project(show_msg=False, run_doctor_check=False):
+            self._set_status("Render abgebrochen (Speicherfehler)", "#e74c3c")
             return
             
         base_fmt = selected["format"]
@@ -641,15 +739,15 @@ class ExportManager:
             extra_opts = {base_fmt: {"template": f"templates/{selected_tpl}"}}
         # ----------------------------------
         
-        self.studio.status.config(text=f"Rendere {target_fmt} (Pre-Processing)...", fg="#3498db")
+        self._set_status(f"Rendere {target_fmt} (Pre-Processing)...", "#3498db")
         
         processor = PreProcessor(
-            self.studio.current_book,
+            self._current_book(),
             footnote_mode=footnote_mode,
             enable_footnote_backlinks=enable_footnote_backlinks,
             output_format=target_fmt,
         )
-        original_tree = self.studio.get_tree_data_for_engine()
+        original_tree = self._get_tree_data_for_engine()
         processed_tree = processor.prepare_render_environment(original_tree)
         self._processed_label_occurrences = self.build_processed_label_occurrences(processed_tree)
         self._processed_colon_occurrences = self.build_processed_colon_occurrences(processed_tree)
@@ -657,25 +755,25 @@ class ExportManager:
         self._logged_colon_warning_hint = False
         has_processed_errors = self.log_processed_fenced_div_hits(processed_tree)
         if has_processed_errors:
-            self.studio.status.config(text="Render abgebrochen (erster Preflight-Fehler)", fg="#e74c3c")
+            self._set_status("Render abgebrochen (erster Preflight-Fehler)", "#e74c3c")
             return
 
         # Verwaiste Fußnoten-Marker ins Log schreiben
         if processor.harvester.orphan_warnings:
-            self.studio.log("⚠️  Verwaiste Fußnoten-Marker (keine Definition gefunden):", "warning")
+            self._log("⚠️  Verwaiste Fußnoten-Marker (keine Definition gefunden):", "warning")
             for file_key, label in processor.harvester.orphan_warnings:
                 rel = Path(file_key).name
-                self.studio.log(f"   [{label}] in {rel}", "warning")
+                self._log(f"   [{label}] in {rel}", "warning")
         
-        self.studio.log(f"{'='*50}", "dim")
-        self.studio.log(f"🖨️  EXPORT PIPELINE: {target_fmt.upper()}", "header")
-        self.studio.log(f"{'='*50}", "dim")
+        self._log(f"{'='*50}", "dim")
+        self._log(f"🖨️  EXPORT PIPELINE: {target_fmt.upper()}", "header")
+        self._log(f"{'='*50}", "dim")
         self._start_render_log(target_fmt, selected_tpl, footnote_mode, enable_footnote_backlinks)
 
         def render_thread():
-            self.studio.root.after(
+            self._after(
                 0,
-                lambda: self.studio.log(
+                lambda: self._log(
                     "🛡️ Render startet über sichere temporäre Kopie (processed + ORDER-kompatibel).",
                     "dim",
                 ),
@@ -684,7 +782,7 @@ class ExportManager:
                 target_fmt,
                 footnote_mode,
                 enable_footnote_backlinks,
-                profile_name=self.studio.current_profile_name,
+                profile_name=self._current_profile_name(),
                 extra_format_options=extra_opts,
             )
 
@@ -697,21 +795,21 @@ class ExportManager:
                 self._handle_render_success(target_fmt)
             else:
                 self._finalize_render_log("failed", primary_returncode=return_code)
-                self.studio.root.after(0, lambda: self.studio.log(f"❌ FEHLER: Code {return_code}", "error"))
-                self.studio.root.after(0, lambda: self.studio.status.config(text="Render fehlgeschlagen", fg="#e74c3c"))
+                self._after(0, lambda: self._log(f"❌ FEHLER: Code {return_code}", "error"))
+                self._after(0, lambda: self._set_status("Render fehlgeschlagen", "#e74c3c"))
 
         threading.Thread(target=render_thread, daemon=True).start()
 
     def _run_safe_render(self, target_fmt, footnote_mode, enable_footnote_backlinks, profile_name=None, extra_format_options=None):
         safe_script = Path(__file__).resolve().parent / "quarto_render_safe.py"
         if not safe_script.exists():
-            self.studio.root.after(0, lambda: self.studio.log("❌ Fallback-Skript nicht gefunden: quarto_render_safe.py", "error"))
+            self._after(0, lambda: self._log("❌ Fallback-Skript nicht gefunden: quarto_render_safe.py", "error"))
             return 2, False
 
         cmd = [
             sys.executable,
             str(safe_script),
-            str(self.studio.current_book),
+            str(self._current_book()),
             "--to",
             target_fmt,
             "--footnote-mode",
@@ -732,7 +830,7 @@ class ExportManager:
             for line in proc.stdout:
                 stripped = line.rstrip()
                 if stripped:
-                    self.studio.root.after(0, lambda ln=stripped: self._log_render_line(ln))
+                    self._after(0, lambda ln=stripped: self._log_render_line(ln))
                     if (
                         self.is_raw_colon_warning_line(stripped)
                         and self.should_abort_on_first_render_colon_warning()
@@ -743,16 +841,16 @@ class ExportManager:
                             proc.terminate()
                         except OSError:
                             pass
-                        self.studio.root.after(
+                        self._after(
                             0,
-                            lambda: self.studio.log(
+                            lambda: self._log(
                                 "⛔ Render abgebrochen (Config): erster ':::'-Warnhinweis erkannt. Folgefehler werden bewusst unterdrückt.",
                                 "error",
                             ),
                         )
-                        self.studio.root.after(
+                        self._after(
                             0,
-                            lambda: self.studio.status.config(text="Render abgebrochen (erster :::-Warnhinweis)", fg="#e74c3c"),
+                            lambda: self._set_status("Render abgebrochen (erster :::-Warnhinweis)", "#e74c3c"),
                         )
                         break
         proc.wait()
@@ -763,22 +861,21 @@ class ExportManager:
     # =========================================================================
     def _handle_render_success(self, fmt):
         try:
-            profile = self.studio.current_profile_name
+            profile = self._current_profile_name()
             safe_profile = re.sub(r'[^a-zA-Z0-9_\-]', '_', profile) if profile else None
             out_dir_name = f"_book_{safe_profile}" if safe_profile else "_book"
-            out_dir = self.studio.current_book / "export" / out_dir_name
+            out_dir = self._current_book() / "export" / out_dir_name
 
             ext = ".pdf" if "pdf" in fmt.lower() or "typst" in fmt.lower() else f".{fmt}"
             found = list(out_dir.glob(f"*{ext}"))
 
             if found:
                 abs_path = str(found[0].resolve())
-                self.studio.root.clipboard_clear()
-                self.studio.root.clipboard_append(abs_path)
+                self._copy_to_clipboard(abs_path)
 
-                self.studio.root.after(0, lambda: self.studio.log(f"✅ ERFOLG: {fmt.upper()} generiert!", "success"))
-                self.studio.root.after(0, lambda: self.studio.log(f"📋 Pfad in Zwischenablage: {abs_path}", "success"))
-                self.studio.root.after(0, lambda: self.studio.status.config(text="Render erfolgreich", fg="#2ecc71"))
+                self._after(0, lambda: self._log(f"✅ ERFOLG: {fmt.upper()} generiert!", "success"))
+                self._after(0, lambda: self._log(f"📋 Pfad in Zwischenablage: {abs_path}", "success"))
+                self._after(0, lambda: self._set_status("Render erfolgreich", "#2ecc71"))
 
                 if platform.system() == 'Windows':
                     os.startfile(abs_path)
@@ -787,10 +884,10 @@ class ExportManager:
                 else:
                     subprocess.call(('xdg-open', abs_path))
             else:
-                self.studio.root.after(0, lambda: self.studio.log(f"✅ ERFOLG: {fmt.upper()} im export/ Ordner generiert.", "success"))
-                self.studio.root.after(0, lambda: self.studio.status.config(text="Render erfolgreich", fg="#2ecc71"))
+                self._after(0, lambda: self._log(f"✅ ERFOLG: {fmt.upper()} im export/ Ordner generiert.", "success"))
+                self._after(0, lambda: self._set_status("Render erfolgreich", "#2ecc71"))
         except (tk.TclError, OSError, subprocess.SubprocessError) as post_err:
-            self.studio.root.after(0, lambda err=post_err: self.studio.log(f"⚠️  Post-Render-Fehler: {err}", "warning"))
+            self._after(0, lambda err=post_err: self._log(f"⚠️  Post-Render-Fehler: {err}", "warning"))
 
     def _open_folder_and_select(self, filepath):
         f_path = Path(filepath).resolve()

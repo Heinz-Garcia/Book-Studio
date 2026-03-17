@@ -1,5 +1,5 @@
 # PROJEKT-KONTEXT: BOOK STUDIO
-Generiert am: 17.03.2026 14:14:04
+Generiert am: 17.03.2026 16:55:25
 
 ## 🗂️ GEPACKTE DATEIEN (Inhaltsverzeichnis)
 Folgende Dateien wurden in diesem Kontext gebündelt:
@@ -12,7 +12,6 @@ Folgende Dateien wurden in diesem Kontext gebündelt:
 - `Band_Stoffwechselgesundheit/_quarto.yml`
 - `Band_Template/_quarto.yml`
 - `book_doctor.py`
-- `Book_Preper_Scripter.py`
 - `book_studio.py`
 - `dialog_dirty_utils.py`
 - `examples/unmanned_request.json`
@@ -20,7 +19,6 @@ Folgende Dateien wurden in diesem Kontext gebündelt:
 - `examples/unmanned_request_prepare_only.json`
 - `export_dialog.py`
 - `export_manager.py`
-- `Files_Indexer.py`
 - `footnote_harvester.py`
 - `log_manager.py`
 - `markdown_asset_scanner.py`
@@ -30,6 +28,7 @@ Folgende Dateien wurden in diesem Kontext gebündelt:
 - `preview_inspector.py`
 - `quarto_config_editor.py`
 - `quarto_render_safe.py`
+- `render_current_book.py`
 - `Sanitizer.py`
 - `sanitizer_config_editor.py`
 - `search_filter.py`
@@ -41,8 +40,11 @@ Folgende Dateien wurden in diesem Kontext gebündelt:
 - `test.py`
 - `tests/test_book_doctor_regression.py`
 - `tests/test_export_manager_regression.py`
+- `tests/test_footnote_harvester_regression.py`
 - `tests/test_pre_processor_regression.py`
 - `tests/test_yaml_engine_regression.py`
+- `tools/Book_Preper_Scripter.py`
+- `tools/Files_Indexer.py`
 - `ui_actions_manager.py`
 - `ui_theme.py`
 - `unmanned_trigger.py`
@@ -89,7 +91,54 @@ Folgende Dateien wurden in diesem Kontext gebündelt:
     "Band_Dummy"
   ],
   "chat.tools.terminal.autoApprove": {
-    "c:/Users/Daniel/Documents/Python/IFJN/Book-Studio/.venv/Scripts/python.exe": true
+    "c:/Users/Daniel/Documents/Python/IFJN/Book-Studio/.venv/Scripts/python.exe": true,
+    "/^quarto render \"Band_Stoffwechselgesundheit\" --to typstdoc-typst$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "Tee-Object": true,
+    "ForEach-Object": true,
+    ".\\.venv\\Scripts\\python.exe": true,
+    "/^python smoke_tests\\.py 2>&1 \\| head -100$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python smoke_tests\\.py 2>&1 \\| Select-Object -First 150$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python smoke_tests\\.py 2>&1 \\| Select-Object -First 200$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python -c \"from sanitizer_config_editor import SanitizerConfigEditor, parse_toml_with_comments; print\\('✓ Import successful'\\)\"$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^cd \"c:\\\\Users\\\\Daniel\\\\Documents\\\\Python\\\\IFJN\\\\Book-Studio\" ; python << 'EOF'\nfrom pathlib import Path\nfrom sanitizer_config_editor import parse_toml_with_comments\n\n# Test parsing with the actual TOML file\nconfig_path = Path\\(\"sanitizer_config\\.toml\"\\)\nparsed = parse_toml_with_comments\\(config_path\\)\n\nprint\\(\"=== Parsed TOML Structure ===\"\\)\nfor section_name, section_dict in parsed\\.items\\(\\):\n    print\\(f\"\\\\n\\[\\{section_name\\}\\]\"\\)\n    for key, spec in section_dict\\.items\\(\\):\n        if key == \"__meta__\":\n            print\\(f\"  __meta__: \\{spec\\}\"\\)\n        else:\n            print\\(f\"  \\{key\\}: value=\\{spec\\.get\\('value'\\)\\}, type=\\{spec\\.get\\('type'\\)\\}, doc=\\{spec\\.get\\('doc'\\)\\[:50\\]\\}\\.\\.\\.\"\\)\nEOF\n$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python test_parser\\.py$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python test_editor_refactored\\.py$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python test_toml_preservation\\.py$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python test_integration\\.py$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python test_parser\\.py 2>&1 \\| grep -A 10 \"\\\\\\[tags\\\\\\]\"$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
   }
 }
 ```
@@ -123,6 +172,9 @@ class AppConfigEditor(tk.Toplevel):
         "default_footnote_mode": "endnotes",
         "log_auto_clear_default": False,
         "log_max_lines_default": 500,
+        "prep_sources": [],
+        "prep_dest_folder": "",
+        "indexer_target_folder": "",
     }
 
     def __init__(self, parent, config_path, on_save=None, templates=None):
@@ -154,6 +206,9 @@ class AppConfigEditor(tk.Toplevel):
         self.default_footnote_mode_var = tk.StringVar(value=self._sanitize_footnote_mode(self.config_data.get("default_footnote_mode", self.DEFAULTS["default_footnote_mode"])))
         self.log_auto_clear_default_var = tk.BooleanVar(value=bool(self.config_data.get("log_auto_clear_default", self.DEFAULTS["log_auto_clear_default"])))
         self.log_max_lines_default_var = tk.StringVar(value=str(self._sanitize_log_max_lines(self.config_data.get("log_max_lines_default", self.DEFAULTS["log_max_lines_default"]))))
+        self.prep_sources_var = tk.StringVar(value=self._serialize_sources(self.config_data.get("prep_sources", self.DEFAULTS["prep_sources"])))
+        self.prep_dest_folder_var = tk.StringVar(value=str(self.config_data.get("prep_dest_folder", self.DEFAULTS["prep_dest_folder"])))
+        self.indexer_target_folder_var = tk.StringVar(value=str(self.config_data.get("indexer_target_folder", self.DEFAULTS["indexer_target_folder"])))
         self._initial_values = {
             "content_root_path": self.content_root_var.get(),
             "log_font_size": self.log_font_size_var.get(),
@@ -165,6 +220,9 @@ class AppConfigEditor(tk.Toplevel):
             "default_footnote_mode": self.default_footnote_mode_var.get(),
             "log_auto_clear_default": self.log_auto_clear_default_var.get(),
             "log_max_lines_default": self.log_max_lines_default_var.get(),
+            "prep_sources": self.prep_sources_var.get(),
+            "prep_dest_folder": self.prep_dest_folder_var.get(),
+            "indexer_target_folder": self.indexer_target_folder_var.get(),
         }
 
         self.content_root_var.trace_add("write", self._on_field_changed)
@@ -177,6 +235,9 @@ class AppConfigEditor(tk.Toplevel):
         self.default_footnote_mode_var.trace_add("write", self._on_field_changed)
         self.log_auto_clear_default_var.trace_add("write", self._on_field_changed)
         self.log_max_lines_default_var.trace_add("write", self._on_field_changed)
+        self.prep_sources_var.trace_add("write", self._on_field_changed)
+        self.prep_dest_folder_var.trace_add("write", self._on_field_changed)
+        self.indexer_target_folder_var.trace_add("write", self._on_field_changed)
 
         center_on_parent(self, parent, 840, 520)
         self._build_ui()
@@ -213,6 +274,17 @@ class AppConfigEditor(tk.Toplevel):
         except (TypeError, ValueError):
             amount = 500
         return max(50, min(50000, amount))
+
+    def _serialize_sources(self, value):
+        if isinstance(value, list):
+            parts = [str(item).strip() for item in value if str(item).strip()]
+            return "; ".join(parts)
+        if isinstance(value, str):
+            return value.strip()
+        return ""
+
+    def _parse_sources(self, value):
+        return [item.strip() for item in str(value or "").split(";") if item.strip()]
 
     def _build_ui(self):
         style_dialog(self)
@@ -334,14 +406,27 @@ class AppConfigEditor(tk.Toplevel):
             width=10,
         ).grid(row=13, column=1, sticky="w", pady=6)
 
+        ttk.Separator(wrapper, orient="horizontal").grid(row=14, column=0, columnspan=3, sticky="we", pady=(8, 8))
+        ttk.Label(wrapper, text="Tools: Merge-Quellpfade (; getrennt):").grid(row=15, column=0, sticky="w", pady=6)
+        ttk.Entry(wrapper, textvariable=self.prep_sources_var, width=58).grid(row=15, column=1, sticky="we", pady=6)
+        ttk.Button(wrapper, text="Ordner +", style="Tool.TButton", command=self._add_prep_source_folder).grid(row=15, column=2, sticky="e", padx=(8, 0), pady=6)
+
+        ttk.Label(wrapper, text="Tools: Merge-Zielordner:").grid(row=16, column=0, sticky="w", pady=6)
+        ttk.Entry(wrapper, textvariable=self.prep_dest_folder_var, width=58).grid(row=16, column=1, sticky="we", pady=6)
+        ttk.Button(wrapper, text="Ordner...", style="Tool.TButton", command=self._browse_prep_dest_folder).grid(row=16, column=2, sticky="e", padx=(8, 0), pady=6)
+
+        ttk.Label(wrapper, text="Tools: Indexer-Zielordner:").grid(row=17, column=0, sticky="w", pady=6)
+        ttk.Entry(wrapper, textvariable=self.indexer_target_folder_var, width=58).grid(row=17, column=1, sticky="we", pady=6)
+        ttk.Button(wrapper, text="Ordner...", style="Tool.TButton", command=self._browse_indexer_target_folder).grid(row=17, column=2, sticky="e", padx=(8, 0), pady=6)
+
         hint = (
             "Relative Pfade gelten relativ zum Book-Studio-Codeordner. "
             "Nach dem Speichern wird die Projektliste neu geladen."
         )
-        ttk.Label(wrapper, text=hint, font=("Segoe UI", 8)).grid(row=14, column=0, columnspan=3, sticky="w", pady=(6, 10))
+        ttk.Label(wrapper, text=hint, font=("Segoe UI", 8)).grid(row=18, column=0, columnspan=3, sticky="w", pady=(6, 10))
 
         button_row = ttk.Frame(wrapper)
-        button_row.grid(row=15, column=0, columnspan=3, sticky="e", pady=(2, 0))
+        button_row.grid(row=19, column=0, columnspan=3, sticky="e", pady=(2, 0))
         ttk.Button(button_row, text="Abbrechen", style="Tool.TButton", command=self._cancel).pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Button(button_row, text="Speichern", style="Accent.TButton", command=self._save).pack(side=tk.RIGHT)
         ttk.Button(button_row, text="Auf Standard zurücksetzen", style="Tool.TButton", command=self._reset_defaults).pack(side=tk.RIGHT, padx=(0, 8))
@@ -355,6 +440,25 @@ class AppConfigEditor(tk.Toplevel):
         if selected:
             self.content_root_var.set(selected)
 
+    def _add_prep_source_folder(self):
+        selected = filedialog.askdirectory(parent=self, title="Merge-Quellordner hinzufügen")
+        if not selected:
+            return
+        current = self._parse_sources(self.prep_sources_var.get())
+        if selected not in current:
+            current.append(selected)
+        self.prep_sources_var.set("; ".join(current))
+
+    def _browse_prep_dest_folder(self):
+        selected = filedialog.askdirectory(parent=self, title="Merge-Zielordner auswählen")
+        if selected:
+            self.prep_dest_folder_var.set(selected)
+
+    def _browse_indexer_target_folder(self):
+        selected = filedialog.askdirectory(parent=self, title="Indexer-Zielordner auswählen")
+        if selected:
+            self.indexer_target_folder_var.set(selected)
+
     def _collect_values(self):
         return {
             "content_root_path": self.content_root_var.get().strip() or ".",
@@ -367,6 +471,9 @@ class AppConfigEditor(tk.Toplevel):
             "default_footnote_mode": self.default_footnote_mode_var.get().strip().lower(),
             "log_auto_clear_default": bool(self.log_auto_clear_default_var.get()),
             "log_max_lines_default": self.log_max_lines_default_var.get().strip() or "500",
+            "prep_sources": self._parse_sources(self.prep_sources_var.get()),
+            "prep_dest_folder": self.prep_dest_folder_var.get().strip(),
+            "indexer_target_folder": self.indexer_target_folder_var.get().strip(),
         }
 
     def _on_field_changed(self, *_args):
@@ -395,6 +502,9 @@ class AppConfigEditor(tk.Toplevel):
         self.default_footnote_mode_var.set(self.DEFAULTS["default_footnote_mode"])
         self.log_auto_clear_default_var.set(self.DEFAULTS["log_auto_clear_default"])
         self.log_max_lines_default_var.set(str(self.DEFAULTS["log_max_lines_default"]))
+        self.prep_sources_var.set(self._serialize_sources(self.DEFAULTS["prep_sources"]))
+        self.prep_dest_folder_var.set(self.DEFAULTS["prep_dest_folder"])
+        self.indexer_target_folder_var.set(self.DEFAULTS["indexer_target_folder"])
 
     def _save(self):
         values = self._collect_values()
@@ -422,6 +532,30 @@ class AppConfigEditor(tk.Toplevel):
         footnote_mode = self._sanitize_footnote_mode(values["default_footnote_mode"])
         log_max_lines_default = self._sanitize_log_max_lines(values["log_max_lines_default"])
 
+        for key, title in (
+            ("prep_dest_folder", "Merge-Zielordner"),
+            ("indexer_target_folder", "Indexer-Zielordner"),
+        ):
+            raw_value = str(values.get(key, "")).strip()
+            if not raw_value:
+                continue
+            resolved_path = Path(raw_value).expanduser()
+            if not resolved_path.is_absolute():
+                resolved_path = self.config_path.parent / resolved_path
+            resolved_path = resolved_path.resolve()
+            if not resolved_path.exists() or not resolved_path.is_dir():
+                messagebox.showerror("Ungültiger Pfad", f"{title} ist kein existierender Ordner:\n{resolved_path}")
+                return
+
+        for source in values["prep_sources"]:
+            source_path = Path(source).expanduser()
+            if not source_path.is_absolute():
+                source_path = self.config_path.parent / source_path
+            source_path = source_path.resolve()
+            if not source_path.exists() or not source_path.is_dir():
+                messagebox.showerror("Ungültiger Pfad", f"Merge-Quellordner existiert nicht:\n{source_path}")
+                return
+
         payload = {
             "content_root_path": values["content_root_path"],
             "log_font_size": font_size,
@@ -433,6 +567,9 @@ class AppConfigEditor(tk.Toplevel):
             "default_footnote_mode": footnote_mode,
             "log_auto_clear_default": values["log_auto_clear_default"],
             "log_max_lines_default": log_max_lines_default,
+            "prep_sources": values["prep_sources"],
+            "prep_dest_folder": values["prep_dest_folder"],
+            "indexer_target_folder": values["indexer_target_folder"],
         }
         if callable(self.on_save):
             self.on_save(payload)
@@ -543,8 +680,19 @@ contributes:
 ```yaml
 project:
   type: book
-  output-dir: export/_book
+  output-dir: export/_book_Required_Test
 author: Wolfram Daniel Heinz Garcia
+subtitle: ''
+description: ''
+keywords: []
+publisher: ''
+imprint: ''
+isbn-print: ''
+isbn-ebook: ''
+edition: '1'
+rights-holder: ''
+rights-license: all-rights-reserved
+frontmatter-profile: standard
 book:
   title: Band_Stoffwechselgesundheit
   chapters:
@@ -560,113 +708,10 @@ book:
   - content/20260215131749.md
   - content/20260214111614.md
   - content/20260221115703.md
-  - content/20260224200445.md
-  - content/GP_Evolution.md
-  - content/20260213212559.md
-  - content/20260220193658.md
-  - content/20260220194358.md
-  - content/20260220195303.md
-  - content/20260214134808.md
-  - content/20260214133553.md
-  - content/20260220225011.md
-  - content/20260222170044.md
-  - content/GP_Patho.md
-  - content/20260222172414.md
-  - content/20260220221638.md
-  - content/Gliederungspunkt_template.md
-  - content/20260213214945.md
-  - content/20260213214244.md
-  - content/20260213213517.md
-  - content/20260213213815.md
-  - content/20260214143159.md
-  - content/20260214182713.md
-  - content/20260213222948.md
-  - content/GP_Odyssee.md
-  - content/20260221185815.md
-  - content/20260213220822.md
-  - content/20260221194055.md
-  - content/20260221194506.md
-  - content/20260213215351.md
-  - content/20260220222549.md
-  - content/20260213220451.md
-  - content/20260221195838.md
-  - content/20260221195414.md
-  - content/20260221203248.md
-  - content/20260221202808.md
-  - content/20260221203019.md
-  - content/20260221200925.md
-  - content/20260221195149.md
-  - content/20260221190906.md
-  - content/20260221200033.md
-  - content/20260221201443.md
-  - content/20260221200153.md
-  - content/20260221202318.md
-  - content/20260221203514.md
-  - content/20260221201304.md
-  - content/20260221193457.md
-  - content/20260221192507.md
-  - content/20260221202127.md
-  - content/20260221193707.md
-  - content/20260221192656.md
-  - content/20260221192756.md
-  - content/20260221200443.md
-  - content/20260221201728.md
-  - content/GP_Schlaf.md
-  - content/20260215213911.md
-  - content/20260215214731.md
-  - content/20260221182940.md
-  - content/20260215155646.md
-  - content/20260215215305.md
-  - content/20260217222527.md
-  - content/20260221200322.md
-  - content/20260221195008.md
-  - content/20260221193232.md
-  - content/20260221201133.md
-  - content/20260214140335.md
-  - content/20260214142029.md
-  - content/20260214142745.md
-  - content/20260215102853.md
-  - content/20260215103846.md
-  - content/20260221195617.md
-  - content/20260221201913.md
-  - content/20260221193351.md
-  - content/GP_Intervention.md
-  - content/20260222171340.md
-  - content/20260213220143.md
-  - content/20260214113555.md
-  - content/1.md
-  - content/2.md
-  - content/20260214115026.md
-  - content/4.md
-  - content/20260213221613.md
-  - content/20260213222002.md
-  - content/3.md
-  - content/20260214190005.md
-  - content/20260214190734.md
-  - content/20260214192508.md
-  - content/20260214191449.md
-  - content/20260214192056.md
-  - content/20260217222652.md
-  - content/GP_Diat.md
-  - content/20260214111323.md
-  - content/20260222200620.md
-  - content/required/Literaturverzeichnis.md
   - content/required/Danksagung.md
-  - content/required/Glossar.md
   - content/required/UeberAutor.md
   - content/required/Klappentext_hinten.md
   - content/required/Rueckseite.md
-  subtitle: ''
-  description: ''
-  keywords: []
-  publisher: ''
-  imprint: ''
-  isbn-print: ''
-  isbn-ebook: ''
-  edition: '1'
-  rights-holder: ''
-  rights-license: all-rights-reserved
-  frontmatter-profile: standard
 format:
   typst:
     keep-typ: true
@@ -683,6 +728,10 @@ format:
     toc-depth: 3
     number-sections: true
     section-numbering: 1.1.1
+    mainfont: Segoe UI
+    monofont: Consolas
+    heading-family: Segoe UI
+    link-family: Segoe UI
 lang: de
 
 ```
@@ -1102,116 +1151,6 @@ class BackupManager:
 
 
 ======================================================================
-📁 FILE: Book_Preper_Scripter.py
-======================================================================
-
-```py
-import os
-import shutil
-import csv
-import re
-import logging
-from datetime import datetime
-
-# --- KONFIGURATION ---
-# Trage hier deine tatsächlichen Pfade ein
-sources = [
-    r'C:\Users\Daniel\Documents\Python\IFJN\Baende\Stoffwechselgesundheit\Ich_frage_nur_(src)_(PANDOC_clean.01.03)\src', 
-    r'C:\Users\Daniel\Documents\Python\IFJN\Baende\Stoffwechselgesundheit\Ich_frage_nur_(src)\src', 
-    r'C:\Users\Daniel\Documents\Python\IFJN\Baende\Stoffwechselgesundheit\Ich_frage_nur_(src.bk2)'
-]
-dest_folder = r'C:\Users\Daniel\Documents\Python\IFJN\_tmp_Diabetes_Generat'
-
-# Dateien, die im Zielordner generiert werden
-mapping_csv = os.path.join(dest_folder, 'buch_struktur_mapping.csv')
-log_file = os.path.join(dest_folder, 'migration.log')
-
-# Zielordner erstellen, falls nicht vorhanden
-os.makedirs(dest_folder, exist_ok=True)
-
-# --- LOGGING SETUP ---
-# Erstellt ein detailliertes Logbuch mit Zeitstempeln
-logging.basicConfig(
-    filename=log_file, 
-    level=logging.INFO, 
-    format='%(asctime)s | %(levelname)s | %(message)s',
-    encoding='utf-8'
-)
-
-def get_frontmatter_title(filepath):
-    """Extrahiert den Titel aus dem YAML-Frontmatter."""
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read(2000) 
-            match = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', content, re.MULTILINE)
-            return match.group(1).strip() if match else "Kein Titel gefunden"
-    except Exception as e:
-        logging.error(f"Fehler beim Lesen von {filepath}: {e}")
-        return "Lese-Fehler"
-
-data_rows = []
-
-print("🚀 Starte Prozess. Details werden in die Log-Datei geschrieben...")
-logging.info("=== NEUER MERGE-LAUF GESTARTET ===")
-
-for src in sources:
-    if not os.path.exists(src):
-        logging.warning(f"Quellordner nicht gefunden und uebersprungen: {src}")
-        continue
-        
-    logging.info(f"Starte rekursive Durchsuchung von: {src}")
-    
-    # os.walk iteriert rekursiv durch alle Verzeichnisse und Unterverzeichnisse
-    for root, dirs, files in os.walk(src):
-        for file in files:
-            if file.endswith('.md'):
-                old_path = os.path.join(root, file)
-                title = get_frontmatter_title(old_path)
-                
-                # Duplikat-Check und neuer Dateiname
-                base_name, ext = os.path.splitext(file)
-                target_name = file
-                target_path = os.path.join(dest_folder, target_name)
-                counter = 1
-                
-                while os.path.exists(target_path):
-                    target_name = f"{base_name}_{counter}{ext}"
-                    target_path = os.path.join(dest_folder, target_name)
-                    counter += 1
-                
-                if target_name != file:
-                    logging.info(f"Namenskonflikt gelöst: '{file}' umbenannt in '{target_name}'")
-                
-                # Kopieren
-                try:
-                    shutil.copy2(old_path, target_path)
-                    logging.info(f"Kopiert: {old_path} -> {target_path}")
-                except Exception as e:
-                    logging.error(f"Fehler beim Kopieren von {old_path}: {e}")
-                    continue
-                
-                # Mapping für die CSV speichern
-                data_rows.append({
-                    'DATEINAME_ZIEL': target_name,
-                    'TITEL_FRONTMATTER': title,
-                    'PFAD_QUELLE': old_path
-                })
-
-# --- CSV SCHREIBEN ---
-logging.info("Erstelle Mapping-CSV...")
-with open(mapping_csv, 'w', newline='', encoding='utf-8') as f:
-    writer = csv.DictWriter(f, fieldnames=['DATEINAME_ZIEL', 'TITEL_FRONTMATTER', 'PFAD_QUELLE'], delimiter=';')
-    writer.writeheader()
-    writer.writerows(data_rows)
-
-logging.info(f"=== LAUF BEENDET. {len(data_rows)} Dateien verarbeitet. ===")
-
-print(f"✅ Fertig! {len(data_rows)} .md-Dateien wurden gesammelt.")
-print(f"📂 Alle Dateien + CSV + Logbuch liegen hier: {dest_folder}")
-```
-
-
-======================================================================
 📁 FILE: book_studio.py
 ======================================================================
 
@@ -1226,6 +1165,7 @@ import re
 import platform
 import importlib
 import logging
+import sys
 from export_manager import ExportManager
 from log_manager import LogManager
 from session_manager import SessionManager
@@ -1573,6 +1513,66 @@ class BookStudio:
 
     def persist_app_state(self):
         self._save_session_state()
+
+    # --- Manager host API ---
+
+    def schedule_ui(self, callback, delay=0):
+        if callable(callback):
+            return self.root.after(delay, callback)
+        return None
+
+    def update_status(self, text, fg):
+        if self.status is not None:
+            self.status.config(text=text, fg=fg)
+
+    def copy_text_to_clipboard(self, text):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+
+    def get_current_book(self):
+        return self.current_book
+
+    def get_current_profile_name(self):
+        return self.current_profile_name
+
+    def get_title_for_path(self, path):
+        return self.title_registry.get(path, Path(path).name)
+
+    def get_available_templates(self):
+        return list(self.available_templates)
+
+    def get_last_export_options(self):
+        return dict(self.last_export_options)
+
+    def set_last_export_options(self, options):
+        self.last_export_options = dict(options)
+
+    def get_yaml_engine(self):
+        return self.yaml_engine
+
+    def register_status_widget(self, widget):
+        self.status = widget
+        return widget
+
+    def register_log_output_widget(self, widget):
+        self.log_output = widget
+        return widget
+
+    def register_log_menu_widget(self, widget):
+        self.log_menu = widget
+        return widget
+
+    def get_log_filter_var(self):
+        return self.log_filter_var
+
+    def get_log_filter_labels(self):
+        return list(self.log_filter_labels)
+
+    def get_log_max_lines_var(self):
+        return self.log_max_lines_var
+
+    def get_log_auto_clear_var(self):
+        return self.log_auto_clear_var
 
     # --- Log terminal (delegated to LogManager) ---
 
@@ -3680,8 +3680,8 @@ class BookStudio:
             self.root.after(0, lambda: self.log("🚀 Starte Sanitizer...", "header"))
             
             # Sanitizer.py aufrufen und Output abfangen
-            cmd = f'python Sanitizer.py "{self.current_book}"'
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=self.base_path)
+            cmd = [sys.executable, "Sanitizer.py", str(self.current_book)]
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=self.base_path)
             
             for line in p.stdout:
                 stripped = line.rstrip()
@@ -3969,6 +3969,7 @@ import re
 import os
 import sys
 import platform
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -3985,6 +3986,112 @@ class ExportManager:
         self._active_render_log_handle = None
         self._active_render_log_path = None
 
+    def _log(self, message, level="info"):
+        self.studio.log(message, level)
+
+    def _current_book(self):
+        getter = getattr(self.studio, "get_current_book", None)
+        if callable(getter):
+            return getter()
+        return getattr(self.studio, "current_book", None)
+
+    def _current_profile_name(self):
+        getter = getattr(self.studio, "get_current_profile_name", None)
+        if callable(getter):
+            return getter()
+        return getattr(self.studio, "current_profile_name", None)
+
+    def _title_for_path(self, source_path):
+        getter = getattr(self.studio, "get_title_for_path", None)
+        if callable(getter):
+            return getter(source_path)
+        title_registry = getattr(self.studio, "title_registry", {}) or {}
+        return title_registry.get(source_path, Path(source_path).name)
+
+    def _root(self):
+        return getattr(self.studio, "root", None)
+
+    def _after(self, delay, callback):
+        scheduler = getattr(self.studio, "schedule_ui", None)
+        if callable(scheduler):
+            return scheduler(callback, delay=delay)
+        root = self._root()
+        if root is not None and hasattr(root, "after"):
+            return root.after(delay, callback)
+        return callback()
+
+    def _set_status(self, text, fg):
+        updater = getattr(self.studio, "update_status", None)
+        if callable(updater):
+            updater(text, fg)
+            return
+        status = getattr(self.studio, "status", None)
+        if status is not None and hasattr(status, "config"):
+            status.config(text=text, fg=fg)
+
+    def _copy_to_clipboard(self, text):
+        copier = getattr(self.studio, "copy_text_to_clipboard", None)
+        if callable(copier):
+            copier(text)
+            return
+        root = self._root()
+        if root is None:
+            return
+        root.clipboard_clear()
+        root.clipboard_append(text)
+
+    def _available_templates(self):
+        getter = getattr(self.studio, "get_available_templates", None)
+        if callable(getter):
+            return getter() or ["Standard"]
+        return getattr(self.studio, "available_templates", None) or ["Standard"]
+
+    def _last_export_options(self):
+        getter = getattr(self.studio, "get_last_export_options", None)
+        if callable(getter):
+            return getter() or {}
+        return getattr(self.studio, "last_export_options", {})
+
+    def _set_last_export_options(self, selected):
+        setter = getattr(self.studio, "set_last_export_options", None)
+        if callable(setter):
+            setter(selected)
+            return
+        self.studio.last_export_options = dict(selected)
+
+    def _persist_app_state(self):
+        persist = getattr(self.studio, "persist_app_state", None)
+        if callable(persist):
+            persist()
+
+    def _get_tree_data_for_engine(self):
+        getter = getattr(self.studio, "get_tree_data_for_engine", None)
+        return getter() if callable(getter) else []
+
+    def _run_doctor_preflight(self, context_label, emit_success_log=False):
+        runner = getattr(self.studio, "run_doctor_preflight", None)
+        if callable(runner):
+            return runner(context_label, emit_success_log=emit_success_log)
+        return False, None
+
+    def _save_project(self, show_msg=False, run_doctor_check=False):
+        saver = getattr(self.studio, "save_project", None)
+        if callable(saver):
+            return saver(show_msg=show_msg, run_doctor_check=run_doctor_check)
+        return False
+
+    def _read_config(self):
+        reader = getattr(self.studio, "read_config", None)
+        if callable(reader):
+            return reader() or {}
+        return {}
+
+    def _yaml_engine(self):
+        getter = getattr(self.studio, "get_yaml_engine", None)
+        if callable(getter):
+            return getter()
+        return getattr(self.studio, "yaml_engine", None)
+
     def _write_active_render_log(self, message: str):
         handle = self._active_render_log_handle
         if handle is None:
@@ -3996,7 +4103,7 @@ class ExportManager:
             return
 
     def _start_render_log(self, target_fmt, selected_tpl, footnote_mode, enable_footnote_backlinks):
-        current_book = getattr(self.studio, "current_book", None)
+        current_book = self._current_book()
         if not current_book:
             return
 
@@ -4013,10 +4120,10 @@ class ExportManager:
         except OSError as error:
             self._active_render_log_handle = None
             self._active_render_log_path = None
-            self.studio.log(f"⚠️ Render-Log konnte nicht angelegt werden: {error}", "warning")
+            self._log(f"⚠️ Render-Log konnte nicht angelegt werden: {error}", "warning")
             return
 
-        profile_name = getattr(self.studio, "current_profile_name", None)
+        profile_name = self._current_profile_name()
         self._write_active_render_log("=== Quarto Book Studio Render Log ===")
         self._write_active_render_log(f"started_at={datetime.now().isoformat(timespec='seconds')}")
         self._write_active_render_log(f"book={book_root}")
@@ -4026,7 +4133,7 @@ class ExportManager:
         self._write_active_render_log(f"footnote_backlinks={bool(enable_footnote_backlinks)}")
         self._write_active_render_log(f"profile={profile_name if profile_name else 'default'}")
         self._write_active_render_log("--- render output ---")
-        self.studio.log(f"🧾 Render-Log: {log_path}", "dim")
+        self._log(f"🧾 Render-Log: {log_path}", "dim")
 
     def _finalize_render_log(self, status, primary_returncode=None, fallback_returncode=None):
         handle = self._active_render_log_handle
@@ -4048,7 +4155,7 @@ class ExportManager:
         self._active_render_log_path = None
 
         if path is not None:
-            self.studio.log(f"🧾 Render-Log gespeichert: {path}", "dim")
+            self._log(f"🧾 Render-Log gespeichert: {path}", "dim")
 
     def _iter_tree_paths(self, tree_data):
         for item in tree_data:
@@ -4061,7 +4168,7 @@ class ExportManager:
 
     def collect_processed_fenced_div_hits(self, processed_tree):
         findings = []
-        current_book = getattr(self.studio, "current_book", None)
+        current_book = self._current_book()
         if not current_book:
             return findings
 
@@ -4139,19 +4246,19 @@ class ExportManager:
             return False
 
         abort_first = self.should_abort_on_first_preflight_error()
-        self.studio.log("⚠️ Render-Vorabcheck (Buch-Doktor): ':::' in processed-Dateien gefunden.", "warning")
+        self._log("⚠️ Render-Vorabcheck (Buch-Doktor): ':::' in processed-Dateien gefunden.", "warning")
 
         if abort_first:
             first = findings[0]
             source_path = first["source_path"]
-            title = self.studio.title_registry.get(source_path, Path(source_path).name)
+            title = self._title_for_path(source_path)
             line_number = first["line_number"]
-            self.studio.log(
+            self._log(
                 f"☠ {title} [{source_path}] L{line_number}: defekter ':::'-Block ({first['issue_kind']}, Quelle {first['processed_path']})",
                 "error",
             )
             if len(findings) > 1:
-                self.studio.log(
+                self._log(
                     f"⛔ Abbruch beim ersten Fehler. Weitere {len(findings)-1} Befunde erst nach Korrektur sichtbar.",
                     "warning",
                 )
@@ -4160,50 +4267,41 @@ class ExportManager:
             hidden_count = max(0, len(findings) - max_lines)
             for finding in findings[:max_lines]:
                 source_path = finding["source_path"]
-                title = self.studio.title_registry.get(source_path, Path(source_path).name)
+                title = self._title_for_path(source_path)
                 line_number = finding["line_number"]
-                self.studio.log(
+                self._log(
                     f"☠ {title} [{source_path}] L{line_number}: defekter ':::'-Block ({finding['issue_kind']}, Quelle {finding['processed_path']})",
                     "error",
                 )
             if hidden_count:
-                self.studio.log(
+                self._log(
                     f"… {hidden_count} weitere ':::'-Befunde ausgeblendet (Log-Limit).",
                     "warning",
                 )
 
-        self.studio.log("💡 Tipp: Klick auf [Pfad] Lx im Log öffnet direkt Datei+Zeile.", "dim")
+        self._log("💡 Tipp: Klick auf [Pfad] Lx im Log öffnet direkt Datei+Zeile.", "dim")
         return abort_first
 
     def should_abort_on_first_preflight_error(self):
         default_value = True
-        read_config = getattr(self.studio, "read_config", None)
-        if not callable(read_config):
-            return default_value
         try:
-            cfg = read_config() or {}
+            cfg = self._read_config()
         except (OSError, TypeError, ValueError):
             return default_value
         return bool(cfg.get("abort_on_first_preflight_error", default_value))
 
     def should_abort_on_first_render_colon_warning(self):
         default_value = False
-        read_config = getattr(self.studio, "read_config", None)
-        if not callable(read_config):
-            return default_value
         try:
-            cfg = read_config() or {}
+            cfg = self._read_config()
         except (OSError, TypeError, ValueError):
             return default_value
         return bool(cfg.get("abort_on_first_render_colon_warning", default_value))
 
     def should_enable_footnote_backlinks(self):
         default_value = True
-        read_config = getattr(self.studio, "read_config", None)
-        if not callable(read_config):
-            return default_value
         try:
-            cfg = read_config() or {}
+            cfg = self._read_config()
         except (OSError, TypeError, ValueError):
             return default_value
         return bool(cfg.get("enable_footnote_backlinks", default_value))
@@ -4222,7 +4320,7 @@ class ExportManager:
 
     def build_processed_label_occurrences(self, processed_tree):
         occurrences = {}
-        current_book = getattr(self.studio, "current_book", None)
+        current_book = self._current_book()
         if not current_book:
             return occurrences
 
@@ -4253,7 +4351,7 @@ class ExportManager:
     def build_processed_colon_occurrences(self, processed_tree):
         structural_occurrences = []
         raw_occurrences = []
-        current_book = getattr(self.studio, "current_book", None)
+        current_book = self._current_book()
         if not current_book:
             return structural_occurrences
 
@@ -4304,7 +4402,7 @@ class ExportManager:
 
         entries = self._processed_colon_occurrences
         if not entries:
-            self.studio.log("📌 ':::'-Warnung: keine passende Stelle im processed-Baum gefunden.", "warning")
+            self._log("📌 ':::'-Warnung: keine passende Stelle im processed-Baum gefunden.", "warning")
             return
 
         def _entry_dict(entry):
@@ -4327,20 +4425,21 @@ class ExportManager:
             normalized_entries.append(entry_dict)
 
         if not normalized_entries:
-            self.studio.log("📌 ':::'-Warnung: keine passende Stelle im processed-Baum gefunden.", "warning")
+            self._log("📌 ':::'-Warnung: keine passende Stelle im processed-Baum gefunden.", "warning")
             return
 
         has_structural_hits = any(bool(item.get("is_structural")) for item in normalized_entries)
 
         if has_structural_hits:
-            self.studio.log("📌 Früher Treffer für ':::': strukturell auffällige Stelle(n):", "warning")
+            self._log("📌 Früher Treffer für ':::': strukturell auffällige Stelle(n):", "warning")
         else:
-            self.studio.log(
+            self._log(
                 "📌 Früher Treffer für ':::': keine strukturellen Defekte erkannt – nur mögliche Auslöser.",
                 "warning",
             )
         shown = []
         seen = set()
+        max_hits = 20
         for item in normalized_entries:
             source_path = item.get("source_path")
             line_number = item.get("line_number")
@@ -4353,24 +4452,30 @@ class ExportManager:
                 continue
             seen.add(key)
             shown.append((source_path, line_number, issue_kind, is_structural))
-            if len(shown) >= 6:
+            if len(shown) >= max_hits:
                 break
 
         for source_path, line_number, issue_kind, is_structural in shown:
-            title = self.studio.title_registry.get(source_path, Path(source_path).name)
+            title = self._title_for_path(source_path)
             if is_structural:
-                self.studio.log(
+                self._log(
                     f"   ☠ {title} [{source_path}] L{line_number}: defekter ':::'-Block ({issue_kind})",
                     "error",
                 )
             else:
-                self.studio.log(f"   🔎 {title} [{source_path}] L{line_number}", "warning")
+                self._log(f"   🔎 {title} [{source_path}] L{line_number}", "warning")
+
+        if len(normalized_entries) > len(shown):
+            self._log(
+                f"… {len(normalized_entries) - len(shown)} weitere mögliche Treffer ausgeblendet (Log-Limit).",
+                "warning",
+            )
 
         primary_path, primary_line, _primary_kind, _primary_structural = shown[0]
-        self.studio.log(f"👉 KLICK: [{primary_path}] L{primary_line}", "header")
+        self._log(f"👉 KLICK: [{primary_path}] L{primary_line}", "header")
         if len(shown) > 1:
             alt_path, alt_line, _alt_kind, _alt_structural = shown[1]
-            self.studio.log(f"👉 Alternative: [{alt_path}] L{alt_line}", "header")
+            self._log(f"👉 Alternative: [{alt_path}] L{alt_line}", "header")
 
     def _log_missing_label_hint(self, label):
         if label in self._logged_missing_labels:
@@ -4379,7 +4484,7 @@ class ExportManager:
 
         entries = self._processed_label_occurrences.get(label, [])
         if not entries:
-            self.studio.log(f"📌 Fehlendes Label <{label}>: keine Quelle im processed-Baum gefunden.", "error")
+            self._log(f"📌 Fehlendes Label <{label}>: keine Quelle im processed-Baum gefunden.", "error")
             return
 
         shown = []
@@ -4393,20 +4498,20 @@ class ExportManager:
             if len(shown) >= 6:
                 break
 
-        self.studio.log(f"📌 Fehlendes Label <{label}> – mögliche Quellen:", "error")
+        self._log(f"📌 Fehlendes Label <{label}> – mögliche Quellen:", "error")
         for source_path, line_number in shown:
-            title = self.studio.title_registry.get(source_path, Path(source_path).name)
-            self.studio.log(f"   ☠ {title} [{source_path}] L{line_number}", "error")
+            title = self._title_for_path(source_path)
+            self._log(f"   ☠ {title} [{source_path}] L{line_number}", "error")
 
         primary_path, primary_line = shown[0]
-        self.studio.log(f"👉 KLICK: [{primary_path}] L{primary_line}", "header")
+        self._log(f"👉 KLICK: [{primary_path}] L{primary_line}", "header")
         if len(shown) > 1:
             alt_path, alt_line = shown[1]
-            self.studio.log(f"👉 Alternative: [{alt_path}] L{alt_line}", "header")
+            self._log(f"👉 Alternative: [{alt_path}] L{alt_line}", "header")
 
     def candidate_registry_paths_for_error_file(self, abs_file_path: Path):
         candidates = []
-        current_book = getattr(self.studio, "current_book", None)
+        current_book = self._current_book()
         if not current_book:
             return candidates
 
@@ -4427,7 +4532,7 @@ class ExportManager:
             if title:
                 return str(title), candidate
 
-        yaml_engine = getattr(self.studio, "yaml_engine", None)
+        yaml_engine = self._yaml_engine()
         if yaml_engine and abs_file_path.exists() and abs_file_path.suffix.lower() == ".md":
             try:
                 extracted = yaml_engine.extract_title_from_md(abs_file_path)
@@ -4439,7 +4544,7 @@ class ExportManager:
         return abs_file_path.stem, abs_file_path.name
 
     def _log_render_line(self, stripped_line: str):
-        self.studio.log(stripped_line, "info")
+        self._log(stripped_line, "info")
         self._write_active_render_log(stripped_line)
 
         sanitized_line = re.sub(r"\x1b\[[0-9;]*m", "", stripped_line)
@@ -4447,7 +4552,6 @@ class ExportManager:
         if (
             "The following string was found in the document:" in sanitized_line
             and ":::" in sanitized_line
-            and self.has_structural_colon_occurrences()
         ):
             self._log_colon_warning_hint()
 
@@ -4469,19 +4573,20 @@ class ExportManager:
 
         abs_file_path = Path(file_str)
         title, shown_path = self.resolve_error_file_title(abs_file_path)
-        self.studio.log(f"📌 Betroffener Titel: {title} [{shown_path}]", "error")
+        self._log(f"📌 Betroffener Titel: {title} [{shown_path}]", "error")
 
     # =========================================================================
     # 1. SCRIVENER EXPORT (SINGLE MARKDOWN)
     # =========================================================================
     def export_single_markdown(self):
-        if not self.studio.current_book:
+        current_book = self._current_book()
+        if not current_book:
             return
         
-        export_dir = self.studio.current_book / "export"
+        export_dir = current_book / "export"
         export_dir.mkdir(exist_ok=True)
         
-        default_name = f"{self.studio.current_book.name}_Scrivener.md"
+        default_name = f"{current_book.name}_Scrivener.md"
         filepath = filedialog.asksaveasfilename(
             initialdir=export_dir,
             initialfile=default_name,
@@ -4492,11 +4597,11 @@ class ExportManager:
         if not filepath:
             return
         
-        tree_data = self.studio.get_tree_data_for_engine()
+        tree_data = self._get_tree_data_for_engine()
         
         try:
             with open(filepath, 'w', encoding='utf-8') as out_f:
-                out_f.write(f"# {self.studio.current_book.name}\n\n")
+                out_f.write(f"# {current_book.name}\n\n")
                 self._write_tree_to_file(tree_data, out_f, 0)
                 
             messagebox.showinfo("Erfolg", "Markdown erfolgreich exportiert!\n\nDu kannst diese Datei nun in Scrivener über 'Importieren und aufteilen' einlesen.")
@@ -4516,7 +4621,7 @@ class ExportManager:
                 if item.get("children"):
                     self._write_tree_to_file(item["children"], out_file, level_offset + 1)
             else:
-                src = self.studio.current_book / path_str
+                src = self._current_book() / path_str
                 if src.exists():
                     with open(src, 'r', encoding='utf-8') as f:
                         content = f.read()
@@ -4539,31 +4644,31 @@ class ExportManager:
     # 2. QUARTO RENDER PIPELINE
     # =========================================================================
     def run_quarto_render(self):
-        if not self.studio.current_book:
+        if not self._current_book():
             return
 
-        is_healthy, analysis = self.studio.run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
+        is_healthy, analysis = self._run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
         if not is_healthy:
             if analysis is not None:
-                self.studio.log("⛔ Rendern abgebrochen. Bitte behebe die markierten Dateien in der Buch-Struktur.", "error")
-            self.studio.status.config(text="Render abgebrochen (Buch-Doktor-Befund)", fg="#e74c3c")
+                self._log("⛔ Rendern abgebrochen. Bitte behebe die markierten Dateien in der Buch-Struktur.", "error")
+            self._set_status("Render abgebrochen (Buch-Doktor-Befund)", "#e74c3c")
             return
 
-        templates = getattr(self.studio, "available_templates", None) or ["Standard"]
+        templates = self._available_templates()
         selected = ExportDialog.ask(
-            self.studio.root,
+            self._root(),
             templates,
-            initial=self.studio.last_export_options,
+            initial=self._last_export_options(),
         )
         if not selected:
-            self.studio.status.config(text="Export abgebrochen", fg="#95a5a6")
+            self._set_status("Export abgebrochen", "#95a5a6")
             return
 
-        self.studio.last_export_options = dict(selected)
-        self.studio.persist_app_state()
+        self._set_last_export_options(selected)
+        self._persist_app_state()
         
-        if not self.studio.save_project(show_msg=False, run_doctor_check=False):
-            self.studio.status.config(text="Render abgebrochen (Speicherfehler)", fg="#e74c3c")
+        if not self._save_project(show_msg=False, run_doctor_check=False):
+            self._set_status("Render abgebrochen (Speicherfehler)", "#e74c3c")
             return
             
         base_fmt = selected["format"]
@@ -4597,15 +4702,15 @@ class ExportManager:
             extra_opts = {base_fmt: {"template": f"templates/{selected_tpl}"}}
         # ----------------------------------
         
-        self.studio.status.config(text=f"Rendere {target_fmt} (Pre-Processing)...", fg="#3498db")
+        self._set_status(f"Rendere {target_fmt} (Pre-Processing)...", "#3498db")
         
         processor = PreProcessor(
-            self.studio.current_book,
+            self._current_book(),
             footnote_mode=footnote_mode,
             enable_footnote_backlinks=enable_footnote_backlinks,
             output_format=target_fmt,
         )
-        original_tree = self.studio.get_tree_data_for_engine()
+        original_tree = self._get_tree_data_for_engine()
         processed_tree = processor.prepare_render_environment(original_tree)
         self._processed_label_occurrences = self.build_processed_label_occurrences(processed_tree)
         self._processed_colon_occurrences = self.build_processed_colon_occurrences(processed_tree)
@@ -4613,37 +4718,82 @@ class ExportManager:
         self._logged_colon_warning_hint = False
         has_processed_errors = self.log_processed_fenced_div_hits(processed_tree)
         if has_processed_errors:
-            self.studio.status.config(text="Render abgebrochen (erster Preflight-Fehler)", fg="#e74c3c")
+            self._set_status("Render abgebrochen (erster Preflight-Fehler)", "#e74c3c")
             return
 
         # Verwaiste Fußnoten-Marker ins Log schreiben
         if processor.harvester.orphan_warnings:
-            self.studio.log("⚠️  Verwaiste Fußnoten-Marker (keine Definition gefunden):", "warning")
+            self._log("⚠️  Verwaiste Fußnoten-Marker (keine Definition gefunden):", "warning")
             for file_key, label in processor.harvester.orphan_warnings:
                 rel = Path(file_key).name
-                self.studio.log(f"   [{label}] in {rel}", "warning")
+                self._log(f"   [{label}] in {rel}", "warning")
         
-        self.studio.yaml_engine.save_chapters(
-            processed_tree, 
-            profile_name=self.studio.current_profile_name, 
-            save_gui_state=False,
-            extra_format_options=extra_opts
-        )
-        
-        self.studio.log(f"{'='*50}", "dim")
-        self.studio.log(f"🖨️  EXPORT PIPELINE: {target_fmt.upper()}", "header")
-        self.studio.log(f"{'='*50}", "dim")
+        self._log(f"{'='*50}", "dim")
+        self._log(f"🖨️  EXPORT PIPELINE: {target_fmt.upper()}", "header")
+        self._log(f"{'='*50}", "dim")
         self._start_render_log(target_fmt, selected_tpl, footnote_mode, enable_footnote_backlinks)
 
         def render_thread():
-            cmd = f"quarto render \"{self.studio.current_book}\" --to {target_fmt}"
-            self._write_active_render_log(f"command={cmd}")
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            aborted_on_colon_warning = False
-            for line in p.stdout:
+            self._after(
+                0,
+                lambda: self._log(
+                    "🛡️ Render startet über sichere temporäre Kopie (processed + ORDER-kompatibel).",
+                    "dim",
+                ),
+            )
+            return_code, aborted_on_colon_warning = self._run_safe_render(
+                target_fmt,
+                footnote_mode,
+                enable_footnote_backlinks,
+                profile_name=self._current_profile_name(),
+                extra_format_options=extra_opts,
+            )
+
+            if aborted_on_colon_warning:
+                self._finalize_render_log("aborted_on_first_colon_warning", primary_returncode=return_code)
+                return
+
+            if return_code == 0:
+                self._finalize_render_log("success", primary_returncode=return_code)
+                self._handle_render_success(target_fmt)
+            else:
+                self._finalize_render_log("failed", primary_returncode=return_code)
+                self._after(0, lambda: self._log(f"❌ FEHLER: Code {return_code}", "error"))
+                self._after(0, lambda: self._set_status("Render fehlgeschlagen", "#e74c3c"))
+
+        threading.Thread(target=render_thread, daemon=True).start()
+
+    def _run_safe_render(self, target_fmt, footnote_mode, enable_footnote_backlinks, profile_name=None, extra_format_options=None):
+        safe_script = Path(__file__).resolve().parent / "quarto_render_safe.py"
+        if not safe_script.exists():
+            self._after(0, lambda: self._log("❌ Fallback-Skript nicht gefunden: quarto_render_safe.py", "error"))
+            return 2, False
+
+        cmd = [
+            sys.executable,
+            str(safe_script),
+            str(self._current_book()),
+            "--to",
+            target_fmt,
+            "--footnote-mode",
+            footnote_mode,
+            "--footnote-backlinks" if enable_footnote_backlinks else "--no-footnote-backlinks",
+        ]
+        if profile_name:
+            cmd.extend(["--profile-name", str(profile_name)])
+        if extra_format_options:
+            cmd.extend([
+                "--extra-format-options-json",
+                json.dumps(extra_format_options, ensure_ascii=False, separators=(",", ":")),
+            ])
+        self._write_active_render_log(f"safe_command={' '.join(str(part) for part in cmd)}")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        aborted_on_colon_warning = False
+        if proc.stdout is not None:
+            for line in proc.stdout:
                 stripped = line.rstrip()
                 if stripped:
-                    self.studio.root.after(0, lambda ln=stripped: self._log_render_line(ln))
+                    self._after(0, lambda ln=stripped: self._log_render_line(ln))
                     if (
                         self.is_raw_colon_warning_line(stripped)
                         and self.should_abort_on_first_render_colon_warning()
@@ -4651,100 +4801,44 @@ class ExportManager:
                     ):
                         aborted_on_colon_warning = True
                         try:
-                            p.terminate()
+                            proc.terminate()
                         except OSError:
                             pass
-                        self.studio.root.after(
+                        self._after(
                             0,
-                            lambda: self.studio.log(
+                            lambda: self._log(
                                 "⛔ Render abgebrochen (Config): erster ':::'-Warnhinweis erkannt. Folgefehler werden bewusst unterdrückt.",
                                 "error",
                             ),
                         )
-                        self.studio.root.after(
+                        self._after(
                             0,
-                            lambda: self.studio.status.config(text="Render abgebrochen (erster :::-Warnhinweis)", fg="#e74c3c"),
+                            lambda: self._set_status("Render abgebrochen (erster :::-Warnhinweis)", "#e74c3c"),
                         )
                         break
-            p.wait()
-
-            if aborted_on_colon_warning:
-                self.studio.yaml_engine.save_chapters(original_tree, profile_name=self.studio.current_profile_name, save_gui_state=False)
-                self._finalize_render_log("aborted_on_first_colon_warning", primary_returncode=p.returncode)
-                return
-
-            self.studio.yaml_engine.save_chapters(original_tree, profile_name=self.studio.current_profile_name, save_gui_state=False)
-
-            if p.returncode == 0:
-                self._finalize_render_log("success", primary_returncode=p.returncode)
-                self._handle_render_success(target_fmt)
-            else:
-                self.studio.root.after(
-                    0,
-                    lambda: self.studio.log(
-                        f"⚠️ Primärer Render fehlgeschlagen (Code {p.returncode}). Starte robusten Fallback über temporäre Kopie...",
-                        "warning",
-                    ),
-                )
-                retry_code = self._run_safe_render_fallback(target_fmt, footnote_mode, enable_footnote_backlinks)
-                if retry_code == 0:
-                    self._finalize_render_log("success_with_fallback", primary_returncode=p.returncode, fallback_returncode=retry_code)
-                    self._handle_render_success(target_fmt)
-                else:
-                    self._finalize_render_log("failed", primary_returncode=p.returncode, fallback_returncode=retry_code)
-                    self.studio.root.after(0, lambda: self.studio.log(f"❌ FEHLER: Code {p.returncode}", "error"))
-                    self.studio.root.after(0, lambda: self.studio.log(f"❌ Fallback ebenfalls fehlgeschlagen (Code {retry_code})", "error"))
-                    self.studio.root.after(0, lambda: self.studio.status.config(text="Render fehlgeschlagen", fg="#e74c3c"))
-
-        threading.Thread(target=render_thread, daemon=True).start()
-
-    def _run_safe_render_fallback(self, target_fmt, footnote_mode, enable_footnote_backlinks):
-        safe_script = Path(__file__).resolve().parent / "quarto_render_safe.py"
-        if not safe_script.exists():
-            self.studio.root.after(0, lambda: self.studio.log("❌ Fallback-Skript nicht gefunden: quarto_render_safe.py", "error"))
-            return 2
-
-        cmd = [
-            sys.executable,
-            str(safe_script),
-            str(self.studio.current_book),
-            "--to",
-            target_fmt,
-            "--footnote-mode",
-            footnote_mode,
-            "--footnote-backlinks" if enable_footnote_backlinks else "--no-footnote-backlinks",
-        ]
-        self._write_active_render_log(f"fallback_command={' '.join(cmd)}")
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-        if proc.stdout is not None:
-            for line in proc.stdout:
-                stripped = line.rstrip()
-                if stripped:
-                    self.studio.root.after(0, lambda ln=stripped: self._log_render_line(ln))
         proc.wait()
-        return proc.returncode
+        return proc.returncode, aborted_on_colon_warning
 
     # =========================================================================
     # HILFSFUNKTIONEN (Auto-Open & UI)
     # =========================================================================
     def _handle_render_success(self, fmt):
         try:
-            profile = self.studio.current_profile_name
+            profile = self._current_profile_name()
             safe_profile = re.sub(r'[^a-zA-Z0-9_\-]', '_', profile) if profile else None
             out_dir_name = f"_book_{safe_profile}" if safe_profile else "_book"
-            out_dir = self.studio.current_book / "export" / out_dir_name
+            out_dir = self._current_book() / "export" / out_dir_name
 
             ext = ".pdf" if "pdf" in fmt.lower() or "typst" in fmt.lower() else f".{fmt}"
             found = list(out_dir.glob(f"*{ext}"))
 
             if found:
                 abs_path = str(found[0].resolve())
-                self.studio.root.clipboard_clear()
-                self.studio.root.clipboard_append(abs_path)
+                self._copy_to_clipboard(abs_path)
 
-                self.studio.root.after(0, lambda: self.studio.log(f"✅ ERFOLG: {fmt.upper()} generiert!", "success"))
-                self.studio.root.after(0, lambda: self.studio.log(f"📋 Pfad in Zwischenablage: {abs_path}", "success"))
-                self.studio.root.after(0, lambda: self.studio.status.config(text="Render erfolgreich", fg="#2ecc71"))
+                self._after(0, lambda: self._log(f"✅ ERFOLG: {fmt.upper()} generiert!", "success"))
+                self._after(0, lambda: self._log(f"📋 Pfad in Zwischenablage: {abs_path}", "success"))
+                self._after(0, lambda: self._set_status("Render erfolgreich", "#2ecc71"))
 
                 if platform.system() == 'Windows':
                     os.startfile(abs_path)
@@ -4753,10 +4847,10 @@ class ExportManager:
                 else:
                     subprocess.call(('xdg-open', abs_path))
             else:
-                self.studio.root.after(0, lambda: self.studio.log(f"✅ ERFOLG: {fmt.upper()} im export/ Ordner generiert.", "success"))
-                self.studio.root.after(0, lambda: self.studio.status.config(text="Render erfolgreich", fg="#2ecc71"))
+                self._after(0, lambda: self._log(f"✅ ERFOLG: {fmt.upper()} im export/ Ordner generiert.", "success"))
+                self._after(0, lambda: self._set_status("Render erfolgreich", "#2ecc71"))
         except (tk.TclError, OSError, subprocess.SubprocessError) as post_err:
-            self.studio.root.after(0, lambda err=post_err: self.studio.log(f"⚠️  Post-Render-Fehler: {err}", "warning"))
+            self._after(0, lambda err=post_err: self._log(f"⚠️  Post-Render-Fehler: {err}", "warning"))
 
     def _open_folder_and_select(self, filepath):
         f_path = Path(filepath).resolve()
@@ -4766,55 +4860,6 @@ class ExportManager:
             subprocess.Popen(["open", "-R", str(f_path)])
         else:
             subprocess.Popen(["xdg-open", str(f_path.parent)])
-```
-
-
-======================================================================
-📁 FILE: Files_Indexer.py
-======================================================================
-
-```py
-import os
-import csv
-import re
-
-# --- KONFIGURATION ---
-target_folder = r'C:\Users\Daniel\Documents\Python\IFJN\_tmp_Diabetes_Generat\cleaned'
-csv_file = os.path.join(target_folder, 'buch_struktur_final.csv')
-
-def get_frontmatter_title(filepath):
-    """Extrahiert den Titel aus dem YAML-Frontmatter."""
-    try:
-        with open(filepath, 'r', encoding='utf-8') as source_file:
-            content = source_file.read(2000)
-            match = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', content, re.MULTILINE)
-            return match.group(1).strip() if match else "Kein Titel"
-    except (OSError, ValueError, TypeError):
-        return "Lese-Fehler"
-
-data_rows = []
-
-print("📂 Lese Dateien im Zielordner...")
-
-# os.listdir schaut NUR in die oberste Ebene (ignoriert den 'duplicates' Ordner)
-for file in os.listdir(target_folder):
-    if file.endswith('.md'):
-        full_path = os.path.join(target_folder, file)
-        title = get_frontmatter_title(full_path)
-        
-        data_rows.append({
-            'DATEINAME': file,
-            'TITEL_FRONTMATTER': title
-        })
-
-# CSV schreiben
-with open(csv_file, 'w', newline='', encoding='utf-8') as csv_handle:
-    writer = csv.DictWriter(csv_handle, fieldnames=['DATEINAME', 'TITEL_FRONTMATTER'], delimiter=';')
-    writer.writeheader()
-    writer.writerows(data_rows)
-
-print(f"✅ Fertig! {len(data_rows)} Dateien indexiert.")
-print(f"📄 Die CSV liegt hier: {csv_file}")
 ```
 
 
@@ -4847,25 +4892,53 @@ class FootnoteHarvester:
         self._ref_anchors = {} # new_id -> [back-link-anchor, ...] für Typst-Rücksprünge
         # -------------------------------------------
 
+    def _parse_definition_start(self, line):
+        """Erkennt den Start einer Fußnoten-Definition mit optional leichter Einrückung."""
+        return re.match(r'^\s{0,3}\[\^([^\]]+)\]:\s?(.*)$', line)
+
     def extract_definitions(self, text, file_key=""):
         """PASS 1: Findet alle Fußnoten-Definitionen, speichert sie datei-scoped und entfernt sie aus dem Text.
         
         file_key: eindeutiger Bezeichner der Quelldatei (z.B. Pfad als String).
         So können [^1] in Datei A und [^1] in Datei B als verschiedene Fußnoten behandelt werden.
         """
-        # Definitionen müssen am Zeilenanfang stehen ([^Label]:).
-        # \Z statt $ verhindert, dass die letzte Definition Body-Text nach sich "auffrißt".
-        pattern = re.compile(r'^\[\^([^\]]+)\]:\s*(.*?)(?=^\[\^[^\]]+\]:|\Z)', re.DOTALL | re.MULTILINE)
-        
-        # 1. Alle Treffer ins Lexikon aufnehmen — Key ist (file_key, label)
-        for match in pattern.finditer(text):
-            note_id = match.group(1)
-            note_content = match.group(2).strip()
-            self.definitions[(file_key, note_id)] = note_content
-            
-        # 2. Die gefundenen Definitionen komplett aus dem Fließtext löschen
-        clean_text = pattern.sub('', text)
-        
+        lines = text.splitlines(keepends=True)
+        clean_parts = []
+        active_label = None
+        active_content_parts = []
+
+        def flush_active_definition():
+            nonlocal active_label, active_content_parts
+            if active_label is None:
+                return
+            note_content = "".join(active_content_parts).strip()
+            self.definitions[(file_key, active_label)] = note_content
+            active_label = None
+            active_content_parts = []
+
+        for line in lines:
+            start_match = self._parse_definition_start(line)
+            if start_match:
+                flush_active_definition()
+                active_label = start_match.group(1)
+                first_content = start_match.group(2)
+                active_content_parts.append(first_content)
+                if line.endswith("\n"):
+                    active_content_parts.append("\n")
+                continue
+
+            if active_label is not None:
+                # Pandoc-kompatibel: Fortsetzungszeilen sind eingerückt oder leer.
+                if line.strip() == "" or line.startswith((" ", "\t")):
+                    active_content_parts.append(line)
+                    continue
+
+                flush_active_definition()
+
+            clean_parts.append(line)
+
+        flush_active_definition()
+        clean_text = "".join(clean_parts)
         return clean_text.strip()
 
     def replace_markers(self, text, file_key=""):
@@ -5875,6 +5948,34 @@ class PreProcessor:
 
         return f"{bom}---{newline}{dumped}{newline}---{newline}"
 
+    def _prune_unused_footnote_definitions(self, text):
+        """Entfernt ungenutzte Fußnoten-Definitionen im footnotes-Modus aus dem processed-Text."""
+        if self.footnote_mode != "footnotes":
+            return text
+
+        definition_pattern = re.compile(
+            r'^\[\^([^\]]+)\]:\s*(.*?)(?=^\[\^[^\]]+\]:|\Z)',
+            re.DOTALL | re.MULTILINE,
+        )
+        matches = list(definition_pattern.finditer(text))
+        if not matches:
+            return text
+
+        used_labels = set(re.findall(r'\[\^([^\]]+)\](?!:)', text))
+
+        parts = []
+        cursor = 0
+        for match in matches:
+            start, end = match.span()
+            parts.append(text[cursor:start])
+            label = match.group(1)
+            if label in used_labels:
+                parts.append(match.group(0))
+            cursor = end
+        parts.append(text[cursor:])
+
+        return ''.join(parts).strip()
+
     # =========================================================================
     # NEU: DER WASCHGANG FÜR KAPUTTE MARKDOWN-SYNTAX
     # =========================================================================
@@ -6057,6 +6158,8 @@ class PreProcessor:
         if self._uses_harvester():
             body = self.harvester.extract_definitions(body, file_key=str(src))
             body = self.harvester.replace_markers(body, file_key=str(src))
+        else:
+            body = self._prune_unused_footnote_definitions(body)
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
@@ -6088,6 +6191,8 @@ class PreProcessor:
         if self._uses_harvester():
             body = self.harvester.extract_definitions(body, file_key=str(src))
             body = self.harvester.replace_markers(body, file_key=str(src))
+        else:
+            body = self._prune_unused_footnote_definitions(body)
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
@@ -6112,6 +6217,8 @@ class PreProcessor:
                 if self._uses_harvester():
                     body = self.harvester.extract_definitions(body, file_key=str(src))
                     body = self.harvester.replace_markers(body, file_key=str(src))
+                else:
+                    body = self._prune_unused_footnote_definitions(body)
                 
                 # 3. Überschriften einrücken
                 def shift_heading(m):
@@ -6339,7 +6446,12 @@ class QuartoConfigEditor(tk.Toplevel):
             with self.yaml_path.open("r", encoding="utf-8") as handle:
                 loaded = yaml.safe_load(handle) or {}
             return loaded if isinstance(loaded, dict) else {}
-        except (OSError, yaml.YAMLError, ValueError, TypeError):
+        except (OSError, yaml.YAMLError, ValueError, TypeError) as exc:
+            messagebox.showerror(
+                "Fehler beim Laden von _quarto.yml",
+                f"Die Datei konnte nicht gelesen oder geparst werden:\n{self.yaml_path}\n\nGrund:\n{exc}",
+                parent=self,
+            )
             return {}
 
     def _build_ui(self):
@@ -6420,14 +6532,14 @@ class QuartoConfigEditor(tk.Toplevel):
         body.pack(fill=tk.X)
 
         self.book_title_var = tk.StringVar(value=self._get_nested("book", "title", default=""))
-        self.book_subtitle_var = tk.StringVar(value=self._get_nested("book", "subtitle", default=""))
+        self.book_subtitle_var = tk.StringVar(value=self._get_root_or_book("subtitle", default=""))
         self.author_var = tk.StringVar(value=self._normalize_author(self._get_nested("author", default="")))
         lang_value = str(self._get_nested("lang", default="de"))
         if lang_value not in self.LANG_OPTIONS:
             lang_value = "de"
         self.lang_var = tk.StringVar(value=lang_value)
-        self.book_description_var = tk.StringVar(value=self._get_nested("book", "description", default=""))
-        self.book_keywords_var = tk.StringVar(value=self._normalize_keywords(self._get_nested("book", "keywords", default=[])))
+        self.book_description_var = tk.StringVar(value=self._get_root_or_book("description", default=""))
+        self.book_keywords_var = tk.StringVar(value=self._normalize_keywords(self._get_root_or_book("keywords", default=[])))
 
         self._add_row(body, "Buchtitel", ttk.Entry(body, textvariable=self.book_title_var, width=50), 0)
         self._add_row(body, "Untertitel", ttk.Entry(body, textvariable=self.book_subtitle_var, width=50), 1)
@@ -6448,17 +6560,17 @@ class QuartoConfigEditor(tk.Toplevel):
         body = tk.Frame(frame, bg=COLORS["app_bg"], padx=12, pady=10)
         body.pack(fill=tk.X)
 
-        self.publisher_var = tk.StringVar(value=self._get_nested("book", "publisher", default=""))
-        self.imprint_var = tk.StringVar(value=self._get_nested("book", "imprint", default=""))
-        self.isbn_print_var = tk.StringVar(value=self._get_nested("book", "isbn-print", default=""))
-        self.isbn_ebook_var = tk.StringVar(value=self._get_nested("book", "isbn-ebook", default=""))
-        self.edition_var = tk.StringVar(value=str(self._get_nested("book", "edition", default="1")))
-        self.rights_holder_var = tk.StringVar(value=self._get_nested("book", "rights-holder", default=""))
-        rights_license = str(self._get_nested("book", "rights-license", default="all-rights-reserved"))
+        self.publisher_var = tk.StringVar(value=self._get_root_or_book("publisher", default=""))
+        self.imprint_var = tk.StringVar(value=self._get_root_or_book("imprint", default=""))
+        self.isbn_print_var = tk.StringVar(value=self._get_root_or_book("isbn-print", default=""))
+        self.isbn_ebook_var = tk.StringVar(value=self._get_root_or_book("isbn-ebook", default=""))
+        self.edition_var = tk.StringVar(value=str(self._get_root_or_book("edition", default="1")))
+        self.rights_holder_var = tk.StringVar(value=self._get_root_or_book("rights-holder", default=""))
+        rights_license = str(self._get_root_or_book("rights-license", default="all-rights-reserved"))
         if rights_license not in self.RIGHTS_LICENSE_OPTIONS:
             rights_license = "all-rights-reserved"
         self.rights_license_var = tk.StringVar(value=rights_license)
-        frontmatter_profile = str(self._get_nested("book", "frontmatter-profile", default="standard"))
+        frontmatter_profile = str(self._get_root_or_book("frontmatter-profile", default="standard"))
         if frontmatter_profile not in self.FRONTMATTER_PROFILE_OPTIONS:
             frontmatter_profile = "standard"
         self.frontmatter_profile_var = tk.StringVar(value=frontmatter_profile)
@@ -6663,6 +6775,11 @@ class QuartoConfigEditor(tk.Toplevel):
                 return default
             cur = cur[key]
         return cur
+
+    def _get_root_or_book(self, key, default=None):
+        if isinstance(self.config_data, dict) and key in self.config_data:
+            return self.config_data[key]
+        return self._get_nested("book", key, default=default)
 
     def _set_nested(self, target, keys, value):
         cur = target
@@ -6989,20 +7106,35 @@ class QuartoConfigEditor(tk.Toplevel):
         self._set_nested(updated, ("project", "type"), project_type)
         self._set_nested(updated, ("project", "output-dir"), output_dir)
         self._set_nested(updated, ("book", "title"), title)
-        self._set_nested(updated, ("book", "subtitle"), subtitle)
-        self._set_nested(updated, ("book", "description"), description)
-        self._set_nested(updated, ("book", "keywords"), keywords)
+        self._set_nested(updated, ("subtitle",), subtitle)
+        self._set_nested(updated, ("description",), description)
+        self._set_nested(updated, ("keywords",), keywords)
         self._set_nested(updated, ("author",), author)
         self._set_nested(updated, ("lang",), lang)
 
-        self._set_nested(updated, ("book", "publisher"), publisher)
-        self._set_nested(updated, ("book", "imprint"), imprint)
-        self._set_nested(updated, ("book", "isbn-print"), isbn_print)
-        self._set_nested(updated, ("book", "isbn-ebook"), isbn_ebook)
-        self._set_nested(updated, ("book", "edition"), edition)
-        self._set_nested(updated, ("book", "rights-holder"), rights_holder)
-        self._set_nested(updated, ("book", "rights-license"), rights_license)
-        self._set_nested(updated, ("book", "frontmatter-profile"), frontmatter_profile)
+        self._set_nested(updated, ("publisher",), publisher)
+        self._set_nested(updated, ("imprint",), imprint)
+        self._set_nested(updated, ("isbn-print",), isbn_print)
+        self._set_nested(updated, ("isbn-ebook",), isbn_ebook)
+        self._set_nested(updated, ("edition",), edition)
+        self._set_nested(updated, ("rights-holder",), rights_holder)
+        self._set_nested(updated, ("rights-license",), rights_license)
+        self._set_nested(updated, ("frontmatter-profile",), frontmatter_profile)
+
+        for legacy_key in (
+            "subtitle",
+            "description",
+            "keywords",
+            "publisher",
+            "imprint",
+            "isbn-print",
+            "isbn-ebook",
+            "edition",
+            "rights-holder",
+            "rights-license",
+            "frontmatter-profile",
+        ):
+            self._remove_nested(updated, ("book", legacy_key))
 
         self._set_nested(updated, ("format", "typst", "keep-typ"), bool(self.typst_keep_typ_var.get()))
         self._set_nested(updated, ("format", "typst", "toc"), bool(self.typst_toc_var.get()))
@@ -7048,6 +7180,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -7070,6 +7203,146 @@ IGNORED_DIR_NAMES = {
 
 ROOT_OUTPUT_SUFFIXES = {".typ", ".pdf", ".html", ".docx", ".tex"}
 VALID_FOOTNOTE_MODES = {"footnotes", "endnotes", "pandoc"}
+
+
+def _iter_tree_paths(tree_data):
+    for item in tree_data:
+        path = item.get("path") if isinstance(item, dict) else None
+        if isinstance(path, str):
+            yield path
+        children = item.get("children") if isinstance(item, dict) else None
+        if isinstance(children, list) and children:
+            yield from _iter_tree_paths(children)
+
+
+def _detect_fenced_div_issues(lines):
+    issues = []
+    stack = []
+    marker_pattern = re.compile(r"^\s*(:{3,})(\s*.*)$")
+    code_fence_pattern = re.compile(r"^\s*(```+|~~~+)")
+    in_code_block = False
+
+    for line_number, raw_line in enumerate(lines, start=1):
+        line = raw_line.rstrip("\r")
+
+        if code_fence_pattern.match(line):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+
+        marker_match = marker_pattern.match(line)
+        if marker_match:
+            colon_count = len(marker_match.group(1))
+            tail = marker_match.group(2).strip()
+            if tail:
+                stack.append((colon_count, line_number))
+            else:
+                if stack:
+                    top_colon_count, _top_line = stack[-1]
+                    if colon_count >= top_colon_count:
+                        stack.pop()
+                    else:
+                        issues.append((line_number, "mismatched-close"))
+                else:
+                    issues.append((line_number, "orphan-close"))
+            continue
+
+        if ":::" in line:
+            issues.append((line_number, "inline"))
+
+    for _colon_count, open_line in stack:
+        issues.append((open_line, "unclosed-open"))
+
+    return issues
+
+
+def _collect_processed_colon_occurrences(book_path: Path, processed_tree):
+    structural_occurrences = []
+    raw_occurrences = []
+
+    for rel_path in _iter_tree_paths(processed_tree):
+        if not isinstance(rel_path, str) or not rel_path.lower().endswith(".md"):
+            continue
+
+        processed_file = book_path / rel_path
+        if not processed_file.exists() or not processed_file.is_file():
+            continue
+
+        try:
+            lines = processed_file.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+
+        source_rel_path = rel_path[len("processed/") :] if rel_path.startswith("processed/") else rel_path
+        structural_issues = _detect_fenced_div_issues(lines)
+        for line_number, issue_kind in structural_issues:
+            structural_occurrences.append(
+                {
+                    "source_path": source_rel_path,
+                    "line_number": line_number,
+                    "issue_kind": issue_kind,
+                    "is_structural": True,
+                }
+            )
+
+        for line_number, line in enumerate(lines, start=1):
+            if ":::" not in line:
+                continue
+            raw_occurrences.append(
+                {
+                    "source_path": source_rel_path,
+                    "line_number": line_number,
+                    "issue_kind": "raw-match",
+                    "is_structural": False,
+                }
+            )
+
+    return structural_occurrences if structural_occurrences else raw_occurrences
+
+
+def _print_colon_occurrence_hints(occurrences):
+    if not occurrences:
+        return
+
+    has_structural_hits = any(bool(item.get("is_structural")) for item in occurrences if isinstance(item, dict))
+    if has_structural_hits:
+        print("[safe-render] ::: Hinweis: strukturell auffällige Stelle(n) gefunden:")
+    else:
+        print("[safe-render] ::: Hinweis: keine strukturellen Defekte erkannt – mögliche Auslöser:")
+
+    shown = []
+    seen = set()
+    max_hits = 20
+    for item in occurrences:
+        if not isinstance(item, dict):
+            continue
+        source_path = item.get("source_path")
+        line_number = item.get("line_number")
+        issue_kind = item.get("issue_kind")
+        is_structural = bool(item.get("is_structural"))
+        if not isinstance(source_path, str) or not isinstance(line_number, int):
+            continue
+        key = (source_path, line_number)
+        if key in seen:
+            continue
+        seen.add(key)
+        shown.append((source_path, line_number, issue_kind, is_structural))
+        if len(shown) >= max_hits:
+            break
+
+    for source_path, line_number, issue_kind, is_structural in shown:
+        prefix = "ERROR" if is_structural else "INFO"
+        print(f"[safe-render] {prefix} [{source_path}] L{line_number} ({issue_kind})")
+
+    if len(occurrences) > len(shown):
+        print(f"[safe-render] ... {len(occurrences) - len(shown)} weitere Treffer ausgeblendet.")
+
+    primary_path, primary_line, _primary_kind, _primary_structural = shown[0]
+    print(f"[safe-render] KLICK: [{primary_path}] L{primary_line}")
+    if len(shown) > 1:
+        alt_path, alt_line, _alt_kind, _alt_structural = shown[1]
+        print(f"[safe-render] Alternative: [{alt_path}] L{alt_line}")
 
 
 def _load_default_footnote_mode(project_root: Path) -> str:
@@ -7153,7 +7426,14 @@ def _copy_render_artifacts(temp_book: Path, source_book: Path, output_dir: str) 
         shutil.copy2(artifact, source_book / artifact.name)
 
 
-def run_safe_render(book_path: Path, output_format: str, footnote_mode: str, enable_footnote_backlinks: bool) -> int:
+def run_safe_render(
+    book_path: Path,
+    output_format: str,
+    footnote_mode: str,
+    enable_footnote_backlinks: bool,
+    profile_name: str | None = None,
+    extra_format_options: dict | None = None,
+) -> int:
     project_root = Path(__file__).resolve().parent
     original_output_dir = _read_output_dir(book_path)
 
@@ -7170,7 +7450,14 @@ def run_safe_render(book_path: Path, output_format: str, footnote_mode: str, ena
             output_format=output_format,
         )
         processed_tree = processor.prepare_render_environment(tree_data)
-        engine.save_chapters(processed_tree, save_gui_state=False)
+        colon_occurrences = _collect_processed_colon_occurrences(temp_book, processed_tree)
+        _print_colon_occurrence_hints(colon_occurrences)
+        engine.save_chapters(
+            processed_tree,
+            profile_name=profile_name,
+            save_gui_state=False,
+            extra_format_options=extra_format_options,
+        )
         _restore_output_dir(temp_book, original_output_dir)
 
         cmd = ["quarto", "render", str(temp_book), "--to", output_format]
@@ -7191,6 +7478,11 @@ def main() -> int:
     parser.add_argument("book", help="Pfad zum Buchordner mit _quarto.yml")
     parser.add_argument("--to", default="typst", dest="output_format", help="Quarto-Zielformat, z. B. typst")
     parser.add_argument("--footnote-mode", choices=sorted(VALID_FOOTNOTE_MODES), help="Override für Fußnotenmodus")
+    parser.add_argument("--profile-name", help="Optionaler Profilname für export/_book_<profil>.")
+    parser.add_argument(
+        "--extra-format-options-json",
+        help="JSON-Objekt mit zusätzlichen format-Optionen, die nur im temporären Render-Klon injiziert werden.",
+    )
     parser.add_argument(
         "--footnote-backlinks",
         action=argparse.BooleanOptionalAction,
@@ -7210,7 +7502,83 @@ def main() -> int:
         enable_footnote_backlinks = _load_enable_footnote_backlinks(project_root)
     else:
         enable_footnote_backlinks = bool(args.footnote_backlinks)
-    return run_safe_render(book_path, args.output_format, footnote_mode, enable_footnote_backlinks)
+
+    extra_format_options = None
+    if args.extra_format_options_json:
+        try:
+            extra_format_options = json.loads(args.extra_format_options_json)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            print(f"[safe-render] Ungültiges JSON für --extra-format-options-json: {error}")
+            return 2
+        if not isinstance(extra_format_options, dict):
+            print("[safe-render] --extra-format-options-json muss ein JSON-Objekt sein.")
+            return 2
+
+    return run_safe_render(
+        book_path,
+        args.output_format,
+        footnote_mode,
+        enable_footnote_backlinks,
+        profile_name=args.profile_name,
+        extra_format_options=extra_format_options,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+
+======================================================================
+📁 FILE: render_current_book.py
+======================================================================
+
+```py
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+
+def find_book_root(start_path: Path) -> Path | None:
+    current = start_path.resolve()
+    if current.is_file():
+        current = current.parent
+
+    for candidate in (current, *current.parents):
+        if (candidate / "_quarto.yml").exists():
+            return candidate
+    return None
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Findet zum aktiven Pfad das zugehoerige Quarto-Buch und rendert es sicher.",
+    )
+    parser.add_argument("path", help="Aktive Datei oder Ordner innerhalb eines Buchprojekts.")
+    parser.add_argument("--to", default="typst", dest="output_format", help="Quarto-Zielformat, z. B. typst")
+    args = parser.parse_args()
+
+    project_root = Path(__file__).resolve().parent
+    input_path = Path(args.path)
+    if not input_path.is_absolute():
+        input_path = (project_root / input_path).resolve()
+
+    book_root = find_book_root(input_path)
+    if book_root is None:
+        print(f"[render-current-book] Kein Buchordner mit _quarto.yml ueber {input_path} gefunden.")
+        return 2
+
+    cmd = [
+        sys.executable,
+        str(project_root / "quarto_render_safe.py"),
+        str(book_root),
+        "--to",
+        args.output_format,
+    ]
+    return subprocess.run(cmd, cwd=project_root, check=False).returncode
 
 
 if __name__ == "__main__":
@@ -8115,6 +8483,162 @@ except ModuleNotFoundError:
         tomllib = None
 
 
+def _parse_toml_value(value_str: str):
+    """Parsiert einen TOML-Wert (Boolean, Int, Float, String)."""
+    value_str = value_str.strip()
+
+    # Boolean
+    if value_str.lower() == "true":
+        return True
+    if value_str.lower() == "false":
+        return False
+
+    # Array (einfach: nur Strings in Anführungszeichen)
+    if value_str.startswith("[") and value_str.endswith("]"):
+        # Nutze tomllib zum korrekt parsen
+        try:
+            import importlib
+            try:
+                tomllib = importlib.import_module("tomllib")
+            except ModuleNotFoundError:
+                tomllib = importlib.import_module("tomli")
+            
+            # Parsiere als TOML array
+            dummy_toml = f"arr = {value_str}"
+            parsed = tomllib.loads(dummy_toml)
+            return parsed.get("arr", [])
+        except Exception:
+            # Fallback: simple parsing
+            content = value_str[1:-1]
+            items = [item.strip().strip('"\'') for item in content.split(",")]
+            return [item for item in items if item]
+
+    # String (quoted)
+    if (value_str.startswith('"') and value_str.endswith('"')) or (
+        value_str.startswith("'") and value_str.endswith("'")
+    ):
+        # Entferne Quotes und unescape
+        content = value_str[1:-1]
+        content = content.replace('\\"', '"').replace("\\\\", "\\")
+        return content
+
+    # Int/Float
+    try:
+        if "." in value_str:
+            return float(value_str)
+        return int(value_str)
+    except ValueError:
+        pass
+
+    # Default: string
+    return value_str
+
+
+def _infer_type(value):
+    """Leitet einen Typ vom Wert ab."""
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, list):
+        return "array"
+    return "string"
+
+
+def extract_enum_constraints(config_path: Path) -> dict:
+    """
+    Extrahiert Enum-Constraints aus dem __config Abschnitt der TOML-Datei.
+    Nutzt tomllib zum korrekten Parsen der Struktur.
+    Rückgabe: {section.key: [values, ...], ...}
+    Beispiel: {'tags.C': ['.author', '.note', '.warning'], ...}
+    """
+    constraints = {}
+    
+    if not config_path.exists() or tomllib is None:
+        return constraints
+    
+    try:
+        with open(config_path, "rb") as f:
+            full_toml = tomllib.load(f)
+        
+        config_section = full_toml.get("__config", {})
+        
+        # Iteriere über __config.section.key.enum Struktur
+        for section_name, section_dict in config_section.items():
+            if section_name == "__meta__" or not isinstance(section_dict, dict):
+                continue
+            
+            for key_name, key_dict in section_dict.items():
+                if not isinstance(key_dict, dict):
+                    continue
+                
+                enum_values = key_dict.get("enum")
+                if isinstance(enum_values, list):
+                    constraints[f"{section_name}.{key_name}"] = enum_values
+    except Exception:
+        pass
+    
+    return constraints
+
+
+def parse_toml_with_comments(config_path: Path):
+    """
+    Parst eine TOML-Datei mit Kommentarextraktion.
+    Rückgabe: {section: {key: {value, type, doc, comments_before}}}
+    """
+    result = {}
+
+    if not config_path.exists():
+        return result
+
+    lines = config_path.read_text(encoding="utf-8").splitlines()
+
+    current_section = None
+    pending_comments = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Kommentarzeile sammeln
+        if stripped.startswith("#"):
+            comment_text = stripped[1:].strip()
+            pending_comments.append(comment_text)
+            continue
+
+        # Leerzeile
+        if not stripped:
+            continue
+
+        # Section [name]
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section_name = stripped[1:-1].strip()
+            current_section = section_name
+            result[section_name] = {"__meta__": {"comments_before": pending_comments.copy()}}
+            pending_comments = []
+            continue
+
+        # Key = Value
+        if "=" in stripped and current_section:
+            key, _, value_str = stripped.partition("=")
+            key = key.strip()
+            value_str = value_str.strip()
+
+            # Parse TOML-Wert
+            value = _parse_toml_value(value_str)
+
+            result[current_section][key] = {
+                "value": value,
+                "type": _infer_type(value),
+                "doc": " ".join(pending_comments) if pending_comments else "",
+                "comments_before": pending_comments.copy(),
+            }
+            pending_comments = []
+
+    return result
+
+
 SANITIZER_SCHEMA = {
     "tags": {
         "__meta__": {
@@ -8214,6 +8738,16 @@ SANITIZER_SCHEMA = {
         },
     },
 }
+def _extract_label_from_doc(doc_text: str, key: str) -> str:
+    """Extrahiert ein Label aus Dokumenttext oder generiert eines vom Key."""
+    if not doc_text:
+        # Fallback: Key in schöne Form wandeln (snake_case -> Title Case)
+        return key.replace("_", " ").title()
+    # Erste Zeile des Docs als Label, oder ganzes Doc wenn sehr kurz
+    lines = doc_text.split("\n")
+    return lines[0].strip() if lines[0].strip() else key.replace("_", " ").title()
+
+
 class SanitizerConfigEditor(tk.Toplevel):
     def __init__(self, parent, config_path, on_save=None):
         super().__init__(parent)
@@ -8235,68 +8769,81 @@ class SanitizerConfigEditor(tk.Toplevel):
         width, height = 760, 680
         center_on_parent(self, parent, width, height)
 
-        self.config_data = self._load_config_with_defaults()
-        self.schema = self._build_runtime_schema(self.config_data)
+        # Parse TOML mit Kommentaren (Single Source of Truth)
+        self.config_parsed = parse_toml_with_comments(self.config_path)
+        self.config_data = self._extract_config_values()
+        self.enum_constraints = extract_enum_constraints(self.config_path)
+        self.schema = self._build_runtime_schema()
         self._build_ui()
         self._capture_initial_dirty_snapshot()
         self._start_dirty_watch()
 
-    def _load_config_with_defaults(self):
-        data = {}
-        if self.config_path.exists() and tomllib is not None:
-            try:
-                with open(self.config_path, "rb") as f:
-                    loaded = tomllib.load(f)
-                if isinstance(loaded, dict):
-                    data = loaded
-            except (OSError, ValueError):
-                data = {}
-
-        merged = {}
-        for section_name, section_schema in SANITIZER_SCHEMA.items():
-            current_section = data.get(section_name, {})
-            merged_section = {}
-            for key, spec in section_schema.items():
+    def _extract_config_values(self):
+        """Extrahiert nur die Werte aus der geparsten TOML."""
+        result = {}
+        for section_name, section_dict in self.config_parsed.items():
+            result[section_name] = {}
+            for key, spec in section_dict.items():
                 if key == "__meta__":
                     continue
-                merged_section[key] = current_section.get(key, spec.get("default"))
-            for key, value in current_section.items():
-                if key not in merged_section:
-                    merged_section[key] = value
-            merged[section_name] = merged_section
-        for section_name, section_data in data.items():
-            if section_name not in merged and isinstance(section_data, dict):
-                merged[section_name] = dict(section_data)
-        return merged
+                result[section_name][key] = spec.get("value")
+        return result
 
-    def _build_runtime_schema(self, config_data):
+    def _build_runtime_schema(self):
+        """
+        Baue Laufzeit-Schema aus geparster TOML mit Metadaten aus Kommentaren.
+        Fallback zu SANITIZER_SCHEMA für fehlende Dokumentation.
+        """
         runtime_schema = {}
-        section_names = list(SANITIZER_SCHEMA.keys())
-        for section_name in config_data.keys():
+
+        # Alle Sections aus der Datei (plus fallback aus Schema)
+        section_names = list(self.config_parsed.keys())
+        for section_name in SANITIZER_SCHEMA.keys():
             if section_name not in section_names:
                 section_names.append(section_name)
 
         for section_name in section_names:
-            base_section = SANITIZER_SCHEMA.get(section_name, {})
-            config_section = config_data.get(section_name, {})
-            section_schema = dict(base_section)
-            if "__meta__" not in section_schema:
-                section_schema["__meta__"] = {
-                    "label": section_name.replace("_", " ").title(),
-                    "doc": "Benutzerdefinierte TOML-Sektion ohne hinterlegte Dokumentation.",
+            parsed_section = self.config_parsed.get(section_name, {})
+            schema_section = SANITIZER_SCHEMA.get(section_name, {})
+            config_section = self.config_data.get(section_name, {})
+
+            section_schema = {}
+            section_meta = parsed_section.get("__meta__", {})
+
+            # Section-Metadaten aus Kommentaren oder Fallback
+            section_doc = "\n".join(section_meta.get("comments_before", []))
+            section_label = schema_section.get("__meta__", {}).get("label") or section_name.replace("_", " ").title()
+
+            section_schema["__meta__"] = {
+                "label": section_label,
+                "doc": section_doc or schema_section.get("__meta__", {}).get("doc", ""),
+                "kind": schema_section.get("__meta__", {}).get("kind", "section"),
+            }
+
+            # Alle Keys aus der Datei + Schema
+            all_keys = set(k for k in parsed_section.keys() if k != "__meta__")
+            all_keys.update(k for k in schema_section.keys() if k != "__meta__")
+
+            for key in sorted(all_keys):
+                parsed_spec = parsed_section.get(key, {})
+                schema_spec = schema_section.get(key, {})
+
+                # Priorität: geparste TOML > SCHEMA
+                value = config_section.get(key, schema_spec.get("default"))
+                field_type = parsed_spec.get("type") or schema_spec.get("type") or self._infer_type(value)
+                doc = parsed_spec.get("doc") or schema_spec.get("doc", "")
+                label = _extract_label_from_doc(doc, key) or schema_spec.get("label", key)
+
+                section_schema[key] = {
+                    "type": field_type,
+                    "label": label,
+                    "doc": doc,
+                    "default": schema_spec.get("default", value),
+                    "value": value,
                 }
 
-            for key, value in config_section.items():
-                if key not in section_schema:
-                    inferred_type = self._infer_type(value)
-                    section_schema[key] = {
-                        "type": inferred_type,
-                        "label": key,
-                        "doc": "Benutzerdefinierter TOML-Eintrag ohne hinterlegte Dokumentation.",
-                        "default": value,
-                    }
-
             runtime_schema[section_name] = section_schema
+
         return runtime_schema
 
     def _build_ui(self):
@@ -8380,11 +8927,11 @@ class SanitizerConfigEditor(tk.Toplevel):
         tag_section = self.config_data.get(section_name, {})
         for key, value in tag_section.items():
             spec = section_schema.get(key, {})
-            self._add_tag_row(key, value, spec.get("doc", "Benutzerdefinierter Tag-Eintrag."))
+            self._add_tag_row(section_name, key, value, spec.get("doc", "Benutzerdefinierter Tag-Eintrag."))
 
-        ttk.Button(body, text="+ Eintrag hinzufügen", style="Tool.TButton", command=lambda: self._add_tag_row("", "", "Benutzerdefinierter Tag-Eintrag.")).pack(anchor="w", pady=(8, 0))
+        ttk.Button(body, text="+ Eintrag hinzufügen", style="Tool.TButton", command=lambda: self._add_tag_row(section_name, "", "", "Benutzerdefinierter Tag-Eintrag.")).pack(anchor="w", pady=(8, 0))
 
-    def _add_tag_row(self, key, value, doc_text):
+    def _add_tag_row(self, section_name, key, value, doc_text):
         row = tk.Frame(self.tags_rows_frame, bg=COLORS["app_bg"])
         row.pack(fill=tk.X, pady=2)
 
@@ -8393,19 +8940,31 @@ class SanitizerConfigEditor(tk.Toplevel):
 
         key_entry = ttk.Entry(row, textvariable=key_var, width=20)
         key_entry.pack(side=tk.LEFT, padx=(0, 8))
-        value_entry = ttk.Entry(row, textvariable=value_var)
-        value_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Prüfe, ob ein Enum für tags.key existiert
+        enum_key = f"{section_name}.{key}" if key else None
+        enum_values = self.enum_constraints.get(enum_key, []) if enum_key else []
+        
+        if enum_values:
+            # Dropdown verwenden
+            value_widget = ttk.Combobox(row, textvariable=value_var, values=enum_values, state="readonly", width=30)
+        else:
+            # Text-Input verwenden
+            value_widget = ttk.Entry(row, textvariable=value_var)
+        
+        value_widget.pack(side=tk.LEFT, fill=tk.X, expand=True)
         remove_btn = ttk.Button(row, text="Entfernen", style="Tool.TButton", command=lambda: self._remove_tag_row(row))
         remove_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         ThemedTooltip(key_entry, doc_text)
-        ThemedTooltip(value_entry, doc_text)
+        ThemedTooltip(value_widget, doc_text)
         ThemedTooltip(remove_btn, "Entfernt diesen Tag-Eintrag aus der Konfiguration.")
 
         self.tag_rows.append({
             "frame": row,
             "key_var": key_var,
             "value_var": value_var,
+            "section": section_name,
         })
 
     def _remove_tag_row(self, row):
@@ -8560,22 +9119,41 @@ class SanitizerConfigEditor(tk.Toplevel):
             messagebox.showerror("Fehler", f"Konnte Konfiguration nicht speichern:\n{err}")
 
     def _render_toml(self, config):
+        """
+        Rendert eine TOML-Datei, wobei Originalkommentare aus der geparsten Datei bewahrt werden.
+        Dies ist die dateigetriebene Speicher-Logik für Priorität 4.
+        Der __config Abschnitt wird am Ende bewahrt.
+        """
         lines = ["# Sanitizer-Konfiguration für Quarto/Pandoc -> Typst Pipeline", ""]
         section_names = list(self.schema.keys())
         for section_name in config.keys():
-            if section_name not in section_names:
+            if section_name not in section_names and section_name != "__config":
                 section_names.append(section_name)
 
         for idx, section_name in enumerate(section_names):
+            # Überspringe __config und alle seine Sub-Sections
+            if section_name == "__config" or section_name.startswith("__config."):
+                continue
+
             section_data = config.get(section_name, {})
+            parsed_section = self.config_parsed.get(section_name, {})
             section_schema = self.schema.get(section_name, {})
             meta = section_schema.get("__meta__", {})
 
-            if meta.get("doc"):
+            # Sektions-Kommentare aus dem Original bewahren
+            section_meta = parsed_section.get("__meta__", {})
+            comments_before = section_meta.get("comments_before", [])
+            if comments_before:
+                for line in comments_before:
+                    lines.append(f"# {line}")
+            elif meta.get("doc"):
+                # Fallback zu dem doc aus dem Schema
                 for line in meta["doc"].splitlines():
                     lines.append(f"# {line}")
+
             lines.append(f"[{section_name}]")
 
+            # Bestimme die Reihenfolge der Keys
             ordered_keys = [key for key in section_schema.keys() if key != "__meta__"]
             for key in section_data.keys():
                 if key not in ordered_keys:
@@ -8584,15 +9162,62 @@ class SanitizerConfigEditor(tk.Toplevel):
             for key in ordered_keys:
                 if key not in section_data:
                     continue
-                spec = section_schema.get(key, {})
-                doc = spec.get("doc")
-                if doc:
-                    for line in doc.splitlines():
+
+                # Originalkommentare aus der geparsten Datei
+                parsed_key_spec = parsed_section.get(key, {})
+                key_comments_before = parsed_key_spec.get("comments_before", [])
+
+                if key_comments_before:
+                    for line in key_comments_before:
                         lines.append(f"# {line}")
+                else:
+                    # Fallback zu dem doc aus dem Schema
+                    spec = section_schema.get(key, {})
+                    doc = spec.get("doc")
+                    if doc:
+                        for line in doc.splitlines():
+                            lines.append(f"# {line}")
+
                 lines.append(f"{key} = {self._to_toml_value(section_data[key])}")
 
-            if idx < len(section_names) - 1:
+            if idx < len([s for s in section_names if s != "__config"]) - 1:
                 lines.append("")
+
+        # Anhängen von __config am Ende
+        # __config hat nested structure, daher nutzen wir tomllib direkter Struktur
+        if self.config_path.exists() and tomllib is not None:
+            try:
+                with open(self.config_path, "rb") as f:
+                    full_toml = tomllib.load(f)
+                config_section = full_toml.get("__config", {})
+                
+                if config_section:
+                    lines.append("")
+                    lines.append("[__config]")
+                    lines.append("# Konfiguration für UI-Constraints und Enums")
+                    lines.append("# Format: [__config.section.key] mit 'enum' Liste für Dropdown-Werte")
+                    
+                    # Iteriere über subsections (tags, features, etc.)
+                    for subsection_name in sorted(config_section.keys()):
+                        subsection_dict = config_section[subsection_name]
+                        if not isinstance(subsection_dict, dict):
+                            continue
+                        
+                        # Iteriere über keys in Subsection (C, Q, A, etc.)
+                        for key_name in sorted(subsection_dict.keys()):
+                            key_dict = subsection_dict[key_name]
+                            if not isinstance(key_dict, dict):
+                                continue
+                            
+                            # Render [__config.subsection.key]
+                            lines.append(f"[__config.{subsection_name}.{key_name}]")
+                            
+                            # Render Keys in dieser subsection (enum = [...])
+                            for enum_key in sorted(key_dict.keys()):
+                                enum_value = key_dict[enum_key]
+                                lines.append(f"{enum_key} = {self._to_toml_value(enum_value)}")
+            except Exception:
+                pass
 
         lines.append("")
         return "\n".join(lines)
@@ -8602,6 +9227,10 @@ class SanitizerConfigEditor(tk.Toplevel):
             return "true" if value else "false"
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return str(value)
+        if isinstance(value, list):
+            # Render as TOML array
+            items = [f'"{item}"' if isinstance(item, str) else str(item) for item in value]
+            return "[" + ", ".join(items) + "]"
         escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
 
@@ -8910,6 +9539,7 @@ import argparse
 import importlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import tkinter as tk
 from pathlib import Path
@@ -9047,7 +9677,13 @@ def run_non_gui_smoke(project_root: Path) -> list[tuple[str, bool, str]]:
             shutil.copytree(source_book, book_copy)
 
             render_proc = subprocess.run(
-                ["quarto", "render", str(book_copy), "--to", "typst"],
+                [
+                    sys.executable,
+                    str(project_root / "quarto_render_safe.py"),
+                    str(book_copy),
+                    "--to",
+                    "typst",
+                ],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -9166,6 +9802,9 @@ if __name__ == "__main__":
     "help_manual_path": "doc/handbuch.md",
     "reset_quarto_template_path": "templates/quarto_reset_minimal.yml",
     "content_root_path": ".",
+    "prep_sources": [],
+    "prep_dest_folder": "",
+    "indexer_target_folder": "",
     "abort_on_first_preflight_error": false,
     "abort_on_first_render_colon_warning": false,
     "enable_footnote_backlinks": false,
@@ -9202,7 +9841,7 @@ if __name__ == "__main__":
     "session_state": {
         "active_book_path": "Band_Stoffwechselgesundheit",
         "active_book_name": "Band_Stoffwechselgesundheit",
-        "current_profile_name": null,
+        "current_profile_name": "Required_Test",
         "export_options": {
             "format": "typst",
             "template": "EXT: typstdoc",
@@ -9218,14 +9857,16 @@ if __name__ == "__main__":
             "log_auto_clear": false,
             "log_max_lines": "500",
             "avail_selected_paths": [],
-            "tree_selected_paths": [],
+            "tree_selected_paths": [
+                "content/required/Widmung.md"
+            ],
             "avail_yview": [
                 0.0,
-                1.0
+                0.12
             ],
             "tree_yview": [
-                0.018691588785046728,
-                0.1308411214953271
+                0.2,
+                1.0
             ]
         }
     }
@@ -9920,7 +10561,7 @@ def test_log_render_line_emits_missing_label_hints_for_backtick_format(tmp_path:
     assert any("[content/chapter.md] L42" in message for message, _level in studio.logged)
 
 
-def test_log_render_line_does_not_emit_source_hint_for_raw_valid_colon_warning(tmp_path: Path) -> None:
+def test_log_render_line_emits_source_hint_for_raw_valid_colon_warning(tmp_path: Path) -> None:
     book = tmp_path / "book"
 
     class Studio:
@@ -9942,8 +10583,8 @@ def test_log_render_line_does_not_emit_source_hint_for_raw_valid_colon_warning(t
 
     manager._log_render_line("The following string was found in the document: :::")
 
-    assert not any("Früher Treffer für ':::'" in message for message, _level in studio.logged)
-    assert not any("👉 KLICK: [content/chapter.md] L23" in message for message, _level in studio.logged)
+    assert any("Früher Treffer für ':::': keine strukturellen Defekte erkannt" in message for message, _level in studio.logged)
+    assert any("👉 KLICK: [content/chapter.md] L23" in message for message, _level in studio.logged)
 
 
 def test_log_render_line_emits_source_hint_for_structural_colon_warning(tmp_path: Path) -> None:
@@ -10102,11 +10743,56 @@ def test_run_quarto_render_writes_detailed_render_log_file(tmp_path: Path, monke
     assert len(log_files) == 1
     content = log_files[0].read_text(encoding="utf-8")
     assert "=== Quarto Book Studio Render Log ===" in content
-    assert "command=quarto render" in content
+    assert "safe_command=" in content
     assert "quarto: render started" in content
     assert "quarto: render done" in content
     assert "status=success" in content
     assert "primary_returncode=0" in content
+```
+
+
+======================================================================
+📁 FILE: tests/test_footnote_harvester_regression.py
+======================================================================
+
+```py
+from footnote_harvester import FootnoteHarvester
+
+
+def test_extract_definitions_is_linear_and_preserves_body_text() -> None:
+    harvester = FootnoteHarvester(mode="endnotes")
+    text = (
+        "Einleitung\n"
+        "[^a]: Erste Notiz\n"
+        "  zweite Zeile\n"
+        "\n"
+        "Weiterer Text\n"
+        "[^b]: Zweite Notiz\n"
+        "Schluss\n"
+    )
+
+    cleaned = harvester.extract_definitions(text, file_key="content/a.md")
+
+    assert "[^a]:" not in cleaned
+    assert "[^b]:" not in cleaned
+    assert "Einleitung" in cleaned
+    assert "Weiterer Text" in cleaned
+    assert "Schluss" in cleaned
+    assert harvester.definitions[("content/a.md", "a")] == "Erste Notiz\n  zweite Zeile"
+    assert harvester.definitions[("content/a.md", "b")] == "Zweite Notiz"
+
+
+def test_extract_definitions_accepts_lightly_indented_definition() -> None:
+    harvester = FootnoteHarvester(mode="endnotes")
+    text = "Text\n [^x]: Leicht eingerückt\nMehr Text\n"
+
+    cleaned = harvester.extract_definitions(text, file_key="content/b.md")
+
+    assert "[^x]:" not in cleaned
+    assert "Text" in cleaned
+    assert "Mehr Text" in cleaned
+    assert harvester.definitions[("content/b.md", "x")] == "Leicht eingerückt"
+
 ```
 
 
@@ -10179,6 +10865,33 @@ def test_prepare_render_environment_keeps_numeric_order_in_processed_frontmatter
     processed = (book / "processed" / "content" / "required" / "Vorwort.md").read_text(encoding="utf-8")
 
     assert "order: 5" in processed
+
+
+def test_prepare_render_environment_prunes_unused_footnote_definitions_in_footnotes_mode(tmp_path: Path) -> None:
+    book = _create_book(tmp_path)
+    source = book / "content" / "chapter.md"
+    _write(
+        source,
+        "---\n"
+        "title: \"Kapitel\"\n"
+        "description: \"Kapitel\"\n"
+        "---\n\n"
+        "Text mit Referenz[^used].\n\n"
+        "[^used]: Verwendete Notiz.\n"
+        "[^unused]: Unbenutzte Notiz.\n",
+    )
+
+    processor = PreProcessor(book, footnote_mode="footnotes")
+    tree_data = [{"title": "Kapitel", "path": "content/chapter.md", "children": []}]
+
+    processor.prepare_render_environment(tree_data)
+
+    processed = (book / "processed" / "content" / "chapter.md").read_text(encoding="utf-8")
+    original = source.read_text(encoding="utf-8")
+
+    assert "Verwendete Notiz." in processed
+    assert "Unbenutzte Notiz." not in processed
+    assert "[^unused]:" in original
 
 
 def test_prepare_render_environment_converts_bracket_citations_with_locators_to_endnotes(tmp_path: Path) -> None:
@@ -10546,6 +11259,251 @@ def test_build_title_registry_marks_required_outline_with_both_prefix_icons(tmp_
 
 
 ======================================================================
+📁 FILE: tools/Book_Preper_Scripter.py
+======================================================================
+
+```py
+import argparse
+import csv
+import json
+import logging
+import os
+import re
+import shutil
+from pathlib import Path
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _resolve_path(value: str, base: Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = (base / path).resolve()
+    return path
+
+
+def _load_config(config_path: Path) -> dict:
+    if not config_path.exists():
+        return {}
+    try:
+        with config_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Sammelt Markdown-Dateien aus konfigurierten Quellordnern.")
+    parser.add_argument("--config", default="studio_config.json", help="Pfad zur Konfigurationsdatei (Default: studio_config.json)")
+    parser.add_argument("--sources", nargs="*", help="Optionale Quellordner-Overrides")
+    parser.add_argument("--dest", help="Optionaler Zielordner-Override")
+    return parser.parse_args()
+
+def get_frontmatter_title(filepath):
+    """Extrahiert den Titel aus dem YAML-Frontmatter."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read(2000) 
+            match = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', content, re.MULTILINE)
+            return match.group(1).strip() if match else "Kein Titel gefunden"
+    except OSError as e:
+        logging.error("Fehler beim Lesen von %s: %s", filepath, e)
+        return "Lese-Fehler"
+
+
+def main() -> int:
+    args = _parse_args()
+    project_root = _project_root()
+    config_path = _resolve_path(args.config, project_root)
+    config = _load_config(config_path)
+
+    configured_sources = args.sources if args.sources else config.get("prep_sources", [])
+    configured_dest = args.dest if args.dest else config.get("prep_dest_folder", "")
+
+    if not configured_sources:
+        print("❌ Keine Merge-Quellpfade konfiguriert. Bitte in Studio-Konfiguration 'prep_sources' setzen.")
+        return 2
+    if not configured_dest:
+        print("❌ Kein Merge-Zielordner konfiguriert. Bitte in Studio-Konfiguration 'prep_dest_folder' setzen.")
+        return 2
+
+    sources = [_resolve_path(str(src), project_root) for src in configured_sources if str(src).strip()]
+    dest_folder = _resolve_path(str(configured_dest), project_root)
+
+    mapping_csv = dest_folder / "buch_struktur_mapping.csv"
+    log_file = dest_folder / "migration.log"
+
+    dest_folder.mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        filename=str(log_file),
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)s | %(message)s',
+        encoding='utf-8'
+    )
+
+    data_rows = []
+
+    print("🚀 Starte Prozess. Details werden in die Log-Datei geschrieben...")
+    logging.info("=== NEUER MERGE-LAUF GESTARTET ===")
+
+    for src in sources:
+        if not src.exists() or not src.is_dir():
+            logging.warning("Quellordner nicht gefunden und uebersprungen: %s", src)
+            continue
+
+        logging.info("Starte rekursive Durchsuchung von: %s", src)
+
+        for root, _dirs, files in os.walk(src):
+            for file in files:
+                if file.endswith('.md'):
+                    old_path = Path(root) / file
+                    title = get_frontmatter_title(str(old_path))
+
+                    base_name, ext = os.path.splitext(file)
+                    target_name = file
+                    target_path = dest_folder / target_name
+                    counter = 1
+
+                    while target_path.exists():
+                        target_name = f"{base_name}_{counter}{ext}"
+                        target_path = dest_folder / target_name
+                        counter += 1
+
+                    if target_name != file:
+                        logging.info("Namenskonflikt gelöst: '%s' umbenannt in '%s'", file, target_name)
+
+                    try:
+                        shutil.copy2(old_path, target_path)
+                        logging.info("Kopiert: %s -> %s", old_path, target_path)
+                    except OSError as e:
+                        logging.error("Fehler beim Kopieren von %s: %s", old_path, e)
+                        continue
+
+                    data_rows.append({
+                        'DATEINAME_ZIEL': target_name,
+                        'TITEL_FRONTMATTER': title,
+                        'PFAD_QUELLE': str(old_path)
+                    })
+
+    logging.info("Erstelle Mapping-CSV...")
+    with mapping_csv.open('w', newline='', encoding='utf-8') as handle:
+        writer = csv.DictWriter(handle, fieldnames=['DATEINAME_ZIEL', 'TITEL_FRONTMATTER', 'PFAD_QUELLE'], delimiter=';')
+        writer.writeheader()
+        writer.writerows(data_rows)
+
+    logging.info("=== LAUF BEENDET. %s Dateien verarbeitet. ===", len(data_rows))
+
+    print(f"✅ Fertig! {len(data_rows)} .md-Dateien wurden gesammelt.")
+    print(f"📂 Alle Dateien + CSV + Logbuch liegen hier: {dest_folder}")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+
+======================================================================
+📁 FILE: tools/Files_Indexer.py
+======================================================================
+
+```py
+import argparse
+import csv
+import json
+import os
+import re
+from pathlib import Path
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _resolve_path(value: str, base: Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = (base / path).resolve()
+    return path
+
+
+def _load_config(config_path: Path) -> dict:
+    if not config_path.exists():
+        return {}
+    try:
+        with config_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Erzeugt eine finale CSV-Übersicht aus einem Zielordner.")
+    parser.add_argument("--config", default="studio_config.json", help="Pfad zur Konfigurationsdatei (Default: studio_config.json)")
+    parser.add_argument("--target", help="Optionaler Zielordner-Override")
+    return parser.parse_args()
+
+def get_frontmatter_title(filepath):
+    """Extrahiert den Titel aus dem YAML-Frontmatter."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as source_file:
+            content = source_file.read(2000)
+            match = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', content, re.MULTILINE)
+            return match.group(1).strip() if match else "Kein Titel"
+    except (OSError, ValueError, TypeError):
+        return "Lese-Fehler"
+
+def main() -> int:
+    args = _parse_args()
+    project_root = _project_root()
+    config_path = _resolve_path(args.config, project_root)
+    config = _load_config(config_path)
+
+    configured_target = args.target if args.target else config.get("indexer_target_folder", "")
+    if not configured_target:
+        print("❌ Kein Indexer-Zielordner konfiguriert. Bitte in Studio-Konfiguration 'indexer_target_folder' setzen.")
+        return 2
+
+    target_folder = _resolve_path(str(configured_target), project_root)
+    if not target_folder.exists() or not target_folder.is_dir():
+        print(f"❌ Indexer-Zielordner existiert nicht: {target_folder}")
+        return 2
+
+    csv_file = target_folder / 'buch_struktur_final.csv'
+    data_rows = []
+
+    print("📂 Lese Dateien im Zielordner...")
+
+    for file in os.listdir(target_folder):
+        if file.endswith('.md'):
+            full_path = target_folder / file
+            title = get_frontmatter_title(str(full_path))
+
+            data_rows.append({
+                'DATEINAME': file,
+                'TITEL_FRONTMATTER': title
+            })
+
+    with csv_file.open('w', newline='', encoding='utf-8') as csv_handle:
+        writer = csv.DictWriter(csv_handle, fieldnames=['DATEINAME', 'TITEL_FRONTMATTER'], delimiter=';')
+        writer.writeheader()
+        writer.writerows(data_rows)
+
+    print(f"✅ Fertig! {len(data_rows)} Dateien indexiert.")
+    print(f"📄 Die CSV liegt hier: {csv_file}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+
+======================================================================
 📁 FILE: ui_actions_manager.py
 ======================================================================
 
@@ -10564,6 +11522,32 @@ class UiActionsManager:
             "style": "Soft.TButton",
         }
 
+    def _root(self):
+        return getattr(self.studio, "root", None)
+
+    def _get_attr(self, name, default=None):
+        return getattr(self.studio, name, default)
+
+    def _set_attr(self, name, value):
+        setattr(self.studio, name, value)
+        return value
+
+    def _host_method(self, name):
+        method = getattr(self.studio, name, None)
+        return method if callable(method) else None
+
+    def _call_host(self, name, *args, **kwargs):
+        method = self._host_method(name)
+        if method is None:
+            return None
+        return method(*args, **kwargs)
+
+    def _register_widget(self, register_method_name, attr_name, widget):
+        register = self._host_method(register_method_name)
+        if register is not None:
+            return register(widget)
+        return self._set_attr(attr_name, widget)
+
     def build_middle_panel(self, parent):
         middle_frame = tk.Frame(parent, bg=COLORS["app_bg"], width=196)
         middle_frame.pack_propagate(False)
@@ -10578,19 +11562,23 @@ class UiActionsManager:
 
         tk.Label(footer, text="Aktionen über Menü: Datei / Export / Tools", bg=COLORS["panel_dark"], fg=COLORS["text_soft"], font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=20)
 
-        self.studio.status = tk.Label(footer, text="Bereit.", bg=COLORS["panel_dark"], fg="#cbd5e1", font=("Consolas", 9))
-        self.studio.status.pack(side=tk.RIGHT, padx=20)
+        status = self._register_widget(
+            "register_status_widget",
+            "status",
+            tk.Label(footer, text="Bereit.", bg=COLORS["panel_dark"], fg="#cbd5e1", font=("Consolas", 9)),
+        )
+        status.pack(side=tk.RIGHT, padx=20)
         return footer
 
     def _add_middle_buttons(self, middle_frame):
         button_specs = [
-            {"text": "Hinzufügen ➡️", "style": "Accent.TButton", "command": self.studio.add_files, "pack": {"pady": (36, 6)}},
-            {"text": "⬅️ Entfernen", "style": "Soft.TButton", "command": self.studio.remove_files, "pack": {}},
+            {"text": "Hinzufügen ➡️", "style": "Accent.TButton", "command": self._host_method("add_files"), "pack": {"pady": (36, 6)}},
+            {"text": "⬅️ Entfernen", "style": "Soft.TButton", "command": self._host_method("remove_files"), "pack": {}},
             {"separator": True, "options": {"height": 20, "bg": COLORS["app_bg"]}},
-            {"text": "⬆️ Hoch", "command": self.studio.move_up, "pack": {"pady": 2}},
-            {"text": "⬇️ Runter", "command": self.studio.move_down, "pack": {"pady": 2}},
-            {"text": "➡️ Einrücken", "command": self.studio.indent_item, "pack": {"pady": (10, 2)}},
-            {"text": "⬅️ Ausrücken", "command": self.studio.outdent_item, "pack": {"pady": 2}},
+            {"text": "⬆️ Hoch", "command": self._host_method("move_up"), "pack": {"pady": 2}},
+            {"text": "⬇️ Runter", "command": self._host_method("move_down"), "pack": {"pady": 2}},
+            {"text": "➡️ Einrücken", "command": self._host_method("indent_item"), "pack": {"pady": (10, 2)}},
+            {"text": "⬅️ Ausrücken", "command": self._host_method("outdent_item"), "pack": {"pady": 2}},
             {"separator": True, "ttk": True},
         ]
 
@@ -10609,14 +11597,14 @@ class UiActionsManager:
         ttk.Button(
             undo_redo_row,
             text="↩ Undo",
-            command=self.studio.undo,
+            command=self._host_method("undo"),
             style="Tool.TButton",
             width=8,
         ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
         ttk.Button(
             undo_redo_row,
             text="↪ Redo",
-            command=self.studio.redo,
+            command=self._host_method("redo"),
             style="Tool.TButton",
             width=8,
         ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(3, 0))
@@ -10710,8 +11698,8 @@ class UiActionsManager:
 
         filter_box = ttk.Combobox(
             filter_group,
-            textvariable=self.studio.log_filter_var,
-            values=self.studio.log_filter_labels,
+            textvariable=self._call_host("get_log_filter_var") or self._get_attr("log_filter_var"),
+            values=self._call_host("get_log_filter_labels") or self._get_attr("log_filter_labels", []),
             state="readonly",
             width=9,
                 style="Log.TCombobox",
@@ -10732,7 +11720,7 @@ class UiActionsManager:
 
         max_lines_box = ttk.Combobox(
             filter_group,
-            textvariable=self.studio.log_max_lines_var,
+            textvariable=self._call_host("get_log_max_lines_var") or self._get_attr("log_max_lines_var"),
             values=["200", "500", "1000", "2000"],
             state="readonly",
             width=6,
@@ -10755,7 +11743,7 @@ class UiActionsManager:
         auto_clear_toggle = ttk.Checkbutton(
             filter_group,
             text="Auto-Clear",
-            variable=self.studio.log_auto_clear_var,
+            variable=self._call_host("get_log_auto_clear_var") or self._get_attr("log_auto_clear_var"),
             command=self._on_log_preferences_changed,
             style="LogSwitch.TCheckbutton",
         )
@@ -10780,20 +11768,21 @@ class UiActionsManager:
         tk.Frame(outer, bg="#ffffff", height=2).pack(fill=tk.X, side=tk.BOTTOM)
 
         # Text-Widget
-        self.studio.log_output = ScrolledText(
+        log_output = self._register_widget("register_log_output_widget", "log_output", ScrolledText(
             outer,
             state="disabled", wrap=tk.WORD,
-        )
-        style_code_text(self.studio.log_output)
-        log_font_size = self.studio.get_log_font_size() if hasattr(self.studio, "get_log_font_size") else 9
-        self.studio.log_output.configure(font=("Consolas", log_font_size), padx=8, pady=6, state="disabled")
-        self.studio.log_output.pack(fill=tk.BOTH, expand=True)
-        self.studio.log_output.bind("<Button-3>", self._show_log_menu)
-        self.studio.log_output.bind("<Double-1>", self._on_log_double_click)
-        self.studio.log_output.bind("<Button-1>", self._on_log_click, add="+")
+        ))
+        style_code_text(log_output)
+        get_log_font_size = self._host_method("get_log_font_size")
+        log_font_size = get_log_font_size() if callable(get_log_font_size) else 9
+        log_output.configure(font=("Consolas", log_font_size), padx=8, pady=6, state="disabled")
+        log_output.pack(fill=tk.BOTH, expand=True)
+        log_output.bind("<Button-3>", self._show_log_menu)
+        log_output.bind("<Double-1>", self._on_log_double_click)
+        log_output.bind("<Button-1>", self._on_log_click, add="+")
 
         # Farb-Tags definieren
-        w = self.studio.log_output
+        w = log_output
         w.tag_configure("info",    foreground="#c9d1d9")
         w.tag_configure("success", foreground="#3fb950")
         w.tag_configure("error",   foreground="#f85149")
@@ -10801,12 +11790,12 @@ class UiActionsManager:
         w.tag_configure("header",  foreground="#58a6ff")
         w.tag_configure("dim",     foreground="#484f58")
 
-        self.studio.log_menu = tk.Menu(self.studio.root, tearoff=0)
-        apply_menu_theme(self.studio.log_menu)
-        self.studio.log_menu.add_command(label="Kopieren", command=self._copy_log)
-        self.studio.log_menu.add_command(label="Alles kopieren", command=lambda: self._copy_log(copy_all=True))
-        self.studio.log_menu.add_separator()
-        self.studio.log_menu.add_command(label="Leeren", command=self._clear_log)
+        log_menu = self._register_widget("register_log_menu_widget", "log_menu", tk.Menu(self._root(), tearoff=0))
+        apply_menu_theme(log_menu)
+        log_menu.add_command(label="Kopieren", command=self._copy_log)
+        log_menu.add_command(label="Alles kopieren", command=lambda: self._copy_log(copy_all=True))
+        log_menu.add_separator()
+        log_menu.add_command(label="Leeren", command=self._clear_log)
 
         return outer
 
@@ -10859,29 +11848,28 @@ class UiActionsManager:
         return tk.Frame(parent, bg=COLORS["log_chip_border"], width=1)
 
     def _on_log_preferences_changed(self, _event=None):
-        self.studio.on_log_preferences_changed()
+        self._call_host("on_log_preferences_changed")
 
     def _clear_log(self):
-        self.studio.clear_log()
+        self._call_host("clear_log")
 
     def _copy_log(self, copy_all=False):
-        self.studio.copy_log_to_clipboard(copy_all=copy_all)
+        self._call_host("copy_log_to_clipboard", copy_all=copy_all)
 
     def _show_log_menu(self, event):
+        log_menu = self._get_attr("log_menu")
+        if log_menu is None:
+            return None
         try:
-            self.studio.log_menu.tk_popup(event.x_root, event.y_root)
+            log_menu.tk_popup(event.x_root, event.y_root)
         finally:
-            self.studio.log_menu.grab_release()
+            log_menu.grab_release()
 
     def _on_log_double_click(self, event):
-        if hasattr(self.studio, "on_log_double_click"):
-            return self.studio.on_log_double_click(event)
-        return None
+        return self._call_host("on_log_double_click", event)
 
     def _on_log_click(self, event):
-        if hasattr(self.studio, "on_log_click"):
-            return self.studio.on_log_click(event)
-        return None
+        return self._call_host("on_log_click", event)
 
 ```
 
