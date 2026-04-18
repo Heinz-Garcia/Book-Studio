@@ -1,5 +1,7 @@
 # Quarto Book Studio
 
+![Book Studio Interface](assets/Book_Studio.png)
+
 Desktop-Tool zum Verwalten und Rendern von Quarto-Büchern mit Fokus auf Kapitelstruktur, Frontmatter-Konsistenz und schneller Export-Pipeline.
 
 Aktuelle Version: **v1.0.0**
