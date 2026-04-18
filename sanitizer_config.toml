@@ -1,0 +1,51 @@
+# Sanitizer-Konfiguration für Quarto/Pandoc -> Typst Pipeline
+
+[tags]
+# Mapping von Tag-Namen zu Quarto Div-Klassen für [TAG]: Pattern
+C = ".author"
+Q = ".Inquirer"
+A = ".answer"
+MONO = ".monospace"
+
+[features]
+# Aktivierung einzelner Funktionen
+normalize_headings = true
+convert_bold_tags = true
+remove_double_delimiters = true
+convert_inline_tags = true
+# Repariert Mojibake (UTF-8 als Latin-1 gespeichert/gelesen, z.B. Ã¤ -> ä)
+# Deaktivieren wenn Sonderzeichen dadurch verfälscht werden!
+repair_encoding = false
+# Wenn true: erkennt ungeschlossene ::: {.answer} Blöcke,
+# öffnet die Datei markiert im Windows Explorer und wartet auf Enter.
+prompt_unclosed_answer_div = true
+# Wenn true: führt AUSSCHLIESSLICH die Prüfung auf ungeschlossene
+# ::: {.answer}-Blöcke aus (keine weiteren Sanitizer-Transformationen).
+only_unclosed_answer_div_check = true
+# Wenn true: lässt im --header-mode repair den bestehenden Header-Stil
+# (Quotes/Reihenfolge/Formatting) unverändert und repariert nur die Struktur.
+preserve_frontmatter_style_in_repair = true
+
+[logging]
+# Verbose-Logging für debugging
+verbose = true
+
+[__config]
+# Konfiguration für UI-Constraints und Enums
+# Format: [__config.section.key] mit 'enum' Liste für Dropdown-Werte
+
+[__config.tags.C]
+# Verfügbare CSS-Klassen für Tag [C]
+enum = [".author", ".note", ".warning", ".tip", ".highlight"]
+
+[__config.tags.Q]
+# Verfügbare CSS-Klassen für Tag [Q]
+enum = [".Inquirer", ".question", ".help", ".faq"]
+
+[__config.tags.A]
+# Verfügbare CSS-Klassen für Tag [A]
+enum = [".answer", ".info", ".success", ".solution"]
+
+[__config.tags.MONO]
+# Verfügbare CSS-Klassen für Tag [MONO]
+enum = [".monospace", ".code", ".fixed", ".teletype"]

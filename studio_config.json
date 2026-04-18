@@ -1,0 +1,73 @@
+{
+    "help_manual_path": "doc/handbuch.md",
+    "reset_quarto_template_path": "templates/quarto_reset_minimal.yml",
+    "content_root_path": ".",
+    "prep_sources": [],
+    "prep_dest_folder": "",
+    "indexer_target_folder": "",
+    "abort_on_first_preflight_error": false,
+    "abort_on_first_render_colon_warning": false,
+    "enable_footnote_backlinks": false,
+    "default_export_format": "typst",
+    "default_export_template": "EXT: typstdoc",
+    "default_footnote_mode": "footnotes",
+    "frontmatter_requirements": {
+        "title": "<filename>",
+        "description": "<title>",
+        "status": "bookstudio"
+    },
+    "frontmatter_update_mode": "append_only",
+    "sanitizer_backup_path": "C:/Users/Daniel/Documents/Python/IFJN/Sanitizer_Backups",
+    "editor_end_commands": [
+        {
+            "id": "pdf_pagebreak_end",
+            "label": "PDF-Seitenumbruch am Dateiende",
+            "append_text": "```{=typst}\n#pagebreak()\n```\n",
+            "detect_pattern": "```\\{=typst\\}\\s*#pagebreak(?:\\([^\\)]*\\))?\\s*```\\s*\\Z",
+            "marks_state": "pdf_pagebreak_end"
+        },
+        {
+            "id": "pdf_pagebreak_end_weak",
+            "label": "Schwacher PDF-Seitenumbruch am Dateiende",
+            "append_text": "```{=typst}\n#pagebreak(weak: true)\n```\n",
+            "detect_pattern": "```\\{=typst\\}\\s*#pagebreak\\(weak:\\s*true\\)\\s*```\\s*\\Z",
+            "marks_state": "pdf_pagebreak_end"
+        }
+    ],
+    "window_geometry": "1536x773+65+78",
+    "log_font_size": 12,
+    "log_auto_clear_default": false,
+    "log_max_lines_default": 500,
+    "session_state": {
+        "active_book_path": "Band_Stoffwechselgesundheit",
+        "active_book_name": "Band_Stoffwechselgesundheit",
+        "current_profile_name": "Required_Test",
+        "export_options": {
+            "format": "typst",
+            "template": "EXT: typstdoc",
+            "footnote_mode": "footnotes"
+        },
+        "ui_state": {
+            "search_text": "",
+            "search_scope": "Rechts",
+            "search_mode": "Volltext",
+            "file_state_filter": "Alle",
+            "status_filter": "Alle",
+            "log_filter": "Alle",
+            "log_auto_clear": false,
+            "log_max_lines": "500",
+            "avail_selected_paths": [],
+            "tree_selected_paths": [
+                "content/required/Widmung.md"
+            ],
+            "avail_yview": [
+                0.0,
+                0.12
+            ],
+            "tree_yview": [
+                0.13333333333333333,
+                0.9333333333333333
+            ]
+        }
+    }
+}

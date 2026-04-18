@@ -1,0 +1,27 @@
+# Python Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Secrets / Passwords
+.env
+
+# Python Cache / Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Quarto / Pandoc
+/_site/
+/site_libs/
+/.quarto/
+/output/
+
+# Betriebssystem-Dateien
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
