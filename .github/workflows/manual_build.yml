@@ -27,7 +27,7 @@ jobs:
       - name: Build EXE with PyInstaller
         run: |
           # Note: Ensure your main file is named 'main.py' or change it here
-          pyinstaller --onefile --windowed main.py
+          pyinstaller --onefile --windowed book_studio.py
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
