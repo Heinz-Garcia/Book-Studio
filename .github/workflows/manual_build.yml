@@ -1,7 +1,9 @@
 name: Manual Build EXE
 
 on:
-  workflow_dispatch: # Enables the manual "Run workflow" button
+  push:
+    branches: [ main ] # Triggers the build automatically once you save
+  workflow_dispatch:   # Provides the manual "Run workflow" button
 
 jobs:
   build:
@@ -14,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # Stable version for executables
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
@@ -24,8 +26,8 @@ jobs:
 
       - name: Build EXE with PyInstaller
         run: |
-          # Replace 'main.py' with your actual entry script name if different
-          pyinstaller --onefile --windowed main.py 
+          # Note: Ensure your main file is named 'main.py' or change it here
+          pyinstaller --onefile --windowed main.py
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
