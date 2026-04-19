@@ -1,9 +1,7 @@
 name: Manual Build EXE
 
 on:
-  push:
-    branches: [ main ] # Triggers the build automatically once you save
-  workflow_dispatch:   # Provides the manual "Run workflow" button
+  workflow_dispatch: # Ermöglicht den manuellen "Run workflow" Button
 
 jobs:
   build:
@@ -22,11 +20,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if (Test-Path requirements.txt) { pip install -r requirements.txt }
-          pip install pyinstaller
+          pip install pyinstaller pillow
 
       - name: Build EXE with PyInstaller
         run: |
-          # Note: Ensure your main file is named 'main.py' or change it here
+          # Nutzt Ihr Start-Skript und unterdrückt die Konsole beim Start
           pyinstaller --onefile --windowed book_studio.py
 
       - name: Upload Artifact
