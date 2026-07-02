@@ -38,9 +38,10 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 class BookStudio:
-    def __init__(self, root):
+    def __init__(self, root, import_path: Path | None = None):
         self.root = root
         self.base_path = Path(__file__).parent
+        self._import_path = import_path
         
         # Name + Version vollständig aus version.txt
         self.app_name = "Quarto Book Studio"   # Fallback
@@ -130,6 +131,10 @@ class BookStudio:
         
         if self.books:
             self._restore_session_state()
+
+        # Import-Pfad nach dem UI-Aufbau verarbeiten
+        if self._import_path:
+            self.root.after(200, self._process_import)
 
         self.root.bind("<Control-z>", self.undo)
         self.root.bind("<Control-y>", self.redo)
@@ -489,6 +494,42 @@ class BookStudio:
         self.list_avail.delete(*self.list_avail.get_children())
         for item in self.tree_book.get_children():
             self.tree_book.delete(item)
+
+    def _process_import(self):
+        """Importiere ein via CLI uebergebenes Publish-Verzeichnis."""
+        if not self._import_path or not self._import_path.is_dir():
+            return
+
+        # Prüfen, ob das Buch bereits in der Liste ist
+        already_there = self._import_path in self.books
+        if already_there:
+            idx = self.books.index(self._import_path)
+            self.book_combo.current(idx)
+        else:
+            self.books.append(self._import_path)
+            self.book_combo.config(values=[b.name for b in self.books])
+            idx = len(self.books) - 1
+            self.book_combo.current(idx)
+
+        self.load_book(None)
+
+        # build_title_registry scannt NUR content/ – unser Publish-Verzeichnis
+        # hat die .md-Dateien aber im Root.  Daher mischen wir sie nach.
+        for md_file in self._import_path.glob("*.md"):
+            rel = md_file.relative_to(self._import_path).as_posix()
+            if rel not in self.title_registry:
+                title = self.yaml_engine.extract_title_from_md(md_file) or md_file.stem
+                self.title_registry[rel] = title
+
+        # avail-Liste neu aufbauen (zeigt nun die Root-.md-Dateien)
+        self._update_avail_list()
+
+        self.status.config(
+            text=f"📖 Importiert: {self._import_path.name}",
+            fg="#2ecc71")
+        self.log(f"📖 Publish-Verzeichnis importiert: {self._import_path.name}", "success")
+
+        self._import_path = None  # einmalig
 
     def _reload_books_from_current_root(self):
         previous_book = self.current_book
@@ -2542,7 +2583,205 @@ class BookStudio:
 
         threading.Thread(target=sanitizer_thread, daemon=True).start()
 
+# =============================================================================
+# SVG-Hilfsfunktionen – extrahieren inline-<svg> fuer Quarto-Kompatibilitaet
+# =============================================================================
+
+
+def _extract_inline_svgs_from_md(md_path: Path) -> int:
+    """Extrahiert alle inline ``<svg>…</svg>``-Blöcke aus *md_path*,
+    schreibt sie als separate ``svg_N.svg``-Dateien **neben** die
+    Markdown-Datei und ersetzt sie durch Markdown-Bildreferenzen.
+
+    *Repariert auch* alte ``![](images/svg_*.svg)``-Referenzen aus
+    frueheren Extraktionen (SVG wird aus ``images/`` nach ``md_dir/``
+    verschoben, Referenz aktualisiert).
+
+    Entfernt umschliessende ``<figure>`` / ``</figure>``-Tags.
+
+    Returns: Anzahl der extrahierten/reparierten SVGs (0 = nichts zu tun).
+    """
+    text = md_path.read_text(encoding="utf-8")
+    md_dir = md_path.parent
+    import re as _re
+    count = 0
+
+    # --- Phase 1: noch nicht extrahierte <svg>…</svg>-Blöcke ---
+    if "<svg" in text:
+        pattern = _re.compile(
+            r'(?:<figure>\s*)?'          # optionales <figure> davor
+            r'(<svg[^>]*>.*?</svg>)'      # das <svg>…</svg> (captured)
+            r'(?:\s*</figure>)?',         # optionales </figure> danach
+            _re.DOTALL | _re.IGNORECASE,
+        )
+        for match in pattern.finditer(text):
+            svg_xml = match.group(1)
+            count += 1
+            fname = f"svg_{count}.svg"
+            (md_dir / fname).write_text(svg_xml, encoding="utf-8")
+            text = text[:match.start()] + f'![Visualisierung]({fname})' + text[match.end():]
+
+    # --- Phase 2: alte images/svg_*.svg-Referenzen reparieren ---
+    old_ref_pat = _re.compile(r'!\[.*?\]\(images/svg_(\d+)\.svg\)')
+    old_img_dir = md_dir / "images"
+    for match in old_ref_pat.finditer(text):
+        num = match.group(1)
+        old_svg = old_img_dir / f"svg_{num}.svg"
+        new_svg = md_dir / f"svg_{num}.svg"
+        if old_svg.is_file():
+            old_svg.rename(new_svg)
+            text = text[:match.start()] + f'![Visualisierung](svg_{num}.svg)' + text[match.end():]
+            count += 1
+        elif not new_svg.is_file():
+            # SVG-Datei ist weg – Referenz nicht aendern, sondern
+            # Warnung ausgeben (Benutzer muss neu exportieren)
+            print(f"[Import] ⚠️  SVG-Datei {old_svg} nicht gefunden – "
+                  f"alte Referenz in {md_path.name} bleibt erhalten.")
+
+    if count:
+        md_path.write_text(text, encoding="utf-8")
+
+    return count
+
+
+def _extract_all_inline_svgs(publish_dir: Path) -> int:
+    """Durchlaufe alle ``.md``-Dateien unter *publish_dir* und extrahiere
+    inline SVGs.  Gibt die Gesamtzahl zurueck."""
+    total = 0
+    for md in sorted(publish_dir.rglob("*.md")):
+        total += _extract_inline_svgs_from_md(md)
+    if total:
+        print(f"[Import] {total} inline SVG(s) extrahiert/repariert.")
+    # Alte images/svg_*.svg-Reste entfernen (Phase 2 hat sie verschoben)
+    old_img = publish_dir / "images"
+    if old_img.is_dir():
+        for f in list(old_img.glob("svg_*.svg")):
+            try:
+                f.unlink()
+            except Exception:
+                pass
+        # Nur loeschen, wenn jetzt wirklich leer
+        try:
+            if not any(old_img.iterdir()):
+                old_img.rmdir()
+        except Exception:
+            pass
+    return total
+
+
+def _generate_quarto_yml_for_import(publish_dir: Path, *,
+                                     index_title: str = "",
+                                     index_author: str = "",
+                                     index_description: str = "") -> Path | None:
+    """Erzeuge eine minimale ``_quarto.yml`` im Publish-Verzeichnis, falls
+    noch keine existiert.  Liest Metadaten aus ``_book_studio.toml``.
+
+    Die ``chapters``-Liste bleibt **leer**, damit saemtliche .md-Dateien
+    zunaechst im linken Fenster ("nicht zugeordnete Kapitel") erscheinen.
+    """
+    quarto_yml = publish_dir / "_quarto.yml"
+    # Immer ueberschreiben – die chapters-Liste muss LEER sein, damit alle
+    # .md-Dateien im linken Fenster ("nicht zugeordnete Kapitel") landen.
+
+    # Metadaten aus _book_studio.toml lesen
+    cfg_file = publish_dir / "_book_studio.toml"
+    title = publish_dir.name
+    author = ""
+    if cfg_file.is_file():
+        try:
+            import tomllib
+            raw = tomllib.loads(cfg_file.read_text(encoding="utf-8"))
+            title = raw.get("book", {}).get("title", title)
+            author = raw.get("book", {}).get("author", author)
+        except Exception:
+            pass
+
+    # Beschreibung aus dem Publish-Kontext (aktuell nur per CLI-Override)
+    description = index_description
+
+    # CLI-Overrides aus der Bridge-Config koennen die Werte ueberschreiben
+    if index_title:
+        title = index_title
+    if index_author:
+        author = index_author
+
+    # Keine .md-Dateien in chapters eintragen → alle landen in list_avail
+    content = (
+        f'project:\n'
+        f'  type: book\n'
+        f'book:\n'
+        f'  title: "{title}"\n'
+        f'  author: "{author}"\n'
+        f'  date: last-modified\n'
+        f'  chapters: []\n'
+        f'format:\n'
+        f'  typst:\n'
+        f'    toc: true\n'
+    )
+    quarto_yml.write_text(content, encoding="utf-8")
+
+    # index.md anlegen/ueberschreiben (wird von Book Studio fuer Render
+    # zwingend benoetigt – immer frisch, damit Config-Aenderungen wirken)
+    desc_line = f'description: "{description}"\n' if description else ''
+    index_md = publish_dir / "index.md"
+    index_md.write_text(
+        f'---\n'
+        f'title: "{title}"\n'
+        f'author: "{author}"\n'
+        f'{desc_line}'
+        f'---\n'
+        f'\n'
+        f'# {title}\n'
+        f'\n'
+        f'<!-- index.md – automatisch erzeugt von Book Studio Bridge -->\n',
+        encoding="utf-8",
+    )
+
+    # Inline-<svg> in separate Dateien auslagern (Quarto/Pandoc kann
+    # inline HTML nicht nach PDF konvertieren)
+    _extract_all_inline_svgs(publish_dir)
+
+    # GUI-State aus vorherigen Importen entfernen, sonst uebersteuert
+    # parse_chapters() die leere chapters-Liste in der _quarto.yml
+    gui_state_file = publish_dir / "bookconfig" / ".gui_state.json"
+    if gui_state_file.is_file():
+        gui_state_file.unlink()
+        # Leeres bookconfig-Verzeichnis aufraeumen
+        parent = gui_state_file.parent
+        if parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+
+    return quarto_yml
+
+
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Quarto Book Studio")
+    parser.add_argument("command", nargs="?", choices=["import"],
+                        help="Befehl (import)")
+    parser.add_argument("path", nargs="?",
+                        help="Pfad zum Publish-Verzeichnis")
+    parser.add_argument("--index-title", type=str, default="",
+                        help="Titel fuer index.md (ueberschreibt _book_studio.toml)")
+    parser.add_argument("--index-author", type=str, default="",
+                        help="Autor fuer index.md (ueberschreibt _book_studio.toml)")
+    parser.add_argument("--index-description", type=str, default="",
+                        help="Description fuer index.md (ueberschreibt _book_studio.toml)")
+    _args = parser.parse_args()
+
+    _import_path: Path | None = None
+    if _args.command == "import" and _args.path:
+        _candidate = Path(_args.path).resolve()
+        if _candidate.is_dir():
+            if _generate_quarto_yml_for_import(
+                _candidate,
+                index_title=_args.index_title,
+                index_author=_args.index_author,
+                index_description=_args.index_description,
+            ):
+                _import_path = _candidate
+
     app_root = tk.Tk()
-    app = BookStudio(app_root)
+    app = BookStudio(app_root, import_path=_import_path)
     app_root.mainloop()

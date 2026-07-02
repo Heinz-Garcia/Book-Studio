@@ -355,6 +355,9 @@ class PreProcessor:
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
+
+        # Companion-SVGs in processed/ kopieren
+        self._copy_companion_svgs(src, dest)
             
         return dest
 
@@ -388,8 +391,26 @@ class PreProcessor:
         
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
+
+        # Companion-SVGs in processed/ kopieren
+        self._copy_companion_svgs(src, dest)
             
         return dest
+
+    def _copy_companion_svgs(self, src: Path, dest: Path) -> None:
+        """Kopiere ``svg_*.svg``-Dateien aus dem Quell-Verzeichnis
+        neben die verarbeitete .md-Datei in ``processed/``."""
+        src_dir = src.parent
+        dst_dir = dest.parent
+        if src_dir == dst_dir:
+            return
+        for svg in src_dir.glob("svg_*.svg"):
+            dst_file = dst_dir / svg.name
+            if not dst_file.exists():
+                try:
+                    shutil.copy2(svg, dst_file)
+                except Exception:
+                    pass
 
     def _amalgamate_children(self, children, host_dest, offset):
         for child in children:
