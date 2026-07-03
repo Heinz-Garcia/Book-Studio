@@ -273,7 +273,7 @@
 | 1 | Schritt 1 (Coverage-Messung) | 30 min | gering | `pytest --cov` über alle Service-Module laufen lassen und Lücken-Liste aufstellen. Ziel: ≥ 80 % Coverage pro Modul als Baseline, damit klar ist, welche Pfade nach der Migration unter Tests stehen müssen. |
 | 2 | Schritt 2.1 (WorkspaceService) | 1–2 h | gering | Methoden `_get_projects_root_path` und `_discover_projects` aus `BookStudio` in `services/workspace_service.py` verschieben. `BookStudio` ruft den Service via `self._services.workspace` auf; dünner Wrapper bleibt für Backward-Compat. **Status: erledigt (Commit `3bbea83`)**. |
 | 3 | Schritt 2.2 (BookSessionService) | 2–3 h | mittel | `load_book` plus Profile-Loading-Logik aus `BookStudio` in `services/book_session_service.py` verlagern. Aktives Buch, Profil und `bookconfig/`-Pfad leben ab dort; `BookStudio.load_book` schrumpft auf ≤ 5 Zeilen. **Status: erledigt (Commit `a783fcb`)**. |
-| 4 | Schritt 2.3 (RenderService) | 3–4 h | hoch (Render-Pfad) | Render-Orchestrierung komplett aus `ExportManager` und `book_studio` in `services/render_service.py` ziehen. Ziel: nur noch `RenderService.run_render()` ruft `quarto_render_safe` auf; `ExportManager` enthält keinen `subprocess.Popen` mehr. Risiko: berührt den gesamten Build-Pfad, daher Test-Aufwand am höchsten. **Status 2.3a: erledigt (Commit `fb23869`)** — reine Format-Logik. **Status 2.3b konservativ: erledigt (Commit `f778906`)** — pure Helper (`build_render_log_path`, `sanitize_filename_part`, `build_safe_render_command`, `extract_processed_source_path`, `iter_tree_paths`). Subprocess-Orchestrierung, Threading, Tk-Schedule-Calls und Pre-Processing bleiben in `ExportManager` (Live-Render-Pfad unangetastet). Volle Subprocess-Verlagerung ist fuer eine spaetere Session mit Mock-Subprocess-Tests vorgemerkt. |
+| 4 | Schritt 2.3 (RenderService) | 3–4 h | hoch (Render-Pfad) | Render-Orchestrierung komplett aus `ExportManager` und `book_studio` in `services/render_service.py` ziehen. Ziel: nur noch `RenderService.run_render()` ruft `quarto_render_safe` auf; `ExportManager` enthält keinen `subprocess.Popen` mehr. Risiko: berührt den gesamten Build-Pfad, daher Test-Aufwand am höchsten. **Status 2.3a: erledigt (Commit `fb23869`)** — reine Format-Logik. **Status 2.3b konservativ: erledigt (Commit `f778906`)** — pure Helper (`build_render_log_path`, `sanitize_filename_part`, `build_safe_render_command`, `extract_processed_source_path`, `iter_tree_paths`). **Status 2.3c-Mini: erledigt (Commit `a950122`)** — synchrone Orchestrierung in `RenderService.execute_render` (Single Responsibility: Service orchestriert, Exporter macht Subprocess + Threading, Service kennt keine `StatusFg`-Farbpalette). `_run_safe_render` selbst bleibt in `ExportManager` (System-Concern; eine echte `subprocess.Popen`-Mock kann in einer spaeteren Session eingefuehrt werden). |
 | 5 | Schritt 3 (Magic-String-Reste) | 1 h | gering | Verbleibende hartkodierte Hex-Farben in `tk.Label(...fg="#…")` und `tag_configure(foreground="#…")` (u. a. `book_studio.py:1027,1033,1055,1094,1141,1158,1160,1161,1162`) durch symbolische Konstanten in `ui_theme.COLORS` und `StatusFg` ersetzen. Grep-Assertion: keine Treffer außerhalb von `ui_theme.py` und `services/constants.py`. |
 | 6 | Schritt 4 (CI verschärfen) | 30 min | gering | `--cov-fail-under=80` in `pytest.ini` setzen, `.pre-commit-config.yaml` (Ruff + flake8 + py_compile) installieren und in `.github/workflows/ci.yml` einbinden. CI schlägt ab jetzt fehl, wenn Coverage < 80 % fällt. |
 | 7 | Schritt 5 (LogLevel-Magic) | 1 h | gering | Log-Level-Strings (`"info"`, `"success"`, `"warning"`, `"error"`, `"header"`, `"dim"`, `"meta"`) im Code durch `LogLevel`-Enum-Werte ersetzen. Magic-Log-Level-Strings danach nur noch in `services/constants.py` definiert. |
@@ -307,11 +307,11 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 | `services/book_session_service.py` | 20 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/constants.py` | 51 | 2 | **96 %** | sehr gut | ≥ 80 % | +16 |
 | `services/diagnostics_service.py` | 45 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
-| `services/render_service.py` | 82 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
+| `services/render_service.py` | 105 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/studio_adapter.py` | 97 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/ui_state_service.py` | 68 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/workspace_service.py` | 21 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
-| **Gesamt** | **884** | **31** | **96 %** | **sehr gut** | ≥ 80 % | +16 |
+| **Gesamt** | **907** | **31** | **97 %** | **sehr gut** | ≥ 80 % | +17 |
 
 ### Lücken-Liste (priorisiert)
 
@@ -319,6 +319,7 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 
 1. ~~**`services/render_service.py` (71 % → 100 %)**.~~ +19 Tests in `test_render_service.py`: `EXTENSION_TEMPLATE_PREFIX`-Konstante, Standard/Local/Extension-Templates, leere Inputs, `None`-Template, Delegation der `run_render`/`get_render_log_dir`-Stubs. **Status: erledigt (Commit `fb23869`, Schritt 2.3a).** Schritt 2.3b (Subprocess/Threading) folgt in eigener Session.
 1a. ~~**`services/render_service.py` (2.3b, +39 Helper-Tests)**.~~ Pure Helper (`build_render_log_path`, `sanitize_filename_part`, `build_safe_render_command`, `extract_processed_source_path`, `iter_tree_paths`) in `RenderService` verlagert. Subprocess-Orchestrierung bleibt in `ExportManager`. **Status: erledigt (Commit `f778906`, Schritt 2.3b konservativ).** Volle Subprocess-Verlagerung ist fuer eine spaetere Session mit Mock-Subprocess-Tests vorgemerkt.
+1b. ~~**`services/render_service.py` (2.3c-Mini, +9 execute_render-Tests)**.~~ Synchrone Render-Orchestrierung (`execute_render`) in `RenderService`. Subprocess- und Threading-Code bleibt in `ExportManager`. Service kennt keine `StatusFg`-Farbpalette (UI-Konzern, lebt im `on_failure`-Callback des Exporters). **Status: erledigt (Commit `a950122`, Schritt 2.3c-Mini).**
 2. ~~**`services/diagnostics_service.py` (72 % → 100 %)**.~~ +31 Tests in `test_diagnostics_service.py`: Registry-Management (`set_issues_from_analysis` mit fehlenden Keys/`None`, `clear_issues` idempotent, `has_issues`), Convenience-Accessoren, `paths_in_tree_order` mit allen Branches, `pick_next_issue_path` (Vor-/Rückwärts, Wraparound beider Richtungen, unknown/`None` current_path, leere Liste, single path), `pick_first_issue_path`. **Status: erledigt (Commit `d41355e`, Schritt 2.4a).** Schritt 2.4b (Tree-Orchestrierung) folgt in eigener Session.
 
 **Prio 2 – Erledigt (Test-Polster am 2026-07-03):**
@@ -346,7 +347,7 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 
 | Schritt | Modul | Maßnahme | Erwarteter Cover-Sprung | Status |
 |---|---|---|---|---|
-| 2.3 | `services/render_service.py` | Render-Logik aus `ExportManager` ziehen | 71 % → ≥ 85 % | **2.3a erledigt (100 %, `fb23869`)**; **2.3b konservativ erledigt (100 %, `f778906`)**; volle Subprocess-Verlagerung offen |
+| 2.3 | `services/render_service.py` | Render-Logik aus `ExportManager` ziehen | 71 % → ≥ 85 % | **2.3a erledigt (100 %, `fb23869`)**; **2.3b konservativ erledigt (100 %, `f778906`)**; **2.3c-Mini erledigt (100 %, `a950122`)**; volle Subprocess-Verlagerung offen |
 | 2.4 | `services/diagnostics_service.py` | Doctor-Logik einbauen | 72 % → ≥ 80 % | **2.4a erledigt (100 %, `d41355e`)**; 2.4b offen |
 | Parallel | `app_config.py` | Defensive-Branches testen | 88 % → ≥ 90 % | offen |
 | ~~Parallel~~ | ~~`ui_state_service.py`~~ | ~~Filter/Cache-Pfade testen~~ | ~~78 % → ≥ 80 %~~ | **erledigt (100 %)** |
