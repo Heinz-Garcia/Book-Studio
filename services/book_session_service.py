@@ -27,8 +27,43 @@ Verweise:
 
 from __future__ import annotations
 
-from pathlib import Path
+import logging
+from pathlib import Path, PureWindowsPath
 from typing import Any, Callable, Optional, Protocol
+
+logger = logging.getLogger(__name__)
+
+_MISSING = object()
+
+
+def sanitize_profile_name(profile_name: Optional[str]) -> Optional[str]:
+    """Validiert einen Profilnamen fuer die Verwendung in einem Dateipfad.
+
+    B-Fix (Code-Review 2026-07-03): Profilnamen landen unvalidiert in
+    `<book>/bookconfig/<profile_name>.json` (siehe `profile_path` unten,
+    sowie `session_manager.SessionManager.restore`). Ein Profilname wie
+    `"../../../Windows/System32/x"` oder ein absoluter Pfad (`"C:/..."`)
+    kann dabei aus `bookconfig/` herausfuehren - insbesondere gefaehrlich,
+    da `current_profile_name` aus der (potenziell manipulierbaren)
+    `session_state.json` gelesen wird.
+
+    Erlaubt sind nur "einfache" Namen ohne Pfadtrenner, ohne `..`-Segmente
+    und ohne Laufwerksangabe. Bei allem anderen wird `None` zurueckgegeben
+    (Aufrufer behandeln das wie "kein Profil").
+    """
+    if not isinstance(profile_name, str):
+        return None
+    name = profile_name.strip()
+    if not name or name in {".", ".."}:
+        return None
+    # Sowohl POSIX- als auch Windows-Pfadtrenner ablehnen (die App laeuft
+    # plattformuebergreifend, ein Name mit "\\" waere unter POSIX kein
+    # Trenner, unter Windows aber schon).
+    if "/" in name or "\\" in name:
+        return None
+    if PureWindowsPath(name).drive:
+        return None
+    return name
 
 
 # --- Schnittstelle ----------------------------------------------------------
@@ -66,9 +101,7 @@ class BookSessionService:
     ) -> None:
         self._studio = studio
         self._books_getter = books_getter or (lambda: list(studio.books))
-        self._search_cache_getter = search_cache_getter or (
-            lambda: getattr(studio, "_content_search_cache", {})
-        )
+        self._search_cache_getter = search_cache_getter or self._default_search_cache
 
     # --- Aktives Buch ----------------------------------------------------
 
@@ -98,6 +131,23 @@ class BookSessionService:
         """Leert den Inhalts-Such-Cache. Wird bei Buch-Wechsel und Refresh aufgerufen."""
         cache = self._search_cache_getter()
         cache.clear()
+
+    def _default_search_cache(self) -> dict:
+        # B-Fix (Code-Review 2026-07-03): `getattr(studio, "...", {})`
+        # erzeugte bei fehlendem Attribut jedes Mal ein neues, leeres Dict -
+        # `clear_search_cache()` wirkte dann still auf ein Objekt, das nie
+        # irgendwo referenziert war (No-Op ohne Fehlermeldung). Ueber ein
+        # Sentinel wird der fehlende-Attribut-Fall jetzt erkannt und
+        # geloggt, damit eine solche Fehlkonfiguration auffaellt.
+        cache = getattr(self._studio, "_content_search_cache", _MISSING)
+        if cache is _MISSING:
+            logger.debug(
+                "BookSessionService: Studio hat kein '_content_search_cache' "
+                "Attribut - clear_search_cache() wirkt auf ein temporaeres, "
+                "wirkungsloses Dict."
+            )
+            return {}
+        return cache
 
     # --- Selektions-Heuristik -------------------------------------------
 
@@ -160,12 +210,16 @@ class BookSessionService:
         return self._studio.current_profile_name
 
     def profile_path(self, profile_name: str) -> Optional[Path]:
-        if not self._studio.current_book or not profile_name:
+        if not self._studio.current_book:
             return None
-        return self._studio.current_book / "bookconfig" / f"{profile_name}.json"
+        safe_name = sanitize_profile_name(profile_name)
+        if not safe_name:
+            return None
+        return self._studio.current_book / "bookconfig" / f"{safe_name}.json"
 
 
 __all__ = [
     "BookSessionLike",
     "BookSessionService",
+    "sanitize_profile_name",
 ]

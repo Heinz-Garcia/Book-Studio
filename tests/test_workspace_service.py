@@ -261,6 +261,25 @@ def test_is_within_project_root_itself(tmp_path: Path):
     assert svc.is_within_project(tmp_path) is True
 
 
+def test_is_within_project_normalizes_dot_dot_segments(tmp_path: Path):
+    """B-Fix (Code-Review 2026-07-03): ein Pfad mit `..`-Segmenten, der
+    sich rechnerisch innerhalb des Projekt-Roots befindet, muss vor dem
+    Vergleich aufgeloest werden."""
+    studio = _make_studio(tmp_path, tmp_path)
+    svc = WorkspaceService(studio)
+    sibling_via_dotdot = tmp_path / "sub" / ".." / "sub" / "file.md"
+    assert svc.is_within_project(sibling_via_dotdot) is True
+
+
+def test_is_within_project_normalizes_root_with_dot_dot_segments(tmp_path: Path):
+    """Auch wenn der konfigurierte Root selbst unnormalisiert ist (z. B.
+    `.../sub/..`), muss der Vergleich funktionieren."""
+    messy_root = tmp_path / "sub" / ".."
+    studio = _make_studio(tmp_path, messy_root)
+    svc = WorkspaceService(studio)
+    assert svc.is_within_project(tmp_path / "file.md") is True
+
+
 # --- Sanity: Service funktioniert auch ohne optionale Backdoors -----------
 
 

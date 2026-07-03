@@ -70,7 +70,26 @@ class MenuManager:
             )
         if name.startswith("plugin:"):
             return self._make_plugin_runner(name[len("plugin:"):])
+        if not hasattr(self.studio, name):
+            # B-Fix (Code-Review 2026-07-03): ein Tippfehler in einem
+            # Menue-Definitionsnamen liess `getattr(...)` ohne Default
+            # vorher mit `AttributeError` beim Menue-Aufbau crashen (nicht,
+            # wie urspruenglich vermutet, still `command=None` liefern).
+            # Statt die komplette Menueleiste (und damit den Programmstart)
+            # abstuerzen zu lassen, wird ein sprechender Platzhalter
+            # zurueckgegeben, der beim Klick eine Warnung zeigt.
+            return self._make_missing_command_warning(name)
         return getattr(self.studio, name)
+
+    def _make_missing_command_warning(self, missing_name: str):
+        def _missing_command():
+            messagebox.showwarning(
+                "Menü-Befehl nicht gefunden",
+                f"Der Menü-Befehl '{missing_name}' ist nicht implementiert "
+                "(vermutlich ein Tippfehler in der Menü-Definition).",
+            )
+
+        return _missing_command
 
     def _make_plugin_runner(self, plugin_name: str):
         """Erzeugt einen Runner fuer ein Plugin.

@@ -80,9 +80,15 @@ def _load_config(config_path=None):
             "convert_bold_tags": True,
             "remove_double_delimiters": True,
             "convert_inline_tags": True,
-            "repair_encoding": True,
+            # B-Fix (Code-Review 2026-07-03): `repair_encoding` und
+            # `only_unclosed_answer_div_check` widersprachen den Defaults
+            # in `sanitizer_config_editor.py` (der eigentlichen, doku-
+            # mentierten Konfigurationsoberflaeche). Diese Fallback-Werte
+            # greifen nur, wenn `sanitizer_config.toml` fehlt/kaputt ist -
+            # jetzt konsistent mit dem Editor.
+            "repair_encoding": False,
             "prompt_unclosed_answer_div": False,
-            "only_unclosed_answer_div_check": False,
+            "only_unclosed_answer_div_check": True,
             "preserve_frontmatter_style_in_repair": True,
         },
         "logging": {"verbose": True},

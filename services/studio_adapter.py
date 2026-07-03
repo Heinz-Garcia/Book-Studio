@@ -51,10 +51,17 @@ class StudioAdapter:
 
     @property
     def available_templates(self) -> list[str]:
+        # B-Fix (Code-Review 2026-07-03): `x or ["Standard"]` behandelte
+        # eine bewusst leere Liste (keine Templates konfiguriert) wie
+        # `None`/fehlend und ersetzte sie stillschweigend durch
+        # `["Standard"]`. Jetzt wird explizit auf `None` geprueft, eine
+        # leere Liste bleibt leer.
         getter = getattr(self._studio, "get_available_templates", None)
         if callable(getter):
-            return list(getter() or ["Standard"])
-        return list(getattr(self._studio, "available_templates", None) or ["Standard"])
+            value = getter()
+            return list(value) if value is not None else ["Standard"]
+        value = getattr(self._studio, "available_templates", None)
+        return list(value) if value is not None else ["Standard"]
 
     @property
     def last_export_options(self) -> dict:

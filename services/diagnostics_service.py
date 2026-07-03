@@ -170,12 +170,18 @@ class DiagnosticsService:
         """
         if not issue_paths:
             return None
+        # B-Fix (Code-Review 2026-07-03): Docstring verspricht "step = 0
+        # verhaelt sich wie step = 1", der Code liess den Index bei
+        # step = 0 aber unveraendert (kein Fortschritt). Aktuelle
+        # Aufrufer nutzen nur +1/-1, das Verhalten wird hier trotzdem an
+        # die dokumentierte Vertragslogik angeglichen.
+        effective_step = step if step != 0 else 1
         if current_path in issue_paths:
             current_index = issue_paths.index(current_path)
-            target_index = (current_index + step) % len(issue_paths)
+            target_index = (current_index + effective_step) % len(issue_paths)
             return issue_paths[target_index]
         # current_path nicht in der Liste -> Fallback auf Anfang/Ende
-        return issue_paths[0] if step >= 0 else issue_paths[-1]
+        return issue_paths[0] if effective_step >= 0 else issue_paths[-1]
 
     @staticmethod
     def pick_first_issue_path(
@@ -205,8 +211,10 @@ class DiagnosticsService:
         6. Status setzen (on_status) — Erfolg oder Befund
 
         Returns: (is_healthy, analysis) — Tuple.
-        `is_healthy` ist `True`, wenn `analysis["is_healthy"]` wahr ist
-        ODER keine kritischen Befunde vorliegen.
+        `is_healthy` ist `True` genau dann, wenn `analysis["is_healthy"]`
+        wahr ist (Doku-Fix Code-Review 2026-07-03: der Code prueft nur
+        dieses Flag, keine zusaetzliche Bedingung ueber "kritische
+        Befunde").
         Wenn kein `current_book` oder kein `doctor` aktiv ist, wird
         `(False, None)` zurueckgegeben (Backwards-Compat mit dem
         frueheren `_run_doctor_check`-Verhalten).

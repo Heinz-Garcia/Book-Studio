@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from services.book_session_service import BookSessionService
+from services.book_session_service import BookSessionService, sanitize_profile_name
 
 
 # --- Helpers ---------------------------------------------------------------
@@ -295,6 +295,51 @@ def test_profile_path_returns_none_with_empty_name():
     studio = _make_studio(current_book=book)
     svc = BookSessionService(studio)
     assert svc.profile_path("") is None
+
+
+# --- sanitize_profile_name / Pfad-Traversal-Schutz (Code-Review 2026-07-03) -
+
+
+@pytest.mark.parametrize(
+    "malicious_name",
+    [
+        "../../../etc/passwd",
+        "..\\..\\Windows\\System32\\evil",
+        "/etc/passwd",
+        "C:/Windows/System32/evil",
+        "C:evil",
+        "..",
+        ".",
+        "",
+        "   ",
+        None,
+        "sub/evil",
+        "sub\\evil",
+    ],
+)
+def test_sanitize_profile_name_rejects_traversal_and_invalid_input(malicious_name):
+    assert sanitize_profile_name(malicious_name) is None
+
+
+@pytest.mark.parametrize("valid_name", ["default", "Mein Profil", "profil_2", "  spaced  "])
+def test_sanitize_profile_name_accepts_simple_names(valid_name):
+    assert sanitize_profile_name(valid_name) == valid_name.strip()
+
+
+def test_profile_path_rejects_path_traversal_profile_name():
+    """B-Fix: `profile_path` darf niemals aus `bookconfig/` herausfuehren."""
+    book = Path("/x")
+    studio = _make_studio(current_book=book)
+    svc = BookSessionService(studio)
+    assert svc.profile_path("../../../etc/passwd") is None
+    assert svc.profile_path("C:/Windows/evil") is None
+
+
+def test_profile_path_still_works_for_normal_names():
+    book = Path("/x")
+    studio = _make_studio(current_book=book)
+    svc = BookSessionService(studio)
+    assert svc.profile_path("Mein Profil") == Path("/x/bookconfig/Mein Profil.json")
 
 
 # --- books_getter / search_cache_getter-Injektion --------------------------

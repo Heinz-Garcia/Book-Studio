@@ -176,7 +176,20 @@ class PreProcessor:
         processed_tree = []
 
         for root_node in tree_data:
-            if root_node.get("children"):
+            # B-Fix (Code-Review 2026-07-03): frueher entschied allein
+            # `root_node.get("children")`, ob ein Knoten als "Part"
+            # behandelt wurde. Echte Parts erkennt man aber am virtuellen
+            # Pfad "PART:<Titel>" (keine reale Datei, siehe
+            # `yaml_engine._tree_to_quarto_list`). Ein regulaeres Kapitel
+            # MIT eigenen Unterkapiteln hat einen echten Datei-Pfad und
+            # wurde vorher faelschlich in die Part-Logik geschickt: seine
+            # Unterkapitel wurden dabei als eigenstaendige Chapters neben
+            # dem Hauptkapitel gefuehrt, statt (wie bei einem normalen
+            # verschachtelten Kapitel vorgesehen) inline in dessen Datei
+            # amalgamiert zu werden.
+            is_part_node = str(root_node.get("path", "")).startswith("PART:")
+
+            if is_part_node:
                 self._process_part_file(root_node)
 
                 new_part = {
@@ -185,7 +198,7 @@ class PreProcessor:
                     "children": []
                 }
 
-                for chapter_node in root_node["children"]:
+                for chapter_node in root_node.get("children", []):
                     chapter_dest = self._process_host_file(chapter_node)
 
                     new_chapter = {
@@ -200,7 +213,7 @@ class PreProcessor:
 
                 processed_tree.append(new_part)
             else:
-                self._process_host_file(root_node)
+                chapter_dest = self._process_host_file(root_node)
 
                 new_chapter = {
                     "title": root_node["title"],
@@ -208,6 +221,9 @@ class PreProcessor:
                     "children": []
                 }
                 processed_tree.append(new_chapter)
+
+                if root_node.get("children"):
+                    self._amalgamate_children(root_node["children"], chapter_dest, offset=1)
 
         # B4: Endnoten-Generierung entfernt.
 

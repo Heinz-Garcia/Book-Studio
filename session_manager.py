@@ -1,7 +1,11 @@
 import json
+import logging
 import tkinter as tk
 
 import session_state as _session_state_service
+from services.book_session_service import sanitize_profile_name
+
+logger = logging.getLogger(__name__)
 
 
 class SessionManager:
@@ -67,8 +71,16 @@ class SessionManager:
             if isinstance(existing_ui, dict) and "window_geometry" in existing_ui:
                 payload.setdefault("ui_state", {})["window_geometry"] = existing_ui["window_geometry"]
             _session_state_service.write_session_state(session_path, payload)
-        except (OSError, TypeError, ValueError):
-            pass
+        except (OSError, TypeError, ValueError) as error:
+            # B-Fix (Code-Review 2026-07-03): Fehler wurden bisher komplett
+            # verschluckt - die Sitzung ging ohne jeden Hinweis verloren.
+            # Jetzt zumindest als Warnung geloggt (ueber `BookStudio`, falls
+            # verfuegbar, sonst ueber den Modul-Logger).
+            report = getattr(self.studio, "_report_nonfatal_error", None)
+            if callable(report):
+                report("Sitzung konnte nicht gespeichert werden", error)
+            else:
+                logger.warning("Sitzung konnte nicht gespeichert werden: %s", error)
 
     # =========================================================================
     # UI STATE COLLECTION
@@ -229,9 +241,14 @@ class SessionManager:
         if isinstance(export_options, dict):
             studio.last_export_options.update(export_options)
 
-        profile_name = session_state.get("current_profile_name")
-        if profile_name and studio.current_book:
-            profile_path = studio.current_book / "bookconfig" / f"{profile_name}.json"
+        # B-Fix (Code-Review 2026-07-03): `current_profile_name` stammt aus
+        # der (potenziell manipulierten) `session_state.json`. Ohne
+        # Validierung koennte ein Profilname mit `..`-Segmenten aus
+        # `bookconfig/` herausfuehren und eine beliebige JSON-Datei als
+        # Profil laden.
+        safe_profile_name = sanitize_profile_name(session_state.get("current_profile_name"))
+        if safe_profile_name and studio.current_book:
+            profile_path = studio.current_book / "bookconfig" / f"{safe_profile_name}.json"
             if profile_path.exists():
                 studio.load_profile_from_file(profile_path, show_message=False, track_undo=False)
 

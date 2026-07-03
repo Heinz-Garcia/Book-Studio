@@ -85,6 +85,28 @@ def test_resolve_falls_back_to_default_for_non_string_custom_path():
     assert BackupService.resolve_backup_base_dir(book, 123) == expected  # type: ignore[arg-type]
 
 
+def test_resolve_relative_custom_path_is_anchored_to_book_parent():
+    """B-Fix (Code-Review 2026-07-03): ein relativer Custom-Pfad hing
+    vorher vom Arbeitsverzeichnis des Prozesses ab. Er muss jetzt
+    deterministisch gegen `current_book.parent` aufgeloest werden."""
+    book = Path("C:/books/my_book")
+    result = BackupService.resolve_backup_base_dir(book, "relative_backups")
+    assert result == book.parent / "relative_backups"
+
+
+def test_resolve_relative_custom_path_with_subfolders_is_anchored(tmp_path):
+    book = tmp_path / "my_book"
+    result = BackupService.resolve_backup_base_dir(book, "backups/sanitizer")
+    assert result == book.parent / "backups" / "sanitizer"
+
+
+def test_resolve_absolute_custom_path_is_unaffected():
+    """Absolute Custom-Pfade bleiben unveraendert (kein Regressionsrisiko)."""
+    book = Path("C:/books/my_book")
+    result = BackupService.resolve_backup_base_dir(book, "D:/absolute/backups")
+    assert result == Path("D:/absolute/backups")
+
+
 # --- default_sanitizer_backup_dir_for ------------------------------------
 
 
@@ -406,6 +428,45 @@ def test_run_sanitizer_subprocess_handles_none_stdout(tmp_path):
         popen_factory=lambda *a, **k: proc,
     )
     assert rc == 0
+
+
+class _ExplodingSanitizerStdout:
+    """Iterator, der nach den gegebenen Zeilen einen OSError wirft
+    (simuliert einen Pipe-/Encoding-Fehler waehrend des Streamings)."""
+
+    def __init__(self, lines_before_error):
+        self._lines = iter(lines_before_error)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = next(self._lines, None)
+        if line is None:
+            raise OSError("simulated stream failure")
+        return line
+
+
+def test_run_sanitizer_subprocess_stream_error_returns_sentinel_and_still_waits(tmp_path):
+    """B-Fix (Code-Review 2026-07-03): ein Fehler beim Lesen von
+    `proc.stdout` darf `proc.wait()` nicht auslassen (Zombie-Risiko) und
+    muss `SANITIZER_RC_STREAM_ERROR` liefern statt die Exception
+    unbehandelt zu propagieren."""
+    from services.backup_service import SANITIZER_RC_STREAM_ERROR
+
+    proc = _MockSanitizerPopen([], returncode=0)
+    proc.stdout = _ExplodingSanitizerStdout(["some output\n"])
+    log_lines = []
+
+    rc = BackupService.run_sanitizer_subprocess(
+        book=tmp_path,
+        on_log_line=log_lines.append,
+        popen_factory=lambda *a, **k: proc,
+    )
+
+    assert rc == SANITIZER_RC_STREAM_ERROR
+    assert proc.waited is True
+    assert any("Fehler beim Lesen" in line for line in log_lines)
 
 
 def test_run_sanitizer_subprocess_returns_returncode(tmp_path):

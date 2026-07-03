@@ -245,6 +245,17 @@ def test_pick_next_single_path_always_returns_it():
     assert DiagnosticsService.pick_next_issue_path(paths, None, 1) == "only.md"
 
 
+def test_pick_next_step_zero_behaves_like_step_one():
+    """B-Fix (Code-Review 2026-07-03): der Docstring verspricht 'step = 0
+    verhaelt sich wie step = 1', der Code liess den Index vorher aber bei
+    step = 0 unveraendert (kein Fortschritt)."""
+    paths = ["a.md", "b.md", "c.md"]
+    assert DiagnosticsService.pick_next_issue_path(paths, "a.md", 0) == "b.md"
+    assert DiagnosticsService.pick_next_issue_path(paths, "c.md", 0) == "a.md"
+    assert DiagnosticsService.pick_next_issue_path(paths, "z.md", 0) == "a.md"
+    assert DiagnosticsService.pick_next_issue_path(paths, None, 0) == "a.md"
+
+
 # --- pick_first_issue_path -----------------------------------------------
 
 

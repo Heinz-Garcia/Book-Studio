@@ -113,6 +113,19 @@ def test_adapter_available_templates_default_when_missing():
     assert StudioAdapter(SimpleNamespace()).available_templates == ["Standard"]
 
 
+def test_adapter_available_templates_getter_empty_list_stays_empty():
+    """B-Fix (Code-Review 2026-07-03): eine bewusst leere Liste (keine
+    Templates konfiguriert) darf nicht stillschweigend durch
+    `["Standard"]` ersetzt werden."""
+    studio = SimpleNamespace(get_available_templates=lambda: [])
+    assert StudioAdapter(studio).available_templates == []
+
+
+def test_adapter_available_templates_fallback_attribute_empty_list_stays_empty():
+    studio = SimpleNamespace(available_templates=[])
+    assert StudioAdapter(studio).available_templates == []
+
+
 def test_adapter_last_export_options_via_getter():
     studio = SimpleNamespace(get_last_export_options=lambda: {"format": "pdf"})
     assert StudioAdapter(studio).last_export_options == {"format": "pdf"}

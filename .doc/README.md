@@ -25,6 +25,10 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 - Die Datei wird über `studio_config.json` gesteuert:
   - `help_manual_path`: relativer oder absoluter Pfad zu einer `.md`-Datei.
 
+## Code-Reviews
+
+- Gesamte Codebase (Bugs + Codequalität, ausgehend von `book_studio.py`): [code-review_2026-07-03.md](code-review_2026-07-03.md)
+
 ## Refactoring
 
 - Master-Prompt + Batches (DRY, SSOT, SoC, Bug-Fixes): [refactoring-master.md](refactoring-master.md)

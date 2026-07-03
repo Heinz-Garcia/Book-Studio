@@ -16,7 +16,9 @@ Konkrete pure Funktionen in 2.6a:
 - `is_fulltext_search_enabled(search_mode) -> bool`
 - `path_matches_file_state_filter(file_state, filter_value) -> bool`
 - `should_persist_app_state(is_restoring_session) -> bool`
-- `normalize_search_scope(search_scope) -> str` (Beide/Rechts -> rechts, sonst leer)
+- `is_right_side_search_scope(search_scope) -> bool` (Doku-Fix
+  Code-Review 2026-07-03: hiess in dieser Doku faelschlich
+  `normalize_search_scope`, existierte unter diesem Namen nie)
 - `resolve_active_search_term(search_term, search_scope) -> str`
 
 Konkrete pure Funktionen in 2.6b:

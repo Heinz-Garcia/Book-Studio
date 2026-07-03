@@ -104,7 +104,18 @@ class WorkspaceService:
             if configured_path.is_absolute()
             else (self._studio.base_path / configured_path)
         )
-        root_path = root_path.resolve()
+        try:
+            root_path = root_path.resolve()
+        except OSError as error:
+            # B-Fix (Code-Review 2026-07-03): `.resolve()` kann auf manchen
+            # Plattformen/Dateisystemen (kaputte Symlinks, Berechtigungs-
+            # fehler) einen OSError werfen. Vorher lief das ungeschuetzt
+            # ausserhalb jeglichen try/except und konnte den Aufrufer crashen.
+            self._report_nonfatal(
+                "Konfigurierter content_root_path konnte nicht aufgeloest werden",
+                error,
+            )
+            return default_root
         if not root_path.exists() or not root_path.is_dir():
             self._report_nonfatal(
                 "Konfigurierter content_root_path ist ungültig, verwende Code-Ordner",
@@ -134,9 +145,21 @@ class WorkspaceService:
     # --- Membership-Check -------------------------------------------------
 
     def is_within_project(self, path: Path) -> bool:
-        """True, wenn `path` unterhalb des aktuellen Projekt-Roots liegt."""
+        """True, wenn `path` unterhalb des aktuellen Projekt-Roots liegt.
+
+        B-Fix (Code-Review 2026-07-03): beide Seiten werden jetzt vor dem
+        Vergleich mit `resolve()` normalisiert. Vorher konnten unter
+        Windows unterschiedliche Schreibweisen oder eine Mischung aus
+        relativen/absoluten Pfaden faelschlich als "außerhalb des
+        Projekts" erkannt werden, obwohl es dasselbe Verzeichnis war.
+        """
         try:
-            path.relative_to(self._studio.projects_root_path)
+            resolved_path = Path(path).resolve()
+            resolved_root = Path(self._studio.projects_root_path).resolve()
+        except OSError:
+            return False
+        try:
+            resolved_path.relative_to(resolved_root)
             return True
         except ValueError:
             return False

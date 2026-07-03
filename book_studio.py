@@ -1632,7 +1632,13 @@ class BookStudio:
             return
             
         # Ansonsten überschreiben wir die Datei still und heimlich
-        filepath = self.current_book / "bookconfig" / f"{self.current_profile_name}.json"
+        # B-Fix (Code-Review 2026-07-03): Pfad-Aufbau jetzt ueber
+        # `BookSessionService.profile_path`, das den Profilnamen gegen
+        # Pfad-Traversal absichert (siehe `sanitize_profile_name`).
+        filepath = self._services.book_session.profile_path(self.current_profile_name)
+        if filepath is None:
+            self.export_json()
+            return
         tree_data = self._get_tree_data_for_engine()
         
         try:
@@ -1950,7 +1956,7 @@ class BookStudio:
         if not isinstance(manual_setting, str) or not manual_setting.strip():
             messagebox.showwarning(
                 "Handbuch nicht konfiguriert",
-                "Bitte setze in studio_config.json den Eintrag 'help_manual_path'\n"
+                "Bitte setze in app_config.json den Eintrag 'help_manual_path'\n"
                 "auf eine Markdown-Datei (relativ zum Projekt oder absolut).",
             )
             return
@@ -2213,7 +2219,11 @@ class BookStudio:
             
         try:
             if platform.system() == "Windows":
-                subprocess.Popen(f'explorer /select,"{f_path.resolve()}"')
+                # B-Fix (Code-Review 2026-07-03): Liste statt manuell
+                # zusammengebautem String, damit Python (`list2cmdline`)
+                # das Quoting korrekt uebernimmt, statt selbst Anfuehrungs-
+                # zeichen in einen String einzubetten.
+                subprocess.Popen(["explorer", f"/select,{f_path.resolve()}"])
             elif platform.system() == "Darwin":
                 subprocess.Popen(["open", "-R", str(f_path.resolve())])
             else:
@@ -2246,7 +2256,11 @@ class BookStudio:
             self._update_avail_list()
             
         def apply_callback():
-            self.save_project()
+            # B-Fix (Code-Review 2026-07-03): der Rueckgabewert wird jetzt
+            # durchgereicht, damit `book_doctor.BackupManager.on_apply`
+            # nicht mehr blind Erfolg meldet, wenn `save_project()` z. B.
+            # wegen offener Buch-Doktor-Befunde `False` liefert.
+            return self.save_project()
             
         def cancel_callback():
             self._restore_state(original_state)
@@ -2382,14 +2396,20 @@ class BookStudio:
             self.status.config(text="✨ Auto-Healing: Fehlende YAML-Felder wurden ergänzt!", fg=_StatusFg.DANGER_STRONG) # Ein schickes Orange
 
     def remove_files(self):
+        # B-Fix (Code-Review 2026-07-03): frueher wurde ein entferntes
+        # Kapitel nur dann in die linke Liste zurueckgelegt, wenn sein
+        # Titel zum AKTUELL eingetippten Suchbegriff passte. Bei aktivem,
+        # nicht passendem Filter verschwand das Kapitel kommentarlos aus
+        # beiden Listen. Entfernte Kapitel muessen unabhaengig vom
+        # Suchfilter immer in die linke Liste zurueckwandern.
         pre = self._get_current_state()
         for i in self.tree_book.selection():
             if not self.tree_book.exists(i):
                 continue
             for child in [i] + self._get_all_tree_children(i):
                 txt, vals = self.tree_book.item(child, "text"), self.tree_book.item(child, "values")
-                if self.search_var.get().lower() in txt.lower():
-                    self.list_avail.insert("", "end", text=txt, values=vals)
+                path = vals[0] if vals else ""
+                self.list_avail.insert("", "end", text=txt, values=(path,))
             self.tree_book.delete(i)
         self._push_undo(pre)
 

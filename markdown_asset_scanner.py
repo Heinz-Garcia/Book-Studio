@@ -65,8 +65,8 @@ def collect_image_targets(markdown_text):
         if target:
             targets.append(target)
 
-    for raw_ref in _REF_IMAGE_PATTERN.findall(text):
-        ref_name = raw_ref.strip().lower()
+    for alt_text, raw_ref in _REF_IMAGE_PATTERN.findall(text):
+        ref_name = raw_ref.strip().lower() or alt_text.strip().lower()
         if not ref_name:
             continue
         target = reference_map.get(ref_name, "")

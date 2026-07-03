@@ -147,6 +147,34 @@ def test_invalidate_missing_key_returns_false():
     assert c.invalidate("nope") is False
 
 
+def test_invalidate_returns_true_when_cached_value_is_none():
+    """B-Fix (Code-Review 2026-07-03): ein gecachter `None`-Wert ist ein
+    legitimer Treffer - `invalidate` durfte hierfuer nicht `False`
+    zurueckgeben, nur weil der WERT `None` war."""
+    c = SearchCache()
+    c.put("a", None)
+    assert "a" in c
+    assert c.invalidate("a") is True
+    assert "a" not in c
+
+
+def test_contains_promotes_lru_like_get():
+    """B-Fix (Code-Review 2026-07-03): `in`-Checks muessen die
+    LRU-Reihenfolge genau wie `get()` aktualisieren, sonst wird ein
+    aktiv abgefragter Eintrag trotzdem als LRU verdraengt."""
+    c = SearchCache(max_size=3)
+    c.put("a", "1")
+    c.put("b", "2")
+    c.put("c", "3")
+    # 'a' ist jetzt LRU, aber ein `in`-Check macht es zum MRU.
+    assert "a" in c
+    c.put("d", "4")  # 'b' ist jetzt LRU und wird evicted.
+    assert "a" in c
+    assert "b" not in c
+    assert "c" in c
+    assert "d" in c
+
+
 def test_clear_resets_state():
     c = SearchCache(max_size=2)
     c.put("a", "1")

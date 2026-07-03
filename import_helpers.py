@@ -47,6 +47,16 @@ GUI_STATE_FILENAME = ".gui_state.json"
 GUI_STATE_DIR = "bookconfig"
 
 
+def _yaml_double_quoted(value: str) -> str:
+    """Escaped *value* fuer die Verwendung in einem YAML-Doppelquote-Skalar.
+
+    B-Fix (Code-Review 2026-07-03): Titel/Autor wurden zuvor ungeescaped
+    in `"…"` eingesetzt. Ein `"` im Titel erzeugte ungueltiges YAML.
+    """
+    escaped = str(value or "").replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def extract_inline_svgs_from_md(md_path: Path) -> int:
     """Extrahiert alle inline ``<svg>…</svg>``-Bloecke aus *md_path*,
     schreibt sie als separate ``svg_N.svg``-Dateien **neben** die
@@ -65,29 +75,57 @@ def extract_inline_svgs_from_md(md_path: Path) -> int:
     count = 0
 
     # --- Phase 1: noch nicht extrahierte <svg>…</svg>-Bloecke ---
+    # B-Fix (Code-Review 2026-07-03): `finditer` liefert Match-Objekte mit
+    # Offsets relativ zum URSPRUENGLICHEN `text`. Das vorherige `text =
+    # text[:match.start()] + ... + text[match.end():]` innerhalb derselben
+    # Schleife veraenderte `text` aber bereits ab dem ersten Treffer, so
+    # dass alle weiteren Offsets nicht mehr passten - ab dem zweiten
+    # <svg>-Block in einer Datei wurden Ersetzungen versetzt/beschaedigt.
+    # Fix: alle Treffer zuerst einsammeln und den neuen Text einmalig aus
+    # Segmenten (relativ zum unveraenderten Original-`text`) zusammenbauen.
     if "<svg" in text:
-        for match in INLINE_SVG_PATTERN.finditer(text):
-            svg_xml = match.group(1)
-            count += 1
-            fname = f"{SVG_FILE_PREFIX}{count}{SVG_FILE_SUFFIX}"
-            (md_dir / fname).write_text(svg_xml, encoding="utf-8")
-            text = text[:match.start()] + f'![{SVG_MARKDOWN_ALT}]({fname})' + text[match.end():]
+        matches = list(INLINE_SVG_PATTERN.finditer(text))
+        if matches:
+            pieces = []
+            last_end = 0
+            for match in matches:
+                svg_xml = match.group(1)
+                count += 1
+                fname = f"{SVG_FILE_PREFIX}{count}{SVG_FILE_SUFFIX}"
+                (md_dir / fname).write_text(svg_xml, encoding="utf-8")
+                pieces.append(text[last_end:match.start()])
+                pieces.append(f'![{SVG_MARKDOWN_ALT}]({fname})')
+                last_end = match.end()
+            pieces.append(text[last_end:])
+            text = "".join(pieces)
 
     # --- Phase 2: alte images/svg_*.svg-Referenzen reparieren ---
+    # Gleicher Offset-Bug wie in Phase 1 behoben: Treffer werden zuerst
+    # gesammelt, der Text wird danach einmalig neu zusammengesetzt.
     old_img_dir = md_dir / "images"
-    for match in OLD_SVG_REF_PATTERN.finditer(text):
-        num = match.group(1)
-        old_svg = old_img_dir / f"{SVG_FILE_PREFIX}{num}{SVG_FILE_SUFFIX}"
-        new_svg = md_dir / f"{SVG_FILE_PREFIX}{num}{SVG_FILE_SUFFIX}"
-        if old_svg.is_file():
-            old_svg.rename(new_svg)
-            text = text[:match.start()] + f'![{SVG_MARKDOWN_ALT}]({SVG_FILE_PREFIX}{num}{SVG_FILE_SUFFIX})' + text[match.end():]
-            count += 1
-        elif not new_svg.is_file():
-            # SVG-Datei ist weg – Referenz nicht aendern, sondern
-            # Warnung ausgeben (Benutzer muss neu exportieren)
-            print(f"[Import] ⚠️  SVG-Datei {old_svg} nicht gefunden – "
-                  f"alte Referenz in {md_path.name} bleibt erhalten.")
+    old_ref_matches = list(OLD_SVG_REF_PATTERN.finditer(text))
+    if old_ref_matches:
+        pieces = []
+        last_end = 0
+        for match in old_ref_matches:
+            num = match.group(1)
+            old_svg = old_img_dir / f"{SVG_FILE_PREFIX}{num}{SVG_FILE_SUFFIX}"
+            new_svg = md_dir / f"{SVG_FILE_PREFIX}{num}{SVG_FILE_SUFFIX}"
+            pieces.append(text[last_end:match.start()])
+            if old_svg.is_file():
+                old_svg.rename(new_svg)
+                pieces.append(f'![{SVG_MARKDOWN_ALT}]({SVG_FILE_PREFIX}{num}{SVG_FILE_SUFFIX})')
+                count += 1
+            else:
+                if not new_svg.is_file():
+                    # SVG-Datei ist weg – Referenz nicht aendern, sondern
+                    # Warnung ausgeben (Benutzer muss neu exportieren)
+                    print(f"[Import] ⚠️  SVG-Datei {old_svg} nicht gefunden – "
+                          f"alte Referenz in {md_path.name} bleibt erhalten.")
+                pieces.append(match.group(0))
+            last_end = match.end()
+        pieces.append(text[last_end:])
+        text = "".join(pieces)
 
     if count:
         md_path.write_text(text, encoding="utf-8")
@@ -163,8 +201,8 @@ def generate_quarto_yml_for_import(
         f'project:\n'
         f'  type: book\n'
         f'book:\n'
-        f'  title: "{title}"\n'
-        f'  author: "{author}"\n'
+        f'  title: {_yaml_double_quoted(title)}\n'
+        f'  author: {_yaml_double_quoted(author)}\n'
         f'  date: last-modified\n'
         f'  chapters: []\n'
         f'format:\n'
@@ -175,12 +213,12 @@ def generate_quarto_yml_for_import(
 
     # index.md anlegen/ueberschreiben (wird von Book Studio fuer Render
     # zwingend benoetigt – immer frisch, damit Config-Aenderungen wirken)
-    desc_line = f'description: "{description}"\n' if description else ''
+    desc_line = f'description: {_yaml_double_quoted(description)}\n' if description else ''
     index_md = publish_dir / "index.md"
     index_md.write_text(
         f'---\n'
-        f'title: "{title}"\n'
-        f'author: "{author}"\n'
+        f'title: {_yaml_double_quoted(title)}\n'
+        f'author: {_yaml_double_quoted(author)}\n'
         f'{desc_line}'
         f'---\n'
         f'\n'

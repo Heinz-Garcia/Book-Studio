@@ -523,8 +523,16 @@ class RenderService:
         if on_safe_command_built is not None:
             try:
                 on_safe_command_built(cmd)
-            except Exception:
-                pass
+            except Exception as exc:
+                # B-Fix (Code-Review 2026-07-03): Fehler im (optionalen,
+                # meist testgetriebenen) Hook wurden bisher komplett
+                # verschluckt. Jetzt zumindest ueber `on_log_line` sichtbar,
+                # ohne den eigentlichen Render-Ablauf zu unterbrechen.
+                if on_log_line is not None:
+                    try:
+                        on_log_line(f"⚠️ on_safe_command_built-Hook fehlgeschlagen: {exc}")
+                    except Exception:
+                        pass
 
         proc = popen_factory(
             cmd,
@@ -534,26 +542,49 @@ class RenderService:
             bufsize=1,
         )
         aborted_on_colon_warning = False
-        stdout = getattr(proc, "stdout", None)
-        if stdout is not None:
-            for raw_line in stdout:
-                stripped = raw_line.rstrip() if isinstance(raw_line, str) else raw_line
-                if stripped:
-                    on_log_line(stripped)
-                    if (
-                        on_colon_warning(stripped)
-                        and should_abort_on_colon_warning()
-                        and has_structural_colon_occurrences()
-                    ):
-                        aborted_on_colon_warning = True
-                        try:
-                            popen_killer(proc)
-                        except OSError:
-                            pass
-                        on_abort_requested()
-                        break
-        if hasattr(proc, "wait"):
-            proc.wait()
+        stream_error = False
+        # B-Fix (Code-Review 2026-07-03): das Lesen von `proc.stdout` kann
+        # (z. B. bei Encoding-/Pipe-Fehlern) eine Exception werfen. Vorher
+        # lief das ungeschuetzt: die Exception haette `proc.wait()` nie
+        # erreicht und einen Zombie-/verwaisten Subprozess hinterlassen.
+        # `try/finally` stellt sicher, dass der Prozess in JEDEM Fall
+        # beendet und abgewartet wird; `SAFE_RENDER_RC_STREAM_ERROR` wird
+        # jetzt tatsaechlich zurueckgegeben statt nur deklariert zu sein.
+        try:
+            stdout = getattr(proc, "stdout", None)
+            if stdout is not None:
+                for raw_line in stdout:
+                    stripped = raw_line.rstrip() if isinstance(raw_line, str) else raw_line
+                    if stripped:
+                        on_log_line(stripped)
+                        if (
+                            on_colon_warning(stripped)
+                            and should_abort_on_colon_warning()
+                            and has_structural_colon_occurrences()
+                        ):
+                            aborted_on_colon_warning = True
+                            try:
+                                popen_killer(proc)
+                            except OSError:
+                                pass
+                            on_abort_requested()
+                            break
+        except (OSError, ValueError) as exc:
+            stream_error = True
+            on_log_line(f"❌ Fehler beim Lesen der Render-Ausgabe: {exc}")
+            try:
+                popen_killer(proc)
+            except OSError:
+                pass
+        finally:
+            if hasattr(proc, "wait"):
+                try:
+                    proc.wait()
+                except OSError:
+                    pass
+
+        if stream_error:
+            return SAFE_RENDER_RC_STREAM_ERROR, aborted_on_colon_warning
         return getattr(proc, "returncode", 0), aborted_on_colon_warning
 
     # --- Bestehende API (unveraendert) -----------------------------------

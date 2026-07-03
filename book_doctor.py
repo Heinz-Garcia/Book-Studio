@@ -324,9 +324,23 @@ class BackupManager:
                 preview_callback(tree_data) # NEU: Wir übergeben direkt das fertige Dictionary!
         
         def on_apply():
-            apply_callback()
-            messagebox.showinfo("Erfolg", "Struktur wurde dauerhaft wiederhergestellt!")
-            win.destroy()
+            # B-Fix (Code-Review 2026-07-03): vorher wurde die
+            # Erfolgsmeldung unabhaengig vom tatsaechlichen Ergebnis von
+            # `apply_callback()` (→ `save_project()`) angezeigt. Schlug
+            # das Speichern fehl (z. B. Buch-Doktor-Abbruch), wurde
+            # trotzdem "dauerhaft wiederhergestellt!" gemeldet, obwohl
+            # NICHTS gespeichert wurde.
+            success = apply_callback()
+            if success:
+                messagebox.showinfo("Erfolg", "Struktur wurde dauerhaft wiederhergestellt!")
+                win.destroy()
+            else:
+                messagebox.showwarning(
+                    "Nicht gespeichert",
+                    "Die Struktur wurde NICHT dauerhaft übernommen.\n\n"
+                    "Das Speichern ist fehlgeschlagen oder wurde durch einen "
+                    "Buch-Doktor-Befund abgebrochen. Bitte prüfe das Log.",
+                )
 
         def on_cancel():
             cancel_callback()

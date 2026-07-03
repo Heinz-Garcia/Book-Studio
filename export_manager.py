@@ -82,19 +82,33 @@ class ExportManager:
         )
 
     # --- B1: Pre-Processing in isoliertem Temp-Klon (Bug R1) ---------------
-    def _prepare_processed_tree_for_logging(self, target_fmt: str):
-        """Berechnet den `processed_tree` für Logging/Zählungen, **ohne**
-        das Original-Buch zu verändern.
+    def _run_processed_preflight_analysis(self, target_fmt: str):
+        """Führt Pre-Processing + alle darauf aufbauenden Preflight-Analysen
+        (Fenced-Div-Fehler, Label-Vorkommen, Doppelpunkt-Vorkommen) auf einer
+        isolierten Buch-Kopie aus — **während diese Kopie noch existiert**.
 
         Vorher (Bug R1) lief `PreProcessor.prepare_render_environment` direkt
         auf `self._current_book()` und hinterließ dort ein `processed/`-
-        Verzeichnis sowie ggf. modifizierte Markdown-Dateien. Wir spiegeln
-        das Buch jetzt in ein `TemporaryDirectory` und führen das Pre-
-        Processing dort aus. Das Original wird nach dem Aufruf per
-        `TemporaryDirectory`-Cleanup automatisch entsorgt.
+        Verzeichnis sowie ggf. modifizierte Markdown-Dateien. Das wurde durch
+        eine Ausführung in einem `TemporaryDirectory` behoben.
+
+        Bug R2 (2026-07-03): Der `processed_tree` wurde dabei erst
+        *nach* dem `with tempfile.TemporaryDirectory(...)`-Block
+        zurückgegeben — die Kopie war zu diesem Zeitpunkt bereits gelöscht.
+        Die Analyse-Methoden lasen die "processed/"-Dateien anschließend vom
+        Original-Buchordner, der laut Design nie einen `processed/`-Ordner
+        besitzt. Der komplette Preflight lief dadurch faktisch immer ohne
+        Befund durch. Diese Methode führt Pre-Processing UND Analyse jetzt
+        gemeinsam innerhalb des `with`-Blocks aus, bevor die Kopie entsorgt
+        wird.
 
         B4: Footnote-Parameter (`footnote_mode`, `enable_footnote_backlinks`)
         wurden entfernt — das Fußnoten-System ist abgeschaltet.
+
+        Returns:
+            `None` bei Pre-Processing-Fehler (bereits geloggt), sonst ein
+            Dict mit `processed_tree`, `fenced_div_findings`,
+            `label_occurrences` und `colon_occurrences`.
         """
         book = self._current_book()
         if not book:
@@ -112,7 +126,22 @@ class ExportManager:
             except (OSError, RuntimeError, TypeError, ValueError, KeyError) as exc:
                 self._log(f"⚠️  Pre-Processing fehlgeschlagen: {exc}", "error")
                 return None
-            return processed_tree
+
+            # Wichtig: alle drei Analysen laufen noch INNERHALB des
+            # `with`-Blocks gegen `tmp_book`, solange die Kopie (inkl.
+            # ihres "processed/"-Ordners) tatsächlich existiert.
+            return {
+                "processed_tree": processed_tree,
+                "fenced_div_findings": self.collect_processed_fenced_div_hits(
+                    processed_tree, book_root=tmp_book
+                ),
+                "label_occurrences": self.build_processed_label_occurrences(
+                    processed_tree, book_root=tmp_book
+                ),
+                "colon_occurrences": self.build_processed_colon_occurrences(
+                    processed_tree, book_root=tmp_book
+                ),
+            }
 
     def _consume_orphan_warnings(self):
         """B4-Stub: Lieferte früher Orphan-Footnote-Warnungen. Mit der
@@ -227,13 +256,16 @@ class ExportManager:
         # Phase 2 / Schritt 2.3b: pure Generator-Funktion im Service.
         yield from _RenderService.iter_tree_paths(tree_data)
 
-    def collect_processed_fenced_div_hits(self, processed_tree):
+    def collect_processed_fenced_div_hits(self, processed_tree, book_root=None):
         findings = []
-        current_book = self._current_book()
-        if not current_book:
-            return findings
+        if book_root is None:
+            current_book = self._current_book()
+            if not current_book:
+                return findings
+            book_root = Path(current_book)
+        else:
+            book_root = Path(book_root)
 
-        book_root = Path(current_book)
         for rel_path in self._iter_tree_paths(processed_tree):
             if not isinstance(rel_path, str) or not rel_path.lower().endswith(".md"):
                 continue
@@ -269,8 +301,11 @@ class ExportManager:
         issues = qb_find_fenced_div_issues(body, base_line_number=1)
         return [(issue.line_number, issue.kind) for issue in issues]
 
-    def log_processed_fenced_div_hits(self, processed_tree):
-        findings = self.collect_processed_fenced_div_hits(processed_tree)
+    def log_processed_fenced_div_hits(self, processed_tree, book_root=None):
+        findings = self.collect_processed_fenced_div_hits(processed_tree, book_root=book_root)
+        return self._log_fenced_div_findings(findings)
+
+    def _log_fenced_div_findings(self, findings):
         if not findings:
             return False
 
@@ -339,14 +374,17 @@ class ExportManager:
                 return True
         return False
 
-    def build_processed_label_occurrences(self, processed_tree):
+    def build_processed_label_occurrences(self, processed_tree, book_root=None):
         occurrences = {}
-        current_book = self._current_book()
-        if not current_book:
-            return occurrences
+        if book_root is None:
+            current_book = self._current_book()
+            if not current_book:
+                return occurrences
+            book_root = Path(current_book)
+        else:
+            book_root = Path(book_root)
 
         label_pattern = re.compile(r'@([A-Za-z0-9_-]+)(?:\[[^\]]*\])?')
-        book_root = Path(current_book)
 
         for rel_path in self._iter_tree_paths(processed_tree):
             if not isinstance(rel_path, str) or not rel_path.lower().endswith(".md"):
@@ -369,14 +407,17 @@ class ExportManager:
 
         return occurrences
 
-    def build_processed_colon_occurrences(self, processed_tree):
+    def build_processed_colon_occurrences(self, processed_tree, book_root=None):
         structural_occurrences = []
         raw_occurrences = []
-        current_book = self._current_book()
-        if not current_book:
-            return structural_occurrences
+        if book_root is None:
+            current_book = self._current_book()
+            if not current_book:
+                return structural_occurrences
+            book_root = Path(current_book)
+        else:
+            book_root = Path(book_root)
 
-        book_root = Path(current_book)
         for rel_path in self._iter_tree_paths(processed_tree):
             if not isinstance(rel_path, str) or not rel_path.lower().endswith(".md"):
                 continue
@@ -734,15 +775,17 @@ class ExportManager:
         # KEINEN `processed/`-Ordner und keine überschriebene `_quarto.yml`
         # behalten — der eigentliche Render läuft anschließend in einer
         # weiteren Temp-Kopie via quarto_render_safe.py.
-        processed_tree = self._prepare_processed_tree_for_logging(target_fmt=target_fmt)
-        if processed_tree is None:
+        preflight_analysis = self._run_processed_preflight_analysis(target_fmt=target_fmt)
+        if preflight_analysis is None:
             self._set_status("Render abgebrochen (Pre-Processing-Fehler)", _StatusFg.DANGER)
             return
-        self._processed_label_occurrences = self.build_processed_label_occurrences(processed_tree)
-        self._processed_colon_occurrences = self.build_processed_colon_occurrences(processed_tree)
+        self._processed_label_occurrences = preflight_analysis["label_occurrences"]
+        self._processed_colon_occurrences = preflight_analysis["colon_occurrences"]
         self._logged_missing_labels = set()
         self._logged_colon_warning_hint = False
-        has_processed_errors = self.log_processed_fenced_div_hits(processed_tree)
+        has_processed_errors = self._log_fenced_div_findings(
+            preflight_analysis["fenced_div_findings"]
+        )
         if has_processed_errors:
             self._set_status("Render abgebrochen (erster Preflight-Fehler)", _StatusFg.DANGER)
             return
@@ -862,7 +905,11 @@ class ExportManager:
     def _open_folder_and_select(self, filepath):
         f_path = Path(filepath).resolve()
         if platform.system() == "Windows":
-            subprocess.Popen(f'explorer /select,"{f_path}"')
+            # B-Fix (Code-Review 2026-07-03): Liste statt manuell
+            # zusammengebautem String, damit Python (`list2cmdline`)
+            # das Quoting korrekt uebernimmt, statt selbst Anfuehrungs-
+            # zeichen in einen String einzubetten.
+            subprocess.Popen(["explorer", f"/select,{f_path}"])
         elif platform.system() == "Darwin":
             subprocess.Popen(["open", "-R", str(f_path)])
         else:

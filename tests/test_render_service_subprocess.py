@@ -239,6 +239,35 @@ def test_run_safe_render_safe_command_callback_receives_argv(tmp_path):
     assert "--extra-format-options-json" in argv
 
 
+def test_run_safe_render_logs_when_command_built_hook_raises(tmp_path):
+    """B-Fix (Code-Review 2026-07-03): ein fehlerhafter `on_safe_command_built`
+    Hook darf den Render nicht crashen, muss aber ueber `on_log_line`
+    sichtbar werden statt komplett verschluckt zu werden."""
+    safe_script = tmp_path / "quarto_render_safe.py"
+    safe_script.write_text("# stub", encoding="utf-8")
+
+    popen = _popen_factory_for([], returncode=0)
+    logged = []
+
+    def _boom(cmd):
+        raise RuntimeError("hook kaputt")
+
+    rc, aborted = RenderService().run_safe_render(
+        target_fmt="typst-pdf",
+        profile_name=None,
+        extra_format_options=None,
+        book=tmp_path,
+        safe_script=safe_script,
+        on_log_line=logged.append,
+        on_safe_command_built=_boom,
+        popen_factory=popen,
+    )
+
+    assert rc == 0
+    assert aborted is False
+    assert any("on_safe_command_built" in line for line in logged)
+
+
 def test_run_safe_render_killer_oserror_swallowed(tmp_path):
     """OSError beim Killen wird verschluckt, Abbruch wird trotzdem markiert."""
     safe_script = tmp_path / "quarto_render_safe.py"
@@ -263,6 +292,52 @@ def test_run_safe_render_killer_oserror_swallowed(tmp_path):
     )
 
     assert aborted is True
+
+
+class _ExplodingStdout:
+    """Iterator, der nach einigen Zeilen einen OSError wirft (simuliert
+    einen Pipe-/Encoding-Fehler waehrend des Streamings)."""
+
+    def __init__(self, lines_before_error):
+        self._lines = iter(lines_before_error)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = next(self._lines, None)
+        if line is None:
+            raise OSError("simulated stream failure")
+        return line
+
+
+def test_run_safe_render_stream_error_returns_sentinel_and_still_waits(tmp_path):
+    """B-Fix (Code-Review 2026-07-03): ein Fehler beim Lesen von
+    `proc.stdout` darf `proc.wait()` nicht auslassen (Zombie-Risiko) und
+    muss `SAFE_RENDER_RC_STREAM_ERROR` zurueckgeben statt die Exception
+    unbehandelt zu propagieren."""
+    safe_script = tmp_path / "quarto_render_safe.py"
+    safe_script.write_text("# stub", encoding="utf-8")
+
+    proc = _MockPopen([], returncode=0)
+    proc.stdout = _ExplodingStdout(["some output\n"])
+    log_lines = []
+
+    rc, aborted = RenderService().run_safe_render(
+        target_fmt="html",
+        profile_name=None,
+        extra_format_options=None,
+        book=tmp_path,
+        safe_script=safe_script,
+        on_log_line=log_lines.append,
+        popen_factory=lambda *a, **k: proc,
+    )
+
+    assert rc == SAFE_RENDER_RC_STREAM_ERROR
+    assert aborted is False
+    assert proc.waited is True
+    assert proc.terminated is True
+    assert any("Fehler beim Lesen" in line for line in log_lines)
 
 
 def test_run_safe_render_default_popen_killer_calls_terminate(tmp_path):

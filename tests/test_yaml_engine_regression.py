@@ -84,13 +84,21 @@ def test_parse_chapters_reads_quarto_yaml_when_no_gui_state_exists(tmp_path: Pat
 
     engine = QuartoYamlEngine(book)
 
+    # B-Fix (Code-Review 2026-07-03): `parse_chapters()` liefert im
+    # YAML-Fallback (kein/veralteter GUI-State) jetzt immer ein
+    # aufgeloestes `title`-Feld - ohne das stuerzte
+    # `pre_processor.prepare_render_environment` mit KeyError('title')
+    # ab, sobald dieser Pfad tatsaechlich genutzt wurde.
     assert engine.parse_chapters() == [
-        {"path": "index.md", "children": []},
+        {"path": "index.md", "title": "Index", "children": []},
         {
             "path": "PART:Grundlagen",
-            "children": [{"path": "content/chapter-1.md", "children": []}],
+            "title": "Grundlagen",
+            "children": [
+                {"path": "content/chapter-1.md", "title": "chapter-1", "children": []}
+            ],
         },
-        {"path": "content/chapter-2.md", "children": []},
+        {"path": "content/chapter-2.md", "title": "chapter-2", "children": []},
     ]
 
 

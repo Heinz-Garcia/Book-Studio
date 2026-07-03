@@ -45,6 +45,10 @@ SANITIZER_BACKUP_DIR_NAME_TEMPLATE = "sanitizer_backup_{timestamp}"
 # Default-Python-Executable fuer die Sanitizer-Subprocess-Argv-Liste.
 SANITIZER_SUBPROCESS_SCRIPT = "Sanitizer.py"
 
+# Sentinel-Returncode, wenn das Lesen von `proc.stdout` selbst fehlschlaegt
+# (z. B. Encoding-/Pipe-Fehler) - siehe `run_sanitizer_subprocess`.
+SANITIZER_RC_STREAM_ERROR = -1
+
 
 class BackupLike(Protocol):
     """Schnittstelle, die `BookStudio` fuer `BackupService` anbieten muss."""
@@ -133,17 +137,31 @@ class BackupService:
         Logik:
         - `None`, wenn kein `current_book` aktiv ist.
         - Wenn `custom_path` ein nicht-leerer String ist, wird er als
-          Basis-Verzeichnis verwendet (egal ob relativ oder absolut).
+          Basis-Verzeichnis verwendet. Ist er ABSOLUT, wird er
+          unveraendert genutzt. Ist er RELATIV, wird er gegen
+          `current_book.parent` aufgeloest (siehe B-Fix unten).
         - Sonst Default: `<current_book.parent> / "_Sanitizer_Backups_<name>"`.
 
         Die Funktion ist *pur* und hat keine Studio-Abhaengigkeit.
         Sie validiert nicht, ob das Verzeichnis existiert oder schreibbar
         ist — das ist Aufgabe der Schreib-Pipeline in 2.5b.
+
+        B-Fix (Code-Review 2026-07-03): ein relativer `custom_path` wurde
+        vorher unveraendert als `Path(...)` zurueckgegeben. Sein
+        tatsaechlicher Speicherort haengt bei relativen Pfaden vom
+        Arbeitsverzeichnis (CWD) des Python-Prozesses zum Zeitpunkt der
+        SPAETEREN Nutzung ab - je nach Start-Kontext (Doppelklick,
+        Verknuepfung, Taskplaner) undefiniert/inkonsistent. Relative Pfade
+        werden jetzt deterministisch gegen das Buch-Elternverzeichnis
+        aufgeloest, analog zum Default-Verhalten ohne Custom-Pfad.
         """
         if current_book is None:
             return None
         if isinstance(custom_path, str) and custom_path.strip():
-            return Path(custom_path.strip())
+            candidate = Path(custom_path.strip())
+            if candidate.is_absolute():
+                return candidate
+            return current_book.parent / candidate
         return BackupService.default_sanitizer_backup_dir_for(current_book)
 
     @staticmethod
@@ -230,14 +248,36 @@ class BackupService:
         if cwd is not None:
             proc_kwargs["cwd"] = str(cwd)
         proc = popen_factory(cmd, **proc_kwargs)
-        stdout = getattr(proc, "stdout", None)
-        if stdout is not None:
-            for raw_line in stdout:
-                stripped = raw_line.rstrip() if isinstance(raw_line, str) else raw_line
-                if stripped:
-                    on_log_line(stripped)
-        if hasattr(proc, "wait"):
-            proc.wait()
+        stream_error = False
+        # B-Fix (Code-Review 2026-07-03): analog zu
+        # `RenderService.run_safe_render` - Fehler beim Lesen von
+        # `proc.stdout` liefen vorher ungeschuetzt an `proc.wait()`
+        # vorbei und konnten einen Zombie-/verwaisten Subprozess
+        # hinterlassen. `try/finally` erzwingt jetzt immer ein `wait()`.
+        try:
+            stdout = getattr(proc, "stdout", None)
+            if stdout is not None:
+                for raw_line in stdout:
+                    stripped = raw_line.rstrip() if isinstance(raw_line, str) else raw_line
+                    if stripped:
+                        on_log_line(stripped)
+        except (OSError, ValueError) as exc:
+            stream_error = True
+            on_log_line(f"❌ Fehler beim Lesen der Sanitizer-Ausgabe: {exc}")
+            if hasattr(proc, "terminate"):
+                try:
+                    proc.terminate()
+                except OSError:
+                    pass
+        finally:
+            if hasattr(proc, "wait"):
+                try:
+                    proc.wait()
+                except OSError:
+                    pass
+
+        if stream_error:
+            return SANITIZER_RC_STREAM_ERROR
         return getattr(proc, "returncode", 0)
 
 
@@ -261,5 +301,6 @@ __all__ = [
     "SANITIZER_BACKUP_DIR_NAME_TEMPLATE",
     "SANITIZER_BACKUP_TIMESTAMP_FMT",
     "SANITIZER_SUBPROCESS_SCRIPT",
+    "SANITIZER_RC_STREAM_ERROR",
     "default_sanitizer_backup_dir",
 ]

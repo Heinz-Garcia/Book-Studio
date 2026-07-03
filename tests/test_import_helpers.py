@@ -197,3 +197,78 @@ def test_generate_quarto_yml_description_optional(tmp_path):
     generate_quarto_yml_for_import(tmp_path, index_title="T")
     index = (tmp_path / "index.md").read_text(encoding="utf-8")
     assert "description:" not in index
+
+
+# --- Code-Review 2026-07-03: Regressionstests ------------------------------
+
+
+def test_extract_inline_svgs_multiple_blocks_not_corrupted(tmp_path):
+    """B-Fix: mehrere <svg>-Bloecke pro Datei duerfen sich nicht durch
+    verschobene Offsets gegenseitig kaputt machen."""
+    md = tmp_path / "a.md"
+    md.write_text(
+        "Erster Absatz\n"
+        "<svg viewBox='0 0 1 1'><rect/></svg>\n"
+        "Mittlerer Absatz\n"
+        "<svg viewBox='0 0 2 2'><circle/></svg>\n"
+        "Letzter Absatz",
+        encoding="utf-8",
+    )
+    count = extract_inline_svgs_from_md(md)
+    assert count == 2
+    text = md.read_text(encoding="utf-8")
+    assert "<svg" not in text
+    assert "Erster Absatz" in text
+    assert "Mittlerer Absatz" in text
+    assert "Letzter Absatz" in text
+    assert "![Visualisierung](svg_1.svg)" in text
+    assert "![Visualisierung](svg_2.svg)" in text
+    assert (tmp_path / "svg_1.svg").read_text(encoding="utf-8") == "<svg viewBox='0 0 1 1'><rect/></svg>"
+    assert (tmp_path / "svg_2.svg").read_text(encoding="utf-8") == "<svg viewBox='0 0 2 2'><circle/></svg>"
+
+
+def test_extract_inline_svgs_multiple_old_references_not_corrupted(tmp_path):
+    """B-Fix: mehrere alte images/svg_N.svg-Referenzen in derselben Datei."""
+    md = tmp_path / "a.md"
+    md.write_text(
+        "Bild A: ![alt](images/svg_1.svg) Text dazwischen Bild B: ![alt](images/svg_2.svg) Ende",
+        encoding="utf-8",
+    )
+    images = tmp_path / "images"
+    images.mkdir()
+    (images / "svg_1.svg").write_text("<svg/>1", encoding="utf-8")
+    (images / "svg_2.svg").write_text("<svg/>2", encoding="utf-8")
+
+    count = extract_inline_svgs_from_md(md)
+    assert count == 2
+    text = md.read_text(encoding="utf-8")
+    assert "![Visualisierung](svg_1.svg)" in text
+    assert "![Visualisierung](svg_2.svg)" in text
+    assert "Text dazwischen" in text
+    assert "Ende" in text
+    assert (tmp_path / "svg_1.svg").is_file()
+    assert (tmp_path / "svg_2.svg").is_file()
+
+
+def test_generate_quarto_yml_escapes_quotes_in_title(tmp_path):
+    """B-Fix: ein '\"' im Titel/Autor darf kein ungueltiges YAML erzeugen."""
+    generate_quarto_yml_for_import(
+        tmp_path,
+        index_title='Der "Beste" Roman',
+        index_author='A. "Cool" Author',
+        index_description='Eine "tolle" Geschichte',
+    )
+    yaml_text = (tmp_path / "_quarto.yml").read_text(encoding="utf-8")
+    index_text = (tmp_path / "index.md").read_text(encoding="utf-8")
+
+    assert 'title: "Der \\"Beste\\" Roman"' in yaml_text
+    assert 'author: "A. \\"Cool\\" Author"' in yaml_text
+    assert 'title: "Der \\"Beste\\" Roman"' in index_text
+    assert 'description: "Eine \\"tolle\\" Geschichte"' in index_text
+
+    # Ergebnis muss gueltiges YAML sein.
+    import yaml
+
+    parsed = yaml.safe_load(yaml_text)
+    assert parsed["book"]["title"] == 'Der "Beste" Roman'
+    assert parsed["book"]["author"] == 'A. "Cool" Author'

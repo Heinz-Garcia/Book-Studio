@@ -29,7 +29,13 @@ DEFAULTS: dict[str, Any] = {
     "prep_sources": [],
     "prep_dest_folder": "",
     "indexer_target_folder": "",
-    "abort_on_first_preflight_error": False,
+    # B-Fix (Code-Review 2026-07-03): frueher hier `False`, waehrend
+    # `app_config_editor.DEFAULTS` und `ExportManager.
+    # should_abort_on_first_preflight_error()` beide bereits `True` als
+    # Fallback nutzten. Vereinheitlicht auf `True` (den sichereren,
+    # bereits ueberall sonst gelebten Default: Render bricht beim
+    # ersten Buch-Doktor-Befund ab, statt stillschweigend weiterzumachen).
+    "abort_on_first_preflight_error": True,
     "abort_on_first_render_colon_warning": False,
     "default_export_format": "typst",
     "default_export_template": "EXT: typstdoc",
