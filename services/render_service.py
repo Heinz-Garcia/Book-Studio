@@ -440,19 +440,25 @@ class RenderService:
         Rueckgabe: `(returncode: int, aborted_on_colon_warning: bool)`.
         """
         if on_log_line is None:
-            on_log_line = lambda _line: None
+            def on_log_line(_line):
+                return None
         if on_colon_warning is None:
-            on_colon_warning = lambda _line: False
+            def on_colon_warning(_line):
+                return False
         if should_abort_on_colon_warning is None:
-            should_abort_on_colon_warning = lambda: False
+            def should_abort_on_colon_warning():
+                return False
         if has_structural_colon_occurrences is None:
-            has_structural_colon_occurrences = lambda: False
+            def has_structural_colon_occurrences():
+                return False
         if on_abort_requested is None:
-            on_abort_requested = lambda: None
+            def on_abort_requested():
+                return None
         if popen_factory is None:
             popen_factory = subprocess.Popen
         if popen_killer is None:
-            popen_killer = lambda proc: proc.terminate()
+            def popen_killer(proc):
+                proc.terminate()
         if executable is None:
             executable = sys.executable
 

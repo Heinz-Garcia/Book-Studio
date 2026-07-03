@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from subprocess import PIPE, STDOUT
 from types import SimpleNamespace
 
 import pytest
@@ -304,6 +305,118 @@ def test_create_physical_backup_existing_target_raises_oserror(tmp_path):
     result, err = BackupService.create_physical_backup(content, base, target)
     assert result is None
     assert err is not None
+
+
+# --- Phase 4: Sanitizer-Subprocess ------------------------------------------
+
+
+class _MockSanitizerPopen:
+    """Mock fuer subprocess.Popen im Sanitizer-Pfad."""
+
+    def __init__(self, lines, returncode=0):
+        self.stdout = iter(lines)
+        self.returncode = returncode
+        self.waited = False
+        self.kwargs = {}
+
+    def wait(self):
+        self.waited = True
+
+
+def _popen_factory(lines, returncode=0):
+    """Factory, die _MockSanitizerPopen baut und Instanzen sammelt."""
+    instances = []
+
+    def _factory(*args, **kwargs):
+        proc = _MockSanitizerPopen(lines, returncode=returncode)
+        proc.kwargs = kwargs
+        instances.append(proc)
+        return proc
+
+    _factory.instances = instances  # type: ignore[attr-defined]
+    return _factory
+
+
+def test_build_sanitizer_command_minimal(tmp_path):
+    """build_sanitizer_command liefert [executable, script, book]."""
+    cmd = BackupService.build_sanitizer_command(
+        executable=tmp_path / "python.exe",
+        book=tmp_path / "my-book",
+    )
+    assert cmd[0] == str(tmp_path / "python.exe")
+    assert cmd[1] == "Sanitizer.py"
+    assert cmd[2] == str(tmp_path / "my-book")
+
+
+def test_build_sanitizer_command_custom_script(tmp_path):
+    """Der Skript-Name ist ueberschreibbar."""
+    cmd = BackupService.build_sanitizer_command(
+        executable=tmp_path / "python.exe",
+        book=tmp_path,
+        script_name="Custom.py",
+    )
+    assert cmd[1] == "Custom.py"
+
+
+def test_run_sanitizer_subprocess_streams_lines(tmp_path):
+    """Nicht-leere Zeilen landen in on_log_line."""
+    popen = _popen_factory(["line 1\n", "\n", "  \n", "line 2\n"], returncode=0)
+    log_lines = []
+
+    rc = BackupService.run_sanitizer_subprocess(
+        book=tmp_path,
+        on_log_line=log_lines.append,
+        popen_factory=popen,
+    )
+
+    assert rc == 0
+    assert log_lines == ["line 1", "line 2"]
+    assert popen.instances[0].waited is True
+
+
+def test_run_sanitizer_subprocess_passes_cwd(tmp_path):
+    """cwd-Argument wird an popen_factory weitergereicht."""
+    popen = _popen_factory([], returncode=0)
+    cwd = tmp_path / "work"
+
+    BackupService.run_sanitizer_subprocess(
+        book=tmp_path,
+        on_log_line=lambda _l: None,
+        cwd=cwd,
+        popen_factory=popen,
+    )
+
+    kwargs = popen.instances[0].kwargs
+    assert kwargs.get("cwd") == str(cwd)
+    # Popen-spezifische kwargs muessen ebenfalls gesetzt sein.
+    assert kwargs.get("stdout") == PIPE
+    assert kwargs.get("stderr") == STDOUT
+    assert kwargs.get("text") is True
+    assert kwargs.get("bufsize") == 1
+
+
+def test_run_sanitizer_subprocess_handles_none_stdout(tmp_path):
+    """Subprocess ohne .stdout wird ohne Crash akzeptiert."""
+    proc = SimpleNamespace(stdout=None, returncode=0)
+    proc.wait = lambda: setattr(proc, "waited", True)
+
+    rc = BackupService.run_sanitizer_subprocess(
+        book=tmp_path,
+        on_log_line=lambda _l: None,
+        popen_factory=lambda *a, **k: proc,
+    )
+    assert rc == 0
+
+
+def test_run_sanitizer_subprocess_returns_returncode(tmp_path):
+    """Der returncode des Subprocess wird 1:1 zurueckgegeben."""
+    popen = _popen_factory([], returncode=7)
+    rc = BackupService.run_sanitizer_subprocess(
+        book=tmp_path,
+        on_log_line=lambda _l: None,
+        popen_factory=popen,
+    )
+    assert rc == 7
 
 
 if __name__ == "__main__":

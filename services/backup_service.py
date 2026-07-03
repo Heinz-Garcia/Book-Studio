@@ -15,14 +15,22 @@ und Threading bleiben in `BookStudio.run_sanitizer_pipeline`, weil
 sie UI-/System-Konzerne sind. Der Service liefert bei Fehlern
 statt zu raisen ein `(None, error_message)`-Tuple zurück, damit
 das Studio entscheiden kann, ob/wie es `messagebox.showerror` ruft.
+
+Phase 4: Die Subprocess-Logik der Sanitizer-Pipeline ist in
+`run_sanitizer_subprocess` extrahiert. Die Methode nimmt einen
+`popen_factory` (Default `subprocess.Popen`) und einen
+`on_log_line`-Callback; UI-Callbacks (`root.after` + `self.log`)
+bleiben im Studio.
 """
 
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
 
 
 # Default-Basis-Verzeichnis relativ zum Buch-Verzeichnis, wenn in der
@@ -33,6 +41,9 @@ SANITIZER_BACKUP_DIR_PREFIX = "_Sanitizer_Backups_"
 SANITIZER_BACKUP_TIMESTAMP_FMT = "%d%m%y_%H%M"
 
 SANITIZER_BACKUP_DIR_NAME_TEMPLATE = "sanitizer_backup_{timestamp}"
+
+# Default-Python-Executable fuer die Sanitizer-Subprocess-Argv-Liste.
+SANITIZER_SUBPROCESS_SCRIPT = "Sanitizer.py"
 
 
 class BackupLike(Protocol):
@@ -162,6 +173,73 @@ class BackupService:
         """
         return base_dir / SANITIZER_BACKUP_DIR_NAME_TEMPLATE.format(timestamp=timestamp)
 
+    # --- Sanitizer-Subprocess (Phase 4) ---------------------------------
+
+    @staticmethod
+    def build_sanitizer_command(
+        executable: str, book: Path, script_name: str = SANITIZER_SUBPROCESS_SCRIPT
+    ) -> list:
+        """Baut die argv-Liste fuer den Sanitizer-Subprocess.
+
+        Aufbau: `[executable, script_name, str(book)]`. Die Funktion
+        ist *pur* (kein Subprocess-Aufruf, kein I/O).
+        """
+        return [str(executable), str(script_name), str(book)]
+
+    @staticmethod
+    def run_sanitizer_subprocess(
+        book: Path,
+        on_log_line: Callable[[str], None],
+        cwd: Optional[Path] = None,
+        executable: Optional[str] = None,
+        script_name: str = SANITIZER_SUBPROCESS_SCRIPT,
+        popen_factory: Optional[Callable[..., Any]] = None,
+    ) -> int:
+        """Startet den Sanitizer-Subprocess und streamt stdout.
+
+        Verhalten (1:1 wie der Inline-Block in
+        `BookStudio.run_sanitizer_pipeline`):
+
+        1. Baue argv via `build_sanitizer_command`.
+        2. Starte den Subprocess ueber `popen_factory` (Default
+           `subprocess.Popen`) mit `cwd=base_path` (falls angegeben).
+        3. Iteriere zeilenweise ueber `proc.stdout`. Nicht-leere
+           Zeilen gehen an `on_log_line(line)`.
+        4. `proc.wait()`. Rueckgabe: `proc.returncode`.
+
+        Die Methode ist **nicht** Tk-frei; `on_log_line` ist
+        typischerweise ein UI-Callback. Die Subprocess-Erzeugung
+        ist ueber `popen_factory` injiziert (testbar).
+
+        Rueckgabe: `returncode` (int).
+        """
+        if executable is None:
+            executable = sys.executable
+        if popen_factory is None:
+            popen_factory = subprocess.Popen
+
+        cmd = BackupService.build_sanitizer_command(
+            executable=executable, book=book, script_name=script_name
+        )
+        proc_kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.STDOUT,
+            "text": True,
+            "bufsize": 1,
+        }
+        if cwd is not None:
+            proc_kwargs["cwd"] = str(cwd)
+        proc = popen_factory(cmd, **proc_kwargs)
+        stdout = getattr(proc, "stdout", None)
+        if stdout is not None:
+            for raw_line in stdout:
+                stripped = raw_line.rstrip() if isinstance(raw_line, str) else raw_line
+                if stripped:
+                    on_log_line(stripped)
+        if hasattr(proc, "wait"):
+            proc.wait()
+        return getattr(proc, "returncode", 0)
+
 
 # Bequemer Zugriff fuer `BookStudio` ohne expliziten Service-Holder.
 def default_sanitizer_backup_dir(current_book: Optional[Path]) -> Optional[Path]:
@@ -182,5 +260,6 @@ __all__ = [
     "SANITIZER_BACKUP_DIR_PREFIX",
     "SANITIZER_BACKUP_DIR_NAME_TEMPLATE",
     "SANITIZER_BACKUP_TIMESTAMP_FMT",
+    "SANITIZER_SUBPROCESS_SCRIPT",
     "default_sanitizer_backup_dir",
 ]

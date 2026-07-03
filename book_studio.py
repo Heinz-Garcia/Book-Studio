@@ -8,7 +8,6 @@ import re
 import platform
 import importlib
 import logging
-import sys
 from types import SimpleNamespace
 from export_manager import ExportManager
 from log_manager import LogManager
@@ -34,7 +33,7 @@ from app_config_editor import AppConfigEditor
 from sanitizer_config_editor import SanitizerConfigEditor
 from quarto_config_editor import QuartoConfigEditor
 from search_filter import normalize_search_term
-from ui_theme import COLORS, ThemedTooltip, apply_menu_theme, apply_ttk_theme, center_on_parent, configure_root, style_dialog
+from ui_theme import COLORS, ThemedTooltip, apply_ttk_theme, center_on_parent, configure_root, style_dialog
 
 try:
     sv_ttk = importlib.import_module("sv_ttk")
@@ -1107,10 +1106,7 @@ class BookStudio:
         self.list_avail.bind("<KP_Enter>", self.on_activate_selected)
         
         # --- KONTEXTMENÜ LINKS ---
-        self.avail_menu = tk.Menu(self.root, tearoff=0)
-        apply_menu_theme(self.avail_menu)
-        self.avail_menu.add_command(label="📂 Im Explorer anzeigen", command=self.open_avail_in_explorer)
-        self.avail_menu.add_command(label="🖼 Fehlende Bilder anzeigen", command=self.show_avail_missing_images)
+        self.avail_menu = self.menu_manager.build_avail_context_menu(self.root)
         self.list_avail.bind("<Button-3>", self.show_avail_menu)
         
         # --- MITTE ---
@@ -1161,10 +1157,7 @@ class BookStudio:
         self.tree_book.bind("<KP_Enter>", self.on_activate_selected)
         
         # --- KONTEXTMENÜ RECHTS ---
-        self.tree_menu = tk.Menu(self.root, tearoff=0)
-        apply_menu_theme(self.tree_menu)
-        self.tree_menu.add_command(label="📂 Im Explorer anzeigen", command=self.open_tree_in_explorer)
-        self.tree_menu.add_command(label="🖼 Fehlende Bilder anzeigen", command=self.show_tree_missing_images)
+        self.tree_menu = self.menu_manager.build_tree_context_menu(self.root)
         self.tree_book.bind("<Button-3>", self.show_tree_menu)
         
         # --- FOOTER --- (zuerst packen → landet ganz unten)
@@ -2607,26 +2600,25 @@ class BookStudio:
         def sanitizer_thread():
             self.root.after(0, lambda: self.log(f"✅ PRE-BACKUP: {backup_dir}", _LogLevel.SUCCESS))
             self.root.after(0, lambda: self.log("🚀 Starte Sanitizer...", _LogLevel.HEADER))
-            
-            # Sanitizer.py aufrufen und Output abfangen
-            cmd = [sys.executable, "Sanitizer.py", str(self.current_book)]
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=self.base_path)
-            
-            for line in p.stdout:
-                stripped = line.rstrip()
-                if stripped:
-                    self.root.after(0, lambda ln=stripped: self.log(ln, _LogLevel.INFO))
-                
-            p.wait()
-            
-            if p.returncode == 0:
+
+            # Phase 4: Subprocess-Aufruf im BackupService.
+            def _log_line(line):
+                self.root.after(0, lambda ln=line: self.log(ln, _LogLevel.INFO))
+
+            rc = self._services.backup.run_sanitizer_subprocess(
+                book=self.current_book,
+                on_log_line=_log_line,
+                cwd=self.base_path,
+            )
+
+            if rc == 0:
                 self.root.after(0, lambda: self.log("✅ SANITIZER-LAUF ABGESCHLOSSEN!", _LogLevel.SUCCESS))
                 # GANZ WICHTIG: Die UI aktualisieren, falls der Sanitizer defektes Frontmatter repariert hat!
                 self.root.after(0, self.refresh_ui_titles)
                 # B6: Sanitizer hat Dateiinhalte geändert → Cache invalidieren.
                 self.root.after(0, self.invalidate_content_search_cache)
             else:
-                self.root.after(0, lambda: self.log(f"❌ FEHLER: Crash (Code {p.returncode})", _LogLevel.ERROR))
+                self.root.after(0, lambda: self.log(f"❌ FEHLER: Crash (Code {rc})", _LogLevel.ERROR))
 
         threading.Thread(target=sanitizer_thread, daemon=True).start()
 
