@@ -128,6 +128,17 @@
 2. `run_sanitizer_pipeline()` in `BookStudio` wird Wrapper.
 3. Tests in `tests/test_backup_service.py` neu anlegen.
 
+**Aufteilung in 2.5a und 2.5b (analog zu 2.3/2.4):**
+
+- **2.5a (erledigt, `5bec8ec`):** Nur die reinen Pfad-Pfade
+  (`resolve_backup_base_dir`, `compute_backup_timestamp`,
+  `build_backup_path`) sind in `BackupService`. Schreib- und
+  Threading-Logik bleibt im Studio.
+- **2.5b (ausstehend):** `shutil.copytree`, `messagebox`,
+  `self.log`, `self.root.after` und Threading aus
+  `run_sanitizer_pipeline` in `BackupService.run_pipeline(...)`
+  verlagern. `reset_quarto_yml` folgt in 2.5b.
+
 ### 2.6 UiStateService ausbauen
 
 **Betroffene Methoden in `BookStudio`:**
@@ -254,7 +265,7 @@
 | 5 | Schritt 3 (Magic-String-Reste) | 1 h | gering | Verbleibende hartkodierte Hex-Farben in `tk.Label(...fg="#…")` und `tag_configure(foreground="#…")` (u. a. `book_studio.py:1027,1033,1055,1094,1141,1158,1160,1161,1162`) durch symbolische Konstanten in `ui_theme.COLORS` und `StatusFg` ersetzen. Grep-Assertion: keine Treffer außerhalb von `ui_theme.py` und `services/constants.py`. |
 | 6 | Schritt 4 (CI verschärfen) | 30 min | gering | `--cov-fail-under=80` in `pytest.ini` setzen, `.pre-commit-config.yaml` (Ruff + flake8 + py_compile) installieren und in `.github/workflows/ci.yml` einbinden. CI schlägt ab jetzt fehl, wenn Coverage < 80 % fällt. |
 | 7 | Schritt 5 (LogLevel-Magic) | 1 h | gering | Log-Level-Strings (`"info"`, `"success"`, `"warning"`, `"error"`, `"header"`, `"dim"`, `"meta"`) im Code durch `LogLevel`-Enum-Werte ersetzen. Magic-Log-Level-Strings danach nur noch in `services/constants.py` definiert. |
-| 8 | Schritt 2.4–2.6 (restliche Services) | je 1–2 h | mittel | **2.4a DiagnosticsService (Daten-Pfade):** Issue-Registry-Management (`set_issues_from_analysis`, `clear_issues`, `has_issues`, `issues_for_path`, `first_issue_line_for_path`) und reine Navigations-Logik (`paths_in_tree_order`, `pick_next_issue_path`, `pick_first_issue_path`) in `services/diagnostics_service.py`. Tree-Manipulation, Status- und Log-Calls bleiben im Studio. **Status 2.4a: erledigt (Commit `d41355e`)**, Coverage 100 %. **2.4b ausstehend**: Tree-Orchestrierung (`_run_doctor_check` UI-Teil, `run_doctor_preflight`). **2.5 BackupService:** Sanitizer-Pipeline und `reset_quarto_yml` in `services/backup_service.py`. **2.6 UiStateService:** Filter, Suche (`apply_status_filter`, `on_title_search_change`), `refresh_log_view`, `refresh_ui_titles`, `invalidate_content_search_cache` in `services/ui_state_service.py`. Pro Service: Pytest-Tests in `tests/test_<service>.py` neu anlegen. |
+| 8 | Schritt 2.4–2.6 (restliche Services) | je 1–2 h | mittel | **2.4a DiagnosticsService (Daten-Pfade):** Issue-Registry-Management (`set_issues_from_analysis`, `clear_issues`, `has_issues`, `issues_for_path`, `first_issue_line_for_path`) und reine Navigations-Logik (`paths_in_tree_order`, `pick_next_issue_path`, `pick_first_issue_path`) in `services/diagnostics_service.py`. Tree-Manipulation, Status- und Log-Calls bleiben im Studio. **Status 2.4a: erledigt (Commit `d41355e`)**, Coverage 100 %. **2.4b ausstehend**: Tree-Orchestrierung (`_run_doctor_check` UI-Teil, `run_doctor_preflight`). **2.5a BackupService (Pfad-Aufloesung):** `resolve_backup_base_dir`, `compute_backup_timestamp`, `build_backup_path` in `services/backup_service.py` extrahiert. Schreib- und Threading-Logik bleibt im Studio. **Status 2.5a: erledigt (Commit `5bec8ec`)**, Coverage 100 %. **2.5b ausstehend**: `shutil.copytree`, `messagebox`-Calls, `self.log`, Threading aus `run_sanitizer_pipeline` in `BackupService.run_pipeline(...)`. `reset_quarto_yml` folgt mit 2.5b. **2.6 UiStateService:** Filter, Suche (`apply_status_filter`, `on_title_search_change`), `refresh_log_view`, `refresh_ui_titles`, `invalidate_content_search_cache` in `services/ui_state_service.py`. Pro Service: Pytest-Tests in `tests/test_<service>.py` neu anlegen. |
 | 9 | Schritt 6 (Performance-Pass) | variabel | mittel | Drei konkrete Kandidaten: (a) `_content_search_cache` ist `dict`, nicht `LRU` — wächst bei großen Projekten unbegrenzt; (b) `load_book` ruft `_update_avail_list` und `_apply_tree_filters` synchron auf, spürbar bei vielen Dateien; (c) `run_sanitizer_pipeline` startet einen Thread, der das Backup im Hauptpfad macht und bei großen `content/`-Verzeichnissen klemmt. Pro Kandidat: Last-Test, Fix, Verifikation. |
 | 10 | Schritt 7 (Doku) | 30 min | gering | `gui_architektur.md` auf neue Service-Modulgrenzen aktualisieren, `refactoring-master.md` um die Schritt-2-Subbatches ergänzen und diese Notiz (`Refactoring_part2.md`) am Session-Ende mit „erreicht / offen" abschließen. `.doc/README.md` soll die Service-Module korrekt verlinken. |
 
@@ -280,7 +291,7 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 | `quarto_block_parser.py` | 60 | 2 | **97 %** | sehr gut | ≥ 80 % | +17 |
 | `session_state.py` | 22 | 4 | **82 %** | grün | ≥ 80 % | +2 |
 | `services/__init__.py` | 0 | 0 | 100 % | – | – | – |
-| `services/backup_service.py` | 17 | 2 | **88 %** | grün | ≥ 80 % | +8 |
+| `services/backup_service.py` | 43 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/book_session_service.py` | 20 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/constants.py` | 51 | 2 | **96 %** | sehr gut | ≥ 80 % | +16 |
 | `services/diagnostics_service.py` | 45 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
@@ -288,7 +299,7 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 | `services/studio_adapter.py` | 97 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/ui_state_service.py` | 32 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/workspace_service.py` | 21 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
-| **Gesamt** | **773** | **33** | **96 %** | **sehr gut** | ≥ 80 % | +16 |
+| **Gesamt** | **799** | **31** | **96 %** | **sehr gut** | ≥ 80 % | +16 |
 
 ### Lücken-Liste (priorisiert)
 
@@ -307,7 +318,7 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 
 6. **`app_config.py` (88 %)** – Missing: `86, 106-108, 154-156, 173, 181-182, 190, 209, 229-230, 233-234`. Validierungs-Fallback-Pfade und Window-Geometry-Validierung. `test_config_validation.py` (14 Tests) deckt die meisten Fälle ab, einige Defensive-Branches bleiben offen.
 7. **`session_state.py` (82 %)** – Missing: `27-29, 42`. Fallback-Pfade bei fehlender Datei.
-8. **`services/backup_service.py` (88 %)** – Missing: `24, 29`. Initialisierungs-Pfade ohne Services.
+8. ~~**`services/backup_service.py` (88 % → 100 %)**.~~ +21 Tests in `test_backup_service.py`: `resolve_backup_base_dir` (mit/ohne Buch, Custom-Pfad mit Whitespace, leer/whitespace-only, `None`, defensiv Nicht-String), `default_sanitizer_backup_dir_for` (Windows/Unix), `compute_backup_timestamp` (injiziertes `now`, Format-Konsistenz, `datetime.now` monkey-patch), `build_backup_path` (gueltiger+leerer Timestamp), Konstanten-Sanity, Wrapper (`create_structure_backup` ohne `backup_mgr`/mit Delegation, `get_sanitizer_backup_dir` mit/ohne Buch), Modul-Level-Helper. **Status: erledigt (Commit `5bec8ec`, Schritt 2.5a).** Schritt 2.5b (Schreiben/Threading) folgt in eigener Session.
 9. **`services/constants.py` (96 %)** – Missing: `113-114`. Wahrscheinlich ein `__all__`-Eintrag oder ein Helper.
 10. **`frontmatter_parser.py` (96 %, Restlücke: 7 Zeilen)** – `56, 124, 296, 302, 324-325, 356`. Sehr kleine defensive Branches, geringe Priorität.
 11. **`quarto_block_parser.py` (97 %)** – Missing: `60, 111`. Zwei Zeilen, sehr klein.
