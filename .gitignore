@@ -11,6 +11,11 @@ env/
 __pycache__/
 *.py[cod]
 *$py.class
+# Coverage-Reports (lokal, nicht versionieren)
+.coverage
+.coverage.*
+htmlcov/
+.coverage.xml
 
 # Quarto / Pandoc
 /_site/

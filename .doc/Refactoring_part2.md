@@ -245,36 +245,97 @@
 
 ## Reihenfolge für die nächste Session
 
-| Prio | Schritt | Aufwand | Risiko |
+| Prio | Schritt | Aufwand | Risiko | Description |
+|---|---|---|---|---|
+| 1 | Schritt 1 (Coverage-Messung) | 30 min | gering | `pytest --cov` über alle Service-Module laufen lassen und Lücken-Liste aufstellen. Ziel: ≥ 80 % Coverage pro Modul als Baseline, damit klar ist, welche Pfade nach der Migration unter Tests stehen müssen. |
+| 2 | Schritt 2.1 (WorkspaceService) | 1–2 h | gering | Methoden `_get_projects_root_path` und `_discover_projects` aus `BookStudio` in `services/workspace_service.py` verschieben. `BookStudio` ruft den Service via `self._services.workspace` auf; dünner Wrapper bleibt für Backward-Compat. |
+| 3 | Schritt 2.2 (BookSessionService) | 2–3 h | mittel | `load_book` plus Profile-Loading-Logik aus `BookStudio` in `services/book_session_service.py` verlagern. Aktives Buch, Profil und `bookconfig/`-Pfad leben ab dort; `BookStudio.load_book` schrumpft auf ≤ 5 Zeilen. |
+| 4 | Schritt 2.3 (RenderService) | 3–4 h | hoch (Render-Pfad) | Render-Orchestrierung komplett aus `ExportManager` und `book_studio` in `services/render_service.py` ziehen. Ziel: nur noch `RenderService.run_render()` ruft `quarto_render_safe` auf; `ExportManager` enthält keinen `subprocess.Popen` mehr. Risiko: berührt den gesamten Build-Pfad, daher Test-Aufwand am höchsten. |
+| 5 | Schritt 3 (Magic-String-Reste) | 1 h | gering | Verbleibende hartkodierte Hex-Farben in `tk.Label(...fg="#…")` und `tag_configure(foreground="#…")` (u. a. `book_studio.py:1027,1033,1055,1094,1141,1158,1160,1161,1162`) durch symbolische Konstanten in `ui_theme.COLORS` und `StatusFg` ersetzen. Grep-Assertion: keine Treffer außerhalb von `ui_theme.py` und `services/constants.py`. |
+| 6 | Schritt 4 (CI verschärfen) | 30 min | gering | `--cov-fail-under=80` in `pytest.ini` setzen, `.pre-commit-config.yaml` (Ruff + flake8 + py_compile) installieren und in `.github/workflows/ci.yml` einbinden. CI schlägt ab jetzt fehl, wenn Coverage < 80 % fällt. |
+| 7 | Schritt 5 (LogLevel-Magic) | 1 h | gering | Log-Level-Strings (`"info"`, `"success"`, `"warning"`, `"error"`, `"header"`, `"dim"`, `"meta"`) im Code durch `LogLevel`-Enum-Werte ersetzen. Magic-Log-Level-Strings danach nur noch in `services/constants.py` definiert. |
+| 8 | Schritt 2.4–2.6 (restliche Services) | je 1–2 h | mittel | **2.4 DiagnosticsService:** `run_doctor`, `run_doctor_preflight`, Issue-Navigation (`focus_next_doctor_issue`, `focus_previous_doctor_issue`) in `services/diagnostics_service.py`. `BookDoctor`-Logik bleibt in `book_doctor.py`, der Service ist nur Fassade. **2.5 BackupService:** Sanitizer-Pipeline und `reset_quarto_yml` in `services/backup_service.py`. **2.6 UiStateService:** Filter, Suche (`apply_status_filter`, `on_title_search_change`), `refresh_log_view`, `refresh_ui_titles`, `invalidate_content_search_cache` in `services/ui_state_service.py`. Pro Service: Pytest-Tests in `tests/test_<service>.py` neu anlegen. |
+| 9 | Schritt 6 (Performance-Pass) | variabel | mittel | Drei konkrete Kandidaten: (a) `_content_search_cache` ist `dict`, nicht `LRU` — wächst bei großen Projekten unbegrenzt; (b) `load_book` ruft `_update_avail_list` und `_apply_tree_filters` synchron auf, spürbar bei vielen Dateien; (c) `run_sanitizer_pipeline` startet einen Thread, der das Backup im Hauptpfad macht und bei großen `content/`-Verzeichnissen klemmt. Pro Kandidat: Last-Test, Fix, Verifikation. |
+| 10 | Schritt 7 (Doku) | 30 min | gering | `gui_architektur.md` auf neue Service-Modulgrenzen aktualisieren, `refactoring-master.md` um die Schritt-2-Subbatches ergänzen und diese Notiz (`Refactoring_part2.md`) am Session-Ende mit „erreicht / offen" abschließen. `.doc/README.md` soll die Service-Module korrekt verlinken. |
+
+## Coverage-Stand (gemessen 2026-07-03, Schritt 1)
+
+Lauf: `pytest tests/ -m "not slow" --cov=services --cov=app_config --cov=session_state --cov=frontmatter_parser --cov=quarto_block_parser --cov-report=term-missing`
+
+Ergebnis: **158 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **84 %** (664 Statements, 104 Misses).
+
+### Pro Modul
+
+| Modul | Stmts | Miss | Cover | Status | Ziel | Diff |
+|---|---:|---:|---:|---|---:|---:|
+| `app_config.py` | 137 | 16 | **88 %** | grün | ≥ 80 % | +8 |
+| `frontmatter_parser.py` | 175 | 39 | **78 %** | knapp | ≥ 80 % | −2 |
+| `quarto_block_parser.py` | 60 | 2 | **97 %** | sehr gut | ≥ 80 % | +17 |
+| `session_state.py` | 22 | 4 | **82 %** | grün | ≥ 80 % | +2 |
+| `services/__init__.py` | 0 | 0 | 100 % | – | – | – |
+| `services/backup_service.py` | 17 | 2 | **88 %** | grün | ≥ 80 % | +8 |
+| `services/book_session_service.py` | 20 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
+| `services/constants.py` | 51 | 2 | **96 %** | sehr gut | ≥ 80 % | +16 |
+| `services/diagnostics_service.py` | 18 | 5 | **72 %** | rot | ≥ 80 % | **−8** |
+| `services/render_service.py` | 14 | 4 | **71 %** | rot | ≥ 80 % | **−9** |
+| `services/studio_adapter.py` | 97 | 23 | **76 %** | knapp | ≥ 80 % | −4 |
+| `services/ui_state_service.py` | 32 | 7 | **78 %** | knapp | ≥ 80 % | −2 |
+| `services/workspace_service.py` | 21 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
+| **Gesamt** | **664** | **104** | **84 %** | **grün** | ≥ 80 % | +4 |
+
+### Lücken-Liste (priorisiert)
+
+**Prio 1 – Service-Stubs unter Zielmarke (Phase-2-Blocker):**
+
+1. **`services/render_service.py` (71 %)** – Missing: `23-26`. Logik liegt noch nicht im Service (Stub-Phase). Wird automatisch behoben, sobald Schritt 2.3 die Render-Orchestrierung in den Service verlagert.
+2. **`services/diagnostics_service.py` (72 %)** – Missing: `26, 29-32`. Ebenfalls Stub-Phase. Wird in Schritt 2.4 mit Leben gefüllt.
+
+**Prio 2 – Knapp unter Zielmarke (gezielte Test-Erweiterung):**
+
+3. **`frontmatter_parser.py` (78 %)** – Missing: `56, 58, 91, 93, 96-97, 124, 221-231, 260, 285-288, 296, 302, 306-325, 332-333, 346, 356, 359-360`. Edge-Cases für verschachtelte Frontmatter, BOM-Behandlung, heuristischer Modus (kein schließender Trenner) und mehrfach aufeinanderfolgende `---`. `test_frontmatter_parser.py` (23 Tests) abdeckt Standard-Fälle, aber die Heuristik- und Multi-Frontmatter-Pfade sind offen.
+4. **`services/studio_adapter.py` (76 %)** – Missing: `49, 56, 63, 84, 88, 93-94, 100-111, 116, 122-123, 141`. Die Adapter-Schicht für `getattr`-Delegation. `test_studio_adapter.py` (16 Tests) deckt die Hauptpfade ab, aber Property-Branches und einige fehlertolerante Pfade sind offen.
+5. **`services/ui_state_service.py` (78 %)** – Missing: `37-38, 42-45, 51`. Filter- und Cache-Pfade.
+
+**Prio 3 – Kleinere Lücken, niedrige Priorität:**
+
+6. **`app_config.py` (88 %)** – Missing: `86, 106-108, 154-156, 173, 181-182, 190, 209, 229-230, 233-234`. Validierungs-Fallback-Pfade und Window-Geometry-Validierung. `test_config_validation.py` (14 Tests) deckt die meisten Fälle ab, einige Defensive-Branches bleiben offen.
+7. **`session_state.py` (82 %)** – Missing: `27-29, 42`. Fallback-Pfade bei fehlender Datei.
+8. **`services/backup_service.py` (88 %)** – Missing: `24, 29`. Initialisierungs-Pfade ohne Services.
+9. **`services/constants.py` (96 %)** – Missing: `113-114`. Wahrscheinlich ein `__all__`-Eintrag oder ein Helper.
+
+### Zielmarken pro Modul
+
+- **Standard-Zielmarke: ≥ 80 %** für jeden Service-Layer und alle vier Top-Level-Module.
+- **Stub-Module dürfen vorübergehend unter 80 % liegen**, solange sie in einer kommenden Schritt-2-Subbatch ausgebaut werden. Verpflichtung: nach dem Ausbau des jeweiligen Service-Blocks muss die Marke erreicht sein.
+- **Coverage-Threshold schrittweise anheben** (z. B. 70 % → 80 %), nicht in einem Sprung.
+
+### Empfohlene Maßnahmen für Phase 2
+
+| Schritt | Modul | Maßnahme | Erwarteter Cover-Sprung |
 |---|---|---|---|
-| 1 | Schritt 1 (Coverage-Messung) | 30 min | gering |
-| 2 | Schritt 2.1 (WorkspaceService) | 1–2 h | gering |
-| 3 | Schritt 2.2 (BookSessionService) | 2–3 h | mittel |
-| 4 | Schritt 2.3 (RenderService) | 3–4 h | hoch (Render-Pfad) |
-| 5 | Schritt 3 (Magic-String-Reste) | 1 h | gering |
-| 6 | Schritt 4 (CI verschärfen) | 30 min | gering |
-| 7 | Schritt 5 (LogLevel-Magic) | 1 h | gering |
-| 8 | Schritt 2.4–2.6 (restliche Services) | je 1–2 h | mittel |
-| 9 | Schritt 6 (Performance-Pass) | variabel | mittel |
-| 10 | Schritt 7 (Doku) | 30 min | gering |
+| 2.3 | `services/render_service.py` | Render-Logik aus `ExportManager` ziehen | 71 % → ≥ 85 % |
+| 2.4 | `services/diagnostics_service.py` | Doctor-Logik einbauen | 72 % → ≥ 80 % |
+| Nach 2.6 | `services/ui_state_service.py` | Filter-/Cache-Pfade in `test_ui_state_service.py` ergänzen | 78 % → ≥ 80 % |
+| Parallel | `frontmatter_parser.py` | 4 Edge-Cases in `test_frontmatter_parser.py` ergänzen | 78 % → ≥ 80 % |
+| Parallel | `services/studio_adapter.py` | Property-Branches in `test_studio_adapter.py` ergänzen | 76 % → ≥ 80 % |
+| Schritt 4 | `app_config.py` | Defensive-Branches testen | 88 % → ≥ 90 % |
 
-## Coverage-Stand (vorbereitendes Feld)
+### Reproduzierbarkeit
 
-Wird in Schritt 1 ausgefüllt:
+```bash
+# Coverage-Lauf lokal (schnell, ohne Quarto-Render):
+.venv\Scripts\python.exe -m pytest tests/ -m "not slow" --cov=services --cov=app_config --cov=session_state --cov=frontmatter_parser --cov=quarto_block_parser --cov-report=term-missing
+```
 
-| Modul | Coverage | Lücken |
-|---|---|---|
-| `app_config.py` | _tbd_ | – |
-| `session_state.py` | _tbd_ | – |
-| `frontmatter_parser.py` | _tbd_ | – |
-| `quarto_block_parser.py` | _tbd_ | – |
-| `services/*` (alle) | _tbd_ | – |
+`pytest.ini` ist bereits mit `addopts = -ra` und der `[coverage:run]`-Sektion für diese Module vorkonfiguriert. Es ist **kein** `--cov-fail-under` gesetzt (Schritt 4 verschärft CI auf 80 %).
+
 
 ## Offene Punkte aus der aktuellen Session (falls vor Schritt 1 erledigt)
 
-- [ ] `git add -A && git commit` mit den B5–B10-Änderungen (auf Wunsch des Users; aktuell nicht angefragt).
+- [x] `git add -A && git commit` mit den B5–B10-Änderungen (Commit `b34ada0` auf `unleashedEdition`, gepusht am 2026-07-03).
 - [ ] Lokale `studio_config.json.bak`-Dateien aus dem Migration-Schritt löschen (Hausmeister).
 - [ ] `session_state.json` aus dem `.gitignore` wurde hinzugefügt – testen, ob die Session-Werte bei einem Klon korrekt auf `{}` zurückfallen.
+- [ ] **Schritt 2.3 (RenderService)** starten – ist der größte verbleibende Coverage-Lücken-Treiber (`services/render_service.py` 71 %).
 
 ## Hinweise zur Konvention
 
