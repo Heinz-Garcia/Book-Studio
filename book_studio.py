@@ -21,6 +21,7 @@ from services.book_session_service import BookSessionService
 from services.render_service import RenderService
 from services.diagnostics_service import DiagnosticsService
 from services.backup_service import BackupService
+from services.ui_state_service import UiStateService
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
@@ -110,6 +111,7 @@ class BookStudio:
             render=RenderService(self.exporter),
             diagnostics=DiagnosticsService(self),
             backup=BackupService(self),
+            ui_state=UiStateService(self),
         )
         self.projects_root_path = self._services.workspace.get_projects_root_path()
         self.books = self._services.workspace.discover_projects()
@@ -799,22 +801,10 @@ class BookStudio:
         self.file_state_registry = registry
 
     def _path_matches_file_state_filter(self, path):
+        # Phase 2 / Schritt 2.6a: Filter-Logik im Service.
         filter_value = self.file_state_filter_var.get() if hasattr(self, "file_state_filter_var") else "Alle"
-        if filter_value == "Alle":
-            return True
-
-        state = self.file_state_registry.get(path, {})
-        has_orphan = bool(state.get("orphan_footnotes"))
-        has_pagebreak = bool(state.get("pdf_pagebreak_end"))
-        has_missing_images = bool(state.get("missing_images"))
-
-        if filter_value == "Verwaiste Fußnoten":
-            return has_orphan
-        if filter_value == "PDF-Seitenumbruch am Dateiende":
-            return has_pagebreak
-        if filter_value == "Fehlende Bilder":
-            return has_missing_images
-        return True
+        state = self.file_state_registry.get(path) if hasattr(self, "file_state_registry") else None
+        return UiStateService.path_matches_file_state_filter(state, filter_value)
 
     def _state_tags_for_path(self, path):
         state = self.file_state_registry.get(path, {})
@@ -1296,13 +1286,15 @@ class BookStudio:
     def on_file_state_filter_change(self, _event=None):
         self._update_avail_list()
         self._apply_tree_filters()
-        if not self.is_restoring_session:
+        # Phase 2 / Schritt 2.6a: Persistenz-Bedingung im Service.
+        if UiStateService.should_persist_app_state(self.is_restoring_session):
             self.persist_app_state()
 
     def on_title_search_change(self, _event=None):
         self._update_avail_list()
         self._apply_tree_filters()
-        if not self.is_restoring_session:
+        # Phase 2 / Schritt 2.6a: Persistenz-Bedingung im Service.
+        if UiStateService.should_persist_app_state(self.is_restoring_session):
             self.persist_app_state()
 
     def clear_title_search(self):
@@ -1312,9 +1304,10 @@ class BookStudio:
         self.on_title_search_change()
 
     def _is_fulltext_search_enabled(self):
+        # Phase 2 / Schritt 2.6a: reine Berechnung im Service.
         if not hasattr(self, "search_mode_var"):
             return False
-        return self.search_mode_var.get() == "Volltext"
+        return UiStateService.is_fulltext_search_enabled(self.search_mode_var.get())
 
     def _get_content_for_search(self, path):
         if not self.current_book or not path:
