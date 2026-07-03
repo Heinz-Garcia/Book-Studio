@@ -17,6 +17,7 @@ import app_config as _app_config_service
 import session_state as _session_state_service
 from services.constants import StatusFg as _StatusFg
 from services.workspace_service import WorkspaceService
+from services.book_session_service import BookSessionService
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
@@ -95,7 +96,12 @@ class BookStudio:
                 self,
                 read_config=self._read_config,
                 report_error=self._report_nonfatal_error,
-            )
+            ),
+            book_session=BookSessionService(
+                self,
+                books_getter=lambda: list(self.books),
+                search_cache_getter=lambda: self._content_search_cache,
+            ),
         )
         self.projects_root_path = self._services.workspace.get_projects_root_path()
         self.books = self._services.workspace.discover_projects()
@@ -575,15 +581,10 @@ class BookStudio:
             self.status.config(text="Keine Projekte unter content_root_path gefunden", fg=_StatusFg.WARNING_ALT)
             return
 
-        target_index = 0
-        if previous_book and previous_book in self.books:
-            target_index = self.books.index(previous_book)
-        elif previous_name:
-            for idx, book in enumerate(self.books):
-                if book.name == previous_name:
-                    target_index = idx
-                    break
-
+        # Phase 2 / Schritt 2.2: Selektions-Heuristik in BookSessionService.
+        target_index = BookSessionService.pick_target_index(
+            self.books, previous_book, previous_name
+        )
         self.book_combo.current(target_index)
         self.load_book(None)
 
@@ -1403,22 +1404,30 @@ class BookStudio:
     def load_book(self, _event):
         if not self.book_combo.get():
             return
-        self.current_book = self.books[self.book_combo.current()]
-        self._content_search_cache.clear()
-        
-        self.current_profile_name = None
+        # Phase 2 / Schritt 2.2: Daten-Logik in BookSessionService.
+        # UI-Operationen bleiben in BookStudio.
+        selected = self.books[self.book_combo.current()]
+        if not self._services.book_session.set_active_book(selected):
+            return
+        self._services.book_session.clear_search_cache()
+        self._services.book_session.reset_profile()
         self.profile_lbl.config(text="Profil: [Standard]")
-        
+
         self.status.config(text="Lese Metadaten aus Dateien...", fg=_StatusFg.WARNING_ALT)
         self.root.update()
-        
-        self.yaml_engine = QuartoYamlEngine(self.current_book)
+
+        self._services.book_session.initialize_engines_for_book(
+            self.current_book,
+            engine_factory=lambda b: QuartoYamlEngine(b),
+            doctor_factory=lambda b, treg: BookDoctor(b, treg),
+            backup_factory=lambda root, b: BackupManager(root, b),
+        )
         self.title_registry = self.yaml_engine.build_title_registry()
         self._build_file_state_registry()
-        
+
         # NEU: Check ob engine den Status holen kann
         if hasattr(self.yaml_engine, 'build_status_registry'):
-            self.status_registry = self.yaml_engine.build_status_registry() 
+            self.status_registry = self.yaml_engine.build_status_registry()
             # Dropdown mit allen verfügbaren Status füllen
             unique_statuses = set(self.status_registry.values())
             combo_vals = ["Alle"] + sorted(list(unique_statuses))
@@ -1428,20 +1437,17 @@ class BookStudio:
             self.status_registry = {}
 
         self.doctor_issue_registry = {}
-            
-        self.doctor = BookDoctor(self.current_book, self.title_registry)
-        self.backup_mgr = BackupManager(self.root, self.current_book)
-        
+
         self.undo_stack.clear()
         self.redo_stack.clear()
         for i in self.tree_book.get_children():
             self.tree_book.delete(i)
-        
+
         struct = self.yaml_engine.parse_chapters()
         self._build_tree_recursive("", struct)
         self._update_avail_list()
         self._apply_tree_filters()
-        
+
         self.status.config(text=f"Projekt geladen: {self.current_book.name}", fg=_StatusFg.SUCCESS)
         self.log(f"📚 Projekt geladen: {self.current_book.name}", "success")
         # NEU: Templates über das neue Modul entdecken
