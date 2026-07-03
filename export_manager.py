@@ -3,7 +3,6 @@ from tkinter import messagebox, filedialog
 import subprocess
 import threading
 import re
-import os
 import sys
 import platform
 import shutil
@@ -834,10 +833,10 @@ class ExportManager:
     # =========================================================================
     def _handle_render_success(self, fmt):
         try:
-            profile = self._current_profile_name()
-            safe_profile = re.sub(r'[^a-zA-Z0-9_\-]', '_', profile) if profile else None
-            out_dir_name = f"_book_{safe_profile}" if safe_profile else "_book"
-            out_dir = self._current_book() / "export" / out_dir_name
+            # Phase 2 / 2.3c voll: out_dir-Berechnung im RenderService.
+            out_dir = _RenderService.build_render_out_dir(
+                self._current_book(), self._current_profile_name()
+            )
 
             # B1/R3: Nur whitelisted Suffixe öffnen, nicht alle `*{ext}`.
             artifact = self._pick_rendered_artifact(out_dir, fmt)
@@ -850,12 +849,8 @@ class ExportManager:
                     self._log(f"✅ ERFOLG: {output_fmt.upper()} generiert!", "success")
                     self._log(f"📋 Pfad in Zwischenablage: {path}", "success")
                     self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
-                    if platform.system() == 'Windows':
-                        os.startfile(path)
-                    elif platform.system() == 'Darwin':
-                        subprocess.call(('open', path))
-                    else:
-                        subprocess.call(('xdg-open', path))
+                    # Phase 2 / 2.3c voll: OS-spezifischer Open im Service.
+                    _RenderService.open_rendered_artifact(path)
 
                 self._after(0, _on_success)
             else:

@@ -55,6 +55,7 @@ Verweise:
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -392,6 +393,49 @@ class RenderService:
         after_cb(0, lambda: log_cb(f"❌ FEHLER: Code {return_code}", "error"))
         on_failure(return_code)
         return return_code, aborted_on_colon_warning
+
+    # --- Render-Artifact-Aufloesung (Phase 2 / 2.3c voll) -------------
+
+    @staticmethod
+    def build_render_out_dir(book: Path, profile_name: Optional[str]) -> Path:
+        """Berechnet das Render-Output-Verzeichnis.
+
+        `book / 'export' / '_book_<safe_profile>'` oder
+        `book / 'export' / '_book'` wenn kein Profil gesetzt ist.
+        `profile_name` wird auf `[A-Za-z0-9_-]` sanitiert; alle
+        anderen Zeichen werden zu `_`.
+        """
+        if not isinstance(book, Path):
+            book = Path(book)
+        if profile_name:
+            safe_profile = re.sub(r"[^a-zA-Z0-9_\-]", "_", profile_name)
+            out_dir_name = f"_book_{safe_profile}"
+        else:
+            out_dir_name = "_book"
+        return book / "export" / out_dir_name
+
+    @staticmethod
+    def open_rendered_artifact(path: str, *, system_name: Optional[str] = None) -> None:
+        """Plattform-spezifisches Oeffnen einer gerenderten Datei.
+
+        Args:
+            path: Absoluter Pfad zur Datei.
+            system_name: Optional - 'Windows', 'Darwin' oder
+                'Linux'. Default: `platform.system()`. Testbar via
+                Injektion.
+
+        Raises:
+            subprocess.SubprocessError: bei nicht-erkanntem OS.
+        """
+        if system_name is None:
+            import platform as _platform
+            system_name = _platform.system()
+        if system_name == "Windows":
+            os.startfile(path)  # noqa: S606
+        elif system_name == "Darwin":
+            subprocess.call(("open", path))
+        else:
+            subprocess.call(("xdg-open", path))
 
     # --- Subprocess-Wrapper (Phase 2 / 2.3c) -----------------------------
 
