@@ -11,13 +11,15 @@ repos:
     hooks:
       - id: flake8
         additional_dependencies: [flake8-docstrings]
-        args: ["--max-line-length=100", "--extend-ignore=E203,W503,D100,D104,D107"]
+        # Phase 2 / Schritt 4: flake8 liest die zentrale `.flake8`-Config.
+        # Keine doppelten CLI-Args hier, damit Pre-Commit und CI
+        # dieselben Regeln anwenden.
 
   - repo: local
     hooks:
       - id: python-compile
         name: Python compile check
-        entry: python -m py_compile
+        entry: python -m compileall -q
         language: system
         types: [python]
         pass_filenames: false

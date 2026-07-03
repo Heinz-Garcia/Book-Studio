@@ -6,7 +6,6 @@ import re
 import os
 import sys
 import platform
-import json
 import shutil
 import tempfile
 from datetime import datetime

@@ -32,10 +32,42 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-cov
 
+      - name: Lint (Ruff + flake8)
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          pip install ruff==0.6.9 flake8==7.1.1 flake8-docstrings
+          # Phase 2 / Schritt 4: Lint als CI-Pflicht.
+          # Hinweis: `.flake8` und `ruff.toml` sind lokal in
+          # `.git/info/exclude` (User-Praeferenz). Damit CI dieselben
+          # Regeln anwendet, sind die wichtigsten Excludes hier
+          # inline als CLI-Args dupliziert. Bei Aenderung der lokalen
+          # Configs muss dieser Block mitgezogen werden.
+          ruff check . \
+            --exclude export_manager.py --exclude book_doctor.py \
+            --exclude yaml_engine.py --exclude pre_processor.py \
+            --exclude quarto_render_safe.py --exclude tests \
+            --exclude tools
+          flake8 . \
+            --extend-ignore=E,W,D \
+            --exclude=.venv,build,dist,.git,__pycache__,htmlcov,\
+export_manager.py,book_doctor.py,yaml_engine.py,pre_processor.py,\
+quarto_render_safe.py,quarto_config_editor.py,app_config_editor.py,\
+sanitizer_config_editor.py,sanitizer.py,Sanitizer.py,tests,tools
+
+      - name: Compile-Check (alle Module)
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python -m compileall -q .
+
       - name: Run Pytest (mit Coverage)
         env:
           PYTHONIOENCODING: utf-8
         run: |
+          # Phase 2 / Schritt 4: Coverage-Gate ist in pytest.ini gesetzt
+          # (fail_under=80). Pytest bricht ab, wenn die Service-Layer-
+          # Coverage unter 80 % faellt.
           python -m pytest tests/ -m "not slow" --cov=services --cov=app_config --cov=session_state --cov=frontmatter_parser --cov=quarto_block_parser --cov-report=term-missing --cov-report=xml
 
       - name: Run Smoke-Tests
