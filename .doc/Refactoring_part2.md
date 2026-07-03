@@ -258,18 +258,25 @@
 | 9 | Schritt 6 (Performance-Pass) | variabel | mittel | Drei konkrete Kandidaten: (a) `_content_search_cache` ist `dict`, nicht `LRU` — wächst bei großen Projekten unbegrenzt; (b) `load_book` ruft `_update_avail_list` und `_apply_tree_filters` synchron auf, spürbar bei vielen Dateien; (c) `run_sanitizer_pipeline` startet einen Thread, der das Backup im Hauptpfad macht und bei großen `content/`-Verzeichnissen klemmt. Pro Kandidat: Last-Test, Fix, Verifikation. |
 | 10 | Schritt 7 (Doku) | 30 min | gering | `gui_architektur.md` auf neue Service-Modulgrenzen aktualisieren, `refactoring-master.md` um die Schritt-2-Subbatches ergänzen und diese Notiz (`Refactoring_part2.md`) am Session-Ende mit „erreicht / offen" abschließen. `.doc/README.md` soll die Service-Module korrekt verlinken. |
 
-## Coverage-Stand (gemessen 2026-07-03, Schritt 1)
+## Coverage-Stand (gemessen 2026-07-03, Schritt 1 + Test-Polster)
 
 Lauf: `pytest tests/ -m "not slow" --cov=services --cov=app_config --cov=session_state --cov=frontmatter_parser --cov=quarto_block_parser --cov-report=term-missing`
 
-Ergebnis: **158 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **84 %** (664 Statements, 104 Misses).
+Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **94 %** (664 Statements, 42 Misses).
+
+### Verlauf
+
+| Datum | Maßnahme | Tests | Coverage | Anmerkung |
+|---|---|---:|---:|---|
+| 2026-07-03 (initial) | Baseline nach Schritt 1 | 158 | 84 % | drei Module unter 80 % (Frontmatter, Studio-Adapter, UiState) |
+| 2026-07-03 (Test-Polster) | +18 Frontmatter-, +32 Studio-Adapter-, +8 UiState-Tests | 216 | **94 %** | drei Ziel-Module jetzt ≥ 96 % |
 
 ### Pro Modul
 
 | Modul | Stmts | Miss | Cover | Status | Ziel | Diff |
 |---|---:|---:|---:|---|---:|---:|
 | `app_config.py` | 137 | 16 | **88 %** | grün | ≥ 80 % | +8 |
-| `frontmatter_parser.py` | 175 | 39 | **78 %** | knapp | ≥ 80 % | −2 |
+| `frontmatter_parser.py` | 175 | 7 | **96 %** | sehr gut | ≥ 80 % | +16 |
 | `quarto_block_parser.py` | 60 | 2 | **97 %** | sehr gut | ≥ 80 % | +17 |
 | `session_state.py` | 22 | 4 | **82 %** | grün | ≥ 80 % | +2 |
 | `services/__init__.py` | 0 | 0 | 100 % | – | – | – |
@@ -278,10 +285,10 @@ Ergebnis: **158 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 | `services/constants.py` | 51 | 2 | **96 %** | sehr gut | ≥ 80 % | +16 |
 | `services/diagnostics_service.py` | 18 | 5 | **72 %** | rot | ≥ 80 % | **−8** |
 | `services/render_service.py` | 14 | 4 | **71 %** | rot | ≥ 80 % | **−9** |
-| `services/studio_adapter.py` | 97 | 23 | **76 %** | knapp | ≥ 80 % | −4 |
-| `services/ui_state_service.py` | 32 | 7 | **78 %** | knapp | ≥ 80 % | −2 |
+| `services/studio_adapter.py` | 97 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
+| `services/ui_state_service.py` | 32 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/workspace_service.py` | 21 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
-| **Gesamt** | **664** | **104** | **84 %** | **grün** | ≥ 80 % | +4 |
+| **Gesamt** | **664** | **42** | **94 %** | **sehr gut** | ≥ 80 % | +14 |
 
 ### Lücken-Liste (priorisiert)
 
@@ -290,11 +297,11 @@ Ergebnis: **158 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 1. **`services/render_service.py` (71 %)** – Missing: `23-26`. Logik liegt noch nicht im Service (Stub-Phase). Wird automatisch behoben, sobald Schritt 2.3 die Render-Orchestrierung in den Service verlagert.
 2. **`services/diagnostics_service.py` (72 %)** – Missing: `26, 29-32`. Ebenfalls Stub-Phase. Wird in Schritt 2.4 mit Leben gefüllt.
 
-**Prio 2 – Knapp unter Zielmarke (gezielte Test-Erweiterung):**
+**Prio 2 – Erledigt (Test-Polster am 2026-07-03):**
 
-3. **`frontmatter_parser.py` (78 %)** – Missing: `56, 58, 91, 93, 96-97, 124, 221-231, 260, 285-288, 296, 302, 306-325, 332-333, 346, 356, 359-360`. Edge-Cases für verschachtelte Frontmatter, BOM-Behandlung, heuristischer Modus (kein schließender Trenner) und mehrfach aufeinanderfolgende `---`. `test_frontmatter_parser.py` (23 Tests) abdeckt Standard-Fälle, aber die Heuristik- und Multi-Frontmatter-Pfade sind offen.
-4. **`services/studio_adapter.py` (76 %)** – Missing: `49, 56, 63, 84, 88, 93-94, 100-111, 116, 122-123, 141`. Die Adapter-Schicht für `getattr`-Delegation. `test_studio_adapter.py` (16 Tests) deckt die Hauptpfade ab, aber Property-Branches und einige fehlertolerante Pfade sind offen.
-5. **`services/ui_state_service.py` (78 %)** – Missing: `37-38, 42-45, 51`. Filter- und Cache-Pfade.
+3. ~~`frontmatter_parser.py` (78 % → **96 %**).~~ +18 Tests in `test_frontmatter_parser.py`: Heuristik-Pfade, `parsed()` mit `yaml=None`/Fehler/Nicht-Dict, `parse_file` mit `OSError`/`UnicodeDecodeError`, `_salvage_simple_yaml_mapping` (Kommentare/Quoting), `validate_and_repair` mit allen `header_mode`-Kombinationen inkl. `preserve_style_in_repair=True` und Cr-only-Newlines.
+4. ~~`services/studio_adapter.py` (76 % → **100 %**).~~ +32 Tests in `test_studio_adapter.py`: Getter/Fallback-Attribute/NONE für alle fünf Properties, `schedule_ui` mit drei Branches, `update_status` mit beiden Branches, `copy_text_to_clipboard` mit `root.clipboard_*` und Exception-Schluck, `title_for_path` mit `get_title_for_path`-Getter, `set_last_export_options` mit Setter, `persist_app_state`/`get_tree_data_for_engine`/`run_doctor_preflight` inkl. Fallbacks.
+5. ~~`services/ui_state_service.py` (78 % → **100 %**).~~ +8 Tests: Exception-Branches für `search_text` und `file_state_filter`, `invalidate_content_search_cache` mit und ohne Studio-Methode.
 
 **Prio 3 – Kleinere Lücken, niedrige Priorität:**
 
@@ -302,6 +309,8 @@ Ergebnis: **158 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 7. **`session_state.py` (82 %)** – Missing: `27-29, 42`. Fallback-Pfade bei fehlender Datei.
 8. **`services/backup_service.py` (88 %)** – Missing: `24, 29`. Initialisierungs-Pfade ohne Services.
 9. **`services/constants.py` (96 %)** – Missing: `113-114`. Wahrscheinlich ein `__all__`-Eintrag oder ein Helper.
+10. **`frontmatter_parser.py` (96 %, Restlücke: 7 Zeilen)** – `56, 124, 296, 302, 324-325, 356`. Sehr kleine defensive Branches, geringe Priorität.
+11. **`quarto_block_parser.py` (97 %)** – Missing: `60, 111`. Zwei Zeilen, sehr klein.
 
 ### Zielmarken pro Modul
 
@@ -311,13 +320,14 @@ Ergebnis: **158 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 
 ### Empfohlene Maßnahmen für Phase 2
 
-| Schritt | Modul | Maßnahme | Erwarteter Cover-Sprung |
-|---|---|---|---|
-| 2.3 | `services/render_service.py` | Render-Logik aus `ExportManager` ziehen | 71 % → ≥ 85 % |
-| 2.4 | `services/diagnostics_service.py` | Doctor-Logik einbauen | 72 % → ≥ 80 % |
-| Nach 2.6 | `services/ui_state_service.py` | Filter-/Cache-Pfade in `test_ui_state_service.py` ergänzen | 78 % → ≥ 80 % |
-| Parallel | `frontmatter_parser.py` | 4 Edge-Cases in `test_frontmatter_parser.py` ergänzen | 78 % → ≥ 80 % |
-| Parallel | `services/studio_adapter.py` | Property-Branches in `test_studio_adapter.py` ergänzen | 76 % → ≥ 80 % |
+| Schritt | Modul | Maßnahme | Erwarteter Cover-Sprung | Status |
+|---|---|---|---|---|
+| 2.3 | `services/render_service.py` | Render-Logik aus `ExportManager` ziehen | 71 % → ≥ 85 % | offen |
+| 2.4 | `services/diagnostics_service.py` | Doctor-Logik einbauen | 72 % → ≥ 80 % | offen |
+| Parallel | `app_config.py` | Defensive-Branches testen | 88 % → ≥ 90 % | offen |
+| ~~Parallel~~ | ~~`ui_state_service.py`~~ | ~~Filter/Cache-Pfade testen~~ | ~~78 % → ≥ 80 %~~ | **erledigt (100 %)** |
+| ~~Parallel~~ | ~~`frontmatter_parser.py`~~ | ~~Edge-Cases testen~~ | ~~78 % → ≥ 80 %~~ | **erledigt (96 %)** |
+| ~~Parallel~~ | ~~`services/studio_adapter.py`~~ | ~~Property-Branches testen~~ | ~~76 % → ≥ 80 %~~ | **erledigt (100 %)** |
 | Schritt 4 | `app_config.py` | Defensive-Branches testen | 88 % → ≥ 90 % |
 
 ### Reproduzierbarkeit
@@ -333,8 +343,10 @@ Ergebnis: **158 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 ## Offene Punkte aus der aktuellen Session (falls vor Schritt 1 erledigt)
 
 - [x] `git add -A && git commit` mit den B5–B10-Änderungen (Commit `b34ada0` auf `unleashedEdition`, gepusht am 2026-07-03).
+- [x] Coverage-Polster für Frontmatter-Parser, Studio-Adapter, UiStateService (+58 Tests, 84 % → 94 % Gesamt-Coverage).
 - [ ] Lokale `studio_config.json.bak`-Dateien aus dem Migration-Schritt löschen (Hausmeister).
 - [ ] `session_state.json` aus dem `.gitignore` wurde hinzugefügt – testen, ob die Session-Werte bei einem Klon korrekt auf `{}` zurückfallen.
+- [ ] `smoke_tests.py` gibt `❌` aus, was auf `cp1252`-Konsole crasht – entweder ASCII-only umstellen oder `print(..., flush=True)` mit `sys.stdout.reconfigure(encoding='utf-8')` absichern. Smoke-Score ist 6/7; `studio_config.json`-Check ist veraltet (B5-Trennung) und sollte auf `app_config.json` umgestellt werden.
 - [ ] **Schritt 2.3 (RenderService)** starten – ist der größte verbleibende Coverage-Lücken-Treiber (`services/render_service.py` 71 %).
 
 ## Hinweise zur Konvention
