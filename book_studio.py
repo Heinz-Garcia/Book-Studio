@@ -20,6 +20,7 @@ from services.workspace_service import WorkspaceService
 from services.book_session_service import BookSessionService
 from services.render_service import RenderService
 from services.diagnostics_service import DiagnosticsService
+from services.backup_service import BackupService
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
@@ -108,6 +109,7 @@ class BookStudio:
             ),
             render=RenderService(self.exporter),
             diagnostics=DiagnosticsService(self),
+            backup=BackupService(self),
         )
         self.projects_root_path = self._services.workspace.get_projects_root_path()
         self.books = self._services.workspace.discover_projects()
@@ -2578,7 +2580,7 @@ class BookStudio:
     def run_sanitizer_pipeline(self):
         if not self.current_book:
             return
-        
+
         content_dir = self.current_book / "content"
         if not content_dir.exists():
             messagebox.showerror("Fehler", "Kein 'content'-Ordner gefunden. Es gibt nichts zu bereinigen.")
@@ -2586,20 +2588,23 @@ class BookStudio:
 
         # 1. Konfiguration laden (für konfigurierbaren Backup-Pfad)
         # B5: liest jetzt via `app_config`-Service (nicht mehr direkt `studio_config.json`).
-        backup_base_dir = self.current_book.parent / f"_Sanitizer_Backups_{self.current_book.name}"
+        # Phase 2 / Schritt 2.5a: Pfad-Aufloesung im BackupService.
         try:
             cfg = _app_config_service.read_config(self._app_config_path)
             custom_path = cfg.get("sanitizer_backup_path")
-            if custom_path:
-                backup_base_dir = Path(custom_path)
         except (OSError, TypeError, ValueError) as e:
             self.log(f"⚠️  Konnte App-Config für Sanitizer-Backup nicht lesen: {e}", "warning")
+            custom_path = None
+        backup_base_dir = self._services.backup.resolve_backup_base_dir(
+            self.current_book, custom_path
+        )
+        if backup_base_dir is None:
+            return  # current_book fehlt; sollte nicht passieren, aber defensiv.
 
         # 2. Zeitstempel-Ordnernamen generieren (Format: DDMMYY_HHMM)
-        from datetime import datetime
         import shutil
-        timestamp = datetime.now().strftime("%d%m%y_%H%M")
-        backup_dir = backup_base_dir / f"sanitizer_backup_{timestamp}"
+        timestamp = self._services.backup.compute_backup_timestamp()
+        backup_dir = self._services.backup.build_backup_path(backup_base_dir, timestamp)
 
         # 3. Sicherheitsabfrage
         msg = (f"Möchtest du den Sanitizer-Waschgang jetzt starten?\n\n"
