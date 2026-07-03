@@ -254,7 +254,7 @@
 | 5 | Schritt 3 (Magic-String-Reste) | 1 h | gering | Verbleibende hartkodierte Hex-Farben in `tk.Label(...fg="#…")` und `tag_configure(foreground="#…")` (u. a. `book_studio.py:1027,1033,1055,1094,1141,1158,1160,1161,1162`) durch symbolische Konstanten in `ui_theme.COLORS` und `StatusFg` ersetzen. Grep-Assertion: keine Treffer außerhalb von `ui_theme.py` und `services/constants.py`. |
 | 6 | Schritt 4 (CI verschärfen) | 30 min | gering | `--cov-fail-under=80` in `pytest.ini` setzen, `.pre-commit-config.yaml` (Ruff + flake8 + py_compile) installieren und in `.github/workflows/ci.yml` einbinden. CI schlägt ab jetzt fehl, wenn Coverage < 80 % fällt. |
 | 7 | Schritt 5 (LogLevel-Magic) | 1 h | gering | Log-Level-Strings (`"info"`, `"success"`, `"warning"`, `"error"`, `"header"`, `"dim"`, `"meta"`) im Code durch `LogLevel`-Enum-Werte ersetzen. Magic-Log-Level-Strings danach nur noch in `services/constants.py` definiert. |
-| 8 | Schritt 2.4–2.6 (restliche Services) | je 1–2 h | mittel | **2.4 DiagnosticsService:** `run_doctor`, `run_doctor_preflight`, Issue-Navigation (`focus_next_doctor_issue`, `focus_previous_doctor_issue`) in `services/diagnostics_service.py`. `BookDoctor`-Logik bleibt in `book_doctor.py`, der Service ist nur Fassade. **2.5 BackupService:** Sanitizer-Pipeline und `reset_quarto_yml` in `services/backup_service.py`. **2.6 UiStateService:** Filter, Suche (`apply_status_filter`, `on_title_search_change`), `refresh_log_view`, `refresh_ui_titles`, `invalidate_content_search_cache` in `services/ui_state_service.py`. Pro Service: Pytest-Tests in `tests/test_<service>.py` neu anlegen. |
+| 8 | Schritt 2.4–2.6 (restliche Services) | je 1–2 h | mittel | **2.4a DiagnosticsService (Daten-Pfade):** Issue-Registry-Management (`set_issues_from_analysis`, `clear_issues`, `has_issues`, `issues_for_path`, `first_issue_line_for_path`) und reine Navigations-Logik (`paths_in_tree_order`, `pick_next_issue_path`, `pick_first_issue_path`) in `services/diagnostics_service.py`. Tree-Manipulation, Status- und Log-Calls bleiben im Studio. **Status 2.4a: erledigt (Commit `d41355e`)**, Coverage 100 %. **2.4b ausstehend**: Tree-Orchestrierung (`_run_doctor_check` UI-Teil, `run_doctor_preflight`). **2.5 BackupService:** Sanitizer-Pipeline und `reset_quarto_yml` in `services/backup_service.py`. **2.6 UiStateService:** Filter, Suche (`apply_status_filter`, `on_title_search_change`), `refresh_log_view`, `refresh_ui_titles`, `invalidate_content_search_cache` in `services/ui_state_service.py`. Pro Service: Pytest-Tests in `tests/test_<service>.py` neu anlegen. |
 | 9 | Schritt 6 (Performance-Pass) | variabel | mittel | Drei konkrete Kandidaten: (a) `_content_search_cache` ist `dict`, nicht `LRU` — wächst bei großen Projekten unbegrenzt; (b) `load_book` ruft `_update_avail_list` und `_apply_tree_filters` synchron auf, spürbar bei vielen Dateien; (c) `run_sanitizer_pipeline` startet einen Thread, der das Backup im Hauptpfad macht und bei großen `content/`-Verzeichnissen klemmt. Pro Kandidat: Last-Test, Fix, Verifikation. |
 | 10 | Schritt 7 (Doku) | 30 min | gering | `gui_architektur.md` auf neue Service-Modulgrenzen aktualisieren, `refactoring-master.md` um die Schritt-2-Subbatches ergänzen und diese Notiz (`Refactoring_part2.md`) am Session-Ende mit „erreicht / offen" abschließen. `.doc/README.md` soll die Service-Module korrekt verlinken. |
 
@@ -283,19 +283,19 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 | `services/backup_service.py` | 17 | 2 | **88 %** | grün | ≥ 80 % | +8 |
 | `services/book_session_service.py` | 20 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/constants.py` | 51 | 2 | **96 %** | sehr gut | ≥ 80 % | +16 |
-| `services/diagnostics_service.py` | 18 | 5 | **72 %** | rot | ≥ 80 % | **−8** |
-| `services/render_service.py` | 14 | 4 | **71 %** | rot | ≥ 80 % | **−9** |
+| `services/diagnostics_service.py` | 45 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
+| `services/render_service.py` | 33 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/studio_adapter.py` | 97 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/ui_state_service.py` | 32 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/workspace_service.py` | 21 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
-| **Gesamt** | **664** | **42** | **94 %** | **sehr gut** | ≥ 80 % | +14 |
+| **Gesamt** | **773** | **33** | **96 %** | **sehr gut** | ≥ 80 % | +16 |
 
 ### Lücken-Liste (priorisiert)
 
 **Prio 1 – Service-Stubs unter Zielmarke (Phase-2-Blocker):**
 
-1. **`services/render_service.py` (71 %)** – Missing: `23-26`. Logik liegt noch nicht im Service (Stub-Phase). Wird automatisch behoben, sobald Schritt 2.3 die Render-Orchestrierung in den Service verlagert.
-2. **`services/diagnostics_service.py` (72 %)** – Missing: `26, 29-32`. Ebenfalls Stub-Phase. Wird in Schritt 2.4 mit Leben gefüllt.
+1. ~~**`services/render_service.py` (71 % → 100 %)**.~~ +19 Tests in `test_render_service.py`: `EXTENSION_TEMPLATE_PREFIX`-Konstante, Standard/Local/Extension-Templates, leere Inputs, `None`-Template, Delegation der `run_render`/`get_render_log_dir`-Stubs. **Status: erledigt (Commit `fb23869`, Schritt 2.3a).** Schritt 2.3b (Subprocess/Threading) folgt in eigener Session.
+2. ~~**`services/diagnostics_service.py` (72 % → 100 %)**.~~ +31 Tests in `test_diagnostics_service.py`: Registry-Management (`set_issues_from_analysis` mit fehlenden Keys/`None`, `clear_issues` idempotent, `has_issues`), Convenience-Accessoren, `paths_in_tree_order` mit allen Branches, `pick_next_issue_path` (Vor-/Rückwärts, Wraparound beider Richtungen, unknown/`None` current_path, leere Liste, single path), `pick_first_issue_path`. **Status: erledigt (Commit `d41355e`, Schritt 2.4a).** Schritt 2.4b (Tree-Orchestrierung) folgt in eigener Session.
 
 **Prio 2 – Erledigt (Test-Polster am 2026-07-03):**
 
@@ -322,8 +322,8 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 
 | Schritt | Modul | Maßnahme | Erwarteter Cover-Sprung | Status |
 |---|---|---|---|---|
-| 2.3 | `services/render_service.py` | Render-Logik aus `ExportManager` ziehen | 71 % → ≥ 85 % | offen |
-| 2.4 | `services/diagnostics_service.py` | Doctor-Logik einbauen | 72 % → ≥ 80 % | offen |
+| 2.3 | `services/render_service.py` | Render-Logik aus `ExportManager` ziehen | 71 % → ≥ 85 % | **2.3a erledigt (100 %, `fb23869`)**; 2.3b offen |
+| 2.4 | `services/diagnostics_service.py` | Doctor-Logik einbauen | 72 % → ≥ 80 % | **2.4a erledigt (100 %, `d41355e`)**; 2.4b offen |
 | Parallel | `app_config.py` | Defensive-Branches testen | 88 % → ≥ 90 % | offen |
 | ~~Parallel~~ | ~~`ui_state_service.py`~~ | ~~Filter/Cache-Pfade testen~~ | ~~78 % → ≥ 80 %~~ | **erledigt (100 %)** |
 | ~~Parallel~~ | ~~`frontmatter_parser.py`~~ | ~~Edge-Cases testen~~ | ~~78 % → ≥ 80 %~~ | **erledigt (96 %)** |
