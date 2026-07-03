@@ -19,6 +19,7 @@ from services.constants import StatusFg as _StatusFg
 from services.workspace_service import WorkspaceService
 from services.book_session_service import BookSessionService
 from services.render_service import RenderService
+from services.diagnostics_service import DiagnosticsService
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
@@ -106,6 +107,7 @@ class BookStudio:
                 search_cache_getter=lambda: self._content_search_cache,
             ),
             render=RenderService(self.exporter),
+            diagnostics=DiagnosticsService(self),
         )
         self.projects_root_path = self._services.workspace.get_projects_root_path()
         self.books = self._services.workspace.discover_projects()
@@ -921,24 +923,25 @@ class BookStudio:
             self.log(warning, "warning")
 
     def _select_first_doctor_issue(self):
-        if not self.doctor_issue_registry:
+        # Phase 2 / Schritt 2.4a: Pfad-Auswahl im Service, Tree-Manipulation
+        # bleibt im Studio (UI-Konzern).
+        target_path = DiagnosticsService.pick_first_issue_path(
+            self._get_all_used_paths(), self.doctor_issue_registry
+        )
+        if not target_path:
             return
-
-        for path in self._get_all_used_paths():
-            if path not in self.doctor_issue_registry:
-                continue
-            node = self._find_tree_node_by_path(path)
-            if not node:
-                continue
-            self.tree_book.selection_set(node)
-            self.tree_book.focus(node)
-            self.tree_book.see(node)
+        node = self._find_tree_node_by_path(target_path)
+        if not node:
             return
+        self.tree_book.selection_set(node)
+        self.tree_book.focus(node)
+        self.tree_book.see(node)
 
     def _doctor_issue_paths_in_tree_order(self):
-        if not self.doctor_issue_registry:
-            return []
-        return [path for path in self._get_all_used_paths() if path in self.doctor_issue_registry]
+        # Phase 2 / Schritt 2.4a: pure Filterung im Service.
+        return DiagnosticsService.paths_in_tree_order(
+            self._get_all_used_paths(), self.doctor_issue_registry
+        )
 
     def _focus_doctor_issue(self, step):
         issue_paths = self._doctor_issue_paths_in_tree_order()
@@ -954,11 +957,12 @@ class BookStudio:
             if vals:
                 current_path = vals[0]
 
-        if current_path in issue_paths:
-            current_index = issue_paths.index(current_path)
-            target_path = issue_paths[(current_index + step) % len(issue_paths)]
-        else:
-            target_path = issue_paths[0] if step >= 0 else issue_paths[-1]
+        # Phase 2 / Schritt 2.4a: Index-Berechnung in DiagnosticsService.
+        target_path = DiagnosticsService.pick_next_issue_path(
+            issue_paths, current_path, step
+        )
+        if not target_path:
+            return "break"
 
         node = self._find_tree_node_by_path(target_path)
         if node:
@@ -986,8 +990,8 @@ class BookStudio:
             self._get_all_used_paths(),
             len(self.list_avail.get_children("")),
         )
-        self.doctor_issue_registry = analysis.get("issues_by_path", {})
-        self.doctor_issue_line_registry = analysis.get("issue_first_line_by_path", {})
+        # Phase 2 / Schritt 2.4a: Registry-Update via Service.
+        self._services.diagnostics.set_issues_from_analysis(analysis)
         self._refresh_tree_titles_from_current_state()
         self._select_first_doctor_issue()
 
@@ -1439,7 +1443,8 @@ class BookStudio:
         else:
             self.status_registry = {}
 
-        self.doctor_issue_registry = {}
+        # Phase 2 / Schritt 2.4a: Issue-Registry-Clear via Service.
+        self._services.diagnostics.clear_issues()
 
         self.undo_stack.clear()
         self.redo_stack.clear()

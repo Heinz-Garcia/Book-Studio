@@ -348,14 +348,60 @@ def test_render_service_no_method():
     assert svc.run_render() is False
 
 
-def test_diagnostics_service_preflight():
+def test_diagnostics_service_set_issues_from_analysis():
+    """Phase 2 / 2.4a: Die neue API konsumiert ein Analysis-Dict, nicht eine
+    Callback-Signatur. Damit kann der Service ohne `run_doctor_preflight`-
+    Delegation arbeiten — der Studio ruft die Analyse selbst auf und reicht
+    das Ergebnis an den Service weiter.
+    """
     studio = SimpleNamespace(
-        run_doctor_preflight=lambda label, emit_success_log=False: (True, {"ok": 1})
+        doctor_issue_registry={},
+        doctor_issue_line_registry={},
     )
     svc = DiagnosticsService(studio)
-    ok, payload = svc.run_preflight("ctx")
-    assert ok is True
-    assert payload == {"ok": 1}
+    svc.set_issues_from_analysis(
+        {
+            "issues_by_path": {"a.md": ["Issue 1"]},
+            "issue_first_line_by_path": {"a.md": 42},
+        }
+    )
+    assert studio.doctor_issue_registry == {"a.md": ["Issue 1"]}
+    assert studio.doctor_issue_line_registry == {"a.md": 42}
+
+
+def test_diagnostics_service_has_issues():
+    studio = SimpleNamespace(
+        doctor_issue_registry={"a.md": ["x"]},
+        doctor_issue_line_registry={},
+    )
+    svc = DiagnosticsService(studio)
+    assert svc.has_issues() is True
+    studio.doctor_issue_registry = {}
+    assert svc.has_issues() is False
+
+
+def test_diagnostics_service_paths_in_tree_order_pure():
+    """Die statische `paths_in_tree_order` ist pur und testbar ohne Studio."""
+    paths = ["a.md", "b.md", "c.md", "d.md"]
+    registry = {"b.md": ["x"], "d.md": ["y"]}
+    assert DiagnosticsService.paths_in_tree_order(paths, registry) == ["b.md", "d.md"]
+    assert DiagnosticsService.paths_in_tree_order(paths, {}) == []
+    assert DiagnosticsService.paths_in_tree_order([], registry) == []
+
+
+def test_diagnostics_service_pick_next_with_wraparound():
+    """Die statische `pick_next_issue_path` rechnet mit Wraparound."""
+    paths = ["a.md", "b.md", "c.md"]
+    # Vorwaerts mit Wraparound
+    assert DiagnosticsService.pick_next_issue_path(paths, "c.md", 1) == "a.md"
+    # Rueckwaerts mit Wraparound
+    assert DiagnosticsService.pick_next_issue_path(paths, "a.md", -1) == "c.md"
+    # current_path nicht in Liste -> Fallback step >= 0 -> erstes
+    assert DiagnosticsService.pick_next_issue_path(paths, "x.md", 1) == "a.md"
+    # current_path nicht in Liste -> Fallback step < 0 -> letztes
+    assert DiagnosticsService.pick_next_issue_path(paths, "x.md", -1) == "c.md"
+    # Leere Liste -> None
+    assert DiagnosticsService.pick_next_issue_path([], "x.md", 1) is None
 
 
 def test_backup_service_structure_backup():
