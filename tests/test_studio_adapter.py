@@ -296,14 +296,20 @@ def test_adapter_run_doctor_preflight_fallback_returns_false_none():
 
 
 def test_workspace_service_basic():
-    studio = SimpleNamespace(
-        base_path=Path("/x"),
-        projects_root_path=Path("/x"),
-        books=[Path("/x/b1"), Path("/x/b2")],
-    )
+    """Smoke: WorkspaceService antwortet auf die drei Pflicht-Aufrufe.
+
+    Die echte Discovery-Logik wird in `tests/test_workspace_service.py`
+    separat gegen ein `tmp_path` getestet, weil `rglob("_quarto.yml")`
+    ein echtes Dateisystem braucht.
+    """
+    studio = SimpleNamespace(base_path=Path("/x"), projects_root_path=Path("/x"))
     svc = WorkspaceService(studio)
+    # Ohne `read_config` fällt get_projects_root_path auf `base_path` zurück.
     assert svc.get_projects_root_path() == Path("/x")
-    assert svc.discover_projects() == [Path("/x/b1"), Path("/x/b2")]
+    # `discover_projects` braucht ein echtes Wurzelverzeichnis; ohne eines
+    # liefert sie eine leere Liste. Wird in test_workspace_service.py getestet.
+    assert svc.discover_projects() == []
+    # `is_within_project` ist ein reiner relativer Pfad-Vergleich.
     assert svc.is_within_project(Path("/x/b1/foo.md")) is True
     assert svc.is_within_project(Path("/y/foo.md")) is False
 

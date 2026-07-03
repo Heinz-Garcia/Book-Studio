@@ -1,48 +1,159 @@
 """WorkspaceService – Pfad-Auflösung, Project-Discovery, Content-Registry.
 
-B8: Stub mit dokumentierter Public-API. Aktuell delegiert die Logik in
-`book_studio.BookStudio`. Vollständige Migration ist für eine Folge-Session
-vorgesehen; der Stub hält den Vertrag fest, damit Aufrufer ihn schon
-importieren und nutzen können.
+Phase 2 / Schritt 2.1: Die Logik aus `book_studio.BookStudio._get_projects_root_path`
+und `book_studio.BookStudio._discover_projects` wurde 1:1 hierher verlagert.
+`BookStudio` hält dünne Wrapper für Backward-Compat, der produktive Pfad
+läuft über diesen Service.
+
+API:
+    service = WorkspaceService(studio=studio, base_path=Path("..."), read_config=studio._read_config, report_error=studio._report_nonfatal_error)
+    root = service.get_projects_root_path()
+    books = service.discover_projects()
+    inside = service.is_within_project(some_path)
+
+Verweise:
+- .doc/refactoring-master.md, Batch B8 (Stub-Definition)
+- .doc/Refactoring_part2.md, Schritt 2.1 (Migration)
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
+
+
+# --- Konstanten ------------------------------------------------------------
+
+# Pfad-Segmente, die bei der Project-Discovery übersprungen werden.
+# Aus `book_studio._discover_projects` extrahiert; Reihenfolge ist irrelevant.
+EXCLUDED_PATH_SEGMENTS = frozenset({
+    ".venv",
+    "_book",
+    ".backups",
+    ".git",
+    "bookconfig",
+    "export",
+    "processed",
+})
+
+
+# --- Schnittstelle ----------------------------------------------------------
 
 
 class WorkspaceLike(Protocol):
-    """Schnittstelle, die `BookStudio` für `WorkspaceService` anbieten muss."""
+    """Schnittstelle, die `BookStudio` für `WorkspaceService` anbieten muss.
+
+    Wird nur für die *optionalen* `read_config` und `report_error`-Backdoors
+    benötigt; der Service funktioniert auch ohne sie (Fallback: leeres Config,
+    stilles Loggen).
+    """
+
     base_path: Path
     projects_root_path: Path
     books: list[Path]
 
-    def _get_projects_root_path(self) -> Path: ...
-    def _discover_projects(self) -> list[Path]: ...
+
+# --- Service ----------------------------------------------------------------
 
 
 class WorkspaceService:
     """Pfad-Auflösung, Project-Discovery, Content-Registry.
 
-    Aktuelle Implementation: delegiert an das Studio-Objekt. Folge-Sessions
-    ziehen `_get_projects_root_path` und `_discover_projects` aus
-    `BookStudio` in diesen Service.
+    Phase 2: Die Service-Logik lebt jetzt hier, nicht mehr in `BookStudio`.
+    `BookStudio` ruft den Service über `self._services.workspace` und bietet
+    zusätzlich dünne Wrapper (`_get_projects_root_path`, `_discover_projects`,
+    `is_within_project`) für externe Skripte an.
     """
 
-    def __init__(self, studio: WorkspaceLike):
+    def __init__(
+        self,
+        studio: WorkspaceLike,
+        *,
+        read_config: Optional[Callable[[], dict]] = None,
+        report_error: Optional[Callable[[str, Any], None]] = None,
+    ) -> None:
         self._studio = studio
+        self._read_config = read_config
+        self._report_error = report_error
+
+    # --- Pfad-Auflösung ---------------------------------------------------
 
     def get_projects_root_path(self) -> Path:
-        return self._studio.projects_root_path
+        """Liest `content_root_path` aus der App-Config und validiert den Pfad.
+
+        Fallback: `studio.base_path`, falls die Config nicht lesbar ist,
+        der Wert kein String/leer ist, oder der Pfad nicht existiert.
+        """
+        default_root = self._studio.base_path
+        if self._read_config is None:
+            return default_root
+
+        try:
+            cfg = self._read_config()
+        except (OSError, ValueError, TypeError) as error:  # json.JSONDecodeError erbt von ValueError
+            self._report_nonfatal("Projekt-Root konnte nicht aus Config geladen werden", error)
+            return default_root
+
+        raw_value = cfg.get("content_root_path", ".")
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            return default_root
+
+        configured_path = Path(raw_value.strip()).expanduser()
+        root_path = (
+            configured_path
+            if configured_path.is_absolute()
+            else (self._studio.base_path / configured_path)
+        )
+        root_path = root_path.resolve()
+        if not root_path.exists() or not root_path.is_dir():
+            self._report_nonfatal(
+                "Konfigurierter content_root_path ist ungültig, verwende Code-Ordner",
+                root_path,
+            )
+            return default_root
+        return root_path
+
+    # --- Project-Discovery -----------------------------------------------
 
     def discover_projects(self) -> list[Path]:
-        return list(self._studio.books)
+        """Findet alle Quarto-Bücher unterhalb des aktuellen Projekt-Roots.
+
+        Sucht nach `_quarto.yml`, schließt Pfade aus, deren Segmente in
+        `EXCLUDED_PATH_SEGMENTS` enthalten sind, und liefert die
+        zugehörigen Elternverzeichnisse.
+        """
+        root = self._studio.projects_root_path
+        if not root.exists() or not root.is_dir():
+            return []
+        return [
+            p.parent
+            for p in root.rglob("_quarto.yml")
+            if not any(seg in p.parts for seg in EXCLUDED_PATH_SEGMENTS)
+        ]
+
+    # --- Membership-Check -------------------------------------------------
 
     def is_within_project(self, path: Path) -> bool:
-        root = self._studio.projects_root_path
+        """True, wenn `path` unterhalb des aktuellen Projekt-Roots liegt."""
         try:
-            path.relative_to(root)
+            path.relative_to(self._studio.projects_root_path)
             return True
         except ValueError:
             return False
+
+    # --- Intern -----------------------------------------------------------
+
+    def _report_nonfatal(self, context: str, error: Any) -> None:
+        """Meldet einen nicht-fatalen Fehler an das Studio, falls angebunden."""
+        if self._report_error is not None:
+            try:
+                self._report_error(context, error)
+            except Exception:  # niemals die Service-Pfade crashen
+                pass
+
+
+__all__ = [
+    "EXCLUDED_PATH_SEGMENTS",
+    "WorkspaceLike",
+    "WorkspaceService",
+]

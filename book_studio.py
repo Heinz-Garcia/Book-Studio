@@ -9,12 +9,14 @@ import platform
 import importlib
 import logging
 import sys
+from types import SimpleNamespace
 from export_manager import ExportManager
 from log_manager import LogManager
 from session_manager import SessionManager
 import app_config as _app_config_service
 import session_state as _session_state_service
 from services.constants import StatusFg as _StatusFg
+from services.workspace_service import WorkspaceService
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
@@ -83,8 +85,20 @@ class BookStudio:
         self.root.protocol("WM_DELETE_WINDOW", self.close_app)
 
         self.base_path = Path(__file__).parent
-        self.projects_root_path = self._get_projects_root_path()
-        self.books = self._discover_projects()
+        # Phase 2 / Schritt 2.1: Service-Container einrichten. Die Pfad- und
+        # Discovery-Logik lebt jetzt in `WorkspaceService`. `BookStudio` bietet
+        # weiterhin dünne Wrapper (`_get_projects_root_path`, `_discover_projects`,
+        # `is_within_project`) für Backward-Compat; Folge-Schritte 2.2-2.6
+        # füllen den Container mit BookSession/Render/Diagnostics/Backup/UiState.
+        self._services = SimpleNamespace(
+            workspace=WorkspaceService(
+                self,
+                read_config=self._read_config,
+                report_error=self._report_nonfatal_error,
+            )
+        )
+        self.projects_root_path = self._services.workspace.get_projects_root_path()
+        self.books = self._services.workspace.discover_projects()
         self.current_book = None
         
         self.yaml_engine = None
@@ -225,27 +239,9 @@ class BookStudio:
         logger.warning(message)
 
     def _get_projects_root_path(self) -> Path:
-        default_root = self.base_path
-        try:
-            cfg = self._read_config()
-        except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
-            self._report_nonfatal_error("Projekt-Root konnte nicht aus Config geladen werden", error)
-            return default_root
-
-        raw_value = cfg.get("content_root_path", ".")
-        if not isinstance(raw_value, str) or not raw_value.strip():
-            return default_root
-
-        configured_path = Path(raw_value.strip()).expanduser()
-        root_path = configured_path if configured_path.is_absolute() else (self.base_path / configured_path)
-        root_path = root_path.resolve()
-        if not root_path.exists() or not root_path.is_dir():
-            self._report_nonfatal_error(
-                "Konfigurierter content_root_path ist ungültig, verwende Code-Ordner",
-                root_path,
-            )
-            return default_root
-        return root_path
+        # Phase 2 / Schritt 2.1: dünner Wrapper, delegiert an WorkspaceService.
+        # Logik lebt in `services/workspace_service.py` und ist dort getestet.
+        return self._services.workspace.get_projects_root_path()
 
     def get_log_font_size(self) -> int:
         default_size = 9
@@ -724,11 +720,12 @@ class BookStudio:
         return "break"
 
     def _discover_projects(self):
-        found = []
-        for p in self.projects_root_path.rglob("_quarto.yml"):
-            if not any(x in p.parts for x in ['.venv', '_book', '.backups', '.git', 'bookconfig', 'export', 'processed']):
-                found.append(p.parent)
-        return found
+        # Phase 2 / Schritt 2.1: dünner Wrapper, delegiert an WorkspaceService.
+        return self._services.workspace.discover_projects()
+
+    def is_within_project(self, path: Path) -> bool:
+        # Phase 2 / Schritt 2.1: Wrapper, delegiert an WorkspaceService.
+        return self._services.workspace.is_within_project(path)
 
     def _build_file_state_registry(self):
         registry = {}
