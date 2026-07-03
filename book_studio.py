@@ -18,6 +18,7 @@ import session_state as _session_state_service
 from services.constants import StatusFg as _StatusFg
 from services.workspace_service import WorkspaceService
 from services.book_session_service import BookSessionService
+from services.render_service import RenderService
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
@@ -86,11 +87,13 @@ class BookStudio:
         self.root.protocol("WM_DELETE_WINDOW", self.close_app)
 
         self.base_path = Path(__file__).parent
-        # Phase 2 / Schritt 2.1: Service-Container einrichten. Die Pfad- und
-        # Discovery-Logik lebt jetzt in `WorkspaceService`. `BookStudio` bietet
-        # weiterhin dünne Wrapper (`_get_projects_root_path`, `_discover_projects`,
-        # `is_within_project`) für Backward-Compat; Folge-Schritte 2.2-2.6
-        # füllen den Container mit BookSession/Render/Diagnostics/Backup/UiState.
+        # Phase 2: Service-Container einrichten. Die Pfad-/Discovery-Logik
+        # lebt in `WorkspaceService`, Buch-Session-Logik in `BookSessionService`,
+        # Format-Logik in `RenderService` (Schritt 2.3a). `BookStudio` bietet
+        # weiterhin dünne Wrapper für Backward-Compat.
+        # `self.exporter` muss VOR `self._services` existieren, weil der
+        # RenderService den Exporter als Schnittstelle braucht.
+        self.exporter = ExportManager(self)  # NEU: Unser ausgelagerter Export-Manager
         self._services = SimpleNamespace(
             workspace=WorkspaceService(
                 self,
@@ -102,6 +105,7 @@ class BookStudio:
                 books_getter=lambda: list(self.books),
                 search_cache_getter=lambda: self._content_search_cache,
             ),
+            render=RenderService(self.exporter),
         )
         self.projects_root_path = self._services.workspace.get_projects_root_path()
         self.books = self._services.workspace.discover_projects()
@@ -160,7 +164,6 @@ class BookStudio:
         self.drag_data = {'item': None}
         self.undo_stack = []
         self.redo_stack = []
-        self.exporter = ExportManager(self) # NEU: Unser ausgelagerter Export-Manager
         self.menu_manager = MenuManager(self)
         self.ui_actions_manager = UiActionsManager(self)
         

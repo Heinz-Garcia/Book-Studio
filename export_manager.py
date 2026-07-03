@@ -704,29 +704,34 @@ class ExportManager:
         selected_tpl = selected["template"]
 
         # --- DIE NEUE EXTENSION-WEICHE ---
-        # --- DIE NEUE EXTENSION-WEICHE ---
-        target_fmt = base_fmt
-        extra_opts = None
-
-        if selected_tpl.startswith("EXT: "):
-            # Es ist eine Quarto Extension (z.B. typstdoc)
-            ext_name = selected_tpl.replace("EXT: ", "").strip()
-            target_fmt = f"{ext_name}-{base_fmt}"
-
-            # NEU: Wir injizieren die wichtigsten Buch-Features (TOC, Nummerierung)
-            # direkt in das Extension-Format!
-            extra_opts = {
-                target_fmt: {
-                    "toc": True,
-                    "toc-depth": 3,
-                    "number-sections": True,
-                    "section-numbering": "1.1.1" #
+        # Phase 2 / Schritt 2.3a: Format-Auflösung an RenderService delegiert.
+        # Logik lebt in `services/render_service.py::resolve_target_format`
+        # (pure Funktion, dort getestet).
+        render_service = getattr(self.studio, "_services", None)
+        render_service = getattr(render_service, "render", None) if render_service else None
+        if render_service is not None:
+            target_fmt, extra_opts = render_service.resolve_target_format(
+                base_fmt, selected_tpl
+            )
+        else:
+            # Phase 1 / B8-Fallback: Wenn der Studio-Service-Container fehlt
+            # (z. B. in einem Standalone-Export-Manager-Test), faellt die
+            # Logik auf die Inline-Implementierung zurueck.
+            target_fmt = base_fmt
+            extra_opts = None
+            if selected_tpl.startswith("EXT: "):
+                ext_name = selected_tpl.replace("EXT: ", "").strip()
+                target_fmt = f"{ext_name}-{base_fmt}"
+                extra_opts = {
+                    target_fmt: {
+                        "toc": True,
+                        "toc-depth": 3,
+                        "number-sections": True,
+                        "section-numbering": "1.1.1",
+                    }
                 }
-            }
-
-        elif selected_tpl != "Standard":
-            # Es ist eine dumme lokale Datei in templates/
-            extra_opts = {base_fmt: {"template": f"templates/{selected_tpl}"}}
+            elif selected_tpl != "Standard":
+                extra_opts = {base_fmt: {"template": f"templates/{selected_tpl}"}}
         # ----------------------------------
 
         self._set_status(f"Rendere {target_fmt} (Pre-Processing)...", _StatusFg.INFO)
