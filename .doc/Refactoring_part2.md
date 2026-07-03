@@ -151,6 +151,18 @@
 2. `search_filter.py` (bereits ausgelagert) bleibt unverändert, Service delegiert.
 3. Tests in `tests/test_ui_state_service.py` neu anlegen.
 
+**Aufteilung in 2.6a und 2.6b (analog zu 2.3/2.4/2.5):**
+
+- **2.6a (erledigt, `b2fc5cc`):** Nur die *reinen Berechnungs-Pfade*
+  sind in `UiStateService`: `is_fulltext_search_enabled`,
+  `path_matches_file_state_filter` (mit Spezialfiltern),
+  `should_persist_app_state`, `is_right_side_search_scope`,
+  `resolve_active_search_term`. Tree-Manipulation und UI-Refresh
+  bleiben im Studio.
+- **2.6b (ausstehend):** `_apply_tree_filters` (komplette Tree-Walk-
+  Logik), `_update_avail_list`, `refresh_log_view`, `refresh_ui_titles`
+  und `clear_title_search` in `UiStateService` verlagern.
+
 **Akzeptanzkriterien für Schritt 2 (gesamt):**
 
 - `book_studio.py` ist < 800 Zeilen (Akzeptanzkriterium aus B8).
@@ -265,7 +277,7 @@
 | 5 | Schritt 3 (Magic-String-Reste) | 1 h | gering | Verbleibende hartkodierte Hex-Farben in `tk.Label(...fg="#…")` und `tag_configure(foreground="#…")` (u. a. `book_studio.py:1027,1033,1055,1094,1141,1158,1160,1161,1162`) durch symbolische Konstanten in `ui_theme.COLORS` und `StatusFg` ersetzen. Grep-Assertion: keine Treffer außerhalb von `ui_theme.py` und `services/constants.py`. |
 | 6 | Schritt 4 (CI verschärfen) | 30 min | gering | `--cov-fail-under=80` in `pytest.ini` setzen, `.pre-commit-config.yaml` (Ruff + flake8 + py_compile) installieren und in `.github/workflows/ci.yml` einbinden. CI schlägt ab jetzt fehl, wenn Coverage < 80 % fällt. |
 | 7 | Schritt 5 (LogLevel-Magic) | 1 h | gering | Log-Level-Strings (`"info"`, `"success"`, `"warning"`, `"error"`, `"header"`, `"dim"`, `"meta"`) im Code durch `LogLevel`-Enum-Werte ersetzen. Magic-Log-Level-Strings danach nur noch in `services/constants.py` definiert. |
-| 8 | Schritt 2.4–2.6 (restliche Services) | je 1–2 h | mittel | **2.4a DiagnosticsService (Daten-Pfade):** Issue-Registry-Management (`set_issues_from_analysis`, `clear_issues`, `has_issues`, `issues_for_path`, `first_issue_line_for_path`) und reine Navigations-Logik (`paths_in_tree_order`, `pick_next_issue_path`, `pick_first_issue_path`) in `services/diagnostics_service.py`. Tree-Manipulation, Status- und Log-Calls bleiben im Studio. **Status 2.4a: erledigt (Commit `d41355e`)**, Coverage 100 %. **2.4b ausstehend**: Tree-Orchestrierung (`_run_doctor_check` UI-Teil, `run_doctor_preflight`). **2.5a BackupService (Pfad-Aufloesung):** `resolve_backup_base_dir`, `compute_backup_timestamp`, `build_backup_path` in `services/backup_service.py` extrahiert. Schreib- und Threading-Logik bleibt im Studio. **Status 2.5a: erledigt (Commit `5bec8ec`)**, Coverage 100 %. **2.5b ausstehend**: `shutil.copytree`, `messagebox`-Calls, `self.log`, Threading aus `run_sanitizer_pipeline` in `BackupService.run_pipeline(...)`. `reset_quarto_yml` folgt mit 2.5b. **2.6 UiStateService:** Filter, Suche (`apply_status_filter`, `on_title_search_change`), `refresh_log_view`, `refresh_ui_titles`, `invalidate_content_search_cache` in `services/ui_state_service.py`. Pro Service: Pytest-Tests in `tests/test_<service>.py` neu anlegen. |
+| 8 | Schritt 2.4–2.6 (restliche Services) | je 1–2 h | mittel | **2.4a DiagnosticsService (Daten-Pfade):** Issue-Registry-Management (`set_issues_from_analysis`, `clear_issues`, `has_issues`, `issues_for_path`, `first_issue_line_for_path`) und reine Navigations-Logik (`paths_in_tree_order`, `pick_next_issue_path`, `pick_first_issue_path`) in `services/diagnostics_service.py`. Tree-Manipulation, Status- und Log-Calls bleiben im Studio. **Status 2.4a: erledigt (Commit `d41355e`)**, Coverage 100 %. **2.4b ausstehend**: Tree-Orchestrierung (`_run_doctor_check` UI-Teil, `run_doctor_preflight`). **2.5a BackupService (Pfad-Aufloesung):** `resolve_backup_base_dir`, `compute_backup_timestamp`, `build_backup_path` in `services/backup_service.py` extrahiert. Schreib- und Threading-Logik bleibt im Studio. **Status 2.5a: erledigt (Commit `5bec8ec`)**, Coverage 100 %. **2.5b ausstehend**: `shutil.copytree`, `messagebox`-Calls, `self.log`, Threading aus `run_sanitizer_pipeline` in `BackupService.run_pipeline(...)`. `reset_quarto_yml` folgt mit 2.5b. **2.6a UiStateService (reine Berechnungen):** `is_fulltext_search_enabled`, `path_matches_file_state_filter` (mit Spezialfiltern), `should_persist_app_state`, `is_right_side_search_scope`, `resolve_active_search_term` in `services/ui_state_service.py`. Tree-Manipulation und UI-Refresh bleiben im Studio. **Status 2.6a: erledigt (Commit `b2fc5cc`)**, Coverage 100 %. **2.6b ausstehend**: `_apply_tree_filters`, `_update_avail_list`, `refresh_log_view`, `refresh_ui_titles`, `clear_title_search`. Pro Service: Pytest-Tests in `tests/test_<service>.py` neu anlegen. |
 | 9 | Schritt 6 (Performance-Pass) | variabel | mittel | Drei konkrete Kandidaten: (a) `_content_search_cache` ist `dict`, nicht `LRU` — wächst bei großen Projekten unbegrenzt; (b) `load_book` ruft `_update_avail_list` und `_apply_tree_filters` synchron auf, spürbar bei vielen Dateien; (c) `run_sanitizer_pipeline` startet einen Thread, der das Backup im Hauptpfad macht und bei großen `content/`-Verzeichnissen klemmt. Pro Kandidat: Last-Test, Fix, Verifikation. |
 | 10 | Schritt 7 (Doku) | 30 min | gering | `gui_architektur.md` auf neue Service-Modulgrenzen aktualisieren, `refactoring-master.md` um die Schritt-2-Subbatches ergänzen und diese Notiz (`Refactoring_part2.md`) am Session-Ende mit „erreicht / offen" abschließen. `.doc/README.md` soll die Service-Module korrekt verlinken. |
 
@@ -297,9 +309,9 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 | `services/diagnostics_service.py` | 45 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/render_service.py` | 33 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/studio_adapter.py` | 97 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
-| `services/ui_state_service.py` | 32 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
+| `services/ui_state_service.py` | 68 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
 | `services/workspace_service.py` | 21 | 0 | **100 %** | exzellent | ≥ 80 % | +20 |
-| **Gesamt** | **799** | **31** | **96 %** | **sehr gut** | ≥ 80 % | +16 |
+| **Gesamt** | **835** | **31** | **96 %** | **sehr gut** | ≥ 80 % | +16 |
 
 ### Lücken-Liste (priorisiert)
 
