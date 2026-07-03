@@ -18,6 +18,7 @@ from frontmatter_parser import parse as fm_parse
 from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues
 from services.studio_adapter import StudioAdapter
 from services.constants import StatusFg as _StatusFg
+from services.render_service import RenderService as _RenderService
 
 
 class ExportManager:
@@ -178,10 +179,9 @@ class ExportManager:
             return
 
         book_root = Path(current_book)
-        log_dir = book_root / "export" / "render_logs"
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_fmt = re.sub(r"[^A-Za-z0-9._-]", "_", str(target_fmt or "unknown"))
-        log_path = log_dir / f"render_{timestamp}_{safe_fmt}.log"
+        # Phase 2 / Schritt 2.3b: Log-Pfad-Berechnung im RenderService.
+        log_path = _RenderService.build_render_log_path(book_root, target_fmt)
+        log_dir = log_path.parent
 
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
@@ -226,13 +226,8 @@ class ExportManager:
             self._log(f"🧾 Render-Log gespeichert: {path}", "dim")
 
     def _iter_tree_paths(self, tree_data):
-        for item in tree_data:
-            path = item.get("path")
-            if isinstance(path, str):
-                yield path
-            children = item.get("children") or []
-            if children:
-                yield from self._iter_tree_paths(children)
+        # Phase 2 / Schritt 2.3b: pure Generator-Funktion im Service.
+        yield from _RenderService.iter_tree_paths(tree_data)
 
     def collect_processed_fenced_div_hits(self, processed_tree):
         findings = []
@@ -256,7 +251,7 @@ class ExportManager:
 
             issues = self._detect_fenced_div_issues(lines)
             for line_number, issue_kind in issues:
-                source_rel_path = rel_path[len("processed/") :] if rel_path.startswith("processed/") else rel_path
+                source_rel_path = _RenderService.extract_processed_source_path(rel_path)
                 findings.append(
                     {
                         "source_path": source_rel_path,
@@ -368,7 +363,7 @@ class ExportManager:
             except OSError:
                 continue
 
-            source_rel_path = rel_path[len("processed/") :] if rel_path.startswith("processed/") else rel_path
+            source_rel_path = _RenderService.extract_processed_source_path(rel_path)
             for line_number, raw_line in enumerate(lines, start=1):
                 for match in label_pattern.finditer(raw_line):
                     label = match.group(1)
@@ -397,7 +392,7 @@ class ExportManager:
             except OSError:
                 continue
 
-            source_rel_path = rel_path[len("processed/") :] if rel_path.startswith("processed/") else rel_path
+            source_rel_path = _RenderService.extract_processed_source_path(rel_path)
             structural_issues = self._detect_fenced_div_issues(lines)
             for line_number, issue_kind in structural_issues:
                 structural_occurrences.append(
@@ -795,20 +790,15 @@ class ExportManager:
             self._after(0, lambda: self._log("❌ Fallback-Skript nicht gefunden: quarto_render_safe.py", "error"))
             return 2, False
 
-        cmd = [
-            sys.executable,
-            str(safe_script),
-            str(self._current_book()),
-            "--to",
-            target_fmt,
-        ]
-        if profile_name:
-            cmd.extend(["--profile-name", str(profile_name)])
-        if extra_format_options:
-            cmd.extend([
-                "--extra-format-options-json",
-                json.dumps(extra_format_options, ensure_ascii=False, separators=(",", ":")),
-            ])
+        # Phase 2 / Schritt 2.3b: argv-Bau im RenderService.
+        cmd = _RenderService.build_safe_render_command(
+            executable=sys.executable,
+            safe_script=safe_script,
+            book=self._current_book(),
+            target_fmt=target_fmt,
+            profile_name=profile_name,
+            extra_format_options=extra_format_options,
+        )
         self._write_active_render_log(f"safe_command={' '.join(str(part) for part in cmd)}")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         aborted_on_colon_warning = False
