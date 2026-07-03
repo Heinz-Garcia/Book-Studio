@@ -11,6 +11,7 @@ Tree-Manipulation, Status- und Log-Calls bleiben in `BookStudio`
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -256,6 +257,301 @@ def test_pick_first_returns_first_in_tree_order():
 def test_pick_first_returns_none_when_empty():
     assert DiagnosticsService.pick_first_issue_path([], {}) is None
     assert DiagnosticsService.pick_first_issue_path(["a.md"], {}) is None
+
+
+# --- run_full_health_check (Phase 2 / Schritt 2.4b) ---------------------
+
+
+def _make_doctor(analysis):
+    """Hilfs-Studio mit `doctor`, der `analyze_health` simuliert."""
+    return SimpleNamespace(doctor=SimpleNamespace(analyze_health=lambda *a, **k: analysis))
+
+
+def test_run_full_health_check_no_book_returns_false_none():
+    studio = SimpleNamespace(current_book=None, doctor=SimpleNamespace())
+    calls = {"status": 0, "log": 0, "refresh": 0, "select": 0, "log_an": 0}
+    svc = DiagnosticsService(
+        studio,
+        on_status=lambda *a: calls.__setitem__("status", calls["status"] + 1),
+        on_log=lambda *a: calls.__setitem__("log", calls["log"] + 1),
+        on_refresh_tree=lambda: calls.__setitem__("refresh", calls["refresh"] + 1),
+        on_select_first_issue=lambda: calls.__setitem__("select", calls["select"] + 1),
+        on_log_analysis=lambda *a: calls.__setitem__("log_an", calls["log_an"] + 1),
+    )
+    is_healthy, analysis = svc.run_full_health_check(
+        "X", ["a.md"], 3, emit_success_log=False
+    )
+    assert is_healthy is False
+    assert analysis is None
+    assert calls == {"status": 0, "log": 0, "refresh": 0, "select": 0, "log_an": 0}
+
+
+def test_run_full_health_check_no_doctor_returns_false_none():
+    studio = SimpleNamespace(current_book=Path("c:/book"), doctor=None)
+    svc = DiagnosticsService(studio)
+    is_healthy, analysis = svc.run_full_health_check("X", ["a.md"], 3)
+    assert is_healthy is False
+    assert analysis is None
+
+
+def test_run_full_health_check_healthy_calls_status_success():
+    analysis = {"is_healthy": True, "error_count": 0, "warning_count": 0}
+    studio = _make_doctor(analysis)
+    studio.current_book = Path("c:/book")
+    status_calls = []
+    log_calls = []
+    refresh_calls = []
+    select_calls = []
+    svc = DiagnosticsService(
+        studio,
+        on_status=lambda t, fg: status_calls.append((t, fg)),
+        on_log=lambda m, lv: log_calls.append((m, lv)),
+        on_refresh_tree=lambda: refresh_calls.append(True),
+        on_select_first_issue=lambda: select_calls.append(True),
+        on_log_analysis=lambda *a: None,
+    )
+    is_healthy, out = svc.run_full_health_check(
+        "Buch-Doktor", ["a.md", "b.md"], 2, emit_success_log=False
+    )
+    assert is_healthy is True
+    assert out is analysis
+    assert len(status_calls) == 1
+    assert status_calls[0] == ("Buch-Doktor: keine kritischen Befunde", "success")
+    assert refresh_calls == [True]
+    assert select_calls == [True]
+    assert log_calls == []  # emit_success_log=False, has_findings=False
+
+
+def test_run_full_health_check_emit_success_log_triggers_log_analysis():
+    analysis = {"is_healthy": True, "error_count": 0, "warning_count": 0}
+    studio = _make_doctor(analysis)
+    studio.current_book = Path("c:/book")
+    log_an_calls = []
+    svc = DiagnosticsService(
+        studio,
+        on_log_analysis=lambda an, lbl: log_an_calls.append((an, lbl)),
+    )
+    is_healthy, _ = svc.run_full_health_check(
+        "Buch-Doktor", ["a.md"], 1, emit_success_log=True
+    )
+    assert is_healthy is True
+    assert log_an_calls == [(analysis, "Buch-Doktor")]
+
+
+def test_run_full_health_check_warnings_trigger_log_analysis():
+    analysis = {"is_healthy": True, "error_count": 0, "warning_count": 2}
+    studio = _make_doctor(analysis)
+    studio.current_book = Path("c:/book")
+    log_an_calls = []
+    status_calls = []
+    svc = DiagnosticsService(
+        studio,
+        on_status=lambda t, fg: status_calls.append((t, fg)),
+        on_log_analysis=lambda an, lbl: log_an_calls.append((an, lbl)),
+    )
+    is_healthy, _ = svc.run_full_health_check("Vorabcheck", ["a.md"], 1)
+    assert is_healthy is True
+    assert len(log_an_calls) == 1
+    assert status_calls[0] == ("Vorabcheck: keine kritischen Befunde", "success")
+
+
+def test_run_full_health_check_errors_set_status_danger():
+    analysis = {
+        "is_healthy": False,
+        "error_count": 3,
+        "warning_count": 1,
+        "issues_by_path": {"a.md": [1, 2, 3]},
+    }
+    studio = _make_doctor(analysis)
+    studio.current_book = Path("c:/book")
+    status_calls = []
+    log_an_calls = []
+    svc = DiagnosticsService(
+        studio,
+        on_status=lambda t, fg: status_calls.append((t, fg)),
+        on_log_analysis=lambda *a: log_an_calls.append(a),
+    )
+    is_healthy, out = svc.run_full_health_check("Buch-Doktor", ["a.md"], 1)
+    assert is_healthy is False
+    assert out is analysis
+    assert status_calls == [("Buch-Doktor: 3 kritische Befunde - siehe Log", "danger")]
+    assert len(log_an_calls) == 1
+
+
+def test_run_full_health_check_writes_registries():
+    analysis = {
+        "is_healthy": False,
+        "error_count": 1,
+        "warning_count": 0,
+        "issues_by_path": {"a.md": ["X"]},
+        "issue_first_line_by_path": {"a.md": 42},
+    }
+    studio = _make_doctor(analysis)
+    studio.current_book = Path("c:/book")
+    svc = DiagnosticsService(studio)
+    svc.run_full_health_check("X", ["a.md"], 1)
+    assert studio.doctor_issue_registry == {"a.md": ["X"]}
+    assert studio.doctor_issue_line_registry == {"a.md": 42}
+
+
+def test_run_full_health_check_default_callbacks_are_noop():
+    analysis = {"is_healthy": True, "error_count": 0, "warning_count": 0}
+    studio = _make_doctor(analysis)
+    studio.current_book = Path("c:/book")
+    svc = DiagnosticsService(studio)  # alle Callbacks = noop
+    # Darf nicht werfen.
+    is_healthy, out = svc.run_full_health_check("X", ["a.md"], 1)
+    assert is_healthy is True
+    assert out is analysis
+
+
+# --- analyze_single_file (Phase 2 / Schritt 2.4b) -----------------------
+
+
+def _make_single_file_doctor(analysis, current_book=Path("c:/book")):
+    return SimpleNamespace(
+        doctor=SimpleNamespace(analyze_health=lambda *a, **k: analysis),
+        current_book=current_book,
+        title_registry={},
+        doctor_issue_registry={},
+        doctor_issue_line_registry={},
+    )
+
+
+def test_analyze_single_file_no_saved_path():
+    studio = _make_single_file_doctor({})
+    svc = DiagnosticsService(studio)
+    had, issues, valid = svc.analyze_single_file(None)
+    assert (had, issues, valid) == (False, [], False)
+
+
+def test_analyze_single_file_no_current_book():
+    studio = SimpleNamespace(
+        doctor=SimpleNamespace(analyze_health=lambda *a, **k: {}),
+        current_book=None,
+        title_registry={},
+        doctor_issue_registry={},
+        doctor_issue_line_registry={},
+    )
+    svc = DiagnosticsService(studio)
+    had, issues, valid = svc.analyze_single_file("c:/x/y.md")
+    assert (had, issues, valid) == (False, [], False)
+
+
+def test_analyze_single_file_no_doctor():
+    studio = SimpleNamespace(
+        doctor=None,
+        current_book=Path("c:/book"),
+        title_registry={},
+        doctor_issue_registry={},
+        doctor_issue_line_registry={},
+    )
+    svc = DiagnosticsService(studio)
+    had, issues, valid = svc.analyze_single_file("c:/book/x.md")
+    assert (had, issues, valid) == (False, [], False)
+
+
+def test_analyze_single_file_path_outside_book(tmp_path):
+    outside = tmp_path / "outside.md"
+    outside.write_text("# X", encoding="utf-8")
+    book = tmp_path / "book"
+    book.mkdir()
+    studio = _make_single_file_doctor({}, current_book=book)
+    svc = DiagnosticsService(studio)
+    had, issues, valid = svc.analyze_single_file(str(outside))
+    assert (had, issues, valid) == (False, [], False)
+
+
+def test_analyze_single_file_non_md_path(tmp_path):
+    book = tmp_path / "book"
+    book.mkdir()
+    txt = book / "notes.txt"
+    txt.write_text("x", encoding="utf-8")
+    studio = _make_single_file_doctor({}, current_book=book)
+    svc = DiagnosticsService(studio)
+    had, issues, valid = svc.analyze_single_file(str(txt))
+    assert (had, issues, valid) == (False, [], False)
+
+
+def test_analyze_single_file_writes_issues_and_line(tmp_path):
+    book = tmp_path / "book"
+    book.mkdir()
+    md = book / "kap.md"
+    md.write_text("# X", encoding="utf-8")
+    analysis = {
+        "issues_by_path": {"kap.md": ["issue-1"]},
+        "issue_details_by_path": {"kap.md": [{"line_number": 7, "message": "boom"}]},
+        "issue_first_line_by_path": {"kap.md": 7},
+    }
+    studio = _make_single_file_doctor(analysis, current_book=book)
+    svc = DiagnosticsService(studio)
+    had, details, valid = svc.analyze_single_file(str(md))
+    assert valid is True
+    assert had is False
+    assert details == [{"line_number": 7, "message": "boom"}]
+    assert studio.doctor_issue_registry == {"kap.md": ["issue-1"]}
+    assert studio.doctor_issue_line_registry == {"kap.md": 7}
+
+
+def test_analyze_single_file_clears_issue_when_no_issues(tmp_path):
+    book = tmp_path / "book"
+    book.mkdir()
+    md = book / "kap.md"
+    md.write_text("# X", encoding="utf-8")
+    analysis = {
+        "issues_by_path": {"kap.md": []},
+        "issue_details_by_path": {"kap.md": []},
+        "issue_first_line_by_path": {},
+    }
+    studio = _make_single_file_doctor(analysis, current_book=book)
+    # Pre-condition: ein Issue war vorher da.
+    studio.doctor_issue_registry["kap.md"] = ["old"]
+    studio.doctor_issue_line_registry["kap.md"] = 5
+    svc = DiagnosticsService(studio)
+    had, details, valid = svc.analyze_single_file(str(md))
+    assert valid is True
+    assert had is True
+    assert details == []
+    assert "kap.md" not in studio.doctor_issue_registry
+    assert "kap.md" not in studio.doctor_issue_line_registry
+
+
+def test_analyze_single_file_drops_first_line_when_invalid(tmp_path):
+    book = tmp_path / "book"
+    book.mkdir()
+    md = book / "kap.md"
+    md.write_text("# X", encoding="utf-8")
+    analysis = {
+        "issues_by_path": {"kap.md": ["X"]},
+        "issue_details_by_path": {"kap.md": []},
+        "issue_first_line_by_path": {"kap.md": -3},  # ungueltig
+    }
+    studio = _make_single_file_doctor(analysis, current_book=book)
+    studio.doctor_issue_line_registry["kap.md"] = 5
+    svc = DiagnosticsService(studio)
+    svc.analyze_single_file(str(md))
+    assert studio.doctor_issue_registry == {"kap.md": ["X"]}
+    # first_line war -3 -> pop statt write
+    assert "kap.md" not in studio.doctor_issue_line_registry
+
+
+def test_analyze_single_file_does_not_touch_other_paths(tmp_path):
+    book = tmp_path / "book"
+    book.mkdir()
+    md = book / "kap.md"
+    md.write_text("# X", encoding="utf-8")
+    analysis = {
+        "issues_by_path": {"kap.md": ["X"]},
+        "issue_details_by_path": {"kap.md": []},
+        "issue_first_line_by_path": {"kap.md": 1},
+    }
+    studio = _make_single_file_doctor(analysis, current_book=book)
+    studio.doctor_issue_registry["other.md"] = ["preserved"]
+    studio.doctor_issue_line_registry["other.md"] = 99
+    svc = DiagnosticsService(studio)
+    svc.analyze_single_file(str(md))
+    assert studio.doctor_issue_registry["other.md"] == ["preserved"]
+    assert studio.doctor_issue_line_registry["other.md"] == 99
 
 
 if __name__ == "__main__":

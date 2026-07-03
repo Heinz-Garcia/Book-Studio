@@ -109,7 +109,14 @@ class BookStudio:
                 search_cache_getter=lambda: self._content_search_cache,
             ),
             render=RenderService(self.exporter),
-            diagnostics=DiagnosticsService(self),
+            diagnostics=DiagnosticsService(
+                self,
+                on_status=self.status.config,
+                on_log=self.log,
+                on_refresh_tree=self._refresh_tree_titles_from_current_state,
+                on_select_first_issue=self._select_first_doctor_issue,
+                on_log_analysis=self._log_doctor_analysis,
+            ),
             backup=BackupService(self),
             ui_state=UiStateService(self),
         )
@@ -975,31 +982,15 @@ class BookStudio:
         return self._focus_doctor_issue(-1)
 
     def _run_doctor_check(self, context_label, emit_success_log=False):
-        if not self.current_book or not self.doctor:
-            return False, None
-
-        analysis = self.doctor.analyze_health(
-            self._get_all_used_paths(),
-            len(self.list_avail.get_children("")),
+        # Phase 2 / Schritt 2.4b: Tree-Orchestrierung im Service.
+        # Studio-Callbacks (Status/Log/Tree/Selection) wurden in der
+        # Service-Init injiziert.
+        return self._services.diagnostics.run_full_health_check(
+            context_label=context_label,
+            all_paths=self._get_all_used_paths(),
+            tree_child_count=len(self.list_avail.get_children("")),
+            emit_success_log=emit_success_log,
         )
-        # Phase 2 / Schritt 2.4a: Registry-Update via Service.
-        self._services.diagnostics.set_issues_from_analysis(analysis)
-        self._refresh_tree_titles_from_current_state()
-        self._select_first_doctor_issue()
-
-        has_findings = bool(analysis.get("error_count") or analysis.get("warning_count"))
-        if has_findings or emit_success_log:
-            self._log_doctor_analysis(analysis, context_label)
-
-        if analysis["is_healthy"]:
-            self.status.config(text=f"{context_label}: keine kritischen Befunde", fg=_StatusFg.SUCCESS)
-        else:
-            self.status.config(
-                text=f"{context_label}: {analysis['error_count']} kritische Befunde - siehe Log",
-                fg=_StatusFg.DANGER,
-            )
-
-        return analysis["is_healthy"], analysis
 
     def run_doctor_preflight(self, context_label, emit_success_log=False):
         return self._run_doctor_check(context_label, emit_success_log=emit_success_log)
@@ -1516,32 +1507,22 @@ class BookStudio:
         if not saved_file_path or not self.current_book or not self.doctor:
             return
 
-        try:
-            file_path = Path(saved_file_path).resolve()
-        except (TypeError, ValueError, OSError):
+        # Phase 2 / Schritt 2.4b: Registry-Update via Service.
+        had_issue_before, issue_details, path_was_valid = (
+            self._services.diagnostics.analyze_single_file(saved_file_path)
+        )
+
+        if not path_was_valid:
+            # Service hat frueh returned (kein current_book/doctor/
+            # ungueltiger Pfad/kein .md). Backwards-Compat: kein Log,
+            # kein Tree-Refresh.
             return
 
-        try:
-            rel_path = file_path.relative_to(self.current_book).as_posix()
-        except ValueError:
-            return
+        rel_path = Path(saved_file_path).resolve().relative_to(
+            self.current_book
+        ).as_posix()
 
-        if not rel_path.lower().endswith(".md"):
-            return
-
-        had_issue_before = rel_path in self.doctor_issue_registry
-        analysis = self.doctor.analyze_health([rel_path], 0, include_index=False)
-
-        issues = analysis.get("issues_by_path", {}).get(rel_path, [])
-        if issues:
-            self.doctor_issue_registry[rel_path] = issues
-            first_line = analysis.get("issue_first_line_by_path", {}).get(rel_path)
-            if isinstance(first_line, int) and first_line > 0:
-                self.doctor_issue_line_registry[rel_path] = first_line
-            else:
-                self.doctor_issue_line_registry.pop(rel_path, None)
-
-            issue_details = analysis.get("issue_details_by_path", {}).get(rel_path, [])
+        if issue_details:
             file_label = self.title_registry.get(rel_path, Path(rel_path).name)
             self.log(f"🩺 Datei-Check: {file_label} [{rel_path}]", "warning")
             for issue in issue_details:
@@ -1549,8 +1530,6 @@ class BookStudio:
                 prefix = f"L{line_number}: " if isinstance(line_number, int) and line_number > 0 else ""
                 self.log(f"   {prefix}{issue.get('message', '')}", "warning")
         else:
-            self.doctor_issue_registry.pop(rel_path, None)
-            self.doctor_issue_line_registry.pop(rel_path, None)
             if had_issue_before:
                 self.log(f"✅ Datei-Check bestanden: {rel_path} (Totenkopf entfernt)", "success")
 
