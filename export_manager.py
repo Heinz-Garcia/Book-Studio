@@ -781,52 +781,53 @@ class ExportManager:
         threading.Thread(target=render_thread, daemon=True).start()
 
     def _run_safe_render(self, target_fmt, profile_name=None, extra_format_options=None):
-        safe_script = Path(__file__).resolve().parent / "quarto_render_safe.py"
-        if not safe_script.exists():
-            self._after(0, lambda: self._log("❌ Fallback-Skript nicht gefunden: quarto_render_safe.py", "error"))
-            return 2, False
+        """Phase 2 / Schritt 2.3c: Duenne Delegation an RenderService.
 
-        # Phase 2 / Schritt 2.3b: argv-Bau im RenderService.
-        cmd = _RenderService.build_safe_render_command(
-            executable=sys.executable,
-            safe_script=safe_script,
-            book=self._current_book(),
+        Subprocess-Logik (Popen, Stream-Lesen, Abbruch-Erkennung) lebt
+        jetzt im Service. Diese Methode stellt nur noch die Studio-
+        Callbacks (Log, Status, Abort-UI) bereit und delegiert.
+        """
+        safe_script = Path(__file__).resolve().parent / "quarto_render_safe.py"
+
+        def _on_log_line(line):
+            # Phase 2 / 2.3c: Log-Zeile ins Studio (UI-Thread) + Render-Log-File.
+            self._after(0, lambda ln=line: self._log_render_line(ln))
+
+        def _on_abort_requested():
+            self._after(
+                0,
+                lambda: self._log(
+                    "⛔ Render abgebrochen (Config): erster ':::'-Warnhinweis erkannt. Folgefehler werden bewusst unterdrückt.",
+                    "error",
+                ),
+            )
+            self._after(
+                0,
+                lambda: self._set_status("Render abgebrochen (erster :::-Warnhinweis)", _StatusFg.DANGER),
+            )
+
+        def _on_safe_command_built(cmd):
+            try:
+                self._write_active_render_log(
+                    f"safe_command={' '.join(str(part) for part in cmd)}"
+                )
+            except Exception:
+                pass
+
+        return _RenderService().run_safe_render(
             target_fmt=target_fmt,
             profile_name=profile_name,
             extra_format_options=extra_format_options,
+            book=self._current_book(),
+            safe_script=safe_script,
+            executable=sys.executable,
+            on_log_line=_on_log_line,
+            on_colon_warning=self.is_raw_colon_warning_line,
+            should_abort_on_colon_warning=self.should_abort_on_first_render_colon_warning,
+            has_structural_colon_occurrences=self.has_structural_colon_occurrences,
+            on_abort_requested=_on_abort_requested,
+            on_safe_command_built=_on_safe_command_built,
         )
-        self._write_active_render_log(f"safe_command={' '.join(str(part) for part in cmd)}")
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-        aborted_on_colon_warning = False
-        if proc.stdout is not None:
-            for line in proc.stdout:
-                stripped = line.rstrip()
-                if stripped:
-                    self._after(0, lambda ln=stripped: self._log_render_line(ln))
-                    if (
-                        self.is_raw_colon_warning_line(stripped)
-                        and self.should_abort_on_first_render_colon_warning()
-                        and self.has_structural_colon_occurrences()
-                    ):
-                        aborted_on_colon_warning = True
-                        try:
-                            proc.terminate()
-                        except OSError:
-                            pass
-                        self._after(
-                            0,
-                            lambda: self._log(
-                                "⛔ Render abgebrochen (Config): erster ':::'-Warnhinweis erkannt. Folgefehler werden bewusst unterdrückt.",
-                                "error",
-                            ),
-                        )
-                        self._after(
-                            0,
-                            lambda: self._set_status("Render abgebrochen (erster :::-Warnhinweis)", _StatusFg.DANGER),
-                        )
-                        break
-        proc.wait()
-        return proc.returncode, aborted_on_colon_warning
 
     # =========================================================================
     # HILFSFUNKTIONEN (Auto-Open & UI)

@@ -33,6 +33,21 @@ Exporter, der die Service-Methode in einen `Thread` einpackt.
 Diese Aufteilung folgt Single-Responsibility: Service orchestriert,
 Exporter fuehrt aus und hostet das Tk-Lifecycle.
 
+Phase 2 / Schritt 2.3c: Die Subprocess-Logik (`_run_safe_render`)
+ist als Methode `RenderService.run_safe_render(...)` in den Service
+gewandert. Der Service kapselt das Subprocess-Lifecycle (Popen,
+stdout-Streaming, Abbruch-Erkennung, returncode) ueber injizierte
+Callbacks und ein `popen_factory`-Argument. Tests koennen den
+Subprocess durch ein `MockPopen` ersetzen (monkeypatch auf
+`popen_factory`).
+
+Die Threading-Huelle bleibt im `ExportManager` (UI-Lifecycle).
+Konkrete Service-Methode:
+- `run_safe_render(target_fmt, profile_name, extra_format_options,
+  book, safe_script, executable, on_log_line, on_colon_warning,
+  should_abort_on_colon_warning, has_structural_colon_occurrences,
+  on_abort_requested, popen_factory, popen_killer) -> (rc, aborted)`
+
 Verweise:
 - .doc/refactoring-master.md, Batch B8 (Stub-Definition)
 - .doc/Refactoring_part2.md, Schritt 2.3 (Migration; aufgeteilt in 2.3a + 2.3b + 2.3c-Mini)
@@ -41,6 +56,8 @@ Verweise:
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Optional
@@ -81,6 +98,11 @@ RENDER_STATUS_FAILED = "failed"
 RENDER_STATUS_ABORTED_ON_COLON = "aborted_on_first_colon_warning"
 
 
+# Returncode-Werte, die `run_safe_render` an den Aufrufer liefert.
+SAFE_RENDER_RC_MISSING_SCRIPT = 2
+SAFE_RENDER_RC_STREAM_ERROR = 3
+
+
 # Callback-Typen, die `execute_render` als Dependency bekommt.
 # - `log_cb(message, level)`: Log-Nachricht ins Studio
 # - `after_cb(delay, callable)`: Tk-Schedule (UI-Thread)
@@ -94,6 +116,24 @@ AfterCb = Callable[[int, Callable[[], None]], None]
 RunSafeRenderCb = Callable[..., tuple]
 FinalizeRenderLogCb = Callable[..., None]
 HandleRenderSuccessCb = Callable[[str], None]
+
+# Callback-Typen, die `run_safe_render` (Schritt 2.3c) als Dependency bekommt.
+# - `popen_factory(cmd, **kwargs)`: Subprocess-Erzeuger (testbar via monkeypatch).
+# - `on_log_line(line)`: UI-Callback fuer eine gelesene Subprocess-Zeile.
+# - `on_colon_warning(line) -> bool`: True, wenn die Zeile ein ':::'-Warnhinweis ist
+#   (Exiter-spezifisch, in der Regel Heuristik auf raw stderr/stdout).
+# - `should_abort_on_colon_warning() -> bool`: UI-/Config-Schalter.
+# - `has_structural_colon_occurrences() -> bool`: Buch-Doctor-Resultat, ob ueberhaupt
+#   ':::' im verarbeiteten Baum vorkommt.
+# - `on_abort_requested()`: UI-Callback bei Abbruch durch ':::'-Warnung.
+# - `is_log_colon_warning_hint_emitted() -> bool / set_log_colon_warning_hint(bool)`: Hint-Flag.
+# - `popen_killer(proc)`: Optional - bricht den Subprocess ab (z. B. proc.terminate()).
+PopenFactory = Callable[..., Any]
+OnLogLine = Callable[[str], None]
+OnColonWarningCheck = Callable[[str], bool]
+OnAbortRequested = Callable[[], None]
+HasStructuralColons = Callable[[], bool]
+PopenKiller = Callable[[Any], None]
 
 
 # --- Service ----------------------------------------------------------------
@@ -110,7 +150,7 @@ class RenderService:
     `ExportManager`.
     """
 
-    def __init__(self, exporter: Any):
+    def __init__(self, exporter: Any = None):
         self._exporter = exporter
 
     # --- Format-Aufloesung ----------------------------------------------
@@ -353,6 +393,119 @@ class RenderService:
         on_failure(return_code)
         return return_code, aborted_on_colon_warning
 
+    # --- Subprocess-Wrapper (Phase 2 / 2.3c) -----------------------------
+
+    def run_safe_render(
+        self,
+        target_fmt: str,
+        profile_name: Optional[str],
+        extra_format_options: Optional[dict],
+        book: Path,
+        safe_script: Path,
+        executable: Optional[str] = None,
+        on_log_line: Optional[OnLogLine] = None,
+        on_colon_warning: Optional[OnColonWarningCheck] = None,
+        should_abort_on_colon_warning: Optional[Callable[[], bool]] = None,
+        has_structural_colon_occurrences: Optional[HasStructuralColons] = None,
+        on_abort_requested: Optional[OnAbortRequested] = None,
+        popen_factory: Optional[PopenFactory] = None,
+        popen_killer: Optional[PopenKiller] = None,
+        on_safe_command_built: Optional[Callable[[list], None]] = None,
+    ) -> tuple:
+        """Kapselt den Subprocess-Aufruf von `quarto_render_safe.py`.
+
+        Verhalten (1:1 wie die bisherige Inline-Variante im `ExportManager`):
+
+        1. Pruefe, ob `safe_script` existiert. Wenn nicht: Log via
+           `on_log_line` (Level "error") und Rueckgabe
+           `(SAFE_RENDER_RC_MISSING_SCRIPT, False)`.
+        2. Baue die argv-Liste via `build_safe_render_command`.
+        3. Starte den Subprocess ueber `popen_factory` (Default:
+           `subprocess.Popen`). Es wird erwartet, dass die Factory
+           ein Objekt mit `.stdout` (Iterator von Strings) und
+           `.returncode` / `.wait()` liefert.
+        4. Iteriere zeilenweise ueber `proc.stdout`. Fuer jede Zeile:
+           - Bei nicht-leerer Zeile: `on_log_line(line)`.
+           - Wenn `on_colon_warning(line) and should_abort_on_colon_warning()
+             and has_structural_colon_occurrences()`:
+             `on_abort_requested()`, `popen_killer(proc)`,
+             `aborted = True`, break.
+        5. `proc.wait()`, Rueckgabe `(returncode, aborted)`.
+
+        Die Methode ist **nicht** Tk-frei - `on_log_line`,
+        `on_colon_warning` etc. sind typischerweise UI-Callbacks. Die
+        Subprocess-Erzeugung selbst ist ueber `popen_factory` injiziert
+        und damit im Test monkeypatch-bar.
+
+        Rueckgabe: `(returncode: int, aborted_on_colon_warning: bool)`.
+        """
+        if on_log_line is None:
+            on_log_line = lambda _line: None
+        if on_colon_warning is None:
+            on_colon_warning = lambda _line: False
+        if should_abort_on_colon_warning is None:
+            should_abort_on_colon_warning = lambda: False
+        if has_structural_colon_occurrences is None:
+            has_structural_colon_occurrences = lambda: False
+        if on_abort_requested is None:
+            on_abort_requested = lambda: None
+        if popen_factory is None:
+            popen_factory = subprocess.Popen
+        if popen_killer is None:
+            popen_killer = lambda proc: proc.terminate()
+        if executable is None:
+            executable = sys.executable
+
+        if not Path(safe_script).exists():
+            on_log_line(
+                "❌ Fallback-Skript nicht gefunden: quarto_render_safe.py"
+            )
+            return SAFE_RENDER_RC_MISSING_SCRIPT, False
+
+        cmd = self.build_safe_render_command(
+            executable=executable,
+            safe_script=Path(safe_script),
+            book=Path(book),
+            target_fmt=target_fmt,
+            profile_name=profile_name,
+            extra_format_options=extra_format_options,
+        )
+        if on_safe_command_built is not None:
+            try:
+                on_safe_command_built(cmd)
+            except Exception:
+                pass
+
+        proc = popen_factory(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        aborted_on_colon_warning = False
+        stdout = getattr(proc, "stdout", None)
+        if stdout is not None:
+            for raw_line in stdout:
+                stripped = raw_line.rstrip() if isinstance(raw_line, str) else raw_line
+                if stripped:
+                    on_log_line(stripped)
+                    if (
+                        on_colon_warning(stripped)
+                        and should_abort_on_colon_warning()
+                        and has_structural_colon_occurrences()
+                    ):
+                        aborted_on_colon_warning = True
+                        try:
+                            popen_killer(proc)
+                        except OSError:
+                            pass
+                        on_abort_requested()
+                        break
+        if hasattr(proc, "wait"):
+            proc.wait()
+        return getattr(proc, "returncode", 0), aborted_on_colon_warning
+
     # --- Bestehende API (unveraendert) -----------------------------------
 
     def run_render(self) -> bool:
@@ -384,5 +537,7 @@ __all__ = [
     "SAFE_RENDER_ARG_EXTRA_OPTS",
     "SAFE_RENDER_ARG_PROFILE",
     "SAFE_RENDER_ARG_TO",
+    "SAFE_RENDER_RC_MISSING_SCRIPT",
+    "SAFE_RENDER_RC_STREAM_ERROR",
     "RenderService",
 ]
