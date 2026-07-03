@@ -58,6 +58,9 @@ COLORS = {
     "marker_pagebreak": "#004dff",
     "marker_both": "#b000ff",
     "dimmed_row": "#bdc3c7",
+    "surface_fg": "#f8fafc",
+    "tree_heading_hover": "#e2e8f0",
+    "tree_selected_fg": "#0f172a",
 }
 
 FONTS = {
@@ -176,8 +179,8 @@ def apply_ttk_theme(style, sv_ttk=None):
         relief="flat",
         padding=6,
     )
-    style.map("Treeview", background=[("selected", COLORS["accent_soft"])], foreground=[("selected", "#0f172a")])
-    style.map("Treeview.Heading", background=[("active", "#e2e8f0")])
+    style.map("Treeview", background=[("selected", COLORS["accent_soft"])], foreground=[("selected", COLORS["tree_selected_fg"])])
+    style.map("Treeview.Heading", background=[("active", COLORS["tree_heading_hover"])])
 
 
 def style_dialog(window, title=None):

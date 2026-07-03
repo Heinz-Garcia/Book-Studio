@@ -91,6 +91,31 @@ Die Reihenfolge ist verbindlich. Ein Batch darf erst begonnen werden, wenn alle 
 
 ---
 
+## 1a. Phase-2-Subbatches (Refactoring nach B0–B10)
+
+Phase 2 zerlegt die in B8 begonnene Service-Aufteilung in konkrete,
+risikoarme Subbatches. Die Subbatches bauen aufeinander auf und werden
+in `Refactoring_part2.md` detailliert dokumentiert.
+
+- [x] **Phase 2 / Schritt 1 – Coverage-Messung** (Commit `…` auf `unleashedEdition`)
+- [x] **Phase 2 / Schritt 2.1 – WorkspaceService** (Commit `3bbea83`)
+- [x] **Phase 2 / Schritt 2.2 – BookSessionService** (Commit `a783fcb`)
+- [x] **Phase 2 / Schritt 2.3a – RenderService Format-Logik** (Commit `fb23869`)
+- [x] **Phase 2 / Schritt 2.3b – RenderService Pure Helper** (Commit `f778906`)
+- [x] **Phase 2 / Schritt 2.3c-Mini – RenderService Sync-Orchestrierung** (Commit `a950122`)
+- [x] **Phase 2 / Schritt 2.4a – DiagnosticsService Daten-Pfade** (Commit `d41355e`)
+- [x] **Phase 2 / Schritt 2.4b – DiagnosticsService Tree-Orchestrierung** (Commit `4363d9a`)
+- [x] **Phase 2 / Schritt 2.5a – BackupService Pfad-Auflösung** (Commit `5bec8ec`)
+- [x] **Phase 2 / Schritt 2.5b – BackupService Schreib-Operation** (Commit `18fdb4e`)
+- [x] **Phase 2 / Schritt 2.6a – UiStateService Pure-Berechnungen** (Commit `b2fc5cc`)
+- [x] **Phase 2 / Schritt 2.6b – UiStateService Tree-Walk-Berechnung** (Commit `7a3307b`)
+- [x] **Phase 2 / Schritt 4 – CI verschärfen** (Commit `83acf89`)
+
+Details (Methoden-Signaturen, Akzeptanzkriterien, Coverage-Stand,
+Migrations-Pfade) siehe [`Refactoring_part2.md`](Refactoring_part2.md).
+
+---
+
 ## 2. Prompt-Vorlage
 
 > **Kopiere den folgenden Textblock in den Chat der KI. Ersetze dabei alle `{{…}}`-Platzhalter.**

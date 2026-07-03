@@ -29,6 +29,24 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 
 - Master-Prompt + Batches (DRY, SSOT, SoC, Bug-Fixes): [refactoring-master.md](refactoring-master.md)
 - Folgeschritte nach B0–B10 (God-Class-Aufteilung, Magic-Strings, CI): [Refactoring_part2.md](Refactoring_part2.md)
+- **Phase 2 — Service-Layer (abgeschlossen 2026-07-03)**: 6 Services in
+  `services/` + Adapter + Constants; siehe [gui_architektur.md](gui_architektur.md)
+  Abschnitt „Service-Layer" und [Refactoring_part2.md](Refactoring_part2.md).
+- **Phase 3 — Plugin-/Tool-Architektur (zurückgestellt)**: Idee
+  dokumentiert in [Refactoring_phase3_plugin_architektur.md](Refactoring_phase3_plugin_architektur.md).
+  Wird erst angegangen, wenn Phase 2 vollständig abgeschlossen ist
+  und die App stabil läuft.
+
+## Service-Module (Phase 2)
+
+- [services/workspace_service.py](../services/workspace_service.py) — Pfad-Auflösung, Project-Discovery
+- [services/book_session_service.py](../services/book_session_service.py) — Aktives Buch, Profile, Engine-Init
+- [services/render_service.py](../services/render_service.py) — Render-Format, Log-Pfade, Command-Build
+- [services/diagnostics_service.py](../services/diagnostics_service.py) — Buch-Doktor (Issue-Registry + Health-Check)
+- [services/backup_service.py](../services/backup_service.py) — Time-Machine, Sanitizer-Backups
+- [services/ui_state_service.py](../services/ui_state_service.py) — Filter, Suche, Tree-Sichtbarkeit
+- [services/studio_adapter.py](../services/studio_adapter.py) — Property-Delegation für Sub-Module
+- [services/constants.py](../services/constants.py) — `StatusFg`, `LogLevel`-Enum, Magic-String-Aliase
 
 ## Vorlagen
 

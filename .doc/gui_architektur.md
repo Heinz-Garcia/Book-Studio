@@ -88,6 +88,54 @@ Regel:
 - Keine UI-Dialoge im Scanner.
 - Scanner liefert nur strukturierte Daten; Anzeige entscheidet die GUI.
 
+## Service-Layer (Phase 2 — abgeschlossen 2026-07-03)
+
+Seit Phase 2 enthält `services/` sechs eigenständige Service-Module, die
+die meiste Business-Logik aus `book_studio.py` aufgenommen haben. Die
+Hauptapp ist eine **dünne Fassade**: sie instanziiert die Services in
+`self._services` (einem `SimpleNamespace`) und ruft sie aus den
+Use-Case-Methoden auf.
+
+### Module und Verantwortlichkeiten
+
+| Modul | Public-API (Kurzform) | Coupling zum Studio |
+|---|---|---|
+| `services/workspace_service.py` | `get_projects_root_path`, `discover_projects`, `is_within_project` | Liest `app_config` via Callback |
+| `services/book_session_service.py` | `set_active_book`, `reset_profile`, `clear_search_cache`, `pick_target_index`, `initialize_engines_for_book` | Initialisiert Engines mit injizierten Factories |
+| `services/render_service.py` | `resolve_target_format`, `build_render_log_path`, `sanitize_filename_part`, `build_safe_render_command`, `extract_processed_source_path`, `iter_tree_paths`, `execute_render` | Orchestriert nur, `ExportManager` macht Subprocess + Threading |
+| `services/diagnostics_service.py` | `set_issues_from_analysis`, `clear_issues`, `has_issues`, `paths_in_tree_order`, `pick_next_issue_path`, `pick_first_issue_path`, `run_full_health_check`, `analyze_single_file` | UI-Callbacks (status, log, tree, select) injiziert |
+| `services/backup_service.py` | `create_structure_backup`, `get_sanitizer_backup_dir`, `resolve_backup_base_dir`, `compute_backup_timestamp`, `build_backup_path`, `create_physical_backup` | Liest `app_config` via Callback |
+| `services/ui_state_service.py` | `is_fulltext_search_enabled`, `path_matches_file_state_filter`, `should_persist_app_state`, `is_right_side_search_scope`, `resolve_active_search_term`, `evaluate_node_visibility`, `build_left_list_entries` | Liest Studio-Variablen (search_var, file_state_filter_var) |
+| `services/studio_adapter.py` | `StudioAdapter` (Property-Delegation) | Liest Studio-State read-only; von Tests + Sub-Modulen genutzt |
+| `services/constants.py` | `StatusFg`, `LogLevel` (Enum), Magic-String-Aliase | Keine Studio-Abhängigkeit |
+
+### Regel für Services
+
+- **Keine Tk-Imports** in Service-Code. Wenn ein UI-Hook gebraucht wird
+  (Status setzen, Tree-Item einfärben, Messagebox), wird er als
+  Callable injiziert oder ein Tuple/None an den Caller zurückgegeben.
+- **Purity:** Reine Pfad- und Filter-Berechnungen sind statische
+  Methoden ohne `self._studio`-Zugriff. Testbar ohne `BookStudio`.
+- **Dependency Injection:** Service-Constructor nimmt `studio` (oder
+  gezielte Callbacks) entgegen. Keine direkten `import book_studio`.
+
+### Adapter (`services/studio_adapter.py`)
+
+Damit Sub-Module (`ExportManager`, `UiActionsManager`) nicht gegen
+`getattr(self.studio, …)` delegieren müssen, gibt es einen
+`StudioAdapter`. Er liest Properties aus dem Studio **read-only** und
+stellt sie Sub-Modulen als typisierte Attribute zur Verfügung. Sub-Module
+nehmen `studio_adapter` im Constructor und greifen via Attribut zu.
+
+### Testbarkeit (Verifikation Phase 2)
+
+- 474 Pytest-Tests grün
+- Service-Layer Coverage 97 % (`backup_service`, `book_session_service`,
+  `render_service`, `studio_adapter`, `workspace_service` je 100 %;
+  `diagnostics_service` 98 %; `ui_state_service` 97 %)
+- CI-Gate `--cov-fail-under=80` aktiv
+- Ruff + flake8 + compileall grün
+
 ## Attributvertrag (UI-State)
 
 Folgende UI-Attribute werden in `BookStudio.__init__` vorab deklariert und durch `UiActionsManager` gesetzt:
@@ -131,6 +179,25 @@ Warum:
   - Zeilenweise Trefferliste (`L<Zeile>: <Pfad>`)
   - Kopieren in Zwischenablage
   - Doppelklick/Enter öffnet `MarkdownEditor` an der Trefferzeile
+
+## Phase-2-Service-Layer (vervollständigt 2026-07-03)
+
+Seit Phase 2 lebt die meiste Business-Logik in `services/`. Die
+Hauptapp `book_studio.py` ist eine **dünne Fassade** und ruft
+Services via `self._services.<name>` auf. Siehe die Sektion
+**„Service-Layer (Phase 2 — abgeschlossen 2026-07-03)"** weiter oben
+für die Modul-Übersicht, Public-APIs und Coupling-Regeln.
+
+**Kennzahlen Phase 2 (Stand 2026-07-03):**
+
+- 6 Service-Module + 1 Studio-Adapter + 1 Constants-Modul
+- 474 Pytest-Tests grün
+- Service-Coverage 97 % (5/6 Module bei 100 %, 1 bei 98 %, 1 bei 97 %)
+- CI-Gate `--cov-fail-under=80` aktiv
+- Commits `83acf89` (CI), `4363d9a`/`18fdb4e`/`7a3307b` (Subbatches)
+- `book_studio.py`: ca. 2700 Zeilen (Akzeptanz B8: < 800 — weitere
+  Refactorings nötig; siehe Phase-3-Plugin-Doku für langfristige
+  Architektur-Option)
 
 ## Änderungs-Checkliste
 

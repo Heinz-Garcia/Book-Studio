@@ -15,7 +15,7 @@ from log_manager import LogManager
 from session_manager import SessionManager
 import app_config as _app_config_service
 import session_state as _session_state_service
-from services.constants import StatusFg as _StatusFg
+from services.constants import StatusFg as _StatusFg, LogLevel as _LogLevel
 from services.workspace_service import WorkspaceService
 from services.book_session_service import BookSessionService
 from services.render_service import RenderService
@@ -246,7 +246,7 @@ class BookStudio:
         session_block = cfg.pop("session_state", None)
         cleaned, warnings = _app_config_service.validate_and_clean(cfg)
         for warning in warnings:
-            self.log(f"⚠️ App-Config: {warning}", "warning")
+            self.log(f"⚠️ App-Config: {warning}", _LogLevel.WARNING)
         _app_config_service.write_config(self._app_config_path, cleaned)
         if session_block is not None:
             _session_state_service.write_session_state(
@@ -256,7 +256,7 @@ class BookStudio:
     def _report_nonfatal_error(self, context, error):
         message = f"⚠️ {context}: {error}"
         if hasattr(self, "log_manager") and self.log_output:
-            self.log(message, "warning")
+            self.log(message, _LogLevel.WARNING)
             return
         logger.warning(message)
 
@@ -508,7 +508,7 @@ class BookStudio:
         self._apply_log_preferences_from_config()
         self._apply_export_defaults_from_config()
 
-        self.log("⚙️ Studio-Konfiguration gespeichert.", "success")
+        self.log("⚙️ Studio-Konfiguration gespeichert.", _LogLevel.SUCCESS)
         self.status.config(text="Studio-Konfiguration gespeichert", fg=_StatusFg.SUCCESS)
 
     def _apply_log_font_size(self):
@@ -580,7 +580,7 @@ class BookStudio:
         self.status.config(
             text=f"📖 Importiert: {self._import_path.name}",
             fg=_StatusFg.SUCCESS)
-        self.log(f"📖 Publish-Verzeichnis importiert: {self._import_path.name}", "success")
+        self.log(f"📖 Publish-Verzeichnis importiert: {self._import_path.name}", _LogLevel.SUCCESS)
 
         self._import_path = None  # einmalig
 
@@ -605,7 +605,7 @@ class BookStudio:
         self.load_book(None)
 
     def _on_sanitizer_config_saved(self, _config):
-        self.log("⚙️ Sanitizer-Konfiguration gespeichert.", "success")
+        self.log("⚙️ Sanitizer-Konfiguration gespeichert.", _LogLevel.SUCCESS)
         self.status.config(text="Sanitizer-Konfiguration gespeichert", fg=_StatusFg.SUCCESS)
 
     def open_quarto_config_editor(self):
@@ -616,7 +616,7 @@ class BookStudio:
         QuartoConfigEditor(self.root, yaml_path, on_save=self._on_quarto_config_saved)
 
     def _on_quarto_config_saved(self, _config):
-        self.log("⚙️ Quarto-Konfiguration gespeichert.", "success")
+        self.log("⚙️ Quarto-Konfiguration gespeichert.", _LogLevel.SUCCESS)
         self.status.config(text="Quarto-Konfiguration gespeichert", fg=_StatusFg.SUCCESS)
         self.load_book(None)
 
@@ -715,7 +715,7 @@ class BookStudio:
 
         target_file = self.current_book / rel_path
         if not target_file.exists():
-            self.log(f"⚠️ Ziel-Datei aus Log nicht gefunden: {rel_path}", "warning")
+            self.log(f"⚠️ Ziel-Datei aus Log nicht gefunden: {rel_path}", _LogLevel.WARNING)
             return "break"
 
         node = self._find_tree_node_by_path(rel_path)
@@ -899,27 +899,27 @@ class BookStudio:
         issue_details_by_path = analysis.get("issue_details_by_path", {})
         warnings = analysis.get("warnings", [])
 
-        self.log(f"{'=' * 50}", "dim")
+        self.log(f"{'=' * 50}", _LogLevel.DIM)
         if error_count:
-            self.log(f"🩺 {context_label}: {error_count} kritische Befunde, {warning_count} Hinweise", "header")
+            self.log(f"🩺 {context_label}: {error_count} kritische Befunde, {warning_count} Hinweise", _LogLevel.HEADER)
         elif warning_count:
-            self.log(f"🩺 {context_label}: keine kritischen Befunde, aber {warning_count} Hinweise", "header")
+            self.log(f"🩺 {context_label}: keine kritischen Befunde, aber {warning_count} Hinweise", _LogLevel.HEADER)
         else:
-            self.log(f"🩺 {context_label}: keine Befunde", "success")
+            self.log(f"🩺 {context_label}: keine Befunde", _LogLevel.SUCCESS)
 
         for path, issues in issue_details_by_path.items():
             base_title = self.title_registry.get(path, Path(path).name)
-            self.log(f"☠ {base_title} [{path}]", "error")
+            self.log(f"☠ {base_title} [{path}]", _LogLevel.ERROR)
             for issue in issues:
                 line_number = issue.get("line_number")
                 prefix = f"L{line_number}: " if isinstance(line_number, int) and line_number > 0 else ""
-                self.log(f"   {prefix}{issue.get('message', '')}", "error")
+                self.log(f"   {prefix}{issue.get('message', '')}", _LogLevel.ERROR)
 
         if error_count and issue_details_by_path:
-            self.log("💡 Navigation: F4 = nächster Fund, Shift+F4 = vorheriger Fund, Enter = Problemstelle öffnen", "dim")
+            self.log("💡 Navigation: F4 = nächster Fund, Shift+F4 = vorheriger Fund, Enter = Problemstelle öffnen", _LogLevel.DIM)
 
         for warning in warnings:
-            self.log(warning, "warning")
+            self.log(warning, _LogLevel.WARNING)
 
     def _select_first_doctor_issue(self):
         # Phase 2 / Schritt 2.4a: Pfad-Auswahl im Service, Tree-Manipulation
@@ -1012,13 +1012,13 @@ class BookStudio:
 
         tb = tk.Frame(self.root, bg=COLORS["panel_dark"], pady=12)
         tb.pack(fill=tk.X)
-        tk.Label(tb, text="AKTIVES PROJEKT:", fg="#f8fafc", bg=COLORS["panel_dark"], font=("Segoe UI Semibold", 10)).pack(side=tk.LEFT, padx=(20, 10))
+        tk.Label(tb, text="AKTIVES PROJEKT:", fg=COLORS["surface_fg"], bg=COLORS["panel_dark"], font=("Segoe UI Semibold", 10)).pack(side=tk.LEFT, padx=(20, 10))
         
         self.book_combo = ttk.Combobox(tb, values=[b.name for b in self.books], state="readonly", width=50, font=("Segoe UI", 10))
         self.book_combo.pack(side=tk.LEFT)
         self.book_combo.bind("<<ComboboxSelected>>", self.load_book)
         
-        self.profile_lbl = tk.Label(tb, text="Profil: [Standard]", fg="#fbbf24", bg=COLORS["panel_dark"], font=("Consolas", 10, "bold"))
+        self.profile_lbl = tk.Label(tb, text="Profil: [Standard]", fg=COLORS["accent_warm"], bg=COLORS["panel_dark"], font=("Consolas", 10, "bold"))
         self.profile_lbl.pack(side=tk.RIGHT, padx=20)
 
         self.main_vertical_pane = tk.PanedWindow(
@@ -1040,7 +1040,7 @@ class BookStudio:
         self.lbl_avail_count.pack(fill=tk.X)        
         search_f = tk.Frame(l_frame, bg=COLORS["surface_alt"], pady=6)
         search_f.pack(fill=tk.X)
-        search_label = tk.Label(search_f, text=" 🔍 Suche (Titel/Pfad/Volltext): ", bg=COLORS["surface_alt"], fg="#475569", font=("Segoe UI", 9))
+        search_label = tk.Label(search_f, text=" 🔍 Suche (Titel/Pfad/Volltext): ", bg=COLORS["surface_alt"], fg=COLORS["text_label"], font=("Segoe UI", 9))
         search_label.pack(side=tk.LEFT)
         ThemedTooltip(
             search_label,
@@ -1079,7 +1079,7 @@ class BookStudio:
             "Volltext: durchsucht zusätzlich den Inhalt der Markdown-Dateien.",
         )
 
-        tk.Label(search_f, text=" Status: ", bg=COLORS["surface_alt"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        tk.Label(search_f, text=" Status: ", bg=COLORS["surface_alt"], fg=COLORS["text_label"], font=("Segoe UI", 9)).pack(side=tk.LEFT)
         self.file_state_filter_var = tk.StringVar(value="Alle")
         self.file_state_filter_box = ttk.Combobox(
             search_f,
@@ -1095,9 +1095,9 @@ class BookStudio:
 
         self.list_avail = ttk.Treeview(l_frame, selectmode="extended", show="tree")
         self.list_avail.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.list_avail.tag_configure('state_orphan', foreground='#ff6a00')
-        self.list_avail.tag_configure('state_pagebreak', foreground='#004dff')
-        self.list_avail.tag_configure('state_both', foreground='#b000ff')
+        self.list_avail.tag_configure('state_orphan', foreground=COLORS["marker_orphan"])
+        self.list_avail.tag_configure('state_pagebreak', foreground=COLORS["marker_pagebreak"])
+        self.list_avail.tag_configure('state_both', foreground=COLORS["marker_both"])
         sl = tk.Scrollbar(l_frame, command=self.list_avail.yview)
         sl.pack(side=tk.RIGHT, fill=tk.Y)
         self.list_avail.config(yscrollcommand=sl.set)
@@ -1126,7 +1126,7 @@ class BookStudio:
         r_header.pack(fill=tk.X)
         tk.Label(r_header, text="BUCH-STRUKTUR", bg=COLORS["surface_muted"], fg=COLORS["heading"], font=("Segoe UI Semibold", 9)).pack(side=tk.LEFT, padx=6)
         
-        tk.Label(r_header, text=" | Status-Filter: ", bg=COLORS["surface_muted"], fg="#475569", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        tk.Label(r_header, text=" | Status-Filter: ", bg=COLORS["surface_muted"], fg=COLORS["text_label"], font=("Segoe UI", 9)).pack(side=tk.LEFT)
         self.status_filter_var = tk.StringVar(value="Alle")
         self.status_combo = ttk.Combobox(r_header, textvariable=self.status_filter_var, state="readonly", width=15)
         self.status_combo.pack(side=tk.LEFT, padx=5)
@@ -1143,11 +1143,11 @@ class BookStudio:
         self.tree_book.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         # NEU: Farben (Tags) für den Filter definieren
-        self.tree_book.tag_configure('dimmed', foreground='#bdc3c7')
+        self.tree_book.tag_configure('dimmed', foreground=COLORS["dimmed_row"])
         self.tree_book.tag_configure('normal', foreground='black')
-        self.tree_book.tag_configure('state_orphan', foreground='#ff6a00')
-        self.tree_book.tag_configure('state_pagebreak', foreground='#004dff')
-        self.tree_book.tag_configure('state_both', foreground='#b000ff')
+        self.tree_book.tag_configure('state_orphan', foreground=COLORS["marker_orphan"])
+        self.tree_book.tag_configure('state_pagebreak', foreground=COLORS["marker_pagebreak"])
+        self.tree_book.tag_configure('state_both', foreground=COLORS["marker_both"])
         
         sr = tk.Scrollbar(r_frame, command=self.tree_book.yview)
         sr.pack(side=tk.RIGHT, fill=tk.Y)
@@ -1445,7 +1445,7 @@ class BookStudio:
         self._apply_tree_filters()
 
         self.status.config(text=f"Projekt geladen: {self.current_book.name}", fg=_StatusFg.SUCCESS)
-        self.log(f"📚 Projekt geladen: {self.current_book.name}", "success")
+        self.log(f"📚 Projekt geladen: {self.current_book.name}", _LogLevel.SUCCESS)
         # NEU: Templates über das neue Modul entdecken
         from template_manager import TemplateManager
         tpls = TemplateManager.discover_templates(self.current_book)
@@ -1526,14 +1526,14 @@ class BookStudio:
 
         if issue_details:
             file_label = self.title_registry.get(rel_path, Path(rel_path).name)
-            self.log(f"🩺 Datei-Check: {file_label} [{rel_path}]", "warning")
+            self.log(f"🩺 Datei-Check: {file_label} [{rel_path}]", _LogLevel.WARNING)
             for issue in issue_details:
                 line_number = issue.get("line_number")
                 prefix = f"L{line_number}: " if isinstance(line_number, int) and line_number > 0 else ""
-                self.log(f"   {prefix}{issue.get('message', '')}", "warning")
+                self.log(f"   {prefix}{issue.get('message', '')}", _LogLevel.WARNING)
         else:
             if had_issue_before:
-                self.log(f"✅ Datei-Check bestanden: {rel_path} (Totenkopf entfernt)", "success")
+                self.log(f"✅ Datei-Check bestanden: {rel_path} (Totenkopf entfernt)", _LogLevel.SUCCESS)
 
         self._refresh_tree_titles_from_current_state()
         self._update_avail_list()
@@ -1547,10 +1547,10 @@ class BookStudio:
             self._apply_tree_filters()
         if order_updated:
             self.status.config(text="Baum neu geladen (ORDER aktualisiert)", fg=_StatusFg.SUCCESS)
-            self.log("🔄 Baum neu geladen (Titel/Status/Dateimarker + ORDER aktualisiert).", "success")
+            self.log("🔄 Baum neu geladen (Titel/Status/Dateimarker + ORDER aktualisiert).", _LogLevel.SUCCESS)
         else:
             self.status.config(text="Baum neu geladen", fg=_StatusFg.SUCCESS)
-            self.log("🔄 Baum neu geladen (Titel/Status/Dateimarker aktualisiert).", "success")
+            self.log("🔄 Baum neu geladen (Titel/Status/Dateimarker aktualisiert).", _LogLevel.SUCCESS)
         if not self.is_restoring_session:
             self.persist_app_state()
 
@@ -1702,7 +1702,7 @@ class BookStudio:
             self.current_profile_name = Path(filepath).stem
             self.profile_lbl.config(text=f"Profil: [{self.current_profile_name}]")
             if not self.is_restoring_session:
-                self.log(f"📄 Profil geladen: {self.current_profile_name}", "success")
+                self.log(f"📄 Profil geladen: {self.current_profile_name}", _LogLevel.SUCCESS)
             self._save_session_state()
 
             if show_message:
@@ -1712,7 +1712,7 @@ class BookStudio:
             if show_message:
                 messagebox.showerror("Fehler", f"Konnte JSON nicht laden:\n{e}")
             else:
-                self.log(f"⚠️  Konnte gespeichertes Profil nicht laden: {e}", "warning")
+                self.log(f"⚠️  Konnte gespeichertes Profil nicht laden: {e}", _LogLevel.WARNING)
             return False
 
     def _build_tree_from_json(self, parent_id, data):
@@ -1825,7 +1825,7 @@ class BookStudio:
             is_healthy, analysis = self._run_doctor_check("Buch-Doktor Vorabcheck", emit_success_log=False)
             if not is_healthy:
                 if analysis is not None:
-                    self.log("⛔ Speichern/Rendern gestoppt. Bitte behebe die markierten Dateien in der Buch-Struktur.", "error")
+                    self.log("⛔ Speichern/Rendern gestoppt. Bitte behebe die markierten Dateien in der Buch-Struktur.", _LogLevel.ERROR)
                 return False
             
         try:
@@ -1845,7 +1845,7 @@ class BookStudio:
             if show_msg:
                 messagebox.showinfo("Speichern", msg)
             self.status.config(text="Zuletzt gespeichert: Gerade eben", fg=_StatusFg.SUCCESS)
-            self.log("💾 Struktur in _quarto.yml gespeichert.", "success")
+            self.log("💾 Struktur in _quarto.yml gespeichert.", _LogLevel.SUCCESS)
             # B6: Inhalt der Dateien könnte sich geändert haben.
             self.invalidate_content_search_cache()
             return True
@@ -2564,7 +2564,7 @@ class BookStudio:
             cfg = _app_config_service.read_config(self._app_config_path)
             custom_path = cfg.get("sanitizer_backup_path")
         except (OSError, TypeError, ValueError) as e:
-            self.log(f"⚠️  Konnte App-Config für Sanitizer-Backup nicht lesen: {e}", "warning")
+            self.log(f"⚠️  Konnte App-Config für Sanitizer-Backup nicht lesen: {e}", _LogLevel.WARNING)
             custom_path = None
         backup_base_dir = self._services.backup.resolve_backup_base_dir(
             self.current_book, custom_path
@@ -2599,14 +2599,14 @@ class BookStudio:
             return
 
         # 5. Status melden und Thread starten
-        self.log("=" * 50, "dim")
-        self.log("🧹 SANITIZER PIPELINE GESTARTET", "header")
-        self.log("=" * 50, "dim")
+        self.log("=" * 50, _LogLevel.DIM)
+        self.log("🧹 SANITIZER PIPELINE GESTARTET", _LogLevel.HEADER)
+        self.log("=" * 50, _LogLevel.DIM)
 
         # 6. Thread starten, damit die GUI nicht einfriert
         def sanitizer_thread():
-            self.root.after(0, lambda: self.log(f"✅ PRE-BACKUP: {backup_dir}", "success"))
-            self.root.after(0, lambda: self.log("🚀 Starte Sanitizer...", "header"))
+            self.root.after(0, lambda: self.log(f"✅ PRE-BACKUP: {backup_dir}", _LogLevel.SUCCESS))
+            self.root.after(0, lambda: self.log("🚀 Starte Sanitizer...", _LogLevel.HEADER))
             
             # Sanitizer.py aufrufen und Output abfangen
             cmd = [sys.executable, "Sanitizer.py", str(self.current_book)]
@@ -2615,18 +2615,18 @@ class BookStudio:
             for line in p.stdout:
                 stripped = line.rstrip()
                 if stripped:
-                    self.root.after(0, lambda ln=stripped: self.log(ln, "info"))
+                    self.root.after(0, lambda ln=stripped: self.log(ln, _LogLevel.INFO))
                 
             p.wait()
             
             if p.returncode == 0:
-                self.root.after(0, lambda: self.log("✅ SANITIZER-LAUF ABGESCHLOSSEN!", "success"))
+                self.root.after(0, lambda: self.log("✅ SANITIZER-LAUF ABGESCHLOSSEN!", _LogLevel.SUCCESS))
                 # GANZ WICHTIG: Die UI aktualisieren, falls der Sanitizer defektes Frontmatter repariert hat!
                 self.root.after(0, self.refresh_ui_titles)
                 # B6: Sanitizer hat Dateiinhalte geändert → Cache invalidieren.
                 self.root.after(0, self.invalidate_content_search_cache)
             else:
-                self.root.after(0, lambda: self.log(f"❌ FEHLER: Crash (Code {p.returncode})", "error"))
+                self.root.after(0, lambda: self.log(f"❌ FEHLER: Crash (Code {p.returncode})", _LogLevel.ERROR))
 
         threading.Thread(target=sanitizer_thread, daemon=True).start()
 

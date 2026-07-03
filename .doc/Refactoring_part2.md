@@ -395,3 +395,57 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 - `.doc/gui_architektur.md` – Modulgrenzen, UI/Service-Trennung.
 - `tests/test_studio_adapter.py` – dokumentiert die aktuelle `StudioAdapter`-Schnittstelle.
 - `services/` – die Stub-Module, die in Schritt 2 ausgebaut werden.
+
+---
+
+## Abschluss-Snapshot (2026-07-03, nach Phase 2)
+
+### Erreicht (Commits auf `unleashedEdition`, gepusht)
+
+| Commit | Schritt | Was |
+|---|---|---|
+| `3bbea83` | 2.1 | WorkspaceService: Pfad-Auflösung, Project-Discovery |
+| `a783fcb` | 2.2 | BookSessionService: load_book, Profile, Engine-Init |
+| `fb23869` | 2.3a | RenderService.resolve_target_format (pure) |
+| `f778906` | 2.3b | RenderService: pure Helper (build_render_log_path, sanitize, …) |
+| `a950122` | 2.3c-Mini | RenderService.execute_render (Sync-Orchestrierung) |
+| `d41355e` | 2.4a | DiagnosticsService: Issue-Registry, Navigation (pure) |
+| `4363d9a` | 2.4b | DiagnosticsService: run_full_health_check, analyze_single_file |
+| `5bec8ec` | 2.5a | BackupService: Pfad-Auflösung (pure) |
+| `18fdb4e` | 2.5b | BackupService: create_physical_backup |
+| `b2fc5cc` | 2.6a | UiStateService: Pure-Berechnungen |
+| `7a3307b` | 2.6b | UiStateService: evaluate_node_visibility, build_left_list_entries |
+| `83acf89` | 4 | CI: --cov-fail-under=80, ruff + flake8 + compileall in CI |
+| `8451e4d` | Doku | Phase-3-Plugin-Architektur (zurückgestellt) |
+
+### Kennzahlen
+
+- 474 Pytest-Tests grün, 1 deselected (`slow`)
+- 6/7 Smoke-Tests grün (1 Housekeeping-Issue mit `studio_config.json`)
+- Service-Layer Coverage 97 % (alle 6 Services 97-100 %)
+- CI-Gate hält mit großem Puffer
+- Ruff + flake8 + compileall: 0 Fehler
+
+### Offen (für spätere Sessions)
+
+| Schritt | Inhalt | Aufwand | Risiko |
+|---|---|---|---|
+| 2.3c (voll) | RenderService komplett mit Subprocess-Mock | 2-3 h | mittel |
+| 3 | Hex-Farben in Konstanten | 1 h | gering |
+| 5 | LogLevel-Enum statt Magic-Strings | 1 h | gering |
+| 6 | Performance-Pass (Cache-LRU, async tree, threaded backup) | ~3 h | mittel |
+| 7 (alt) | Magic-String-Reste (Status-Tags) | 1 h | gering |
+| Phase 3 | Plugin-Architektur (GrammarGraph-Idee) | 18-28 h | mittel-hoch |
+
+### Housekeeping
+
+- `studio_config.json.bak`-Dateien lokal löschen
+- `tests/`-Ignore-Regel klären (lokal in `.git/info/exclude` vs. projektweit)
+- `smoke_tests.py` Unicode-Ausgabe-Issue beheben
+- `book_studio.py` < 800 Zeilen (Akzeptanz B8) — derzeit ~2700, weitere Migration nötig
+
+### Trigger für nächste Session
+
+Nächster Schritt: Schritt 3 (Hex-Farben in Konstanten, 1 h, geringes Risiko).
+Alternativ: Phase 3 vorbereiten durch Schritt 7-Doku-Finalisierung.
+
