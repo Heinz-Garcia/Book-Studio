@@ -4,6 +4,8 @@ import json
 import logging
 from pathlib import Path
 
+from frontmatter_parser import extract_field as fm_extract_field, parse_file as fm_parse_file
+
 logger = logging.getLogger(__name__)
 
 class QuartoYamlEngine:
@@ -20,21 +22,18 @@ class QuartoYamlEngine:
         """Liest den Titel aus dem YAML-Frontmatter oder der ersten H1-Überschrift."""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
-                content = f.read(5000) # Nur den Anfang lesen
-            
-            # 1. Suche in YAML Frontmatter
-            match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL | re.MULTILINE)
-            if match:
-                frontmatter = match.group(1)
-                t_match = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', frontmatter, re.MULTILINE)
-                if t_match:
-                    return t_match.group(1).strip()
-            
+                content = f.read(5000)  # Nur den Anfang lesen
+
+            # 1. Suche in YAML Frontmatter (B2/SSOT)
+            title = fm_extract_field(content, "title")
+            if title:
+                return title
+
             # 2. Suche nach erster # Überschrift
             h1_match = re.search(r'^#\s+(.*)$', content, re.MULTILINE)
             if h1_match:
                 return h1_match.group(1).strip()
-            
+
             return None
         except (OSError, ValueError, TypeError):
             return None
@@ -76,12 +75,9 @@ class QuartoYamlEngine:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read(5000)
 
-            match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL | re.MULTILINE)
-            if match:
-                frontmatter = match.group(1)
-                role_match = re.search(r'^content_role:\s*["\']?(.*?)["\']?\s*$', frontmatter, re.MULTILINE)
-                if role_match:
-                    return role_match.group(1).strip().lower()
+            role = fm_extract_field(content, "content_role")
+            if role:
+                return role.lower()
             return None
         except (OSError, ValueError, TypeError):
             return None
@@ -105,13 +101,10 @@ class QuartoYamlEngine:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read(5000)
-            
-            match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL | re.MULTILINE)
-            if match:
-                frontmatter = match.group(1)
-                status_match = re.search(r'^status:\s*["\']?(.*?)["\']?\s*$', frontmatter, re.MULTILINE)
-                if status_match:
-                    return status_match.group(1).strip()
+
+            status = fm_extract_field(content, "status")
+            if status:
+                return status
             return "ohne Eintrag"
         except (OSError, ValueError, TypeError):
             return "ohne Eintrag"

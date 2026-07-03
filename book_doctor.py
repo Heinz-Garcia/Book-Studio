@@ -9,6 +9,9 @@ import yaml
 from tkinter import ttk
 from ui_theme import COLORS, FONTS, center_on_parent, style_dialog
 
+from frontmatter_parser import parse as fm_parse
+from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues, to_legacy_tuples
+
 # =========================================================================
 # 1. DER BUCH-DOKTOR (DIAGNOSE & SICHERHEIT)
 # =========================================================================
@@ -66,60 +69,12 @@ class BookDoctor:
             return text
 
         def find_fenced_div_issues(body, base_line_number):
-            issues = []
-            stack = []
-            marker_pattern = re.compile(r'^\s*(:{3,})(\s*.*)$')
-            code_fence_pattern = re.compile(r'^\s*(```+|~~~+)')
-            in_code_block = False
-
-            for offset, raw_line in enumerate(body.splitlines()):
-                line = raw_line.rstrip("\r")
-                line_number = base_line_number + offset
-
-                if code_fence_pattern.match(line):
-                    in_code_block = not in_code_block
-                    continue
-
-                if in_code_block:
-                    continue
-
-                marker_match = marker_pattern.match(line)
-                if marker_match:
-                    colon_count = len(marker_match.group(1))
-                    tail = marker_match.group(2).strip()
-
-                    if tail:
-                        stack.append((colon_count, line_number))
-                    else:
-                        if stack:
-                            top_colon_count, _top_line = stack[-1]
-                            if colon_count >= top_colon_count:
-                                stack.pop()
-                            else:
-                                issues.append((
-                                    line_number,
-                                    "❌ FENCED-DIV FEHLER: Schließender :::-Marker passt nicht zur Öffnung.",
-                                ))
-                        else:
-                            issues.append((
-                                line_number,
-                                "❌ FENCED-DIV FEHLER: Schließender :::-Marker ohne passende Öffnung.",
-                            ))
-                    continue
-
-                if ":::" in line and not line.lstrip().startswith("```"):
-                    issues.append((
-                        line_number,
-                        "❌ FENCED-DIV WARNZEICHEN: ':::' im Fließtext gefunden (möglicherweise defekter Div-Block).",
-                    ))
-
-            for _colon_count, open_line in stack:
-                issues.append((
-                    open_line,
-                    "❌ FENCED-DIV FEHLER: Öffnender :::-Marker ohne passenden Abschluss.",
-                ))
-
-            return issues
+            """SSOT-Wrapper: ruft `quarto_block_parser.find_fenced_div_issues`
+            auf und konvertiert die kanonischen Issue-Kinds in die
+            Legacy-Klartext-Strings für abwärtskompatible Log-Ausgabe.
+            """
+            issues = qb_find_fenced_div_issues(body, base_line_number=base_line_number)
+            return to_legacy_tuples(issues)
 
         paths_to_check = list(used_paths)
         if include_index and "index.md" not in paths_to_check:
@@ -146,13 +101,16 @@ class BookDoctor:
                 with open(full_p, 'r', encoding='utf-8') as f:
                     content = f.read()
 
-                match = re.match(r'^\uFEFF?---\s*[\r\n]+(.*?)[\r\n]+---\s*[\r\n]+(.*)', content, re.DOTALL)
-                if match:
-                    frontmatter = match.group(1)
-                    body = match.group(2)
+                # B2/SSOT: Frontmatter-Logik in `frontmatter_parser`.
+                parts = fm_parse(content)
+                if not parts.has_frontmatter:
+                    record_issue(p_str, f"❌ FRONTMATTER DEFEKT in {display_name}: Die '---' Blöcke umschließen den Bereich nicht sauber.", line_number=1)
+                else:
+                    frontmatter = parts.header or ""
+                    body = parts.body
 
                     try:
-                        parsed_yaml = yaml.safe_load(frontmatter)
+                        parsed_yaml = yaml.safe_load(frontmatter) if frontmatter.strip() else None
 
                         if not parsed_yaml:
                             record_issue(p_str, f"❌ LEERES FRONTMATTER in {display_name}: Der YAML-Block ist leer.", line_number=1)
@@ -177,7 +135,17 @@ class BookDoctor:
                                 break
                         record_issue(p_str, f"❌ VERBOTENES ZEICHEN in {display_name}: YAML enthält Tabulatoren! Bitte durch Leerzeichen ersetzen.", line_number=tab_line)
 
-                    body_line_number = body_start_line(content, match)
+                    # Body-Line-Offset berechnen: BOM + Öffner-Zeilen +
+                    # ggf. doppelte Öffner + Header-Zeilen.
+                    opener_count = 1 + parts.duplicate_opening_count
+                    if parts.had_closing_delimiter:
+                        opener_count += 1  # Schluss-Trenner
+                    body_line_number = (
+                        (1 if parts.bom else 0)
+                        + opener_count
+                        + len(frontmatter.splitlines())
+                        + 1
+                    )
                     seen_fenced_issue_keys = set()
                     for offset, line in enumerate(body.split('\n')):
                         if line.strip() == '---':
@@ -210,8 +178,6 @@ class BookDoctor:
                                 f"{fence_message} in {display_name} (nach Pre-Processing)",
                                 line_number=line_number,
                             )
-                else:
-                    record_issue(p_str, f"❌ FRONTMATTER DEFEKT in {display_name}: Die '---' Blöcke umschließen den Bereich nicht sauber.", line_number=1)
 
             except OSError as e:
                 record_issue(p_str, f"❌ Datei-Lesefehler bei {display_name}: {e}")

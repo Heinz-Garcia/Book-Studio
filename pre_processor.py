@@ -1,92 +1,26 @@
 import re
 import shutil
 from pathlib import Path
-import hashlib
 import yaml
-from footnote_harvester import FootnoteHarvester
+
+# B4 (Refactoring): Die komplette Fußnoten-Funktionalität wurde
+# entfernt. Pandoc-konforme `[^1]`-Marker im Quell-Markdown werden
+# unverändert weitergereicht — Quarto kümmert sich um die Auflösung.
+# Die frühere `_namespace_local_footnotes` / `_inject_footnote_backlinks`
+# / `_uses_harvester` / `FootnoteHarvester`-Logik existiert nicht mehr.
+
 
 class PreProcessor:
-    def __init__(self, book_path, footnote_mode="endnotes", enable_footnote_backlinks=True, output_format="typst"):
+    def __init__(self, book_path, output_format="typst"):
+        """Bereitet ein Quarto-Buch für den Render vor.
+
+        Vor B4 wurden hier `footnote_mode` und `enable_footnote_backlinks`
+        entgegengenommen. Beide Parameter wurden entfernt — das gesamte
+        Fußnoten-Harvesting/Endnoten-System ist stillgelegt.
+        """
         self.book_path = Path(book_path)
         self.processed_dir = self.book_path / "processed"
-        self.footnote_mode = footnote_mode
-        self.enable_footnote_backlinks = bool(enable_footnote_backlinks)
         self.output_format = str(output_format) if output_format else "typst"
-        _use_typst_links = (
-            footnote_mode == "endnotes"
-            and "typst" in self.output_format.lower()
-        )
-        self.harvester = FootnoteHarvester(
-            mode=footnote_mode,
-            title="Anmerkungen",
-            use_typst_links=_use_typst_links,
-        )
-
-    def _uses_harvester(self):
-        return self.footnote_mode in {"endnotes", "pandoc"}
-
-    def _namespace_local_footnotes(self, text, source_path):
-        if self.footnote_mode != "footnotes":
-            return text
-
-        path_text = str(source_path).replace("\\", "/")
-        prefix = re.sub(r"[^A-Za-z0-9_]+", "_", Path(path_text).stem).strip("_") or "note"
-        digest = hashlib.sha1(path_text.encode("utf-8")).hexdigest()[:8]
-        namespace = f"{prefix}_{digest}"
-
-        def replace_definition(match):
-            label = match.group(1)
-            return f"[^{namespace}_{label}]:"
-
-        def replace_marker(match):
-            label = match.group(1)
-            return f"[^{namespace}_{label}]"
-
-        text = re.sub(r'\[\^([^\]]+)\]:', replace_definition, text)
-        text = re.sub(r'\[\^([^\]]+)\](?!:)', replace_marker, text)
-        return text
-
-    def _footnote_anchor_id(self, label, index):
-        safe_label = re.sub(r"[^A-Za-z0-9_-]+", "-", str(label)).strip("-") or "note"
-        return f"fnref-{safe_label}-{index}"
-
-    def _inject_footnote_backlinks(self, text):
-        if self.footnote_mode != "footnotes" or not self.enable_footnote_backlinks:
-            return text
-
-        ref_counts = {}
-        ref_targets = {}
-
-        def replace_marker(match):
-            label = match.group(1)
-            next_index = ref_counts.get(label, 0) + 1
-            ref_counts[label] = next_index
-            anchor_id = self._footnote_anchor_id(label, next_index)
-            ref_targets.setdefault(label, []).append(anchor_id)
-            return f"[]{{#{anchor_id}}}[^{label}]"
-
-        text = re.sub(r'\[\^([^\]]+)\](?!:)', replace_marker, text)
-
-        definition_pattern = re.compile(
-            r'^\[\^([^\]]+)\]:\s*(.*?)(?=^\[\^[^\]]+\]:|\Z)',
-            re.DOTALL | re.MULTILINE,
-        )
-
-        def replace_definition(match):
-            label = match.group(1)
-            body = match.group(2).rstrip()
-            targets = ref_targets.get(label, [])
-            if not targets:
-                return match.group(0)
-            if len(targets) == 1:
-                backlink_text = f" [↩](#{targets[0]})"
-            else:
-                backlink_parts = [f"[↩{i + 1}](#{target})" for i, target in enumerate(targets)]
-                backlink_text = " " + " ".join(backlink_parts)
-            return f"[^{label}]: {body}{backlink_text}\n"
-
-        text = definition_pattern.sub(replace_definition, text)
-        return text
 
     def _extract_parts(self, content):
         """Trennt Frontmatter extrem robust vom Text ab, selbst bei Windows-BOMs."""
@@ -141,32 +75,11 @@ class PreProcessor:
         return f"{bom}---{newline}{dumped}{newline}---{newline}"
 
     def _prune_unused_footnote_definitions(self, text):
-        """Entfernt ungenutzte Fußnoten-Definitionen im footnotes-Modus aus dem processed-Text."""
-        if self.footnote_mode != "footnotes":
-            return text
-
-        definition_pattern = re.compile(
-            r'^\[\^([^\]]+)\]:\s*(.*?)(?=^\[\^[^\]]+\]:|\Z)',
-            re.DOTALL | re.MULTILINE,
-        )
-        matches = list(definition_pattern.finditer(text))
-        if not matches:
-            return text
-
-        used_labels = set(re.findall(r'\[\^([^\]]+)\](?!:)', text))
-
-        parts = []
-        cursor = 0
-        for match in matches:
-            start, end = match.span()
-            parts.append(text[cursor:start])
-            label = match.group(1)
-            if label in used_labels:
-                parts.append(match.group(0))
-            cursor = end
-        parts.append(text[cursor:])
-
-        return ''.join(parts).strip()
+        """B4-Stub: Vorher entfernte diese Methode ungenutzte Fußnoten-
+        Definitionen. Mit der Abschaltung der Fußnoten-Verarbeitung ist
+        sie ein No-op — bleibt aber als stabile API für externe Importer
+        erhalten."""
+        return text
 
     # =========================================================================
     # NEU: DER WASCHGANG FÜR KAPUTTE MARKDOWN-SYNTAX
@@ -233,28 +146,13 @@ class PreProcessor:
     # =========================================================================
 
     def _gather_all_definitions(self, nodes):
+        """B4-Stub: Vorher wurden hier in einem Pass 1 alle Dateien
+        vorab eingelesen, um das globale Footnote-Lexikon zu füllen.
+        Mit der Abschaltung der Fußnoten-Verarbeitung ist diese Methode
+        ein No-op. Sie bleibt als stabile API für externe Importer
+        erhalten.
         """
-        PASS 1: Liest alle Dateien heimlich vorab ein, bereinigt sie (Waschgang) 
-        und füllt das globale Lexikon im FootnoteHarvester.
-        """
-        if not self._uses_harvester():
-            return
-        for node in nodes:
-            if not node["path"].startswith("PART:"):
-                path = self.book_path / node["path"]
-                if path.exists() and path.is_file():
-                    with open(path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                        
-                    _, body = self._extract_parts(content)
-                    body = self._sanitize_markdown(body)
-                    body = self._namespace_local_footnotes(body, path)
-                    
-                    # Füllt das Lexikon (datei-scoped), ohne den Text schon zu verändern
-                    self.harvester.extract_definitions(body, file_key=str(path))
-                    
-            if node.get("children"):
-                self._gather_all_definitions(node["children"])
+        return
 
     def prepare_render_environment(self, tree_data):
         if self.processed_dir.exists():
@@ -271,7 +169,7 @@ class PreProcessor:
                     f.write('\n\n')
         # -------------------------------
 
-        # === PASS 1: ALLE QUELLEN SAMMELN (Globales Lexikon füllen) ===
+        # === PASS 1: jetzt No-op (B4 — Footnote-Harvesting entfernt) ===
         self._gather_all_definitions(tree_data)
 
         # === PASS 2: DATEIEN SCHREIBEN UND VERWEISE SETZEN ===
@@ -280,30 +178,30 @@ class PreProcessor:
         for root_node in tree_data:
             if root_node.get("children"):
                 self._process_part_file(root_node)
-                
+
                 new_part = {
                     "title": root_node["title"],
                     "path": f"processed/{root_node['path']}",
-                    "children": [] 
+                    "children": []
                 }
-                
+
                 for chapter_node in root_node["children"]:
                     chapter_dest = self._process_host_file(chapter_node)
-                    
+
                     new_chapter = {
                         "title": chapter_node["title"],
                         "path": f"processed/{chapter_node['path']}",
-                        "children": [] 
+                        "children": []
                     }
                     new_part["children"].append(new_chapter)
-                    
+
                     if chapter_node.get("children"):
                         self._amalgamate_children(chapter_node["children"], chapter_dest, offset=1)
-                        
+
                 processed_tree.append(new_part)
             else:
                 self._process_host_file(root_node)
-                
+
                 new_chapter = {
                     "title": root_node["title"],
                     "path": f"processed/{root_node['path']}",
@@ -311,17 +209,7 @@ class PreProcessor:
                 }
                 processed_tree.append(new_chapter)
 
-        # Ganz am Ende die gesammelten Endnoten generieren
-        if self._uses_harvester() and self.harvester.harvested:
-            endnotes_filename = "Endnoten.md"
-            endnotes_dest = self.processed_dir / endnotes_filename
-            self.harvester.generate_endnotes_file(endnotes_dest)
-            
-            processed_tree.append({
-                "title": self.harvester.title,
-                "path": f"processed/{endnotes_filename}",
-                "children": []
-            })
+        # B4: Endnoten-Generierung entfernt.
 
         return processed_tree
 
@@ -331,34 +219,27 @@ class PreProcessor:
         dest.parent.mkdir(parents=True, exist_ok=True)
         if not src.exists():
             return dest
-        
+
         with open(src, 'r', encoding='utf-8') as f:
             content = f.read()
-            
+
         frontmatter, body = self._extract_parts(content)
         frontmatter = self._sanitize_frontmatter_for_render(frontmatter)
-        
-        # 1. Text waschen
+
+        # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
         body = self._sanitize_markdown(body)
-        body = self._namespace_local_footnotes(body, src)
-        body = self._inject_footnote_backlinks(body)
-        
+
         # 2. H1 bereinigen
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
-        
-        # 3. Lexikon anwenden (Definitionen entfernen, Marker ersetzen) — datei-scoped
-        if self._uses_harvester():
-            body = self.harvester.extract_definitions(body, file_key=str(src))
-            body = self.harvester.replace_markers(body, file_key=str(src))
-        else:
-            body = self._prune_unused_footnote_definitions(body)
-        
+
+        # B4: Footnote-Harvesting-Block entfernt (war 3+5).
+
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
 
         # Companion-SVGs in processed/ kopieren
         self._copy_companion_svgs(src, dest)
-            
+
         return dest
 
     def _process_host_file(self, node):
@@ -367,34 +248,27 @@ class PreProcessor:
         dest.parent.mkdir(parents=True, exist_ok=True)
         if not src.exists():
             return dest
-        
+
         with open(src, 'r', encoding='utf-8') as f:
             content = f.read()
-            
+
         frontmatter, body = self._extract_parts(content)
         frontmatter = self._sanitize_frontmatter_for_render(frontmatter)
-        
-        # 1. Text waschen
+
+        # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
         body = self._sanitize_markdown(body)
-        body = self._namespace_local_footnotes(body, src)
-        body = self._inject_footnote_backlinks(body)
-        
+
         # 2. H1 bereinigen
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
-        
-        # 3. Lexikon anwenden — datei-scoped
-        if self._uses_harvester():
-            body = self.harvester.extract_definitions(body, file_key=str(src))
-            body = self.harvester.replace_markers(body, file_key=str(src))
-        else:
-            body = self._prune_unused_footnote_definitions(body)
-        
+
+        # B4: Footnote-Harvesting-Block entfernt (war 3+5).
+
         with open(dest, 'w', encoding='utf-8') as f:
             f.write(frontmatter + body.rstrip() + "\n\n")
 
         # Companion-SVGs in processed/ kopieren
         self._copy_companion_svgs(src, dest)
-            
+
         return dest
 
     def _copy_companion_svgs(self, src: Path, dest: Path) -> None:
@@ -418,29 +292,22 @@ class PreProcessor:
             if src.exists():
                 with open(src, 'r', encoding='utf-8') as f:
                     content = f.read()
-                    
+
                 _, body = self._extract_parts(content)
-                
-                # 1. Text waschen
+
+                # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
                 body = self._sanitize_markdown(body)
-                body = self._namespace_local_footnotes(body, src)
-                body = self._inject_footnote_backlinks(body)
-                
-                # 2. Lexikon anwenden — datei-scoped
-                if self._uses_harvester():
-                    body = self.harvester.extract_definitions(body, file_key=str(src))
-                    body = self.harvester.replace_markers(body, file_key=str(src))
-                else:
-                    body = self._prune_unused_footnote_definitions(body)
-                
-                # 3. Überschriften einrücken
+
+                # B4: Footnote-Harvesting-Block entfernt (war 2).
+
+                # 2. Überschriften einrücken
                 def shift_heading(m):
                     return f"{'#' * (len(m.group(1)) + offset)}{m.group(2)}"
-                
+
                 body = re.sub(r'^(#+)(\s+.*)$', shift_heading, body, flags=re.MULTILINE)
-                
+
                 with open(host_dest, 'a', encoding='utf-8') as f:
                     f.write(f"\n\n\n{body.strip()}\n\n")
-            
+
             if child.get("children"):
                 self._amalgamate_children(child["children"], host_dest, offset + 1)

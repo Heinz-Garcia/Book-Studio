@@ -28,3 +28,8 @@ desktop.ini
 check_staged.py
 studio_config.json
 Textdokument (neu).txt
+session_state.json
+# B5: app_config.json wird versioniert (App-Defaults).
+# Wenn ein Maintainer lokale Anpassungen vornehmen will, die nicht
+# ins Repo sollen, soll er die Datei einmal umbenennen und in dieser
+# Zeile ergänzen.

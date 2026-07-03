@@ -1,9 +1,17 @@
 import json
 import tkinter as tk
 
+import session_state as _session_state_service
+
 
 class SessionManager:
-    """Manages session state: persisting and restoring book, profile, UI, and filter state."""
+    """Manages session state: persisting and restoring book, profile, UI, and filter state.
+
+    B5: Persistenz wurde in den `session_state`-Service ausgelagert. Diese
+    Klasse liest/schreibt jetzt nur noch `session_state.json`. Das alte
+    Verhalten (im `studio_config.json["session_state"]`-Block) ist
+    dokumentationshalber im Doc-String erwähnt, aber nicht mehr aktiv.
+    """
 
     def __init__(self, studio):
         self.studio = studio
@@ -12,7 +20,16 @@ class SessionManager:
     # LOAD / SAVE
     # =========================================================================
     def load(self) -> dict:
+        # B5: liest aus `session_state.json`. Fallback: prüft
+        # `studio_config.json["session_state"]` für abwärtskompatible
+        # Erstausführung, falls die Migration noch nicht gelaufen ist.
         try:
+            session_path = getattr(self.studio, "_session_state_path", None)
+            if session_path is not None:
+                state = _session_state_service.read_session_state(session_path)
+                if state:
+                    return state
+            # Fallback: alte Position
             cfg = self.studio.read_config()
             state = cfg.get("session_state", {})
             return state if isinstance(state, dict) else {}
@@ -28,21 +45,28 @@ class SessionManager:
 
     def save(self):
         try:
-            cfg = self.studio.read_config()
+            session_path = getattr(self.studio, "_session_state_path", None)
+            if session_path is None:
+                return
             studio = self.studio
             active_book_path = None
             active_book_name = None
             if studio.current_book:
                 active_book_path = self.book_key(studio.current_book)
                 active_book_name = studio.current_book.name
-            cfg["session_state"] = {
+            payload = {
                 "active_book_path": active_book_path,
                 "active_book_name": active_book_name,
                 "current_profile_name": studio.current_profile_name,
                 "export_options": dict(studio.last_export_options),
                 "ui_state": self._collect_ui_state(),
             }
-            studio.write_config(cfg)
+            # Bestehende `window_geometry` im ui_state erhalten.
+            existing = _session_state_service.read_session_state(session_path)
+            existing_ui = existing.get("ui_state") if isinstance(existing, dict) else None
+            if isinstance(existing_ui, dict) and "window_geometry" in existing_ui:
+                payload.setdefault("ui_state", {})["window_geometry"] = existing_ui["window_geometry"]
+            _session_state_service.write_session_state(session_path, payload)
         except (OSError, TypeError, ValueError):
             pass
 

@@ -15,7 +15,6 @@ from yaml_engine import QuartoYamlEngine
 class ExportSettings:
     fmt: str = "typst"
     template: str = "Standard"
-    footnote_mode: str = "endnotes"
     profile_name: str | None = None
 
 
@@ -204,27 +203,11 @@ def run_unmanned_trigger(request: TriggerRequest):
         target_fmt, extra_opts = _resolve_render_target(request.export)
         profile_name = request.export.profile_name
 
-        processor = PreProcessor(request.book_path, footnote_mode=request.export.footnote_mode)
+        # B4: Footnote-Modus-Argument entfernt.
+        processor = PreProcessor(request.book_path)
         processed_tree = processor.prepare_render_environment(tree_data)
 
-        orphan_count = len(processor.harvester.orphan_warnings)
-        if orphan_count:
-            _emit(
-                f"⚠️ Verwaiste Fußnotenmarker erkannt: {orphan_count}",
-                err=request.strict,
-                log_handle=log_handle,
-                run_id=request.run_id,
-                job_id=request.job_id,
-            )
-            if request.strict:
-                _emit(
-                    "❌ Strict-Mode aktiv: Abbruch wegen Warnungen.",
-                    err=True,
-                    log_handle=log_handle,
-                    run_id=request.run_id,
-                    job_id=request.job_id,
-                )
-                return 3
+        # B4: Orphan-Footnote-Warnung-Logik entfernt.
 
         yaml_engine.save_chapters(
             processed_tree,
@@ -307,7 +290,6 @@ def _parse_export_settings(args):
         settings = ExportSettings(
             fmt=str(settings_data.get("format", settings.fmt)),
             template=str(settings_data.get("template", settings.template)),
-            footnote_mode=str(settings_data.get("footnote_mode", settings.footnote_mode)),
             profile_name=(str(settings_data["profile_name"]) if settings_data.get("profile_name") else None),
         )
 
@@ -315,8 +297,6 @@ def _parse_export_settings(args):
         settings.fmt = args.format
     if args.template:
         settings.template = args.template
-    if args.footnote_mode:
-        settings.footnote_mode = args.footnote_mode
     if args.profile_name:
         settings.profile_name = args.profile_name
 
@@ -331,10 +311,9 @@ def _build_parser():
     parser.add_argument("--structure-json", required=True, help="JSON-Datei mit Buchstruktur (Book-Studio-Profil).")
     parser.add_argument("--md-source-path", required=True, help="Pfad zu den Markdown-Quelldateien.")
 
-    parser.add_argument("--export-settings-json", help="Optional: JSON mit format/template/footnote_mode/profile_name.")
+    parser.add_argument("--export-settings-json", help="Optional: JSON mit format/template/profile_name.")
     parser.add_argument("--format", dest="format", help="Exportformat, z. B. typst/pdf/html/docx/epub.")
     parser.add_argument("--template", help="Template-Name oder 'EXT: <name>'.")
-    parser.add_argument("--footnote-mode", help="Fußnotenmodus (z. B. endnotes).")
     parser.add_argument("--profile-name", help="Optionaler Profilname für output-dir Naming.")
 
     parser.add_argument("--sync-md-sources", action="store_true", help="Kopiert Quellen aus md-source-path ins Buchprojekt.")

@@ -12,6 +12,9 @@ import sys
 from export_manager import ExportManager
 from log_manager import LogManager
 from session_manager import SessionManager
+import app_config as _app_config_service
+import session_state as _session_state_service
+from services.constants import StatusFg as _StatusFg
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
@@ -59,7 +62,22 @@ class BookStudio:
         configure_root(self.root)
 
         # Letzte Fensterposition/-größe wiederherstellen
-        self._config_path = Path(__file__).parent / "studio_config.json"
+        self._legacy_config_path = Path(__file__).parent / "studio_config.json"
+        self._app_config_path = Path(__file__).parent / "app_config.json"
+        self._session_state_path = Path(__file__).parent / "session_state.json"
+        # B5: legacy `studio_config.json` wird beim ersten Start nach
+        # `app_config.json` + `session_state.json` migriert und als
+        # `.bak` gesichert. Idempotent: kein Effekt, wenn schon migriert.
+        _app_config_service.migrate_from_legacy_studio_config(
+            self._legacy_config_path,
+            self._app_config_path,
+            self._session_state_path,
+        )
+        # B5: aus Kompatibilitätsgründen behält `_config_path` weiterhin
+        # einen Pfad – zeigt jetzt aber auf `app_config.json`. Aufrufer
+        # in `app_config_editor.py` schreiben dadurch automatisch in die
+        # neue Datei.
+        self._config_path = self._app_config_path
         saved_geo = self._load_window_geometry()
         self.root.geometry(saved_geo)
         self.root.protocol("WM_DELETE_WINDOW", self.close_app)
@@ -148,9 +166,17 @@ class BookStudio:
     # FENSTERPOSITION SPEICHERN / LADEN
     # =========================================================================
     def _load_window_geometry(self) -> str:
+        # B5: `window_geometry` ist UI-State und liegt in `session_state.json`.
         try:
-            cfg = self._read_config()
-            geo = cfg.get("window_geometry", "")
+            session = _session_state_service.read_session_state(self._session_state_path)
+            ui = session.get("ui_state") if isinstance(session, dict) else None
+            geo = ui.get("window_geometry") if isinstance(ui, dict) else None
+            if not geo:
+                # Fallback: ältere Session-Dateien hatten `window_geometry`
+                # auf Top-Level. Migration in `app_config` verschiebt es
+                # bereits nach `ui_state.window_geometry`; dieser Pfad ist
+                # nur eine Sicherheitsleine.
+                geo = session.get("window_geometry") if isinstance(session, dict) else None
             if geo and "x" in geo:
                 return geo
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
@@ -158,24 +184,38 @@ class BookStudio:
         return "1300x900"
 
     def _save_window_geometry(self):
+        # B5: schreibt nach `session_state.json["ui_state"]["window_geometry"]`.
         try:
             self.root.update_idletasks()
-            cfg = self._read_config()
-            cfg["window_geometry"] = self.root.geometry()
-            self._write_config(cfg)
+            session = _session_state_service.read_session_state(self._session_state_path)
+            ui = session.setdefault("ui_state", {})
+            if not isinstance(ui, dict):
+                ui = {}
+                session["ui_state"] = ui
+            ui["window_geometry"] = self.root.geometry()
+            _session_state_service.write_session_state(self._session_state_path, session)
         except (OSError, TypeError, ValueError) as error:
             self._report_nonfatal_error("Fenstergeometrie konnte nicht gespeichert werden", error)
 
     def _read_config(self):
-        if not self._config_path.exists():
-            return {}
-        with open(self._config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
+        # B5: delegiert an `app_config`-Service (SSOT für App-Defaults).
+        return _app_config_service.read_config(self._app_config_path)
 
     def _write_config(self, cfg):
-        with open(self._config_path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=4, ensure_ascii=False)
+        # B5: Session-Block wird vor dem Schreiben in die eigene Datei
+        # umgeleitet, damit das Zwei-Datei-Schema nicht durch alte Aufrufer
+        # gebrochen wird.
+        # B7: ungültige Werte auf Defaults zurücksetzen, Warnung loggen.
+        cfg = dict(cfg or {})
+        session_block = cfg.pop("session_state", None)
+        cleaned, warnings = _app_config_service.validate_and_clean(cfg)
+        for warning in warnings:
+            self.log(f"⚠️ App-Config: {warning}", "warning")
+        _app_config_service.write_config(self._app_config_path, cleaned)
+        if session_block is not None:
+            _session_state_service.write_session_state(
+                self._session_state_path, session_block
+            )
 
     def _report_nonfatal_error(self, context, error):
         message = f"⚠️ {context}: {error}"
@@ -225,10 +265,10 @@ class BookStudio:
         return max(min_size, min(max_size, font_size))
 
     def _get_default_export_options(self):
+        # B4: footnote_mode entfernt — das Fußnoten-System ist abgeschaltet.
         defaults = {
             "format": "typst",
             "template": "Standard",
-            "footnote_mode": "endnotes",
         }
         try:
             cfg = self._read_config()
@@ -243,14 +283,9 @@ class BookStudio:
         template = str(cfg.get("default_export_template", defaults["template"]))
         template = template.strip() if template.strip() else defaults["template"]
 
-        footnote_mode = str(cfg.get("default_footnote_mode", defaults["footnote_mode"])).strip().lower()
-        if footnote_mode not in {"footnotes", "endnotes", "pandoc"}:
-            footnote_mode = defaults["footnote_mode"]
-
         return {
             "format": fmt,
             "template": template,
-            "footnote_mode": footnote_mode,
         }
 
     def _get_log_preference_defaults(self):
@@ -456,7 +491,7 @@ class BookStudio:
         self._apply_export_defaults_from_config()
 
         self.log("⚙️ Studio-Konfiguration gespeichert.", "success")
-        self.status.config(text="Studio-Konfiguration gespeichert", fg="#27ae60")
+        self.status.config(text="Studio-Konfiguration gespeichert", fg=_StatusFg.SUCCESS)
 
     def _apply_log_font_size(self):
         if not self.log_output:
@@ -526,7 +561,7 @@ class BookStudio:
 
         self.status.config(
             text=f"📖 Importiert: {self._import_path.name}",
-            fg="#2ecc71")
+            fg=_StatusFg.SUCCESS)
         self.log(f"📖 Publish-Verzeichnis importiert: {self._import_path.name}", "success")
 
         self._import_path = None  # einmalig
@@ -541,7 +576,7 @@ class BookStudio:
         if not self.books:
             self.book_combo.set("")
             self._clear_current_project_view()
-            self.status.config(text="Keine Projekte unter content_root_path gefunden", fg="#f59e0b")
+            self.status.config(text="Keine Projekte unter content_root_path gefunden", fg=_StatusFg.WARNING_ALT)
             return
 
         target_index = 0
@@ -558,7 +593,7 @@ class BookStudio:
 
     def _on_sanitizer_config_saved(self, _config):
         self.log("⚙️ Sanitizer-Konfiguration gespeichert.", "success")
-        self.status.config(text="Sanitizer-Konfiguration gespeichert", fg="#27ae60")
+        self.status.config(text="Sanitizer-Konfiguration gespeichert", fg=_StatusFg.SUCCESS)
 
     def open_quarto_config_editor(self):
         if not self.current_book:
@@ -569,7 +604,7 @@ class BookStudio:
 
     def _on_quarto_config_saved(self, _config):
         self.log("⚙️ Quarto-Konfiguration gespeichert.", "success")
-        self.status.config(text="Quarto-Konfiguration gespeichert", fg="#27ae60")
+        self.status.config(text="Quarto-Konfiguration gespeichert", fg=_StatusFg.SUCCESS)
         self.load_book(None)
 
     # =========================================================================
@@ -685,7 +720,7 @@ class BookStudio:
         )
         if self.status:
             line_hint = f" (Zeile {target_line})" if isinstance(target_line, int) and target_line > 0 else ""
-            self.status.config(text=f"Log-Navigation: {Path(rel_path).name}{line_hint}", fg="#27ae60")
+            self.status.config(text=f"Log-Navigation: {Path(rel_path).name}{line_hint}", fg=_StatusFg.SUCCESS)
         return "break"
 
     def _discover_projects(self):
@@ -908,7 +943,7 @@ class BookStudio:
         issue_paths = self._doctor_issue_paths_in_tree_order()
         if not issue_paths:
             if self.status:
-                self.status.config(text="Keine Buch-Doktor-Befunde vorhanden", fg="#64748b")
+                self.status.config(text="Keine Buch-Doktor-Befunde vorhanden", fg=_StatusFg.NEUTRAL)
             return "break"
 
         selected = self.tree_book.selection()
@@ -932,7 +967,7 @@ class BookStudio:
             issue_count = len(self.doctor_issue_registry.get(target_path, []))
             self.status.config(
                 text=f"Buch-Doktor-Fund: {Path(target_path).name} ({issue_count} Problem{'e' if issue_count != 1 else ''})",
-                fg="#b91c1c",
+                fg=_StatusFg.DANGER_STRONG,
             )
         return "break"
 
@@ -960,11 +995,11 @@ class BookStudio:
             self._log_doctor_analysis(analysis, context_label)
 
         if analysis["is_healthy"]:
-            self.status.config(text=f"{context_label}: keine kritischen Befunde", fg="#27ae60")
+            self.status.config(text=f"{context_label}: keine kritischen Befunde", fg=_StatusFg.SUCCESS)
         else:
             self.status.config(
                 text=f"{context_label}: {analysis['error_count']} kritische Befunde - siehe Log",
-                fg="#e74c3c",
+                fg=_StatusFg.DANGER,
             )
 
         return analysis["is_healthy"], analysis
@@ -1184,7 +1219,7 @@ class BookStudio:
 
         self._set_vertical_log_pane_height()
         if self.status:
-            self.status.config(text="Log-Höhe auf Standard zurückgesetzt", fg="#64748b")
+            self.status.config(text="Log-Höhe auf Standard zurückgesetzt", fg=_StatusFg.NEUTRAL)
         return "break"
 
     def _get_sash_positions(self):
@@ -1377,7 +1412,7 @@ class BookStudio:
         self.current_profile_name = None
         self.profile_lbl.config(text="Profil: [Standard]")
         
-        self.status.config(text="Lese Metadaten aus Dateien...", fg="#f1c40f")
+        self.status.config(text="Lese Metadaten aus Dateien...", fg=_StatusFg.WARNING_ALT)
         self.root.update()
         
         self.yaml_engine = QuartoYamlEngine(self.current_book)
@@ -1410,7 +1445,7 @@ class BookStudio:
         self._update_avail_list()
         self._apply_tree_filters()
         
-        self.status.config(text=f"Projekt geladen: {self.current_book.name}", fg="#2ecc71")
+        self.status.config(text=f"Projekt geladen: {self.current_book.name}", fg=_StatusFg.SUCCESS)
         self.log(f"📚 Projekt geladen: {self.current_book.name}", "success")
         # NEU: Templates über das neue Modul entdecken
         from template_manager import TemplateManager
@@ -1466,6 +1501,10 @@ class BookStudio:
             self._apply_tree_filters()
 
     def on_markdown_saved(self, saved_file_path=None):
+        # B6: MD-Editor-Save → Inhalt der Datei hat sich geändert → Cache
+        # für Volltextsuche invalidieren. Vorher passierte das nirgends
+        # und Suchergebnisse waren stale.
+        self.invalidate_content_search_cache()
         self.refresh_ui_titles()
 
         if not saved_file_path or not self.current_book or not self.doctor:
@@ -1520,10 +1559,10 @@ class BookStudio:
         if hasattr(self, '_apply_tree_filters'):
             self._apply_tree_filters()
         if order_updated:
-            self.status.config(text="Baum neu geladen (ORDER aktualisiert)", fg="#27ae60")
+            self.status.config(text="Baum neu geladen (ORDER aktualisiert)", fg=_StatusFg.SUCCESS)
             self.log("🔄 Baum neu geladen (Titel/Status/Dateimarker + ORDER aktualisiert).", "success")
         else:
-            self.status.config(text="Baum neu geladen", fg="#27ae60")
+            self.status.config(text="Baum neu geladen", fg=_StatusFg.SUCCESS)
             self.log("🔄 Baum neu geladen (Titel/Status/Dateimarker aktualisiert).", "success")
         if not self.is_restoring_session:
             self.persist_app_state()
@@ -1612,7 +1651,7 @@ class BookStudio:
                 json.dump(tree_data, f, indent=4, ensure_ascii=False)
             
             # Kleines visuelles Feedback in der Statusleiste statt störendem Popup
-            self.status.config(text=f"Profil '{self.current_profile_name}' gespeichert!", fg="#27ae60")
+            self.status.config(text=f"Profil '{self.current_profile_name}' gespeichert!", fg=_StatusFg.SUCCESS)
             self._save_session_state()
         except (OSError, TypeError, ValueError) as e:
             messagebox.showerror("Fehler", f"Konnte Profil nicht überschreiben:\n{e}")
@@ -1821,8 +1860,10 @@ class BookStudio:
                 
             if show_msg:
                 messagebox.showinfo("Speichern", msg)
-            self.status.config(text="Zuletzt gespeichert: Gerade eben", fg="#27ae60")
+            self.status.config(text="Zuletzt gespeichert: Gerade eben", fg=_StatusFg.SUCCESS)
             self.log("💾 Struktur in _quarto.yml gespeichert.", "success")
+            # B6: Inhalt der Dateien könnte sich geändert haben.
+            self.invalidate_content_search_cache()
             return True
             
         except (OSError, ValueError, TypeError, RuntimeError) as e:
@@ -1897,10 +1938,13 @@ class BookStudio:
                     gui_path.unlink()
                     
                 messagebox.showinfo("Erfolg", "Tabula Rasa!\n\nDie _quarto.yml ist jetzt wieder blitzsauber.")
-                
+
                 # 4. Das Buch zwingen, sich im Book Studio komplett neu zu laden
                 self.load_book(None)
-                
+                # B6: explizite Cache-Invalidierung (load_book leert schon,
+                # aber doppelte Sicherheit für die Sanity).
+                self.invalidate_content_search_cache()
+
             except OSError as e:
                 messagebox.showerror("Fehler", f"Konnte YAML nicht resetten:\n{e}")
     
@@ -2349,7 +2393,7 @@ class BookStudio:
         
         if files_healed:
             self.refresh_ui_titles()
-            self.status.config(text="✨ Auto-Healing: Fehlende YAML-Felder wurden ergänzt!", fg="#d35400") # Ein schickes Orange
+            self.status.config(text="✨ Auto-Healing: Fehlende YAML-Felder wurden ergänzt!", fg=_StatusFg.DANGER_STRONG) # Ein schickes Orange
 
     def remove_files(self):
         pre = self._get_current_state()
@@ -2459,7 +2503,7 @@ class BookStudio:
         current_text = self.status.cget("text")
         # Nur wenn vorher "gespeichert" da stand, springen wir um
         if "gespeichert" in current_text.lower():
-            self.status.config(text="Status: Ungespeicherte Änderungen*", fg="#f39c12") # Orange
+            self.status.config(text="Status: Ungespeicherte Änderungen*", fg=_StatusFg.WARNING) # Orange
             
     # =========================================================================
     # UNDO / REDO (SNAPSHOT ENGINE)
@@ -2496,7 +2540,26 @@ class BookStudio:
         if pre != self._get_current_state():
             self.undo_stack.append(pre)
             self.redo_stack.clear()
+            # B6: Tiefe begrenzen (Default 100). 0/negative = unbegrenzt.
+            max_depth = self._undo_max_depth()
+            if max_depth and max_depth > 0 and len(self.undo_stack) > max_depth:
+                # Älteste Einträge verwerfen.
+                del self.undo_stack[: len(self.undo_stack) - max_depth]
             self._mark_unsaved()  # <-- NEU
+
+    def _undo_max_depth(self) -> int:
+        try:
+            cfg = _app_config_service.read_config(self._app_config_path)
+            depth = int(cfg.get("undo_max_depth", 100))
+        except (OSError, TypeError, ValueError):
+            depth = 100
+        return max(0, depth)
+
+    def invalidate_content_search_cache(self) -> None:
+        """B6: zentraler Cache-Invalidator. Wird von allen Mutationen
+        (Sanitizer-Pipeline, Save, Reset, Restore, Buch-Switch, MD-Editor
+        Save) aufgerufen."""
+        self._content_search_cache.clear()
 
     # =========================================================================
     # SANITIZER PIPELINE (Inklusive Pre-Backup)
@@ -2511,20 +2574,15 @@ class BookStudio:
             return
 
         # 1. Konfiguration laden (für konfigurierbaren Backup-Pfad)
-        config_path = self.base_path / "studio_config.json"
-        
-        # Standard-Pfad: Eine Ebene über dem aktuellen Buch-Projekt
+        # B5: liest jetzt via `app_config`-Service (nicht mehr direkt `studio_config.json`).
         backup_base_dir = self.current_book.parent / f"_Sanitizer_Backups_{self.current_book.name}"
-        
-        if config_path.exists():
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    cfg = json.load(f)
-                    custom_path = cfg.get("sanitizer_backup_path")
-                    if custom_path:
-                        backup_base_dir = Path(custom_path)
-            except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
-                self.log(f"⚠️  Konnte studio_config.json für Sanitizer-Backup nicht lesen: {e}", "warning")
+        try:
+            cfg = _app_config_service.read_config(self._app_config_path)
+            custom_path = cfg.get("sanitizer_backup_path")
+            if custom_path:
+                backup_base_dir = Path(custom_path)
+        except (OSError, TypeError, ValueError) as e:
+            self.log(f"⚠️  Konnte App-Config für Sanitizer-Backup nicht lesen: {e}", "warning")
 
         # 2. Zeitstempel-Ordnernamen generieren (Format: DDMMYY_HHMM)
         from datetime import datetime
@@ -2578,6 +2636,8 @@ class BookStudio:
                 self.root.after(0, lambda: self.log("✅ SANITIZER-LAUF ABGESCHLOSSEN!", "success"))
                 # GANZ WICHTIG: Die UI aktualisieren, falls der Sanitizer defektes Frontmatter repariert hat!
                 self.root.after(0, self.refresh_ui_titles)
+                # B6: Sanitizer hat Dateiinhalte geändert → Cache invalidieren.
+                self.root.after(0, self.invalidate_content_search_cache)
             else:
                 self.root.after(0, lambda: self.log(f"❌ FEHLER: Crash (Code {p.returncode})", "error"))
 

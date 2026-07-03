@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    name: Pytest + Smoke (Ubuntu ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Install Python-Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run Pytest (mit Coverage)
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python -m pytest tests/ -m "not slow" --cov=services --cov=app_config --cov=session_state --cov=frontmatter_parser --cov=quarto_block_parser --cov-report=term-missing --cov-report=xml
+
+      - name: Run Smoke-Tests
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python smoke_tests.py
+
+      - name: Upload Coverage-Report
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml

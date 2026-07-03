@@ -24,7 +24,6 @@ IGNORED_DIR_NAMES = {
 }
 
 ROOT_OUTPUT_SUFFIXES = {".typ", ".pdf", ".html", ".docx", ".tex"}
-VALID_FOOTNOTE_MODES = {"footnotes", "endnotes", "pandoc"}
 
 
 def _iter_tree_paths(tree_data):
@@ -167,33 +166,6 @@ def _print_colon_occurrence_hints(occurrences):
         print(f"[safe-render] Alternative: [{alt_path}] L{alt_line}")
 
 
-def _load_default_footnote_mode(project_root: Path) -> str:
-    config_path = project_root / "studio_config.json"
-    if not config_path.exists():
-        return "endnotes"
-
-    try:
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return "endnotes"
-
-    mode = str(data.get("default_footnote_mode", "endnotes")).strip().lower()
-    return mode if mode in VALID_FOOTNOTE_MODES else "endnotes"
-
-
-def _load_enable_footnote_backlinks(project_root: Path) -> bool:
-    config_path = project_root / "studio_config.json"
-    if not config_path.exists():
-        return True
-
-    try:
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return True
-
-    return bool(data.get("enable_footnote_backlinks", True))
-
-
 def _copy_book_to_temp(source_book: Path, temp_root: Path) -> Path:
     destination = temp_root / source_book.name
 
@@ -225,14 +197,6 @@ def _read_output_dir(book_path: Path) -> str:
     return str(output_dir)
 
 
-def _restore_output_dir(book_path: Path, output_dir: str) -> None:
-    yaml_path = book_path / "_quarto.yml"
-    data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
-    project = data.setdefault("project", {})
-    project["output-dir"] = output_dir
-    yaml_path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True, indent=2), encoding="utf-8")
-
-
 def _copy_render_artifacts(temp_book: Path, source_book: Path, output_dir: str) -> None:
     temp_output = temp_book / output_dir
     if temp_output.exists():
@@ -251,11 +215,15 @@ def _copy_render_artifacts(temp_book: Path, source_book: Path, output_dir: str) 
 def run_safe_render(
     book_path: Path,
     output_format: str,
-    footnote_mode: str,
-    enable_footnote_backlinks: bool,
     profile_name: str | None = None,
     extra_format_options: dict | None = None,
 ) -> int:
+    """Rendert ein Quarto-Buch in einer temporären Spiegelung.
+
+    B4: Footnote-Parameter (`footnote_mode`, `enable_footnote_backlinks`)
+    wurden entfernt — das Fußnoten-System ist abgeschaltet. Pandoc-
+    konforme `[^1]`-Marker werden unverändert weitergereicht.
+    """
     project_root = Path(__file__).resolve().parent
     original_output_dir = _read_output_dir(book_path)
 
@@ -267,8 +235,6 @@ def run_safe_render(
         tree_data = engine.parse_chapters()
         processor = PreProcessor(
             temp_book,
-            footnote_mode=footnote_mode,
-            enable_footnote_backlinks=enable_footnote_backlinks,
             output_format=output_format,
         )
         processed_tree = processor.prepare_render_environment(tree_data)
@@ -280,13 +246,15 @@ def run_safe_render(
             save_gui_state=False,
             extra_format_options=extra_format_options,
         )
-        _restore_output_dir(temp_book, original_output_dir)
+        # B1/R2: Wir restaurieren _quarto.yml NICHT mehr im temp_book-Klon.
+        # Der Klon wird ohnehin am Ende von `with tempfile.TemporaryDirectory`
+        # gelöscht — die Restauration war toter Code, der zudem den falschen
+        # Pfad traf. Der Original-`book_path` wird von diesem Render nicht
+        # angetastet; der `original_output_dir` wird nur noch in
+        # `_copy_render_artifacts` verwendet.
 
         cmd = ["quarto", "render", str(temp_book), "--to", output_format]
-        print(
-            f"[safe-render] book={book_path.name} format={output_format} "
-            f"footnotes={footnote_mode} backlinks={enable_footnote_backlinks}"
-        )
+        print(f"[safe-render] book={book_path.name} format={output_format}")
         result = subprocess.run(cmd, cwd=project_root, check=False)
         if result.returncode != 0:
             return result.returncode
@@ -299,17 +267,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Rendert ein Quarto-Buch sicher über eine temporäre Studio-Kopie.")
     parser.add_argument("book", help="Pfad zum Buchordner mit _quarto.yml")
     parser.add_argument("--to", default="typst", dest="output_format", help="Quarto-Zielformat, z. B. typst")
-    parser.add_argument("--footnote-mode", choices=sorted(VALID_FOOTNOTE_MODES), help="Override für Fußnotenmodus")
     parser.add_argument("--profile-name", help="Optionaler Profilname für export/_book_<profil>.")
     parser.add_argument(
         "--extra-format-options-json",
         help="JSON-Objekt mit zusätzlichen format-Optionen, die nur im temporären Render-Klon injiziert werden.",
-    )
-    parser.add_argument(
-        "--footnote-backlinks",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Aktiviert oder deaktiviert Fußnoten-Rücksprunglinks.",
     )
     args = parser.parse_args()
 
@@ -318,12 +279,6 @@ def main() -> int:
     if not book_path.exists() or not (book_path / "_quarto.yml").exists():
         print(f"[safe-render] Buchordner ungültig: {book_path}")
         return 2
-
-    footnote_mode = args.footnote_mode or _load_default_footnote_mode(project_root)
-    if args.footnote_backlinks is None:
-        enable_footnote_backlinks = _load_enable_footnote_backlinks(project_root)
-    else:
-        enable_footnote_backlinks = bool(args.footnote_backlinks)
 
     extra_format_options = None
     if args.extra_format_options_json:
@@ -339,8 +294,6 @@ def main() -> int:
     return run_safe_render(
         book_path,
         args.output_format,
-        footnote_mode,
-        enable_footnote_backlinks,
         profile_name=args.profile_name,
         extra_format_options=extra_format_options,
     )

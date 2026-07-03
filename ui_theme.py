@@ -42,6 +42,22 @@ COLORS = {
     "menu_active_bg": "#dbeafe",
     "menu_active_fg": "#0f172a",
     "menu_border": "#cbd5e1",
+    # B9: zusätzliche semantische Aliase, die historisch hartkodiert in
+    # `book_studio.py` und `export_manager.py` vorkamen. Wird vom
+    # `StatusFg`-Helper in `services.constants` referenziert.
+    "warning_alt": "#f59e0b",
+    "neutral": "#64748b",
+    "neutral_muted": "#95a5a6",
+    "danger_strong": "#b91c1c",
+    "neutral_panel": "#f8fafc",
+    "accent_warm": "#fbbf24",
+    "text_label": "#475569",
+    "auto_heal": "#d35400",
+    "metadata_load": "#f1c40f",
+    "marker_orphan": "#ff6a00",
+    "marker_pagebreak": "#004dff",
+    "marker_both": "#b000ff",
+    "dimmed_row": "#bdc3c7",
 }
 
 FONTS = {

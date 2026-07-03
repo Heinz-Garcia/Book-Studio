@@ -8,6 +8,14 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
+from frontmatter_parser import (
+    FrontmatterParts,
+    is_yaml_delimiter,
+    parse as fm_parse,
+    validate_and_repair as fm_validate_and_repair,
+)
+from quarto_block_parser import find_unclosed_answer_divs as qb_find_unclosed_answer_divs
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -266,203 +274,48 @@ def _detect_newline(text):
 
 
 def _is_yaml_delimiter(line):
+    """Permissiver Wrapper: akzeptiert `---` und `...` als Trenner.
+    Refactoring B2: `frontmatter_parser.is_yaml_delimiter` ist strenger
+    (nur `---`). Diese Variante bleibt für Sanitizer-Edge-Cases."""
     return line.strip() in {"---", "..."}
 
 
 def _split_frontmatter(content):
+    """SSOT-Wrapper: ruft `frontmatter_parser.parse` auf und liefert das
+    4-Tupel `(bom, header, body, meta)` zur Rückwärtskompatibilität.
+
+    Refactoring B2: Implementierung in `frontmatter_parser.py`.
     """
-    Trennt Frontmatter vom Body.
-    Erkennt Frontmatter nur am Dateianfang (optional mit BOM).
-    """
-    bom = ""
-    if content.startswith("\ufeff"):
-        bom = "\ufeff"
-        content = content[1:]
-
-    if not content.startswith("---"):
-        return bom, None, None, content
-
-    lines = content.splitlines(keepends=True)
-    if not lines:
-        return bom, None, None, content
-
-    first = lines[0].strip()
-    if first != "---":
-        return bom, None, None, content
-
-    idx = 1
-    duplicate_opening_count = 0
-    while idx < len(lines) and lines[idx].strip() == "---":
-        duplicate_opening_count += 1
-        idx += 1
-
-    closing_idx = None
-    for i in range(idx, len(lines)):
-        if _is_yaml_delimiter(lines[i]):
-            closing_idx = i
-            break
-
-    if closing_idx is None:
-        # Heuristik: Wenn der Endtrenner fehlt, endet der Header meist am ersten Leerabsatz.
-        header_lines = []
-        body_lines = []
-        in_body = False
-        for line in lines[idx:]:
-            if not in_body:
-                if line.strip() == "":
-                    in_body = True
-                    continue
-                header_lines.append(line)
-            else:
-                body_lines.append(line)
-
-        header_text = "".join(header_lines)
-        body_text = "".join(body_lines)
-        has_closing = False
-    else:
-        header_text = "".join(lines[idx:closing_idx])
-        body_text = "".join(lines[closing_idx + 1 :])
-        has_closing = True
-
-    meta = {
-        "duplicate_opening_count": duplicate_opening_count,
-        "had_closing_delimiter": has_closing,
-    }
-    return bom, header_text, body_text, meta
+    parts = fm_parse(content)
+    return parts.bom, parts.header, parts.body, parts.meta
 
 
 def _salvage_simple_yaml_mapping(header_text):
-    """Ein defensiver Fallback, falls YAML nicht parsebar ist."""
-    result = {}
-    for raw_line in header_text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        m = re.match(r"^([A-Za-z0-9_.-]+)\s*:\s*(.*)$", line)
-        if not m:
-            continue
-        key, value = m.group(1), m.group(2)
-        result[key] = value.strip().strip('"').strip("'")
-    return result
+    """Defensiver Fallback (SSOT in `frontmatter_parser._salvage_simple_yaml_mapping`).
+
+    Refactoring B2: Wird intern vom neuen Frontmatter-Parser verwendet.
+    Diese Funktion bleibt als öffentlicher Sanitizer-Helper erhalten
+    (mit dokumentiertem Wrapper-Verhalten), damit externe Importer
+    weiterhin kompilieren.
+    """
+    from frontmatter_parser import _salvage_simple_yaml_mapping as _impl
+    return _impl(header_text)
 
 
 def _validate_and_repair_frontmatter(
     content, header_mode="repair", preserve_style_in_repair=False
 ):
+    """SSOT-Wrapper: ruft `frontmatter_parser.validate_and_repair` auf.
+
+    Refactoring B2: Die ~120 Zeilen schwere Original-Implementierung
+    wurde in `frontmatter_parser.py` zentralisiert. Dieser Wrapper hält
+    die Sanitizer-API stabil.
     """
-    Repariert/validiert Frontmatter-Blöcke robust:
-    - doppelte Starttrenner werden auf einen reduziert
-    - fehlender Endtrenner wird ergänzt
-    - YAML wird geparst; im repair-Mode bei Bedarf konservativ rekonstruiert
-    - im preserve-Mode bleibt Header-Inhalt unverändert (nur Struktur-Fixes)
-    """
-    changes = []
-    is_valid = True
-
-    bom, header_text, body_text, meta = _split_frontmatter(content)
-    if header_text is None:
-        return content, changes, is_valid
-
-    newline = _detect_newline(content)
-
-    if meta["duplicate_opening_count"] > 0:
-        changes.append(
-            "Frontmatter repariert: Doppelte YAML-Starttrenner auf einen reduziert"
-        )
-
-    if not meta["had_closing_delimiter"]:
-        changes.append("Frontmatter repariert: Fehlender YAML-Endtrenner ergänzt")
-
-    parsed_data = None
-    yaml_repaired = False
-    parse_attempted = False
-
-    if yaml is not None:
-        parse_attempted = True
-        try:
-            parsed_data = yaml.safe_load(header_text) if header_text.strip() else {}
-        except (yaml.YAMLError, ValueError, TypeError):
-            parsed_data = None
-
-    if isinstance(parsed_data, dict):
-        if header_mode == "repair":
-            if preserve_style_in_repair:
-                normalized_header = header_text
-                changes.append(
-                    "Frontmatter validiert (repair + preserve-style: Inhalt unverändert)"
-                )
-            else:
-                normalized_header = (
-                    yaml.safe_dump(
-                        parsed_data,
-                        allow_unicode=True,
-                        sort_keys=False,
-                        default_flow_style=False,
-                    )
-                    if yaml is not None
-                    else header_text
-                )
-                yaml_repaired = True
-        else:
-            normalized_header = header_text
-            changes.append("Frontmatter validiert (preserve-mode: Inhalt unverändert)")
-    else:
-        fallback_data = _salvage_simple_yaml_mapping(header_text)
-        if fallback_data and header_mode == "repair":
-            if preserve_style_in_repair:
-                normalized_header = header_text
-                is_valid = False
-                changes.append(
-                    "CAVEAT: Frontmatter YAML ungültig (repair + preserve-style: unverändert belassen)"
-                )
-            elif yaml is not None:
-                normalized_header = yaml.safe_dump(
-                    fallback_data,
-                    allow_unicode=True,
-                    sort_keys=False,
-                    default_flow_style=False,
-                )
-                yaml_repaired = True
-                changes.append(
-                    "Frontmatter repariert: YAML war defekt und wurde konservativ rekonstruiert"
-                )
-            else:
-                normalized_header = "".join(
-                    f"{k}: {v}{newline}" for k, v in fallback_data.items()
-                )
-                yaml_repaired = True
-                changes.append(
-                    "Frontmatter repariert: YAML war defekt und wurde konservativ rekonstruiert"
-                )
-        elif fallback_data and header_mode == "preserve":
-            normalized_header = header_text
-            is_valid = False
-            changes.append(
-                "CAVEAT: Frontmatter YAML ungültig (preserve-mode: unverändert belassen)"
-            )
-        else:
-            normalized_header = header_text
-            is_valid = False
-            changes.append(
-                "CAVEAT: Frontmatter erkannt, aber nicht parsebar/reparierbar"
-            )
-
-    if not parse_attempted and header_text.strip():
-        # Ohne YAML-Library kann nur begrenzt validiert werden.
-        fallback_data = _salvage_simple_yaml_mapping(header_text)
-        if not fallback_data:
-            is_valid = False
-            changes.append(
-                "CAVEAT: YAML-Validierung nicht möglich (PyYAML fehlt, Header verdächtig)"
-            )
-
-    if yaml_repaired and not changes:
-        # Kein struktureller Defekt, aber Header wurde erfolgreich validiert/normalisiert.
-        changes.append("Frontmatter validiert")
-
-    normalized_header = normalized_header.rstrip("\r\n")
-    rebuilt = f"{bom}---{newline}{normalized_header}{newline}---{newline}{body_text}"
-    return rebuilt, changes, is_valid
+    return fm_validate_and_repair(
+        content,
+        header_mode=header_mode,
+        preserve_style_in_repair=preserve_style_in_repair,
+    )
 
 
 def _strip_problematic_unicode_controls(content):
@@ -515,24 +368,12 @@ def _split_for_processing(content):
 
 
 def _find_unclosed_answer_divs(body):
-    """Findet ungeschlossene ::: {.answer}-Divs in einem Markdown-Body."""
-    stack = []
+    """SSOT-Wrapper für `quarto_block_parser.find_unclosed_answer_divs`.
 
-    for line_number, line in enumerate(body.splitlines(), start=1):
-        if DIV_CLOSE_PATTERN.match(line):
-            if stack:
-                stack.pop()
-            continue
-
-        if DIV_OPEN_PATTERN.match(line):
-            stack.append(
-                {
-                    "is_answer": bool(ANSWER_DIV_OPEN_PATTERN.match(line)),
-                    "line_number": line_number,
-                }
-            )
-
-    return [entry for entry in stack if entry["is_answer"]]
+    Refactoring B3: Erkennung lebt jetzt in `quarto_block_parser.py`.
+    Verhalten ist 1:1 identisch.
+    """
+    return qb_find_unclosed_answer_divs(body)
 
 
 def _prompt_and_reveal_file(filepath, unclosed_entries):
