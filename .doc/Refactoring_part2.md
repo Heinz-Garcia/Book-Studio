@@ -344,6 +344,7 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 
 - [x] `git add -A && git commit` mit den B5–B10-Änderungen (Commit `b34ada0` auf `unleashedEdition`, gepusht am 2026-07-03).
 - [x] Coverage-Polster für Frontmatter-Parser, Studio-Adapter, UiStateService (+58 Tests, 84 % → 94 % Gesamt-Coverage).
+- [ ] **Hausmeister: `tests/` war in `.git/info/exclude` ignored.** Tests waren in der gesamten Git-History nicht im Repo. Mit `git add -f` für `test_frontmatter_parser.py` und `test_studio_adapter.py` aufgenommen. **Klärung nötig:** Soll die Ignore-Regel in `.git/info/exclude` (lokal) oder im projektweiten `.gitignore` landen? Empfehlung: Tests versionieren, also Regel aus `.git/info/exclude` entfernen.
 - [ ] Lokale `studio_config.json.bak`-Dateien aus dem Migration-Schritt löschen (Hausmeister).
 - [ ] `session_state.json` aus dem `.gitignore` wurde hinzugefügt – testen, ob die Session-Werte bei einem Klon korrekt auf `{}` zurückfallen.
 - [ ] `smoke_tests.py` gibt `❌` aus, was auf `cp1252`-Konsole crasht – entweder ASCII-only umstellen oder `print(..., flush=True)` mit `sys.stdout.reconfigure(encoding='utf-8')` absichern. Smoke-Score ist 6/7; `studio_config.json`-Check ist veraltet (B5-Trennung) und sollte auf `app_config.json` umgestellt werden.
