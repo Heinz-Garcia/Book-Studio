@@ -756,31 +756,28 @@ class ExportManager:
         self._log(f"{'='*50}", "dim")
         self._start_render_log(target_fmt, selected_tpl)
 
+        # Phase 2 / Schritt 2.3c-Mini: Render-Orchestrierung im RenderService.
+        # Threading bleibt hier (UI-Lifecycle); die synchrone Orchestrierung
+        # (Pre-Log, Subprocess-Aufruf, Pfad-Auswahl, Finalize) ist im Service.
         def render_thread():
-            self._after(
-                0,
-                lambda: self._log(
-                    "🛡️ Render startet über sichere temporäre Kopie (processed + ORDER-kompatibel).",
-                    "dim",
-                ),
-            )
-            return_code, aborted_on_colon_warning = self._run_safe_render(
-                target_fmt,
+            def on_failure(return_code):
+                # Status-Farbwert ist UI-Konzern (StatusFg-Enum); lebt hier.
+                self._after(
+                    0,
+                    lambda: self._set_status("Render fehlgeschlagen", _StatusFg.DANGER),
+                )
+
+            _RenderService.execute_render(
+                target_fmt=target_fmt,
                 profile_name=self._current_profile_name(),
                 extra_format_options=extra_opts,
+                run_safe_render=self._run_safe_render,
+                finalize_render_log=self._finalize_render_log,
+                handle_render_success=self._handle_render_success,
+                log_cb=self._log,
+                after_cb=self._after,
+                on_failure=on_failure,
             )
-
-            if aborted_on_colon_warning:
-                self._finalize_render_log("aborted_on_first_colon_warning", primary_returncode=return_code)
-                return
-
-            if return_code == 0:
-                self._finalize_render_log("success", primary_returncode=return_code)
-                self._handle_render_success(target_fmt)
-            else:
-                self._finalize_render_log("failed", primary_returncode=return_code)
-                self._after(0, lambda: self._log(f"❌ FEHLER: Code {return_code}", "error"))
-                self._after(0, lambda: self._set_status("Render fehlgeschlagen", _StatusFg.DANGER))
 
         threading.Thread(target=render_thread, daemon=True).start()
 

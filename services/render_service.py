@@ -21,9 +21,21 @@ Konkrete pure Funktionen in 2.3b:
 - `extract_processed_source_path(rel_path) -> str`
 - `iter_tree_paths(tree_data) -> Iterator[str]` (pure Generator-Funktion)
 
+Phase 2 / Schritt 2.3c-Mini: Die *Render-Thread-Orchestrierung* (Pre-
+Log, Subprocess-Aufruf, Pfad-Auswahl abort/success/failure, Finalize-
+Log) ist als synchrone pure Funktion in `execute_render(...)` in
+diesem Service. Der eigentliche Subprocess-Aufruf (`_run_safe_render`)
+bleibt in `ExportManager` — er ist System-Concern (Pfad zum Skript,
+Working-Directory, Env-Variablen) und ist bereits durch 2.3b
+(argv-Bau) entkoppelt. Threading (Tk-Lifecycle) bleibt ebenfalls im
+Exporter, der die Service-Methode in einen `Thread` einpackt.
+
+Diese Aufteilung folgt Single-Responsibility: Service orchestriert,
+Exporter fuehrt aus und hostet das Tk-Lifecycle.
+
 Verweise:
 - .doc/refactoring-master.md, Batch B8 (Stub-Definition)
-- .doc/Refactoring_part2.md, Schritt 2.3 (Migration; aufgeteilt in 2.3a + 2.3b)
+- .doc/Refactoring_part2.md, Schritt 2.3 (Migration; aufgeteilt in 2.3a + 2.3b + 2.3c-Mini)
 """
 
 from __future__ import annotations
@@ -31,7 +43,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any, Callable, Iterable, Iterator, Optional
 
 
 # --- Konventionen ----------------------------------------------------------
@@ -60,6 +72,28 @@ PROCESSED_TREE_PREFIX = "processed/"
 SAFE_RENDER_ARG_TO = "--to"
 SAFE_RENDER_ARG_PROFILE = "--profile-name"
 SAFE_RENDER_ARG_EXTRA_OPTS = "--extra-format-options-json"
+
+
+# Log-Status-Werte, die `execute_render` an die `finalize_render_log`-
+# Callback weitergibt.
+RENDER_STATUS_SUCCESS = "success"
+RENDER_STATUS_FAILED = "failed"
+RENDER_STATUS_ABORTED_ON_COLON = "aborted_on_first_colon_warning"
+
+
+# Callback-Typen, die `execute_render` als Dependency bekommt.
+# - `log_cb(message, level)`: Log-Nachricht ins Studio
+# - `after_cb(delay, callable)`: Tk-Schedule (UI-Thread)
+# - `on_failure(returncode)`: Fehler-Pfad-Handler im Aufrufer
+#   (Farbwert ist UI-Konzern, lebt im Aufrufer).
+# - `run_safe_render_cb(target_fmt, profile_name, extra_format_options) -> (returncode, aborted)`
+# - `finalize_render_log_cb(status, primary_returncode=None, fallback_returncode=None)`
+# - `handle_render_success_cb(target_fmt)`: Post-Render-Erfolgs-Pfad
+LogCb = Callable[[str, str], None]
+AfterCb = Callable[[int, Callable[[], None]], None]
+RunSafeRenderCb = Callable[..., tuple]
+FinalizeRenderLogCb = Callable[..., None]
+HandleRenderSuccessCb = Callable[[str], None]
 
 
 # --- Service ----------------------------------------------------------------
@@ -239,6 +273,86 @@ class RenderService:
             if children:
                 yield from RenderService.iter_tree_paths(children)
 
+    # --- Render-Orchestrierung (Phase 2 / 2.3c-Mini) -------------------
+
+    @staticmethod
+    def execute_render(
+        target_fmt: str,
+        profile_name: Optional[str],
+        extra_format_options: Optional[dict],
+        run_safe_render: RunSafeRenderCb,
+        finalize_render_log: FinalizeRenderLogCb,
+        handle_render_success: HandleRenderSuccessCb,
+        log_cb: LogCb,
+        after_cb: AfterCb,
+        on_failure: Callable[[int], None],
+    ) -> tuple[int, bool]:
+        """Orchestriert einen Render-Lauf synchron.
+
+        Die Methode ist *rein deterministisch* (kein Subprocess, kein
+        Threading, kein Tk). Sie ruft die uebergebenen Callbacks in
+        einer festen Reihenfolge auf:
+
+        1. Pre-Log ueber `after_cb(0, ...)` ("Render startet ueber
+           sichere temporaere Kopie ...").
+        2. `run_safe_render(target_fmt, profile_name, extra_format_options)`
+           -> `(returncode, aborted_on_colon_warning)`.
+        3. Wenn `aborted_on_colon_warning`:
+           `finalize_render_log("aborted_on_first_colon_warning", ...)`
+           und Rueckkehr.
+        4. Wenn `returncode == 0`:
+           `finalize_render_log("success", ...)` und
+           `handle_render_success(target_fmt)`.
+        5. Sonst: `finalize_render_log("failed", ...)` plus
+           `on_failure(returncode)` (im Aufrufer wird dort der
+           Fehler-Log und Status-Bar-Update gemacht; Farbwert ist
+           UI-Konzern und lebt im Aufrufer).
+
+        Die Methode gibt `(returncode, aborted_on_colon_warning)` an
+        den Aufrufer zurueck. Der Aufrufer (typisch `ExportManager`)
+        wrappt diesen Aufruf in einen Thread.
+
+        Parameter:
+        - `target_fmt`: das aufgeloeste Render-Format (z. B. "html")
+        - `profile_name`: optionales Quarto-Profil
+        - `extra_format_options`: optionale Format-Optionen
+        - `run_safe_render`: Callable, das den Subprocess ausfuehrt
+          und `(returncode, aborted)` liefert.
+        - `finalize_render_log`: Callable zum Finalisieren des
+          Render-Log-Files.
+        - `handle_render_success`: Callable fuer den Post-Render-
+          Erfolgs-Pfad (Datei oeffnen, Clipboard, etc.).
+        - `log_cb`, `after_cb`: UI-Callbacks.
+        - `on_failure`: Callable, das im Failure-Pfad aufgerufen wird.
+          Hier lebt das Wissen ueber den passenden Status-Farbwert.
+        """
+        after_cb(0, lambda: log_cb(
+            "🛡️ Render startet über sichere temporäre Kopie (processed + ORDER-kompatibel).",
+            "dim",
+        ))
+
+        return_code, aborted_on_colon_warning = run_safe_render(
+            target_fmt,
+            profile_name=profile_name,
+            extra_format_options=extra_format_options,
+        )
+
+        if aborted_on_colon_warning:
+            finalize_render_log(
+                RENDER_STATUS_ABORTED_ON_COLON, primary_returncode=return_code
+            )
+            return return_code, aborted_on_colon_warning
+
+        if return_code == 0:
+            finalize_render_log(RENDER_STATUS_SUCCESS, primary_returncode=return_code)
+            handle_render_success(target_fmt)
+            return return_code, aborted_on_colon_warning
+
+        finalize_render_log(RENDER_STATUS_FAILED, primary_returncode=return_code)
+        after_cb(0, lambda: log_cb(f"❌ FEHLER: Code {return_code}", "error"))
+        on_failure(return_code)
+        return return_code, aborted_on_colon_warning
+
     # --- Bestehende API (unveraendert) -----------------------------------
 
     def run_render(self) -> bool:
@@ -264,6 +378,9 @@ __all__ = [
     "RENDER_LOG_FILE_PREFIX",
     "RENDER_LOG_TIMESTAMP_FMT",
     "RENDER_LOG_DEFAULT_FMT_SLUG",
+    "RENDER_STATUS_ABORTED_ON_COLON",
+    "RENDER_STATUS_FAILED",
+    "RENDER_STATUS_SUCCESS",
     "SAFE_RENDER_ARG_EXTRA_OPTS",
     "SAFE_RENDER_ARG_PROFILE",
     "SAFE_RENDER_ARG_TO",
