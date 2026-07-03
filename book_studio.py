@@ -21,6 +21,7 @@ from services.render_service import RenderService
 from services.diagnostics_service import DiagnosticsService
 from services.backup_service import BackupService
 from services.ui_state_service import UiStateService
+from services.search_cache import SearchCache
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
@@ -131,7 +132,7 @@ class BookStudio:
         self.file_state_registry = {}
         self.doctor_issue_registry = {}
         self.doctor_issue_line_registry = {}
-        self._content_search_cache = {}
+        self._content_search_cache = SearchCache()
         self.available_templates = ["Standard"]
         self.last_export_options = self._get_default_export_options()
         self.log_filter_labels = ["Alle", "Info", "Erfolg", "Warnung", "Fehler", "Header", "Meta"]
