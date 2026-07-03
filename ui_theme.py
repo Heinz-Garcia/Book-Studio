@@ -82,7 +82,18 @@ def configure_root(root):
 
 def apply_ttk_theme(style, sv_ttk=None):
     if sv_ttk is not None:
-        sv_ttk.set_theme("light")
+        try:
+            sv_ttk.set_theme("light")
+        except (OSError, RuntimeError, tk.TclError) as exc:
+            # sv_ttk kann auf manchen Setups (z. B. Windows mit
+            # bestimmten Pfad-Laengen) nicht geladen werden. Wir
+            # fallen lautlos auf das clam-Theme zurueck, statt die
+            # App zu blockieren.
+            try:
+                style.theme_use("clam")
+            except tk.TclError:
+                pass
+            return
     else:
         style.theme_use("clam")
 
