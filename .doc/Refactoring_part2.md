@@ -417,35 +417,55 @@ Ergebnis: **216 passed, 1 deselected** (slow). Gesamt-Coverage Service-Layer: **
 | `7a3307b` | 2.6b | UiStateService: evaluate_node_visibility, build_left_list_entries |
 | `83acf89` | 4 | CI: --cov-fail-under=80, ruff + flake8 + compileall in CI |
 | `8451e4d` | Doku | Phase-3-Plugin-Architektur (zurückgestellt) |
+| `6322e28` | 2.3c | RenderService.run_safe_render (Subprocess-Kapselung) |
+| `21efb3e` | Phase 4-1 | menu_definitions + menu_manager (deklarative Menüs) + BackupService.run_sanitizer_subprocess |
+| `6372a8c` | Phase 4-2 | import_helpers extrahiert (-163 Zeilen in book_studio.py) |
+| `ca779fd` | Phase 3 | PluginLoader + Beispiel-Plugin file_indexer (Skelett) |
+| `d0a1712` | 6-1 | SearchCache (LRU, thread-safe) ersetzt _content_search_cache |
+| `d3e8968` | 2.3c voll | RenderService.build_render_out_dir + open_rendered_artifact (Post-Render) |
 
 ### Kennzahlen
 
-- 474 Pytest-Tests grün, 1 deselected (`slow`)
+- 546 Pytest-Tests grün, 1 deselected (`slow`)
 - 6/7 Smoke-Tests grün (1 Housekeeping-Issue mit `studio_config.json`)
-- Service-Layer Coverage 97 % (alle 6 Services 97-100 %)
-- CI-Gate hält mit großem Puffer
+- Service-Layer Coverage 91 % (alle 7 Services + Such-Cache 91-100 %)
+  - import_helpers 91 %, menu_manager 21 % (Tk-UI, headless nicht testbar)
+  - services: backup 99, book_session 100, constants 96, diagnostics 98,
+    plugin_loader 96, render 98, search_cache 100, studio_adapter 100,
+    ui_state 97, workspace 100
+- CI-Gate hält (`--cov-fail-under=80` in `pytest.ini`)
 - Ruff + flake8 + compileall: 0 Fehler
+- `book_studio.py`: 2834 → 2671 Zeilen (Phase 4-2 hat 163 Zeilen extrahiert)
+
+### Abgeschlossen seit letztem Snapshot
+
+| Schritt | Commit | Was |
+|---|---|---|
+| 2.3c | `6322e28` | RenderService.run_safe_render (Subprocess-Kapselung) |
+| Phase 4-1 | `21efb3e` | menu_definitions + menu_manager (deklarative Menüs) + BackupService.run_sanitizer_subprocess |
+| Phase 4-2 | `6372a8c` | import_helpers extrahiert (-163 Zeilen in book_studio.py) |
+| Phase 3 (Skelett) | `ca779fd` | PluginLoader + Beispiel-Plugin file_indexer |
+| 6-1 | `d0a1712` | SearchCache (LRU, thread-safe) ersetzt _content_search_cache |
+| 2.3c voll | `d3e8968` | RenderService.build_render_out_dir + open_rendered_artifact (Post-Render) |
 
 ### Offen (für spätere Sessions)
 
 | Schritt | Inhalt | Aufwand | Risiko |
 |---|---|---|---|
-| 2.3c (voll) | RenderService komplett mit Subprocess-Mock | 2-3 h | mittel |
 | 3 | Hex-Farben in Konstanten | 1 h | gering |
 | 5 | LogLevel-Enum statt Magic-Strings | 1 h | gering |
-| 6 | Performance-Pass (Cache-LRU, async tree, threaded backup) | ~3 h | mittel |
+| 6-2 | Performance-Pass: async tree, threaded backup | 2-3 h | mittel |
 | 7 (alt) | Magic-String-Reste (Status-Tags) | 1 h | gering |
-| Phase 3 | Plugin-Architektur (GrammarGraph-Idee) | 18-28 h | mittel-hoch |
+| Phase 3 (Ausbau) | Plugin-Architektur-Ausbau (echte Ausführung) | 16-26 h | mittel-hoch |
 
 ### Housekeeping
 
 - `studio_config.json.bak`-Dateien lokal löschen
 - `tests/`-Ignore-Regel klären (lokal in `.git/info/exclude` vs. projektweit)
 - `smoke_tests.py` Unicode-Ausgabe-Issue beheben
-- `book_studio.py` < 800 Zeilen (Akzeptanz B8) — derzeit ~2700, weitere Migration nötig
 
 ### Trigger für nächste Session
 
-Nächster Schritt: Schritt 3 (Hex-Farben in Konstanten, 1 h, geringes Risiko).
-Alternativ: Phase 3 vorbereiten durch Schritt 7-Doku-Finalisierung.
+Nächster Schritt: Schritt 6-2 (Performance-Pass: async tree, threaded backup).
+Alternativ: Schritt 3 (Hex-Farben in Konstanten, 1 h, geringes Risiko).
 

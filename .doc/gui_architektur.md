@@ -102,12 +102,14 @@ Use-Case-Methoden auf.
 |---|---|---|
 | `services/workspace_service.py` | `get_projects_root_path`, `discover_projects`, `is_within_project` | Liest `app_config` via Callback |
 | `services/book_session_service.py` | `set_active_book`, `reset_profile`, `clear_search_cache`, `pick_target_index`, `initialize_engines_for_book` | Initialisiert Engines mit injizierten Factories |
-| `services/render_service.py` | `resolve_target_format`, `build_render_log_path`, `sanitize_filename_part`, `build_safe_render_command`, `extract_processed_source_path`, `iter_tree_paths`, `execute_render` | Orchestriert nur, `ExportManager` macht Subprocess + Threading |
+| `services/render_service.py` | `resolve_target_format`, `build_render_log_path`, `sanitize_filename_part`, `build_safe_render_command`, `extract_processed_source_path`, `iter_tree_paths`, `execute_render`, `run_safe_render`, `build_render_out_dir`, `open_rendered_artifact` | Orchestriert nur, `ExportManager` macht Subprocess + Threading |
 | `services/diagnostics_service.py` | `set_issues_from_analysis`, `clear_issues`, `has_issues`, `paths_in_tree_order`, `pick_next_issue_path`, `pick_first_issue_path`, `run_full_health_check`, `analyze_single_file` | UI-Callbacks (status, log, tree, select) injiziert |
-| `services/backup_service.py` | `create_structure_backup`, `get_sanitizer_backup_dir`, `resolve_backup_base_dir`, `compute_backup_timestamp`, `build_backup_path`, `create_physical_backup` | Liest `app_config` via Callback |
+| `services/backup_service.py` | `create_structure_backup`, `get_sanitizer_backup_dir`, `resolve_backup_base_dir`, `compute_backup_timestamp`, `build_backup_path`, `create_physical_backup`, `run_sanitizer_subprocess`, `build_sanitizer_command` | Liest `app_config` via Callback |
 | `services/ui_state_service.py` | `is_fulltext_search_enabled`, `path_matches_file_state_filter`, `should_persist_app_state`, `is_right_side_search_scope`, `resolve_active_search_term`, `evaluate_node_visibility`, `build_left_list_entries` | Liest Studio-Variablen (search_var, file_state_filter_var) |
 | `services/studio_adapter.py` | `StudioAdapter` (Property-Delegation) | Liest Studio-State read-only; von Tests + Sub-Modulen genutzt |
 | `services/constants.py` | `StatusFg`, `LogLevel` (Enum), Magic-String-Aliase | Keine Studio-Abhängigkeit |
+| `services/search_cache.py` | `SearchCache` (LRU, thread-safe) | Reine Datenstruktur, keine Studio-Abhängigkeit |
+| `services/plugin_loader.py` | `PluginLoader`, `PluginInfo` | Reine Discovery-Klasse; `MenuManager` integriert sie ins Tools-Menü |
 
 ### Regel für Services
 
@@ -127,14 +129,22 @@ Damit Sub-Module (`ExportManager`, `UiActionsManager`) nicht gegen
 stellt sie Sub-Modulen als typisierte Attribute zur Verfügung. Sub-Module
 nehmen `studio_adapter` im Constructor und greifen via Attribut zu.
 
-### Testbarkeit (Verifikation Phase 2)
+### Testbarkeit (Verifikation Phase 2 + Erweiterungen)
 
-- 474 Pytest-Tests grün
-- Service-Layer Coverage 97 % (`backup_service`, `book_session_service`,
-  `render_service`, `studio_adapter`, `workspace_service` je 100 %;
-  `diagnostics_service` 98 %; `ui_state_service` 97 %)
+- 546 Pytest-Tests grün
+- Service-Layer Coverage 91-100 % (services Ø 97 %; `import_helpers` 91 %,
+  `menu_manager` 21 % (Tk-UI, headless nicht testbar))
+- `backup_service` 99 %, `book_session_service` 100 %, `constants` 96 %,
+  `diagnostics_service` 98 %, `plugin_loader` 96 %, `render_service` 98 %,
+  `search_cache` 100 %, `studio_adapter` 100 %, `ui_state_service` 97 %,
+  `workspace_service` 100 %
 - CI-Gate `--cov-fail-under=80` aktiv
 - Ruff + flake8 + compileall grün
+- `book_studio.py`: 2834 → 2671 Zeilen (Phase 4-2: `import_helpers` extrahiert)
+- `menu_definitions.py` + `menu_manager.py`: deklarative Menüs
+  (Phase 4-1)
+- `plugins/file_indexer/`: erstes Beispiel-Plugin
+  (Phase 3 Skelett)
 
 ## Attributvertrag (UI-State)
 
