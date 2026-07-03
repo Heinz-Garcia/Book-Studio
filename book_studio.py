@@ -97,6 +97,26 @@ class BookStudio:
         # `self.exporter` muss VOR `self._services` existieren, weil der
         # RenderService den Exporter als Schnittstelle braucht.
         self.exporter = ExportManager(self)  # NEU: Unser ausgelagerter Export-Manager
+        # UI-Attribute, die von UiActionsManager gesetzt werden.
+        # Werden VOR den Services als None-Placeholder initialisiert,
+        # damit die Services (die Closures auf self.status etc. halten)
+        # bereits valide Attribute vorfinden.
+        self.status = None
+        self.fmt_box = None
+        self.template_var = None
+        self.template_box = None
+        log_auto_clear_default, log_max_lines_default = self._get_log_preference_defaults()
+        self.log_auto_clear_var = tk.BooleanVar(value=log_auto_clear_default)
+        self.log_max_lines_var = tk.StringVar(value=log_max_lines_default)
+        self.log_records = []
+        self.is_restoring_session = False
+        self.log_manager = LogManager(self)
+        self.session_manager = SessionManager(self)
+        self.restored_session_state = self.session_manager.load()
+
+        # Service-Container. DiagnosticsService-Constructor hält Closures
+        # auf self.status, self.log, etc.; das ist OK, weil die Closures
+        # erst nach setup_ui() aufgerufen werden.
         self._services = SimpleNamespace(
             workspace=WorkspaceService(
                 self,
@@ -111,7 +131,7 @@ class BookStudio:
             render=RenderService(self.exporter),
             diagnostics=DiagnosticsService(
                 self,
-                on_status=self.status.config,
+                on_status=lambda *a, **kw: self.status.config(*a, **kw) if self.status else None,
                 on_log=self.log,
                 on_refresh_tree=self._refresh_tree_titles_from_current_state,
                 on_select_first_issue=self._select_first_doctor_issue,
@@ -123,7 +143,7 @@ class BookStudio:
         self.projects_root_path = self._services.workspace.get_projects_root_path()
         self.books = self._services.workspace.discover_projects()
         self.current_book = None
-        
+
         self.yaml_engine = None
         self.doctor = None
         self.backup_mgr = None
@@ -146,20 +166,8 @@ class BookStudio:
             "Meta": {"dim"},
         }
         self.log_filter_var = tk.StringVar(value="Alle")
-        log_auto_clear_default, log_max_lines_default = self._get_log_preference_defaults()
-        self.log_auto_clear_var = tk.BooleanVar(value=log_auto_clear_default)
-        self.log_max_lines_var = tk.StringVar(value=log_max_lines_default)
-        self.log_records = []
-        self.is_restoring_session = False
-        self.log_manager = LogManager(self)
-        self.session_manager = SessionManager(self)
-        self.restored_session_state = self.session_manager.load()
 
-        # UI-Attribute, die von UiActionsManager gesetzt werden
-        self.status = None
-        self.fmt_box = None
-        self.template_var = None
-        self.template_box = None
+        # Weitere UI-Attribute, die von UiActionsManager / setup_ui gesetzt werden.
         self.footnote_box = None
         self.btn_render = None
         self.log_output = None
@@ -171,8 +179,8 @@ class BookStudio:
         self._middle_sash_gap = None
         self._pane_sash_positions = None
         self._syncing_middle_pane = False
-        
-        self.current_profile_name = None 
+
+        self.current_profile_name = None
         
         self.drag_data = {'item': None}
         self.undo_stack = []
