@@ -33,7 +33,7 @@ from ui_actions_manager import UiActionsManager
 from app_config_editor import AppConfigEditor
 from sanitizer_config_editor import SanitizerConfigEditor
 from quarto_config_editor import QuartoConfigEditor
-from search_filter import matches_tree_node, normalize_search_term, should_include_available_item
+from search_filter import normalize_search_term
 from ui_theme import COLORS, ThemedTooltip, apply_menu_theme, apply_ttk_theme, center_on_parent, configure_root, style_dialog
 
 try:
@@ -1330,6 +1330,7 @@ class BookStudio:
         search_scope = self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links"
         search_term = normalize_search_term(self.search_var.get()) if hasattr(self, "search_var") else ""
         is_fulltext = self._is_fulltext_search_enabled()
+        file_state_filter = self.file_state_filter_var.get() if hasattr(self, "file_state_filter_var") else "Alle"
 
         search_on_right = search_scope in {"Rechts", "Beide"}
         active_search_term = search_term if search_on_right else ""
@@ -1346,40 +1347,41 @@ class BookStudio:
                 if walk_tree(child):
                     child_visible = True
 
-            status_ok = True
-            state_ok = True
-            path_text = ""
-            raw_title = ""
-            content_text = ""
-            if vals:
-                path_text = str(vals[0]).lower()
-                raw_title = self._raw_title_from_values(vals, self.tree_book.item(node, "text")).lower()
-                if is_fulltext:
-                    content_text = self._get_content_for_search(vals[0])
-                status = self.status_registry.get(vals[0], "ohne Eintrag")
-                status_ok = target_status == "Alle" or status == target_status
-                state_ok = self._path_matches_file_state_filter(vals[0])
-
-            has_search_term = bool(active_search_term)
-            self_match = matches_tree_node(
-                search_term=active_search_term,
-                node_text=node_text,
-                path_text=path_text,
-                raw_title=raw_title,
-                content_text=content_text,
-                is_fulltext=is_fulltext,
+            path = vals[0] if vals else ""
+            file_state = self.file_state_registry.get(path) if path else None
+            actual_status = (
+                self.status_registry.get(path, "ohne Eintrag") if path else "ohne Eintrag"
             )
-            search_ok = (not has_search_term) or self_match or child_visible
+            content_text = self._get_content_for_search(path) if (is_fulltext and path) else ""
+            raw_title = (
+                self._raw_title_from_values(vals, self.tree_book.item(node, "text")).lower()
+                if vals
+                else ""
+            )
 
-            visible_self = status_ok and state_ok and search_ok
-            is_visible = visible_self or child_visible
-            node_path = vals[0] if vals else ""
-            self.tree_book.item(node, tags=self._tree_tags_for_path(node_path, is_visible=is_visible))
+            # Phase 2 / Schritt 2.6b: Sichtbarkeits-Berechnung im Service.
+            status_ok, state_ok, search_ok, self_match, is_visible = (
+                self._services.ui_state.evaluate_node_visibility(
+                    target_status=target_status,
+                    actual_status=actual_status,
+                    path=path,
+                    file_state=file_state,
+                    file_state_filter=file_state_filter,
+                    search_term=active_search_term,
+                    is_fulltext=is_fulltext,
+                    child_visible=child_visible,
+                    node_text=node_text,
+                    raw_title=raw_title,
+                    content_text=content_text,
+                )
+            )
 
-            if has_search_term and search_ok and children:
+            self.tree_book.item(node, tags=self._tree_tags_for_path(path, is_visible=is_visible))
+
+            if active_search_term and search_ok and children:
                 self.tree_book.item(node, open=True)
 
-            if has_search_term and self_match and status_ok and first_match[0] is None:
+            if active_search_term and self_match and first_match[0] is None:
                 first_match[0] = node
 
             return is_visible
@@ -1756,31 +1758,28 @@ class BookStudio:
         search_scope = self.search_scope_var.get() if hasattr(self, "search_scope_var") else "Links"
         apply_left_search = search_scope in {"Links", "Beide"}
         is_fulltext = self._is_fulltext_search_enabled()
-        
-        count = 0  # NEU: Zähler starten
-        
-        for path, title in sorted(self.title_registry.items(), key=lambda x: x[1]):
-            if path in used_paths:
-                continue
-            if not self._path_matches_file_state_filter(path):
-                continue
-            content_text = self._get_content_for_search(path) if is_fulltext and search_term else ""
-            should_include = should_include_available_item(
-                search_term=search_term,
-                apply_left_search=apply_left_search,
-                is_fulltext=is_fulltext,
-                title=title,
-                path=path,
-                content_text=content_text,
-            )
+        file_state_filter = self.file_state_filter_var.get() if hasattr(self, "file_state_filter_var") else "Alle"
 
-            if should_include:
-                tags = self._state_tags_for_path(path)
-                display_title = self._decorate_title_for_path(title, path)
-                self.list_avail.insert("", "end", text=display_title, values=(path,), tags=tags)
-                count += 1  # NEU: Zähler hochzählen
-                
-        # NEU: Das Label oben updaten!
+        count = 0
+
+        # Phase 2 / Schritt 2.6b: Filter/Sort im Service.
+        entries = self._services.ui_state.build_left_list_entries(
+            self.title_registry,
+            used_paths,
+            file_state_filter=file_state_filter,
+            file_state_for_path=self.file_state_registry.get,
+            search_term=search_term,
+            apply_left_search=apply_left_search,
+            is_fulltext=is_fulltext,
+            content_lookup=self._get_content_for_search if is_fulltext else None,
+        )
+
+        for path, title in entries:
+            tags = self._state_tags_for_path(path)
+            display_title = self._decorate_title_for_path(title, path)
+            self.list_avail.insert("", "end", text=display_title, values=(path,), tags=tags)
+            count += 1
+
         if hasattr(self, 'lbl_avail_count'):
             self.lbl_avail_count.config(text=f"NICHT ZUGEORDNETE KAPITEL ({count}) - DOPPELKLICK = EDIT")
     

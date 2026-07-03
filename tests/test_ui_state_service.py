@@ -260,6 +260,281 @@ def test_default_constants_have_expected_values():
     assert DEFAULT_SEARCH_MODE == "Titel"
 
 
+# --- evaluate_node_visibility (Phase 2 / Schritt 2.6b) ----------------
+
+
+def test_evaluate_node_visibility_all_passes():
+    s_ok, st_ok, sr_ok, self_match, visible = (
+        UiStateService.evaluate_node_visibility(
+            target_status="Alle",
+            actual_status="irgendwas",
+            path="x.md",
+            file_state=None,
+            file_state_filter="Alle",
+            search_term="",
+            is_fulltext=False,
+            child_visible=False,
+        )
+    )
+    assert s_ok is True
+    assert st_ok is True
+    assert sr_ok is True
+    assert self_match is False
+    assert visible is True
+
+
+def test_evaluate_node_visibility_status_filter_rejects():
+    s_ok, _, _, _, visible = UiStateService.evaluate_node_visibility(
+        target_status="Entwurf",
+        actual_status="Veröffentlicht",
+        path="x.md",
+        file_state=None,
+        file_state_filter="Alle",
+        search_term="",
+        is_fulltext=False,
+        child_visible=False,
+    )
+    assert s_ok is False
+    assert visible is False
+
+
+def test_evaluate_node_visibility_status_match():
+    s_ok, _, _, _, visible = UiStateService.evaluate_node_visibility(
+        target_status="Entwurf",
+        actual_status="Entwurf",
+        path="x.md",
+        file_state=None,
+        file_state_filter="Alle",
+        search_term="",
+        is_fulltext=False,
+        child_visible=False,
+    )
+    assert s_ok is True
+    assert visible is True
+
+
+def test_evaluate_node_visibility_state_filter():
+    s_ok, st_ok, _, _, visible = UiStateService.evaluate_node_visibility(
+        target_status="Alle",
+        actual_status="x",
+        path="x.md",
+        file_state={"orphan_footnotes": True},
+        file_state_filter="Verwaiste Fußnoten",
+        search_term="",
+        is_fulltext=False,
+        child_visible=False,
+    )
+    assert s_ok is True
+    assert st_ok is True
+    assert visible is True
+
+
+def test_evaluate_node_visibility_state_filter_mismatch():
+    _, st_ok, _, _, visible = UiStateService.evaluate_node_visibility(
+        target_status="Alle",
+        actual_status="x",
+        path="x.md",
+        file_state={"orphan_footnotes": False},
+        file_state_filter="Verwaiste Fußnoten",
+        search_term="",
+        is_fulltext=False,
+        child_visible=False,
+    )
+    assert st_ok is False
+    assert visible is False
+
+
+def test_evaluate_node_visibility_search_term_no_match():
+    s_ok, _, sr_ok, self_match, visible = UiStateService.evaluate_node_visibility(
+        target_status="Alle",
+        actual_status="x",
+        path="x.md",
+        file_state=None,
+        file_state_filter="Alle",
+        search_term="Quarto",
+        is_fulltext=False,
+        child_visible=False,
+        node_text="kapitel eins",
+        raw_title="kapitel eins",
+    )
+    assert s_ok is True
+    assert sr_ok is False
+    assert self_match is False
+    assert visible is False
+
+
+def test_evaluate_node_visibility_search_match_in_path():
+    _, _, sr_ok, self_match, visible = UiStateService.evaluate_node_visibility(
+        target_status="Alle",
+        actual_status="x",
+        path="quarto-intro.md",
+        file_state=None,
+        file_state_filter="Alle",
+        search_term="quarto",
+        is_fulltext=False,
+        child_visible=False,
+        node_text="",
+        raw_title="",
+    )
+    assert sr_ok is True
+    assert self_match is True
+    assert visible is True
+
+
+def test_evaluate_node_visibility_search_match_in_fulltext_content():
+    _, _, sr_ok, self_match, visible = UiStateService.evaluate_node_visibility(
+        target_status="Alle",
+        actual_status="x",
+        path="x.md",
+        file_state=None,
+        file_state_filter="Alle",
+        search_term="magie",
+        is_fulltext=True,
+        child_visible=False,
+        node_text="leeres node",
+        raw_title="leerer titel",
+        content_text="und es war magie",
+    )
+    assert sr_ok is True
+    assert self_match is True
+    assert visible is True
+
+
+def test_evaluate_node_visibility_child_visible_keeps_parent():
+    _, _, sr_ok, self_match, visible = UiStateService.evaluate_node_visibility(
+        target_status="Alle",
+        actual_status="x",
+        path="x.md",
+        file_state=None,
+        file_state_filter="Alle",
+        search_term="foo",
+        is_fulltext=False,
+        child_visible=True,
+    )
+    # Kein Self-Match, aber Kind sichtbar -> search_ok True
+    # (wegen OR child_visible), und visible True.
+    assert self_match is False
+    assert sr_ok is True
+    assert visible is True
+
+
+def test_evaluate_node_visibility_empty_path():
+    s_ok, st_ok, sr_ok, self_match, visible = (
+        UiStateService.evaluate_node_visibility(
+            target_status="Alle",
+            actual_status="x",
+            path="",
+            file_state=None,
+            file_state_filter="Alle",
+            search_term="",
+            is_fulltext=False,
+            child_visible=False,
+        )
+    )
+    assert s_ok is True
+    assert st_ok is True
+    assert sr_ok is True
+    assert self_match is False
+    assert visible is True
+
+
+# --- build_left_list_entries (Phase 2 / Schritt 2.6b) ----------------
+
+
+def test_build_left_list_entries_filters_used_paths():
+    title_reg = {"a.md": "A", "b.md": "B", "c.md": "C"}
+    out = UiStateService.build_left_list_entries(
+        title_reg, ["a.md", "c.md"]
+    )
+    assert out == [("b.md", "B")]
+
+
+def test_build_left_list_entries_sorts_by_title():
+    title_reg = {"x.md": "Charlie", "y.md": "Alpha", "z.md": "Bravo"}
+    out = UiStateService.build_left_list_entries(title_reg, [])
+    assert out == [("y.md", "Alpha"), ("z.md", "Bravo"), ("x.md", "Charlie")]
+
+
+def test_build_left_list_entries_no_used_filter():
+    out = UiStateService.build_left_list_entries({}, [])
+    assert out == []
+
+
+def test_build_left_list_entries_applies_state_filter():
+    title_reg = {"a.md": "A", "b.md": "B"}
+    out = UiStateService.build_left_list_entries(
+        title_reg,
+        [],
+        file_state_filter="Verwaiste Fußnoten",
+        file_state_for_path=lambda p: {"orphan_footnotes": p == "a.md"},
+    )
+    assert out == [("a.md", "A")]
+
+
+def test_build_left_list_entries_no_state_filter():
+    title_reg = {"a.md": "A", "b.md": "B"}
+    out = UiStateService.build_left_list_entries(
+        title_reg,
+        [],
+        file_state_filter="Alle",
+        file_state_for_path=lambda p: {"orphan_footnotes": False},
+    )
+    assert len(out) == 2
+
+
+def test_build_left_list_entries_applies_left_search():
+    title_reg = {"a.md": "Alpha", "b.md": "Bravo"}
+    out = UiStateService.build_left_list_entries(
+        title_reg, [], search_term="bravo", apply_left_search=True
+    )
+    assert out == [("b.md", "Bravo")]
+
+
+def test_build_left_list_entries_left_search_no_apply():
+    title_reg = {"a.md": "Alpha", "b.md": "Bravo"}
+    out = UiStateService.build_left_list_entries(
+        title_reg, [], search_term="bravo", apply_left_search=False
+    )
+    # Kein apply -> alles drin
+    assert len(out) == 2
+
+
+def test_build_left_list_entries_fulltext_via_lookup():
+    title_reg = {"a.md": "Alpha", "b.md": "Bravo"}
+    out = UiStateService.build_left_list_entries(
+        title_reg,
+        [],
+        search_term="magie",
+        apply_left_search=True,
+        is_fulltext=True,
+        content_lookup=lambda p: "magie im text" if p == "a.md" else "",
+    )
+    assert out == [("a.md", "Alpha")]
+
+
+def test_build_left_list_entries_fulltext_no_lookup_falls_back_to_title():
+    title_reg = {"a.md": "Alpha magic", "b.md": "Bravo"}
+    out = UiStateService.build_left_list_entries(
+        title_reg,
+        [],
+        search_term="magic",
+        apply_left_search=True,
+        is_fulltext=True,
+        content_lookup=None,
+    )
+    # Ohne content_lookup wird der Content-Teil uebergangen, aber
+    # Title-Match gilt -> a.md passt.
+    assert out == [("a.md", "Alpha magic")]
+
+
+def test_build_left_list_entries_path_match():
+    title_reg = {"alpha-intro.md": "Einführung", "beta.md": "Beta"}
+    out = UiStateService.build_left_list_entries(
+        title_reg, [], search_term="alpha", apply_left_search=True
+    )
+    assert out == [("alpha-intro.md", "Einführung")]
+
+
 if __name__ == "__main__":
     import pytest
 
