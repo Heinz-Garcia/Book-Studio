@@ -1,0 +1,9 @@
+{
+  "name": "file_indexer",
+  "label": "Dateien indexieren (CSV)",
+  "description": "Erstellt einen CSV-Index aller Markdown-Dateien im Buch. Nutzt tools/Files_Indexer.py.",
+  "entrypoint": "plugins.file_indexer:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Tools"
+}

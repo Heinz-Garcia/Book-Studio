@@ -134,6 +134,17 @@ CONTEXT_MENU_TREE = [
 ]
 
 
+# --- Plugins ----------------------------------------------------------------
+#
+# Phase 3: statische Liste bekannter Plugins als Fallback, falls der
+# `PluginLoader` keine Manifeste findet. Die Reihenfolge entspricht
+# der Anzeige-Reihenfolge im Tools-Menue.
+
+PLUGIN_MENU_FALLBACK = [
+    MenuItem(label="📇 Dateien indexieren (CSV)", command="plugin:file_indexer"),
+]
+
+
 __all__ = [
     "MenuCascade",
     "MenuItem",
@@ -146,4 +157,5 @@ __all__ = [
     "MENU_HELP",
     "CONTEXT_MENU_AVAIL",
     "CONTEXT_MENU_TREE",
+    "PLUGIN_MENU_FALLBACK",
 ]
