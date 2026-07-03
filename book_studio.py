@@ -2574,7 +2574,6 @@ class BookStudio:
             return  # current_book fehlt; sollte nicht passieren, aber defensiv.
 
         # 2. Zeitstempel-Ordnernamen generieren (Format: DDMMYY_HHMM)
-        import shutil
         timestamp = self._services.backup.compute_backup_timestamp()
         backup_dir = self._services.backup.build_backup_path(backup_base_dir, timestamp)
 
@@ -2591,12 +2590,13 @@ class BookStudio:
             return
 
         # 4. Backup physisch durchführen
-        try:
-            # Stellt sicher, dass das Basis-Verzeichnis existiert
-            backup_base_dir.mkdir(parents=True, exist_ok=True) 
-            shutil.copytree(content_dir, backup_dir)
-        except (OSError, shutil.Error) as e:
-            messagebox.showerror("Backup Fehler", f"Konnte das Pre-Backup nicht erstellen. Abbruch!\n\n{e}")
+        # Phase 2 / Schritt 2.5b: Schreib-Operationen im Service.
+        # UI-Fehlerdialog bleibt im Studio.
+        created, err = self._services.backup.create_physical_backup(
+            content_dir, backup_base_dir, backup_dir
+        )
+        if err is not None or created is None:
+            messagebox.showerror("Backup Fehler", f"Konnte das Pre-Backup nicht erstellen. Abbruch!\n\n{err or 'unbekannt'}")
             return
 
         # 5. Status melden und Thread starten

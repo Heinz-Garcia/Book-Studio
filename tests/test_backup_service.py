@@ -219,6 +219,93 @@ def test_module_level_default_helper_returns_dir():
     assert default_sanitizer_backup_dir(book) == expected
 
 
+# --- create_physical_backup (Phase 2 / Schritt 2.5b) ---------------------
+
+
+def test_create_physical_backup_copies_content_dir(tmp_path):
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "kap.md").write_text("# X", encoding="utf-8")
+    (content / "sub").mkdir()
+    (content / "sub" / "deep.md").write_text("# Y", encoding="utf-8")
+
+    base = tmp_path / "backups"
+    target = base / "sanitizer_backup_030726_1755"
+
+    result, err = BackupService.create_physical_backup(content, base, target)
+    assert err is None
+    assert result == target
+    assert target.exists()
+    assert (target / "kap.md").read_text(encoding="utf-8") == "# X"
+    assert (target / "sub" / "deep.md").read_text(encoding="utf-8") == "# Y"
+    assert base.exists()
+
+
+def test_create_physical_backup_creates_parent_dirs(tmp_path):
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "a.md").write_text("a", encoding="utf-8")
+    base = tmp_path / "deep" / "nested" / "backups"  # existiert nicht
+    target = base / "snap"
+
+    result, err = BackupService.create_physical_backup(content, base, target)
+    assert err is None
+    assert result == target
+    assert target.exists()
+    assert base.exists()
+
+
+def test_create_physical_backup_returns_error_when_content_missing(tmp_path):
+    content = tmp_path / "missing_content"  # nicht angelegt
+    base = tmp_path / "backups"
+    target = base / "snap"
+    result, err = BackupService.create_physical_backup(content, base, target)
+    assert result is None
+    assert err is not None
+    assert "content" in err.lower()
+
+
+def test_create_physical_backup_returns_error_when_content_is_file(tmp_path):
+    content = tmp_path / "not_a_dir.md"
+    content.write_text("x", encoding="utf-8")
+    base = tmp_path / "backups"
+    target = base / "snap"
+    result, err = BackupService.create_physical_backup(content, base, target)
+    assert result is None
+    assert err is not None
+    assert "content" in err.lower()
+
+
+def test_create_physical_backup_handles_string_paths(tmp_path):
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "x.md").write_text("a", encoding="utf-8")
+    base = tmp_path / "backups"
+    target = base / "snap"
+
+    # Strings statt Path-Objekte
+    result, err = BackupService.create_physical_backup(
+        str(content), str(base), str(target)
+    )
+    assert err is None
+    assert Path(result) == target
+    assert (target / "x.md").read_text(encoding="utf-8") == "a"
+
+
+def test_create_physical_backup_existing_target_raises_oserror(tmp_path):
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "x.md").write_text("a", encoding="utf-8")
+    base = tmp_path / "backups"
+    base.mkdir()
+    target = base / "snap"
+    target.mkdir()  # existiert bereits -> shutil.Error oder FileExistsError
+
+    result, err = BackupService.create_physical_backup(content, base, target)
+    assert result is None
+    assert err is not None
+
+
 if __name__ == "__main__":
     import pytest
 

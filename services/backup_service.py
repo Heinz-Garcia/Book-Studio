@@ -8,14 +8,18 @@ sind in diesen Service verlagert. Die Pfad-Berechnung (Basis-Verzeichnis
 + Zeitstempel + End-Pfad) ist deterministisch und damit ohne
 Side-Effects testbar.
 
-Phase 2 / Schritt 2.5b: Schreiben (`shutil.copytree`), UI-Calls
-(`messagebox.askyesno/showerror`, `self.log`, `self.root.after`) und
-Threading bleiben in `book_studio.run_sanitizer_pipeline` und werden
-in einer eigenen Session in `BackupService` verlagert.
+Phase 2 / Schritt 2.5b: Die *physische Backup-Erstellung*
+(`mkdir(parents=True, exist_ok=True)` + `shutil.copytree`) ist in
+diesem Service. UI-Concerns (`messagebox`, `self.log`, `self.root.after`)
+und Threading bleiben in `BookStudio.run_sanitizer_pipeline`, weil
+sie UI-/System-Konzerne sind. Der Service liefert bei Fehlern
+statt zu raisen ein `(None, error_message)`-Tuple zurück, damit
+das Studio entscheiden kann, ob/wie es `messagebox.showerror` ruft.
 """
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Protocol
@@ -39,11 +43,12 @@ class BackupLike(Protocol):
 
 
 class BackupService:
-    """Backup-Pfad-Logik + Wrapper fuer `BackupManager`-Delegation.
+    """Backup-Pfad-Logik + physische Backup-Erstellung.
 
     Phase 2 / 2.5a: Pfad-Aufloesung (Basis-Pfad, Zeitstempel,
-    End-Pfad) ist in *pure* Funktionen extrahiert. Der Schreib- und
-    Threading-Teil bleibt in 2.5b.
+    End-Pfad) ist in *pure* Funktionen extrahiert.
+    Phase 2 / 2.5b: Physische Backup-Erstellung (`create_physical_backup`)
+    ist hier. UI- und Threading-Concerns bleiben im Studio.
     """
 
     def __init__(self, studio: BackupLike):
@@ -65,6 +70,46 @@ class BackupService:
         return BackupService.default_sanitizer_backup_dir_for(
             self._studio.current_book
         )
+
+    # --- Physische Backup-Erstellung (2.5b) ----------------------------
+
+    @staticmethod
+    def create_physical_backup(
+        content_dir: Path,
+        backup_base_dir: Path,
+        backup_dir: Path,
+    ) -> tuple[Optional[Path], Optional[str]]:
+        """Erstellt das Sanitizer-Backup physisch.
+
+        Reihenfolge:
+        1. `backup_base_dir.mkdir(parents=True, exist_ok=True)`
+        2. `shutil.copytree(content_dir, backup_dir)`
+
+        Returns: `(backup_dir, None)` bei Erfolg, `(None, error_message)`
+        bei `OSError` oder `shutil.Error`. Die Fehlermeldung ist
+        stringifiziert (`str(e)`), damit das Studio sie in
+        `messagebox.showerror` anzeigen kann.
+
+        Eingaben werden defensiv geprueft:
+        - `content_dir` muss existieren und ein Verzeichnis sein.
+        - `backup_base_dir` und `backup_dir` werden als Pfade
+          akzeptiert (Existenz wird nicht validiert).
+        """
+        try:
+            if not isinstance(content_dir, Path):
+                content_dir = Path(content_dir)
+            if not content_dir.exists() or not content_dir.is_dir():
+                return None, f"content-Verzeichnis fehlt: {content_dir}"
+            if not isinstance(backup_base_dir, Path):
+                backup_base_dir = Path(backup_base_dir)
+            if not isinstance(backup_dir, Path):
+                backup_dir = Path(backup_dir)
+
+            backup_base_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(content_dir, backup_dir)
+            return backup_dir, None
+        except (OSError, shutil.Error) as exc:
+            return None, str(exc)
 
     # --- Pfad-Aufloesung: pure Funktionen -----------------------------
 
