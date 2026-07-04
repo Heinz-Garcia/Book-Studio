@@ -25,6 +25,8 @@ bleiben im Studio.
 
 from __future__ import annotations
 
+import os
+import os
 import shutil
 import subprocess
 import sys
@@ -129,40 +131,121 @@ class BackupService:
     # --- Pfad-Aufloesung: pure Funktionen -----------------------------
 
     @staticmethod
+    def normalize_backup_path(raw: str) -> Path:
+        """Normalisiert einen konfigurierten Backup-Pfad (``~``, Windows)."""
+        text = str(raw).strip()
+        path = Path(text).expanduser()
+        if sys.platform == "win32":
+            expanded = os.path.expandvars(str(path))
+            path = Path(os.path.normpath(expanded))
+            # Windows: `C:Users\...` ohne Slash nach dem Laufwerk ist relativ.
+            if (
+                len(text) >= 2
+                and text[1] == ":"
+                and (len(text) == 2 or text[2] not in "/\\")
+            ):
+                path = Path(os.path.abspath(str(path)))
+        return path
+
+    @staticmethod
+    def is_backup_base_usable(path: Path) -> bool:
+        """Prüft, ob das Zielverzeichnis angelegt und beschreibbar ist."""
+        try:
+            candidate = Path(path)
+            candidate.mkdir(parents=True, exist_ok=True)
+            if not candidate.is_dir():
+                return False
+            probe = candidate / ".bookstudio_write_probe"
+            probe.write_text("", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return True
+        except OSError:
+            return False
+
+    @staticmethod
+    def create_physical_backup_with_fallback(
+        content_dir: Path,
+        primary_base: Path,
+        fallback_base: Path,
+        timestamp: str,
+    ) -> tuple[Optional[Path], Optional[str], Optional[str]]:
+        """Versucht Backup am Primärpfad, sonst am Projekt-Fallback.
+
+        Returns: `(backup_dir, error, hint)` — `hint` erklärt einen
+        erfolgreichen Wechsel auf den Fallback.
+        """
+        last_error: Optional[str] = None
+        bases: list[Path] = []
+        for base in (primary_base, fallback_base):
+            if base not in bases:
+                bases.append(base)
+
+        for idx, base in enumerate(bases):
+            backup_dir = BackupService.build_backup_path(base, timestamp)
+            created, err = BackupService.create_physical_backup(
+                content_dir, base, backup_dir
+            )
+            if err is None and created is not None:
+                hint = None
+                if idx > 0:
+                    hint = (
+                        f"Backup-Verzeichnis gewechselt nach {created}, "
+                        f"weil {primary_base} nicht beschreibbar war."
+                    )
+                return created, None, hint
+            last_error = err
+        return None, last_error, None
+
+    @staticmethod
     def resolve_backup_base_dir(
         current_book: Optional[Path], custom_path: Optional[str]
     ) -> Optional[Path]:
+        resolved, _warning = BackupService.resolve_backup_base_dir_with_fallback(
+            current_book, custom_path
+        )
+        return resolved
+
+    @staticmethod
+    def resolve_backup_base_dir_with_fallback(
+        current_book: Optional[Path], custom_path: Optional[str]
+    ) -> tuple[Optional[Path], Optional[str]]:
         """Berechnet das Basis-Verzeichnis fuer den Sanitizer-Backup.
 
         Logik:
         - `None`, wenn kein `current_book` aktiv ist.
-        - Wenn `custom_path` ein nicht-leerer String ist, wird er als
-          Basis-Verzeichnis verwendet. Ist er ABSOLUT, wird er
-          unveraendert genutzt. Ist er RELATIV, wird er gegen
-          `current_book.parent` aufgeloest (siehe B-Fix unten).
+        - Wenn `custom_path` gesetzt und **nutzbar** ist, wird er verwendet.
         - Sonst Default: `<current_book.parent> / "_Sanitizer_Backups_<name>"`.
+        - Ist `custom_path` gesetzt aber nicht nutzbar (fremder Rechner,
+          fehlender Ordner, keine Schreibrechte), Fallback auf Default mit
+          Warnhinweis fuer das Log.
 
-        Die Funktion ist *pur* und hat keine Studio-Abhaengigkeit.
-        Sie validiert nicht, ob das Verzeichnis existiert oder schreibbar
-        ist — das ist Aufgabe der Schreib-Pipeline in 2.5b.
-
-        B-Fix (Code-Review 2026-07-03): ein relativer `custom_path` wurde
-        vorher unveraendert als `Path(...)` zurueckgegeben. Sein
-        tatsaechlicher Speicherort haengt bei relativen Pfaden vom
-        Arbeitsverzeichnis (CWD) des Python-Prozesses zum Zeitpunkt der
-        SPAETEREN Nutzung ab - je nach Start-Kontext (Doppelklick,
-        Verknuepfung, Taskplaner) undefiniert/inkonsistent. Relative Pfade
-        werden jetzt deterministisch gegen das Buch-Elternverzeichnis
-        aufgeloest, analog zum Default-Verhalten ohne Custom-Pfad.
+        B-Fix (Code-Review 2026-07-03): relativer `custom_path` wird gegen
+        `current_book.parent` aufgeloest.
         """
         if current_book is None:
-            return None
+            return None, None
+
+        default_dir = BackupService.default_sanitizer_backup_dir_for(current_book)
+
         if isinstance(custom_path, str) and custom_path.strip():
-            candidate = Path(custom_path.strip())
+            candidate = BackupService.normalize_backup_path(custom_path)
             if candidate.is_absolute():
-                return candidate
-            return current_book.parent / candidate
-        return BackupService.default_sanitizer_backup_dir_for(current_book)
+                resolved = candidate
+            else:
+                resolved = current_book.parent / candidate
+
+            if BackupService.is_backup_base_usable(resolved):
+                return resolved, None
+
+            return (
+                default_dir,
+                (
+                    f"Backup-Pfad nicht nutzbar ({custom_path!r}) — "
+                    f"verwende Projekt-Fallback: {default_dir}"
+                ),
+            )
+
+        return default_dir, None
 
     @staticmethod
     def default_sanitizer_backup_dir_for(current_book: Path) -> Path:
@@ -243,8 +326,13 @@ class BackupService:
             "stdout": subprocess.PIPE,
             "stderr": subprocess.STDOUT,
             "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
             "bufsize": 1,
         }
+        env = os.environ.copy()
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        proc_kwargs["env"] = env
         if cwd is not None:
             proc_kwargs["cwd"] = str(cwd)
         proc = popen_factory(cmd, **proc_kwargs)

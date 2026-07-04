@@ -34,6 +34,11 @@ check_staged.py
 studio_config.json
 Textdokument (neu).txt
 session_state.json
+
+# Sanitizer-Sicherungskopien (lokal neben dem Buchprojekt)
+_Sanitizer_Backups_*/
+sanitizer_backup_*/
+
 # B5: app_config.json wird versioniert (App-Defaults).
 # Wenn ein Maintainer lokale Anpassungen vornehmen will, die nicht
 # ins Repo sollen, soll er die Datei einmal umbenennen und in dieser

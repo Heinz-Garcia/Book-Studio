@@ -43,6 +43,24 @@ except ModuleNotFoundError:
 
 logger = logging.getLogger(__name__)
 
+
+def treeview_y_from_event(tree, event):
+    """Widget-relative Y-Koordinate für Treeview-Mausereignisse.
+
+    Nutzt die Zeigerposition relativ zum Widget statt nur ``event.y``.
+    Das ist zuverlässiger, wenn zwischen Press und Release gescrollt wurde
+    (ToDos_Level_3: DnD-Offset-Bug).
+    """
+    try:
+        y = tree.winfo_pointery() - tree.winfo_rooty()
+        height = tree.winfo_height()
+        if height > 1:
+            return max(0, min(y, height - 1))
+        return y
+    except tk.TclError:
+        return event.y
+
+
 # =============================================================================
 # QUARTO BOOK STUDIO
 # =============================================================================
@@ -131,7 +149,7 @@ class BookStudio:
             render=RenderService(self.exporter),
             diagnostics=DiagnosticsService(
                 self,
-                on_status=lambda *a, **kw: self.status.config(*a, **kw) if self.status else None,
+                on_status=self._on_diagnostics_status,
                 on_log=self.log,
                 on_refresh_tree=self._refresh_tree_titles_from_current_state,
                 on_select_first_issue=self._select_first_doctor_issue,
@@ -267,6 +285,20 @@ class BookStudio:
             self.log(message, _LogLevel.WARNING)
             return
         logger.warning(message)
+
+    def _guide_hint(self, message, status_text=None):
+        """Freundlicher Hinweis statt Fehlerdialog — Tool führt an der Hand."""
+        text = str(message).strip()
+        if not text:
+            return
+        if not text.startswith("💡"):
+            text = f"💡 {text}"
+        self.log(text, _LogLevel.HEADER)
+        if self.status is not None:
+            self.status.config(
+                text=status_text or text.replace("💡 ", "", 1)[:160],
+                fg=COLORS["auto_heal"],
+            )
 
     def _get_projects_root_path(self) -> Path:
         # Phase 2 / Schritt 2.1: dünner Wrapper, delegiert an WorkspaceService.
@@ -433,6 +465,16 @@ class BookStudio:
     def update_status(self, text, fg):
         if self.status is not None:
             self.status.config(text=text, fg=fg)
+
+    def _on_diagnostics_status(self, text, fg_key):
+        """Status-Callback für `DiagnosticsService` (liefert semantische fg-Keys)."""
+        if self.status is None:
+            return
+        fg_map = {
+            "success": _StatusFg.SUCCESS,
+            "danger": _StatusFg.DANGER,
+        }
+        self.status.config(text=text, fg=fg_map.get(fg_key, _StatusFg.NEUTRAL))
 
     def copy_text_to_clipboard(self, text):
         self.root.clipboard_clear()
@@ -777,7 +819,6 @@ class BookStudio:
 
         for path in self.title_registry.keys():
             state = {
-                "orphan_footnotes": False,
                 "pdf_pagebreak_end": False,
                 "missing_images": False,
                 "missing_images_count": 0,
@@ -800,9 +841,6 @@ class BookStudio:
                 registry[path] = state
                 continue
 
-            markers = set(re.findall(r'\[\^([^\]]+)\](?!:)', text))
-            definitions = set(re.findall(r'^\s*(?:\[cite_start\]\s*)?\[\^([^\]]+)\]:', text, re.MULTILINE))
-            state["orphan_footnotes"] = bool(markers - definitions)
             state["pdf_pagebreak_end"] = any(pattern.search(text) for pattern in pagebreak_patterns)
             missing_image_refs = find_missing_image_refs(text, abs_path, self.current_book)
             missing_images = [target for _, target in missing_image_refs]
@@ -823,13 +861,7 @@ class BookStudio:
 
     def _state_tags_for_path(self, path):
         state = self.file_state_registry.get(path, {})
-        has_orphan = bool(state.get("orphan_footnotes"))
-        has_pagebreak = bool(state.get("pdf_pagebreak_end"))
-        if has_orphan and has_pagebreak:
-            return ("state_both",)
-        if has_orphan:
-            return ("state_orphan",)
-        if has_pagebreak:
+        if bool(state.get("pdf_pagebreak_end")):
             return ("state_pagebreak",)
         return ()
 
@@ -840,14 +872,11 @@ class BookStudio:
 
     def _status_code_for_path(self, path):
         state = self.file_state_registry.get(path, {})
-        has_orphan = bool(state.get("orphan_footnotes"))
         has_pagebreak = bool(state.get("pdf_pagebreak_end"))
         has_missing_images = bool(state.get("missing_images"))
         has_doctor_issue = path in self.doctor_issue_registry
 
         status_codes = []
-        if has_orphan:
-            status_codes.append("●")
         if has_pagebreak:
             status_codes.append("↵")
         if has_missing_images:
@@ -866,8 +895,6 @@ class BookStudio:
 
         state = self.file_state_registry.get(path, {})
         suffixes = []
-        if state.get("orphan_footnotes"):
-            suffixes.append("●")
         if state.get("pdf_pagebreak_end"):
             suffixes.append("↵")
         if state.get("missing_images"):
@@ -911,7 +938,10 @@ class BookStudio:
         if error_count:
             self.log(f"🩺 {context_label}: {error_count} kritische Befunde, {warning_count} Hinweise", _LogLevel.HEADER)
         elif warning_count:
-            self.log(f"🩺 {context_label}: keine kritischen Befunde, aber {warning_count} Hinweise", _LogLevel.HEADER)
+            self.log(
+                f"🩺 {context_label}: bereit — {warning_count} Hinweis(e), kein Eingriff nötig",
+                _LogLevel.SUCCESS,
+            )
         else:
             self.log(f"🩺 {context_label}: keine Befunde", _LogLevel.SUCCESS)
 
@@ -1092,7 +1122,7 @@ class BookStudio:
         self.file_state_filter_box = ttk.Combobox(
             search_f,
             textvariable=self.file_state_filter_var,
-            values=["Alle", "Verwaiste Fußnoten", "PDF-Seitenumbruch am Dateiende", "Fehlende Bilder"],
+            values=["Alle", "PDF-Seitenumbruch am Dateiende", "Fehlende Bilder"],
             state="readonly",
             width=30,
         )
@@ -1103,9 +1133,7 @@ class BookStudio:
 
         self.list_avail = ttk.Treeview(l_frame, selectmode="extended", show="tree")
         self.list_avail.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.list_avail.tag_configure('state_orphan', foreground=COLORS["marker_orphan"])
         self.list_avail.tag_configure('state_pagebreak', foreground=COLORS["marker_pagebreak"])
-        self.list_avail.tag_configure('state_both', foreground=COLORS["marker_both"])
         sl = tk.Scrollbar(l_frame, command=self.list_avail.yview)
         sl.pack(side=tk.RIGHT, fill=tk.Y)
         self.list_avail.config(yscrollcommand=sl.set)
@@ -1150,9 +1178,7 @@ class BookStudio:
         # NEU: Farben (Tags) für den Filter definieren
         self.tree_book.tag_configure('dimmed', foreground=COLORS["dimmed_row"])
         self.tree_book.tag_configure('normal', foreground='black')
-        self.tree_book.tag_configure('state_orphan', foreground=COLORS["marker_orphan"])
         self.tree_book.tag_configure('state_pagebreak', foreground=COLORS["marker_pagebreak"])
-        self.tree_book.tag_configure('state_both', foreground=COLORS["marker_both"])
         
         sr = tk.Scrollbar(r_frame, command=self.tree_book.yview)
         sr.pack(side=tk.RIGHT, fill=tk.Y)
@@ -2477,7 +2503,8 @@ class BookStudio:
         self._push_undo(pre)
 
     def on_drag_start(self, event):
-        self.drag_data['item'] = self.tree_book.identify_row(event.y)
+        y = treeview_y_from_event(self.tree_book, event)
+        self.drag_data['item'] = self.tree_book.identify_row(y)
 
     def on_drag_motion(self, _event):
         if self.drag_data['item']:
@@ -2485,7 +2512,8 @@ class BookStudio:
     
     def on_drop(self, e):
         self.tree_book.config(cursor="")
-        drag, target = self.drag_data['item'], self.tree_book.identify_row(e.y)
+        drop_y = treeview_y_from_event(self.tree_book, e)
+        drag, target = self.drag_data['item'], self.tree_book.identify_row(drop_y)
         self.drag_data['item'] = None
         if not drag or not target or drag == target:
             return
@@ -2497,9 +2525,13 @@ class BookStudio:
             p = self.tree_book.parent(p)
 
         bbox = self.tree_book.bbox(target)
+        if not bbox:
+            self.tree_book.see(target)
+            self.tree_book.update_idletasks()
+            bbox = self.tree_book.bbox(target)
         if bbox:
             pre = self._get_current_state()
-            idx = self.tree_book.index(target) + (1 if e.y > bbox[1] + (bbox[3]/2) else 0)
+            idx = self.tree_book.index(target) + (1 if drop_y > bbox[1] + (bbox[3]/2) else 0)
             self.tree_book.move(drag, self.tree_book.parent(target), idx)
             self.tree_book.selection_set(drag)
             self._push_undo(pre)
@@ -2588,11 +2620,19 @@ class BookStudio:
         except (OSError, TypeError, ValueError) as e:
             self.log(f"⚠️  Konnte App-Config für Sanitizer-Backup nicht lesen: {e}", _LogLevel.WARNING)
             custom_path = None
-        backup_base_dir = self._services.backup.resolve_backup_base_dir(
-            self.current_book, custom_path
+        backup_base_dir, backup_path_warning = (
+            self._services.backup.resolve_backup_base_dir_with_fallback(
+                self.current_book, custom_path
+            )
         )
         if backup_base_dir is None:
             return  # current_book fehlt; sollte nicht passieren, aber defensiv.
+        if backup_path_warning:
+            self._guide_hint(backup_path_warning)
+
+        default_backup_base = BackupService.default_sanitizer_backup_dir_for(
+            self.current_book
+        )
 
         # 2. Zeitstempel-Ordnernamen generieren (Format: DDMMYY_HHMM)
         timestamp = self._services.backup.compute_backup_timestamp()
@@ -2610,15 +2650,30 @@ class BookStudio:
         if not messagebox.askyesno("🧹 Sanitizer Pipeline starten", msg):
             return
 
-        # 4. Backup physisch durchführen
-        # Phase 2 / Schritt 2.5b: Schreib-Operationen im Service.
-        # UI-Fehlerdialog bleibt im Studio.
-        created, err = self._services.backup.create_physical_backup(
-            content_dir, backup_base_dir, backup_dir
+        # 4. Backup physisch durchführen (mit Projekt-Fallback statt Abbruch)
+        created, err, backup_hint = self._services.backup.create_physical_backup_with_fallback(
+            content_dir,
+            backup_base_dir,
+            default_backup_base,
+            timestamp,
         )
+        if backup_hint:
+            self._guide_hint(backup_hint)
         if err is not None or created is None:
-            messagebox.showerror("Backup Fehler", f"Konnte das Pre-Backup nicht erstellen. Abbruch!\n\n{err or 'unbekannt'}")
+            self._guide_hint(
+                "Pre-Backup fehlgeschlagen — Sanitizer wurde nicht gestartet. "
+                f"Grund: {err or 'unbekannt'}"
+            )
+            messagebox.showwarning(
+                "Sanitizer-Hinweis",
+                "Das Pre-Backup konnte nicht angelegt werden.\n\n"
+                f"{err or 'unbekannter Fehler'}\n\n"
+                "Bitte Backup-Ziel in den Einstellungen prüfen oder leer lassen "
+                "(dann wird neben dem Projekt gesichert).",
+            )
             return
+
+        backup_dir = created
 
         # 5. Status melden und Thread starten
         self.log("=" * 50, _LogLevel.DIM)

@@ -13,6 +13,7 @@ Schreib-Operationen (`shutil.copytree`), UI-Calls (`messagebox`,
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime
 from pathlib import Path
 from subprocess import PIPE, STDOUT
@@ -48,18 +49,27 @@ def test_resolve_returns_none_when_no_current_book():
     assert BackupService.resolve_backup_base_dir(None, "C:/foo") is None
 
 
-def test_resolve_uses_custom_path_when_provided():
+def test_resolve_uses_custom_path_when_provided(tmp_path):
     """Ein nicht-leerer Custom-Pfad ueberschreibt den Default."""
+    book = tmp_path / "my_book"
+    custom = tmp_path / "backups"
+    result = BackupService.resolve_backup_base_dir(book, str(custom))
+    assert result == custom
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-Laufwerksbuchstaben")
+def test_resolve_uses_windows_drive_custom_path():
     book = Path("C:/books/my_book")
     result = BackupService.resolve_backup_base_dir(book, "D:/backups")
     assert result == Path("D:/backups")
 
 
-def test_resolve_uses_custom_path_with_surrounding_whitespace():
+def test_resolve_uses_custom_path_with_surrounding_whitespace(tmp_path):
     """Whitespace um `custom_path` wird getrimmt."""
-    book = Path("C:/books/my_book")
-    result = BackupService.resolve_backup_base_dir(book, "  D:/backups  ")
-    assert result == Path("D:/backups")
+    book = tmp_path / "my_book"
+    custom = tmp_path / "backups"
+    result = BackupService.resolve_backup_base_dir(book, f"  {custom}  ")
+    assert result == custom
 
 
 def test_resolve_falls_back_to_default_for_empty_custom_path():
@@ -100,14 +110,72 @@ def test_resolve_relative_custom_path_with_subfolders_is_anchored(tmp_path):
     assert result == book.parent / "backups" / "sanitizer"
 
 
-def test_resolve_absolute_custom_path_is_unaffected():
+def test_resolve_absolute_custom_path_is_unaffected(tmp_path):
     """Absolute Custom-Pfade bleiben unveraendert (kein Regressionsrisiko)."""
-    book = Path("C:/books/my_book")
-    result = BackupService.resolve_backup_base_dir(book, "D:/absolute/backups")
-    assert result == Path("D:/absolute/backups")
+    book = tmp_path / "my_book"
+    custom = tmp_path / "absolute" / "backups"
+    result = BackupService.resolve_backup_base_dir(book, str(custom))
+    assert result == custom
 
 
 # --- default_sanitizer_backup_dir_for ------------------------------------
+
+
+def test_resolve_falls_back_when_custom_path_not_usable(tmp_path):
+    book = tmp_path / "my_book"
+    book.mkdir()
+    readonly_parent = tmp_path / "readonly_parent"
+    readonly_parent.mkdir()
+    custom = readonly_parent / "backups"
+    readonly_parent.chmod(0o555)
+    try:
+        result, warning = BackupService.resolve_backup_base_dir_with_fallback(
+            book, str(custom)
+        )
+    finally:
+        readonly_parent.chmod(0o755)
+
+    expected = book.parent / f"{SANITIZER_BACKUP_DIR_PREFIX}{book.name}"
+    assert result == expected
+    assert warning is not None
+    assert "nicht nutzbar" in warning
+
+
+def test_resolve_custom_path_with_fallback_no_warning_when_usable(tmp_path):
+    book = tmp_path / "my_book"
+    book.mkdir()
+    custom = tmp_path / "backups"
+    result, warning = BackupService.resolve_backup_base_dir_with_fallback(
+        book, str(custom)
+    )
+    assert result == custom
+    assert warning is None
+
+
+def test_create_physical_backup_with_fallback_uses_secondary_base(tmp_path):
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "a.md").write_text("# A", encoding="utf-8")
+
+    readonly_parent = tmp_path / "readonly"
+    readonly_parent.mkdir()
+    readonly_parent.chmod(0o555)
+    fallback = tmp_path / "fallback_backups"
+    try:
+        created, err, hint = BackupService.create_physical_backup_with_fallback(
+            content,
+            readonly_parent / "backups",
+            fallback,
+            "030726_1755",
+        )
+    finally:
+        readonly_parent.chmod(0o755)
+
+    assert err is None
+    assert created is not None
+    assert created.parent == fallback
+    assert hint is not None
+    assert "gewechselt" in hint
 
 
 def test_default_dir_uses_book_parent_and_name():
@@ -410,6 +478,9 @@ def test_run_sanitizer_subprocess_passes_cwd(tmp_path):
 
     kwargs = popen.instances[0].kwargs
     assert kwargs.get("cwd") == str(cwd)
+    assert kwargs.get("encoding") == "utf-8"
+    assert kwargs.get("errors") == "replace"
+    assert kwargs.get("env", {}).get("PYTHONIOENCODING") == "utf-8"
     # Popen-spezifische kwargs muessen ebenfalls gesetzt sein.
     assert kwargs.get("stdout") == PIPE
     assert kwargs.get("stderr") == STDOUT

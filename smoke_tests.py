@@ -25,6 +25,7 @@ def run_non_gui_smoke(project_root: Path) -> list[tuple[str, bool, str]]:
         results.append((name, passed, detail))
 
     critical_files = [
+        project_root / "version.json",
         project_root / "version.txt",
         # B5: studio_config.json ist nach app_config.json + session_state.json
         # aufgeteilt. Beim ersten Start migriert die App automatisch und

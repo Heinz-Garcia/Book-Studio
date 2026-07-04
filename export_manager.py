@@ -190,6 +190,44 @@ class ExportManager:
             return getter()
         return getattr(self.studio, "yaml_engine", None)
 
+    def _get_used_paths_for_render(self):
+        getter = getattr(self.studio, "_get_all_used_paths", None)
+        if callable(getter):
+            return list(getter())
+        alt = getattr(self.studio, "get_all_used_paths", None)
+        if callable(alt):
+            return list(alt())
+        return []
+
+    def _prepare_book_for_render(self):
+        yaml_engine = self._yaml_engine()
+        prepare = getattr(yaml_engine, "prepare_book_for_render", None)
+        if not callable(prepare):
+            return []
+
+        changes = prepare(
+            self._get_used_paths_for_render(),
+            self._adapter.title_registry,
+        )
+        if not changes:
+            return changes
+
+        refresh = getattr(self.studio, "refresh_ui_titles", None)
+        if callable(refresh):
+            refresh()
+
+        guide = getattr(self.studio, "_guide_hint", None)
+        if callable(guide):
+            guide(
+                f"Ich habe {len(changes)} Datei(en) vor dem Rendern für dich vorbereitet "
+                "(fehlendes Frontmatter, versteckte '---' im Text)."
+            )
+
+        for rel_path, file_changes in changes:
+            for change in file_changes:
+                self._log(f"✨ Auto-Healing in {rel_path}: {change}", "info")
+        return changes
+
     def _write_active_render_log(self, message: str):
         handle = self._active_render_log_handle
         if handle is None:
@@ -710,11 +748,17 @@ class ExportManager:
         if not self._current_book():
             return
 
+        self._prepare_book_for_render()
         is_healthy, analysis = self._run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
         if not is_healthy:
             if analysis is not None:
-                self._log("⛔ Rendern abgebrochen. Bitte behebe die markierten Dateien in der Buch-Struktur.", "error")
-            self._set_status("Render abgebrochen (Buch-Doktor-Befund)", _StatusFg.DANGER)
+                error_count = analysis.get("error_count", 0)
+                self._log(
+                    f"💡 Rendern pausiert: {error_count} Punkt(e) brauchen noch deine Aufmerksamkeit. "
+                    "F4 = nächster Fund, Enter = Datei öffnen.",
+                    "warning",
+                )
+            self._set_status("Render pausiert — siehe Hinweise im Log (F4)", _StatusFg.WARNING_ALT)
             return
 
         templates = self._available_templates()

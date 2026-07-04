@@ -185,3 +185,39 @@ def test_build_title_registry_marks_required_outline_with_both_prefix_icons(tmp_
 
     assert registry["content/required/gliederungspunkt.md"].startswith("📌 🧭 ")
     assert "Nur Gliederung" in registry["content/required/gliederungspunkt.md"]
+
+
+def test_prepare_book_for_render_heals_missing_description_and_hidden_dashes(
+    tmp_path: Path,
+) -> None:
+    book = _create_book(tmp_path)
+    _write(
+        book / "content" / "Text_1.md",
+        '---\ntitle: "Mein neues Projekt-Dokument"\n---\n\nInhalt.\n',
+    )
+    _write(
+        book / "content" / "Prozessbeschreibung_content.md",
+        '---\ntitle: "Workflow"\n---\n\nVor dem Strich\n\n---\n\nNach dem Strich\n',
+    )
+
+    engine = QuartoYamlEngine(book)
+    changes = engine.prepare_book_for_render(
+        ["content/Text_1.md", "content/Prozessbeschreibung_content.md"],
+        {
+            "content/Text_1.md": "Mein neues Projekt-Dokument",
+            "content/Prozessbeschreibung_content.md": "Workflow",
+        },
+    )
+
+    text_1 = (book / "content" / "Text_1.md").read_text(encoding="utf-8")
+    process = (book / "content" / "Prozessbeschreibung_content.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'description: "Mein neues Projekt-Dokument"' in text_1
+    assert 'status: "bookstudio"' in text_1
+    assert "\n---\n" not in process.split("---", 2)[2]
+    assert "***" in process
+    changed_paths = {rel_path for rel_path, _ in changes}
+    assert "content/Text_1.md" in changed_paths
+    assert "content/Prozessbeschreibung_content.md" in changed_paths

@@ -429,6 +429,30 @@ def test_validate_and_repair_when_yaml_module_unavailable(monkeypatch):
     assert "---" in new
 
 
+def test_repair_hidden_yaml_dividers_replaces_standalone_dashes_in_body():
+    content = "---\ntitle: Test\n---\n\nAbsatz 1\n\n---\n\nAbsatz 2\n"
+    new, changed = fp.repair_hidden_yaml_dividers(content)
+    assert changed is True
+    assert "\n---\n" not in new.split("---", 2)[2]
+    assert "***" in new
+    assert "Absatz 1" in new
+    assert "Absatz 2" in new
+
+
+def test_repair_hidden_yaml_dividers_leaves_frontmatter_delimiters_untouched():
+    content = "---\ntitle: Test\n---\n\nKein versteckter Trennstrich.\n"
+    new, changed = fp.repair_hidden_yaml_dividers(content)
+    assert changed is False
+    assert new == content
+
+
+def test_repair_hidden_yaml_dividers_without_frontmatter_is_noop():
+    content = "# Nur Body\n\n---\n"
+    new, changed = fp.repair_hidden_yaml_dividers(content)
+    assert changed is False
+    assert new == content
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))
