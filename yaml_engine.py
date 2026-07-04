@@ -4,7 +4,11 @@ import json
 import logging
 from pathlib import Path
 
-import app_config as _app_config_service
+from frontmatter_requirements import (
+    load_frontmatter_settings,
+    ordered_frontmatter_keys,
+    resolve_frontmatter_placeholder,
+)
 from frontmatter_parser import (
     extract_field as fm_extract_field,
     parse_file as fm_parse_file,
@@ -129,29 +133,7 @@ class QuartoYamlEngine:
             return text
 
         filepath = Path(filepath)
-        # B-Fix (Code-Review 2026-07-03): las bisher direkt die seit der
-        # B5-Migration veraltete `studio_config.json` und ignorierte
-        # dadurch alle App-Einstellungen aus `app_config.json`. SSOT ist
-        # jetzt `app_config.load_validated_config` (inkl. Defaults).
-        config_path = Path(__file__).parent / "app_config.json"
-
-        required_fields = {
-            "title": "<filename>",
-            "description": "<title>",
-            "status": "bookstudio",
-        }
-        frontmatter_update_mode = "append_only"
-
-        try:
-            config_data = _app_config_service.load_validated_config(config_path)
-            required_fields = config_data.get(
-                "frontmatter_requirements", required_fields
-            )
-            frontmatter_update_mode = str(
-                config_data.get("frontmatter_update_mode", frontmatter_update_mode)
-            ).strip().lower()
-        except (OSError, ValueError, TypeError) as e:
-            logger.warning("Fehler beim Lesen der app_config.json: %s", e)
+        required_fields, frontmatter_update_mode = load_frontmatter_settings()
 
         try:
             with open(filepath, "r", encoding="utf-8") as f:
@@ -166,10 +148,7 @@ class QuartoYamlEngine:
                 re.DOTALL,
             )
 
-            keys_to_process = list(required_fields.keys())
-            if "title" in keys_to_process:
-                keys_to_process.remove("title")
-                keys_to_process.insert(0, "title")
+            keys_to_process = ordered_frontmatter_keys(required_fields)
 
             if frontmatter_update_mode == "reserialize":
                 if match:
@@ -185,21 +164,22 @@ class QuartoYamlEngine:
                     body = content.strip("\r\n")
                     parsed_yaml = {}
 
+                value_map = {str(k): str(v) for k, v in parsed_yaml.items()}
                 changed = False
                 for key in keys_to_process:
                     if key in parsed_yaml:
                         continue
 
-                    config_val = required_fields[key]
-                    if config_val == "<filename>":
-                        val = fallback_title if fallback_title else filepath.stem
-                    elif config_val == "<title>":
-                        val = parsed_yaml.get(
-                            "title", fallback_title if fallback_title else filepath.stem
-                        )
-                    else:
-                        val = config_val
+                    val = resolve_frontmatter_placeholder(
+                        required_fields[key],
+                        filepath=filepath,
+                        body=body,
+                        parsed_yaml=parsed_yaml,
+                        value_map=value_map,
+                        fallback_title=fallback_title,
+                    )
                     parsed_yaml[key] = val
+                    value_map[key] = str(val)
                     changed = True
 
                 if not changed:
@@ -238,23 +218,23 @@ class QuartoYamlEngine:
                     if title_match
                     else (fallback_title if fallback_title else filepath.stem)
                 )
+                value_map = {"title": parsed_title} if "title" in existing_keys else {}
 
                 additions = []
                 for key in keys_to_process:
                     if key in existing_keys:
                         continue
 
-                    config_val = required_fields[key]
-                    if config_val == "<filename>":
-                        val = fallback_title if fallback_title else filepath.stem
-                    elif config_val == "<title>":
-                        val = parsed_title
-                    else:
-                        val = config_val
-
+                    val = resolve_frontmatter_placeholder(
+                        required_fields[key],
+                        filepath=filepath,
+                        body=body,
+                        parsed_yaml={},
+                        value_map=value_map,
+                        fallback_title=fallback_title,
+                    )
+                    value_map[key] = str(val)
                     additions.append(f"{key}: {_yaml_quote(val)}")
-                    if key == "title":
-                        parsed_title = str(val)
 
                 if not additions:
                     return False
@@ -268,19 +248,22 @@ class QuartoYamlEngine:
                     f"{bom}---{newline}{updated_frontmatter}{newline}---{newline}{body}"
                 )
             else:
-                base_title = fallback_title if fallback_title else filepath.stem
-                value_map = {}
-                for key in keys_to_process:
-                    config_val = required_fields[key]
-                    if config_val == "<filename>":
-                        value_map[key] = base_title
-                    elif config_val == "<title>":
-                        value_map[key] = value_map.get("title", base_title)
-                    else:
-                        value_map[key] = config_val
-
-                fm_lines = [f"{key}: {_yaml_quote(value_map[key])}" for key in keys_to_process]
                 body = content.lstrip("\r\n")
+                value_map: dict[str, str] = {}
+                for key in keys_to_process:
+                    val = resolve_frontmatter_placeholder(
+                        required_fields[key],
+                        filepath=filepath,
+                        body=body,
+                        parsed_yaml={},
+                        value_map=value_map,
+                        fallback_title=fallback_title,
+                    )
+                    value_map[key] = str(val)
+
+                fm_lines = [
+                    f"{key}: {_yaml_quote(value_map[key])}" for key in keys_to_process
+                ]
                 new_content = f"---{newline}{newline.join(fm_lines)}{newline}---{newline}{body}"
 
             with open(filepath, "w", encoding="utf-8") as f:
@@ -290,6 +273,28 @@ class QuartoYamlEngine:
         except (OSError, ValueError, TypeError) as e:
             logger.warning("Fehler beim Auto-Healing für %s: %s", filepath, e)
             return False
+
+    def heal_frontmatter_for_paths(self, used_paths, title_registry=None):
+        """Ergänzt Frontmatter für index.md und alle Buch-Kapitel (explizite Heal-Aktion)."""
+        title_registry = title_registry or {}
+        healed: list[str] = []
+        ordered_paths = list(dict.fromkeys(["index.md", *list(used_paths or [])]))
+
+        for rel_path in ordered_paths:
+            if not str(rel_path).lower().endswith(".md"):
+                continue
+            full_path = self.book_path / rel_path
+            if not full_path.exists():
+                continue
+
+            fallback_title = title_registry.get(rel_path, Path(rel_path).stem)
+            if isinstance(fallback_title, str):
+                fallback_title = fallback_title.replace("[FEHLT] ", "")
+
+            if self.ensure_required_frontmatter(full_path, fallback_title):
+                healed.append(rel_path)
+
+        return healed
 
     def prepare_file_for_render(self, filepath, fallback_title=None):
         """Auto-Healing vor Render: Pflicht-Frontmatter und versteckte ``---`` im Body."""

@@ -200,9 +200,24 @@ Das ist **kein Absturz** — springe mit **F4** / **Shift+F4** durch die ☠-Mar
 
 **Tools → Buch-Doktor ausführen** (oder vor dem Speichern automatisch).
 
+### Frontmatter ergänzen
+
+**Tools → Frontmatter ergänzen…** — ergänzt fehlendes YAML-Frontmatter für `index.md` und alle Kapitel im Buchbaum gemäß `frontmatter_requirements` in `app_config.json`. Bestehende Felder bleiben erhalten (`append_only`).
+
+Platzhalter in der Config (werden zur Laufzeit aufgelöst):
+
+| Platzhalter | Bedeutung |
+|-------------|-----------|
+| `<h1>` | erste `#`-Überschrift im Text, sonst Dateiname |
+| `<filename>` | Dateiname ohne `.md` |
+| `<title>` | bereits gesetztes `title`-Feld |
+| fester Text | z. B. `"bookstudio"` für `status` |
+
+Typisch für importierte Dateien ohne Frontmatter (z. B. `book-master.md` aus einer Schwester-App): einmal **Frontmatter ergänzen…**, Metadaten prüfen, dann **Strg+S**.
+
 ### Was geprüft wird
 
-- Fehlende / defekte Frontmatter-Felder
+- Fehlende / defekte Frontmatter-Felder (alle Keys aus `frontmatter_requirements`)
 - Versteckte `---` im Text
 - Ungeschlossene Quarto-Divs (`:::`)
 - Geister-Dateien in der Struktur
@@ -286,7 +301,7 @@ GUI: **Tools → Studio-Konfiguration...**
 | `content_root_path` | Wo Buchprojekte gesucht werden (`.` = Studio-Ordner) |
 | `help_manual_path` | Dieses Handbuch (`doc/handbuch.md`) |
 | `sanitizer_backup_path` | Optional; leer = Backup neben dem Projekt |
-| `frontmatter_requirements` | Pflichtfelder für neue/ergänzte Dateien |
+| `frontmatter_requirements` | Pflichtfelder für Auto-Healing und Buch-Doktor (`<h1>`, `<title>`, `<filename>`, fester Text) |
 | `default_export_format` | Standard beim Export-Dialog |
 | `default_export_template` | Standard-Template |
 | `abort_on_first_preflight_error` | Render bei erstem Doctor-Fehler stoppen |

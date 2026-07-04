@@ -10,6 +10,10 @@ from tkinter import ttk
 from ui_theme import COLORS, FONTS, center_on_parent, style_dialog
 
 from frontmatter_parser import parse as fm_parse
+from frontmatter_requirements import (
+    load_frontmatter_settings,
+    ordered_frontmatter_keys,
+)
 from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues, to_legacy_tuples
 
 # =========================================================================
@@ -80,6 +84,9 @@ class BookDoctor:
         if include_index and "index.md" not in paths_to_check:
             paths_to_check.insert(0, "index.md")
 
+        required_fields, _ = load_frontmatter_settings()
+        required_field_names = ordered_frontmatter_keys(required_fields)
+
         if include_index and not (self.current_book / "index.md").exists():
             record_issue("index.md", "❌ Root: 'index.md' fehlt komplett!")
 
@@ -115,10 +122,13 @@ class BookDoctor:
                         if not parsed_yaml:
                             record_issue(p_str, f"❌ LEERES FRONTMATTER in {display_name}: Der YAML-Block ist leer.", line_number=1)
                         else:
-                            if 'title' not in parsed_yaml:
-                                record_issue(p_str, f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'title' fehlt im Frontmatter.", line_number=1)
-                            if 'description' not in parsed_yaml:
-                                record_issue(p_str, f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld 'description' fehlt im Frontmatter.", line_number=1)
+                            for field_name in required_field_names:
+                                if field_name not in parsed_yaml:
+                                    record_issue(
+                                        p_str,
+                                        f"❌ FEHLENDES FELD in {display_name}: Das Pflichtfeld '{field_name}' fehlt im Frontmatter.",
+                                        line_number=1,
+                                    )
 
                     except yaml.YAMLError as exc:
                         line_number = None
