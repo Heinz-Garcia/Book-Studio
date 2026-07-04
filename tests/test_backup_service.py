@@ -121,6 +121,37 @@ def test_resolve_absolute_custom_path_is_unaffected(tmp_path):
 # --- default_sanitizer_backup_dir_for ------------------------------------
 
 
+def test_resolve_falls_back_when_custom_path_not_usable(tmp_path):
+    book = tmp_path / "my_book"
+    book.mkdir()
+    readonly_parent = tmp_path / "readonly_parent"
+    readonly_parent.mkdir()
+    custom = readonly_parent / "backups"
+    readonly_parent.chmod(0o555)
+    try:
+        result, warning = BackupService.resolve_backup_base_dir_with_fallback(
+            book, str(custom)
+        )
+    finally:
+        readonly_parent.chmod(0o755)
+
+    expected = book.parent / f"{SANITIZER_BACKUP_DIR_PREFIX}{book.name}"
+    assert result == expected
+    assert warning is not None
+    assert "nicht nutzbar" in warning
+
+
+def test_resolve_custom_path_with_fallback_no_warning_when_usable(tmp_path):
+    book = tmp_path / "my_book"
+    book.mkdir()
+    custom = tmp_path / "backups"
+    result, warning = BackupService.resolve_backup_base_dir_with_fallback(
+        book, str(custom)
+    )
+    assert result == custom
+    assert warning is None
+
+
 def test_default_dir_uses_book_parent_and_name():
     book = Path("C:/books/my_book")
     result = BackupService.default_sanitizer_backup_dir_for(book)

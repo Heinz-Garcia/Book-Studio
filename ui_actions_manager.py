@@ -118,12 +118,11 @@ class UiActionsManager:
         legend_lines = [
             "📌 required",
             "🧭 Nur Gliederungspunkt",
-            "● Verwaiste Fußnoten",
             "↵ Seitenumbruch-Ende",
             "🖼 Fehlende Bilder",
             "☠ Buch-Doktor-Fehler",
             "📌/🧭 vor dem Titel",
-            "hinter den Titel ●/↵/🖼/☠",
+            "hinter den Titel ↵/🖼/☠",
         ]
         for line in legend_lines:
             tk.Label(

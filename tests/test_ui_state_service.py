@@ -64,9 +64,9 @@ def test_search_text_returns_empty_when_get_raises():
 
 
 def test_file_state_filter_returns_var_value():
-    studio = _make_studio(file_state_value="Verwaiste Fußnoten")
+    studio = _make_studio(file_state_value="Fehlende Bilder")
     svc = UiStateService(studio)
-    assert svc.file_state_filter == "Verwaiste Fußnoten"
+    assert svc.file_state_filter == "Fehlende Bilder"
 
 
 def test_file_state_filter_returns_default_when_get_raises():
@@ -128,31 +128,21 @@ def test_is_fulltext_false_for_none():
 
 
 def test_match_returns_true_for_default_filter():
-    state = {"orphan_footnotes": True, "pdf_pagebreak_end": False}
+    state = {"pdf_pagebreak_end": True, "missing_images": False}
     assert UiStateService.path_matches_file_state_filter(state, "Alle") is True
 
 
 def test_match_returns_true_for_none_filter():
-    state = {"orphan_footnotes": True}
+    state = {"pdf_pagebreak_end": True}
     assert UiStateService.path_matches_file_state_filter(state, None) is True
 
 
-def test_match_orphan_filter_true_when_flag_set():
-    state = {"orphan_footnotes": True}
-    assert UiStateService.path_matches_file_state_filter(state, "Verwaiste Fußnoten") is True
+def test_match_pagebreak_filter_false_when_state_empty():
+    assert UiStateService.path_matches_file_state_filter({}, "PDF-Seitenumbruch am Dateiende") is False
 
 
-def test_match_orphan_filter_false_when_flag_unset():
-    state = {"orphan_footnotes": False}
-    assert UiStateService.path_matches_file_state_filter(state, "Verwaiste Fußnoten") is False
-
-
-def test_match_orphan_filter_false_when_state_empty():
-    assert UiStateService.path_matches_file_state_filter({}, "Verwaiste Fußnoten") is False
-
-
-def test_match_orphan_filter_false_when_state_none():
-    assert UiStateService.path_matches_file_state_filter(None, "Verwaiste Fußnoten") is False
+def test_match_pagebreak_filter_false_when_state_none():
+    assert UiStateService.path_matches_file_state_filter(None, "PDF-Seitenumbruch am Dateiende") is False
 
 
 def test_match_pagebreak_filter_true_when_flag_set():
@@ -177,7 +167,7 @@ def test_match_missing_images_filter_false_when_flag_unset():
 
 def test_match_unknown_filter_value_returns_true():
     """Rueckfall auf das alte Verhalten: unbekannte Filter passieren alle."""
-    state = {"orphan_footnotes": True}
+    state = {"pdf_pagebreak_end": True}
     assert UiStateService.path_matches_file_state_filter(state, "Unbekannter Filter") is True
 
 
@@ -318,8 +308,8 @@ def test_evaluate_node_visibility_state_filter():
         target_status="Alle",
         actual_status="x",
         path="x.md",
-        file_state={"orphan_footnotes": True},
-        file_state_filter="Verwaiste Fußnoten",
+        file_state={"pdf_pagebreak_end": True},
+        file_state_filter="PDF-Seitenumbruch am Dateiende",
         search_term="",
         is_fulltext=False,
         child_visible=False,
@@ -334,8 +324,8 @@ def test_evaluate_node_visibility_state_filter_mismatch():
         target_status="Alle",
         actual_status="x",
         path="x.md",
-        file_state={"orphan_footnotes": False},
-        file_state_filter="Verwaiste Fußnoten",
+        file_state={"pdf_pagebreak_end": False},
+        file_state_filter="PDF-Seitenumbruch am Dateiende",
         search_term="",
         is_fulltext=False,
         child_visible=False,
@@ -465,8 +455,8 @@ def test_build_left_list_entries_applies_state_filter():
     out = UiStateService.build_left_list_entries(
         title_reg,
         [],
-        file_state_filter="Verwaiste Fußnoten",
-        file_state_for_path=lambda p: {"orphan_footnotes": p == "a.md"},
+        file_state_filter="Fehlende Bilder",
+        file_state_for_path=lambda p: {"missing_images": p == "a.md"},
     )
     assert out == [("a.md", "A")]
 
@@ -477,7 +467,7 @@ def test_build_left_list_entries_no_state_filter():
         title_reg,
         [],
         file_state_filter="Alle",
-        file_state_for_path=lambda p: {"orphan_footnotes": False},
+        file_state_for_path=lambda p: {"missing_images": False},
     )
     assert len(out) == 2
 

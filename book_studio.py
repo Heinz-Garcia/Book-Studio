@@ -805,7 +805,6 @@ class BookStudio:
 
         for path in self.title_registry.keys():
             state = {
-                "orphan_footnotes": False,
                 "pdf_pagebreak_end": False,
                 "missing_images": False,
                 "missing_images_count": 0,
@@ -828,9 +827,6 @@ class BookStudio:
                 registry[path] = state
                 continue
 
-            markers = set(re.findall(r'\[\^([^\]]+)\](?!:)', text))
-            definitions = set(re.findall(r'^\s*(?:\[cite_start\]\s*)?\[\^([^\]]+)\]:', text, re.MULTILINE))
-            state["orphan_footnotes"] = bool(markers - definitions)
             state["pdf_pagebreak_end"] = any(pattern.search(text) for pattern in pagebreak_patterns)
             missing_image_refs = find_missing_image_refs(text, abs_path, self.current_book)
             missing_images = [target for _, target in missing_image_refs]
@@ -851,13 +847,7 @@ class BookStudio:
 
     def _state_tags_for_path(self, path):
         state = self.file_state_registry.get(path, {})
-        has_orphan = bool(state.get("orphan_footnotes"))
-        has_pagebreak = bool(state.get("pdf_pagebreak_end"))
-        if has_orphan and has_pagebreak:
-            return ("state_both",)
-        if has_orphan:
-            return ("state_orphan",)
-        if has_pagebreak:
+        if bool(state.get("pdf_pagebreak_end")):
             return ("state_pagebreak",)
         return ()
 
@@ -868,14 +858,11 @@ class BookStudio:
 
     def _status_code_for_path(self, path):
         state = self.file_state_registry.get(path, {})
-        has_orphan = bool(state.get("orphan_footnotes"))
         has_pagebreak = bool(state.get("pdf_pagebreak_end"))
         has_missing_images = bool(state.get("missing_images"))
         has_doctor_issue = path in self.doctor_issue_registry
 
         status_codes = []
-        if has_orphan:
-            status_codes.append("●")
         if has_pagebreak:
             status_codes.append("↵")
         if has_missing_images:
@@ -894,8 +881,6 @@ class BookStudio:
 
         state = self.file_state_registry.get(path, {})
         suffixes = []
-        if state.get("orphan_footnotes"):
-            suffixes.append("●")
         if state.get("pdf_pagebreak_end"):
             suffixes.append("↵")
         if state.get("missing_images"):
@@ -1120,7 +1105,7 @@ class BookStudio:
         self.file_state_filter_box = ttk.Combobox(
             search_f,
             textvariable=self.file_state_filter_var,
-            values=["Alle", "Verwaiste Fußnoten", "PDF-Seitenumbruch am Dateiende", "Fehlende Bilder"],
+            values=["Alle", "PDF-Seitenumbruch am Dateiende", "Fehlende Bilder"],
             state="readonly",
             width=30,
         )
@@ -1131,9 +1116,7 @@ class BookStudio:
 
         self.list_avail = ttk.Treeview(l_frame, selectmode="extended", show="tree")
         self.list_avail.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.list_avail.tag_configure('state_orphan', foreground=COLORS["marker_orphan"])
         self.list_avail.tag_configure('state_pagebreak', foreground=COLORS["marker_pagebreak"])
-        self.list_avail.tag_configure('state_both', foreground=COLORS["marker_both"])
         sl = tk.Scrollbar(l_frame, command=self.list_avail.yview)
         sl.pack(side=tk.RIGHT, fill=tk.Y)
         self.list_avail.config(yscrollcommand=sl.set)
@@ -1178,9 +1161,7 @@ class BookStudio:
         # NEU: Farben (Tags) für den Filter definieren
         self.tree_book.tag_configure('dimmed', foreground=COLORS["dimmed_row"])
         self.tree_book.tag_configure('normal', foreground='black')
-        self.tree_book.tag_configure('state_orphan', foreground=COLORS["marker_orphan"])
         self.tree_book.tag_configure('state_pagebreak', foreground=COLORS["marker_pagebreak"])
-        self.tree_book.tag_configure('state_both', foreground=COLORS["marker_both"])
         
         sr = tk.Scrollbar(r_frame, command=self.tree_book.yview)
         sr.pack(side=tk.RIGHT, fill=tk.Y)
@@ -2622,11 +2603,15 @@ class BookStudio:
         except (OSError, TypeError, ValueError) as e:
             self.log(f"⚠️  Konnte App-Config für Sanitizer-Backup nicht lesen: {e}", _LogLevel.WARNING)
             custom_path = None
-        backup_base_dir = self._services.backup.resolve_backup_base_dir(
-            self.current_book, custom_path
+        backup_base_dir, backup_path_warning = (
+            self._services.backup.resolve_backup_base_dir_with_fallback(
+                self.current_book, custom_path
+            )
         )
         if backup_base_dir is None:
             return  # current_book fehlt; sollte nicht passieren, aber defensiv.
+        if backup_path_warning:
+            self.log(f"⚠️ {backup_path_warning}", _LogLevel.WARNING)
 
         # 2. Zeitstempel-Ordnernamen generieren (Format: DDMMYY_HHMM)
         timestamp = self._services.backup.compute_backup_timestamp()

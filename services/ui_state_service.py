@@ -153,14 +153,11 @@ class UiStateService:
             return True
         if not file_state:
             if filter_value in (
-                "Verwaiste Fußnoten",
                 "PDF-Seitenumbruch am Dateiende",
                 "Fehlende Bilder",
             ):
                 return False
             return True
-        if filter_value == "Verwaiste Fußnoten":
-            return bool(file_state.get("orphan_footnotes"))
         if filter_value == "PDF-Seitenumbruch am Dateiende":
             return bool(file_state.get("pdf_pagebreak_end"))
         if filter_value == "Fehlende Bilder":
