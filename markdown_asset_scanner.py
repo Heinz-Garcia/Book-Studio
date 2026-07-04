@@ -9,6 +9,20 @@ _REF_DEF_PATTERN = re.compile(r"^\s*\[([^\]]+)\]:\s*(.+?)\s*$", re.MULTILINE)
 _URL_SCHEME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
 
+def _is_windows_drive_path(target: str) -> bool:
+    """Erkennt Windows-Laufwerkspfade (``C:\\...`` oder ``C:/...``).
+
+    Diese dürfen nicht fälschlich als URL-Schema (``C:``) klassifiziert werden.
+    """
+    if len(target) < 2 or target[1] != ":":
+        return False
+    if not target[0].isalpha():
+        return False
+    if len(target) == 2:
+        return True
+    return target[2] in ("/", "\\")
+
+
 def _extract_target(raw_target):
     target = str(raw_target or "").strip()
     if not target:
@@ -33,6 +47,8 @@ def _is_local_asset_target(target):
     lower = target.lower()
     if lower.startswith(("http://", "https://", "data:", "mailto:")):
         return False
+    if _is_windows_drive_path(target):
+        return True
     if _URL_SCHEME_PATTERN.match(target):
         return False
     return True
@@ -65,8 +81,8 @@ def collect_image_targets(markdown_text):
         if target:
             targets.append(target)
 
-    for raw_ref in _REF_IMAGE_PATTERN.findall(text):
-        ref_name = raw_ref.strip().lower()
+    for alt_text, raw_ref in _REF_IMAGE_PATTERN.findall(text):
+        ref_name = raw_ref.strip().lower() or alt_text.strip().lower()
         if not ref_name:
             continue
         target = reference_map.get(ref_name, "")

@@ -1,9 +1,21 @@
 import json
+import logging
 import tkinter as tk
+
+import session_state as _session_state_service
+from services.book_session_service import sanitize_profile_name
+
+logger = logging.getLogger(__name__)
 
 
 class SessionManager:
-    """Manages session state: persisting and restoring book, profile, UI, and filter state."""
+    """Manages session state: persisting and restoring book, profile, UI, and filter state.
+
+    B5: Persistenz wurde in den `session_state`-Service ausgelagert. Diese
+    Klasse liest/schreibt jetzt nur noch `session_state.json`. Das alte
+    Verhalten (im `studio_config.json["session_state"]`-Block) ist
+    dokumentationshalber im Doc-String erwähnt, aber nicht mehr aktiv.
+    """
 
     def __init__(self, studio):
         self.studio = studio
@@ -12,7 +24,16 @@ class SessionManager:
     # LOAD / SAVE
     # =========================================================================
     def load(self) -> dict:
+        # B5: liest aus `session_state.json`. Fallback: prüft
+        # `studio_config.json["session_state"]` für abwärtskompatible
+        # Erstausführung, falls die Migration noch nicht gelaufen ist.
         try:
+            session_path = getattr(self.studio, "_session_state_path", None)
+            if session_path is not None:
+                state = _session_state_service.read_session_state(session_path)
+                if state:
+                    return state
+            # Fallback: alte Position
             cfg = self.studio.read_config()
             state = cfg.get("session_state", {})
             return state if isinstance(state, dict) else {}
@@ -28,23 +49,38 @@ class SessionManager:
 
     def save(self):
         try:
-            cfg = self.studio.read_config()
+            session_path = getattr(self.studio, "_session_state_path", None)
+            if session_path is None:
+                return
             studio = self.studio
             active_book_path = None
             active_book_name = None
             if studio.current_book:
                 active_book_path = self.book_key(studio.current_book)
                 active_book_name = studio.current_book.name
-            cfg["session_state"] = {
+            payload = {
                 "active_book_path": active_book_path,
                 "active_book_name": active_book_name,
                 "current_profile_name": studio.current_profile_name,
                 "export_options": dict(studio.last_export_options),
                 "ui_state": self._collect_ui_state(),
             }
-            studio.write_config(cfg)
-        except (OSError, TypeError, ValueError):
-            pass
+            # Bestehende `window_geometry` im ui_state erhalten.
+            existing = _session_state_service.read_session_state(session_path)
+            existing_ui = existing.get("ui_state") if isinstance(existing, dict) else None
+            if isinstance(existing_ui, dict) and "window_geometry" in existing_ui:
+                payload.setdefault("ui_state", {})["window_geometry"] = existing_ui["window_geometry"]
+            _session_state_service.write_session_state(session_path, payload)
+        except (OSError, TypeError, ValueError) as error:
+            # B-Fix (Code-Review 2026-07-03): Fehler wurden bisher komplett
+            # verschluckt - die Sitzung ging ohne jeden Hinweis verloren.
+            # Jetzt zumindest als Warnung geloggt (ueber `BookStudio`, falls
+            # verfuegbar, sonst ueber den Modul-Logger).
+            report = getattr(self.studio, "_report_nonfatal_error", None)
+            if callable(report):
+                report("Sitzung konnte nicht gespeichert werden", error)
+            else:
+                logger.warning("Sitzung konnte nicht gespeichert werden: %s", error)
 
     # =========================================================================
     # UI STATE COLLECTION
@@ -205,9 +241,14 @@ class SessionManager:
         if isinstance(export_options, dict):
             studio.last_export_options.update(export_options)
 
-        profile_name = session_state.get("current_profile_name")
-        if profile_name and studio.current_book:
-            profile_path = studio.current_book / "bookconfig" / f"{profile_name}.json"
+        # B-Fix (Code-Review 2026-07-03): `current_profile_name` stammt aus
+        # der (potenziell manipulierten) `session_state.json`. Ohne
+        # Validierung koennte ein Profilname mit `..`-Segmenten aus
+        # `bookconfig/` herausfuehren und eine beliebige JSON-Datei als
+        # Profil laden.
+        safe_profile_name = sanitize_profile_name(session_state.get("current_profile_name"))
+        if safe_profile_name and studio.current_book:
+            profile_path = studio.current_book / "bookconfig" / f"{safe_profile_name}.json"
             if profile_path.exists():
                 studio.load_profile_from_file(profile_path, show_message=False, track_undo=False)
 

@@ -42,6 +42,25 @@ COLORS = {
     "menu_active_bg": "#dbeafe",
     "menu_active_fg": "#0f172a",
     "menu_border": "#cbd5e1",
+    # B9: zusätzliche semantische Aliase, die historisch hartkodiert in
+    # `book_studio.py` und `export_manager.py` vorkamen. Wird vom
+    # `StatusFg`-Helper in `services.constants` referenziert.
+    "warning_alt": "#f59e0b",
+    "neutral": "#64748b",
+    "neutral_muted": "#95a5a6",
+    "danger_strong": "#b91c1c",
+    "neutral_panel": "#f8fafc",
+    "accent_warm": "#fbbf24",
+    "text_label": "#475569",
+    "auto_heal": "#d35400",
+    "metadata_load": "#f1c40f",
+    "marker_orphan": "#ff6a00",
+    "marker_pagebreak": "#004dff",
+    "marker_both": "#b000ff",
+    "dimmed_row": "#bdc3c7",
+    "surface_fg": "#f8fafc",
+    "tree_heading_hover": "#e2e8f0",
+    "tree_selected_fg": "#0f172a",
 }
 
 FONTS = {
@@ -63,7 +82,18 @@ def configure_root(root):
 
 def apply_ttk_theme(style, sv_ttk=None):
     if sv_ttk is not None:
-        sv_ttk.set_theme("light")
+        try:
+            sv_ttk.set_theme("light")
+        except (OSError, RuntimeError, tk.TclError) as exc:
+            # sv_ttk kann auf manchen Setups (z. B. Windows mit
+            # bestimmten Pfad-Laengen) nicht geladen werden. Wir
+            # fallen lautlos auf das clam-Theme zurueck, statt die
+            # App zu blockieren.
+            try:
+                style.theme_use("clam")
+            except tk.TclError:
+                pass
+            return
     else:
         style.theme_use("clam")
 
@@ -160,8 +190,8 @@ def apply_ttk_theme(style, sv_ttk=None):
         relief="flat",
         padding=6,
     )
-    style.map("Treeview", background=[("selected", COLORS["accent_soft"])], foreground=[("selected", "#0f172a")])
-    style.map("Treeview.Heading", background=[("active", "#e2e8f0")])
+    style.map("Treeview", background=[("selected", COLORS["accent_soft"])], foreground=[("selected", COLORS["tree_selected_fg"])])
+    style.map("Treeview.Heading", background=[("active", COLORS["tree_heading_hover"])])
 
 
 def style_dialog(window, title=None):

@@ -16,7 +16,7 @@ class ExportDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
 
-        w, h = 460, 250
+        w, h = 460, 220
         center_on_parent(self, parent, w, h)
 
         self.result = None
@@ -25,23 +25,20 @@ class ExportDialog(tk.Toplevel):
 
         initial_format = self.initial.get("format", "typst")
         initial_template = self.initial.get("template", self.templates[0])
-        initial_footnote_mode = self.initial.get("footnote_mode", "endnotes")
 
         if initial_template not in self.templates:
             initial_template = self.templates[0]
 
         self.format_var = tk.StringVar(value=initial_format)
         self.template_var = tk.StringVar(value=initial_template)
-        self.footnote_var = tk.StringVar(value=initial_footnote_mode)
+        # B4: Footnote-Auswahl entfernt — das Fußnoten-System ist abgeschaltet.
         self._initial_values = {
             "format": initial_format,
             "template": initial_template,
-            "footnote_mode": initial_footnote_mode,
         }
 
         self.format_var.trace_add("write", self._on_field_changed)
         self.template_var.trace_add("write", self._on_field_changed)
-        self.footnote_var.trace_add("write", self._on_field_changed)
 
         self._build_ui()
         self._dirty_controller.capture_initial(self._initial_values)
@@ -71,17 +68,8 @@ class ExportDialog(tk.Toplevel):
             width=22,
         ).grid(row=2, column=1, sticky="w", pady=6)
 
-        ttk.Label(wrapper, text="Noten:").grid(row=3, column=0, sticky="w", pady=6)
-        ttk.Combobox(
-            wrapper,
-            textvariable=self.footnote_var,
-            values=["footnotes", "endnotes", "pandoc"],
-            state="readonly",
-            width=22,
-        ).grid(row=3, column=1, sticky="w", pady=6)
-
         button_row = ttk.Frame(wrapper)
-        button_row.grid(row=4, column=0, columnspan=2, sticky="e", pady=(18, 0))
+        button_row.grid(row=3, column=0, columnspan=2, sticky="e", pady=(18, 0))
 
         ttk.Button(button_row, text="Abbrechen", style="Tool.TButton", command=self._cancel).pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Button(button_row, text="Export starten", style="Accent.TButton", command=self._confirm).pack(side=tk.RIGHT)
@@ -92,7 +80,6 @@ class ExportDialog(tk.Toplevel):
         self.result = {
             "format": self.format_var.get(),
             "template": self.template_var.get(),
-            "footnote_mode": self.footnote_var.get(),
         }
         self.destroy()
 
@@ -100,7 +87,6 @@ class ExportDialog(tk.Toplevel):
         return {
             "format": self.format_var.get(),
             "template": self.template_var.get(),
-            "footnote_mode": self.footnote_var.get(),
         }
 
     def _on_field_changed(self, *_args):

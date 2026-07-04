@@ -3,19 +3,28 @@ from tkinter import messagebox, filedialog
 import subprocess
 import threading
 import re
-import os
 import sys
 import platform
-import json
+import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
 from pre_processor import PreProcessor
 from export_dialog import ExportDialog
+from frontmatter_parser import parse as fm_parse
+from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues
+from services.studio_adapter import StudioAdapter
+from services.constants import StatusFg as _StatusFg
+from services.render_service import RenderService as _RenderService
+
 
 class ExportManager:
     def __init__(self, studio):
         self.studio = studio
+        # B8: zentraler Studio-Adapter – ersetzt die verstreuten
+        # `getattr(self.studio, …)`-Delegations.
+        self._adapter = StudioAdapter(studio)
         self._processed_label_occurrences = {}
         self._processed_colon_occurrences = []
         self._logged_missing_labels = set()
@@ -24,98 +33,150 @@ class ExportManager:
         self._active_render_log_path = None
 
     def _log(self, message, level="info"):
-        self.studio.log(message, level)
+        self._adapter.log(message, level)
 
     def _current_book(self):
-        getter = getattr(self.studio, "get_current_book", None)
-        if callable(getter):
-            return getter()
-        return getattr(self.studio, "current_book", None)
+        return self._adapter.current_book
 
     def _current_profile_name(self):
-        getter = getattr(self.studio, "get_current_profile_name", None)
-        if callable(getter):
-            return getter()
-        return getattr(self.studio, "current_profile_name", None)
+        return self._adapter.current_profile_name
 
     def _title_for_path(self, source_path):
-        getter = getattr(self.studio, "get_title_for_path", None)
-        if callable(getter):
-            return getter(source_path)
-        title_registry = getattr(self.studio, "title_registry", {}) or {}
-        return title_registry.get(source_path, Path(source_path).name)
+        return self._adapter.title_for_path(source_path)
 
     def _root(self):
-        return getattr(self.studio, "root", None)
+        return self._adapter.root
 
     def _after(self, delay, callback):
-        scheduler = getattr(self.studio, "schedule_ui", None)
-        if callable(scheduler):
-            return scheduler(callback, delay=delay)
-        root = self._root()
-        if root is not None and hasattr(root, "after"):
-            return root.after(delay, callback)
-        return callback()
+        return self._adapter.schedule_ui(callback, delay=delay)
 
     def _set_status(self, text, fg):
-        updater = getattr(self.studio, "update_status", None)
-        if callable(updater):
-            updater(text, fg)
-            return
-        status = getattr(self.studio, "status", None)
-        if status is not None and hasattr(status, "config"):
-            status.config(text=text, fg=fg)
+        self._adapter.update_status(text, fg)
 
     def _copy_to_clipboard(self, text):
-        copier = getattr(self.studio, "copy_text_to_clipboard", None)
-        if callable(copier):
-            copier(text)
-            return
-        root = self._root()
-        if root is None:
-            return
-        root.clipboard_clear()
-        root.clipboard_append(text)
+        self._adapter.copy_text_to_clipboard(text)
 
     def _available_templates(self):
-        getter = getattr(self.studio, "get_available_templates", None)
-        if callable(getter):
-            return getter() or ["Standard"]
-        return getattr(self.studio, "available_templates", None) or ["Standard"]
+        return self._adapter.available_templates
 
     def _last_export_options(self):
-        getter = getattr(self.studio, "get_last_export_options", None)
-        if callable(getter):
-            return getter() or {}
-        return getattr(self.studio, "last_export_options", {})
+        return self._adapter.last_export_options
 
     def _set_last_export_options(self, selected):
-        setter = getattr(self.studio, "set_last_export_options", None)
-        if callable(setter):
-            setter(selected)
-            return
-        self.studio.last_export_options = dict(selected)
+        self._adapter.set_last_export_options(selected)
 
     def _persist_app_state(self):
-        persist = getattr(self.studio, "persist_app_state", None)
-        if callable(persist):
-            persist()
+        self._adapter.persist_app_state()
 
     def _get_tree_data_for_engine(self):
-        getter = getattr(self.studio, "get_tree_data_for_engine", None)
-        return getter() if callable(getter) else []
+        return list(self._adapter.get_tree_data_for_engine())
 
     def _run_doctor_preflight(self, context_label, emit_success_log=False):
-        runner = getattr(self.studio, "run_doctor_preflight", None)
-        if callable(runner):
-            return runner(context_label, emit_success_log=emit_success_log)
-        return False, None
+        return self._adapter.run_doctor_preflight(
+            context_label, emit_success_log=emit_success_log
+        )
 
     def _save_project(self, show_msg=False, run_doctor_check=False):
-        saver = getattr(self.studio, "save_project", None)
-        if callable(saver):
-            return saver(show_msg=show_msg, run_doctor_check=run_doctor_check)
-        return False
+        return self._adapter.save_project(
+            show_msg=show_msg, run_doctor_check=run_doctor_check
+        )
+
+    # --- B1: Pre-Processing in isoliertem Temp-Klon (Bug R1) ---------------
+    def _run_processed_preflight_analysis(self, target_fmt: str):
+        """Führt Pre-Processing + alle darauf aufbauenden Preflight-Analysen
+        (Fenced-Div-Fehler, Label-Vorkommen, Doppelpunkt-Vorkommen) auf einer
+        isolierten Buch-Kopie aus — **während diese Kopie noch existiert**.
+
+        Vorher (Bug R1) lief `PreProcessor.prepare_render_environment` direkt
+        auf `self._current_book()` und hinterließ dort ein `processed/`-
+        Verzeichnis sowie ggf. modifizierte Markdown-Dateien. Das wurde durch
+        eine Ausführung in einem `TemporaryDirectory` behoben.
+
+        Bug R2 (2026-07-03): Der `processed_tree` wurde dabei erst
+        *nach* dem `with tempfile.TemporaryDirectory(...)`-Block
+        zurückgegeben — die Kopie war zu diesem Zeitpunkt bereits gelöscht.
+        Die Analyse-Methoden lasen die "processed/"-Dateien anschließend vom
+        Original-Buchordner, der laut Design nie einen `processed/`-Ordner
+        besitzt. Der komplette Preflight lief dadurch faktisch immer ohne
+        Befund durch. Diese Methode führt Pre-Processing UND Analyse jetzt
+        gemeinsam innerhalb des `with`-Blocks aus, bevor die Kopie entsorgt
+        wird.
+
+        B4: Footnote-Parameter (`footnote_mode`, `enable_footnote_backlinks`)
+        wurden entfernt — das Fußnoten-System ist abgeschaltet.
+
+        Returns:
+            `None` bei Pre-Processing-Fehler (bereits geloggt), sonst ein
+            Dict mit `processed_tree`, `fenced_div_findings`,
+            `label_occurrences` und `colon_occurrences`.
+        """
+        book = self._current_book()
+        if not book:
+            return None
+        with tempfile.TemporaryDirectory(prefix="bs_preproc_") as tmp:
+            tmp_book = Path(tmp) / book.name
+            shutil.copytree(book, tmp_book)
+            try:
+                processor = PreProcessor(
+                    tmp_book,
+                    output_format=target_fmt,
+                )
+                original_tree = self._get_tree_data_for_engine()
+                processed_tree = processor.prepare_render_environment(original_tree)
+            except (OSError, RuntimeError, TypeError, ValueError, KeyError) as exc:
+                self._log(f"⚠️  Pre-Processing fehlgeschlagen: {exc}", "error")
+                return None
+
+            # Wichtig: alle drei Analysen laufen noch INNERHALB des
+            # `with`-Blocks gegen `tmp_book`, solange die Kopie (inkl.
+            # ihres "processed/"-Ordners) tatsächlich existiert.
+            return {
+                "processed_tree": processed_tree,
+                "fenced_div_findings": self.collect_processed_fenced_div_hits(
+                    processed_tree, book_root=tmp_book
+                ),
+                "label_occurrences": self.build_processed_label_occurrences(
+                    processed_tree, book_root=tmp_book
+                ),
+                "colon_occurrences": self.build_processed_colon_occurrences(
+                    processed_tree, book_root=tmp_book
+                ),
+            }
+
+    def _consume_orphan_warnings(self):
+        """B4-Stub: Lieferte früher Orphan-Footnote-Warnungen. Mit der
+        Abschaltung der Fußnoten-Verarbeitung immer eine leere Liste."""
+        return []
+
+    # --- B1: Suffix-Whitelist für `os.startfile` (Bug R3) ------------------
+    # Bekannte Render-Ergebnisse. Alles andere wird IGNORIERT — sonst
+    # könnten z. B. `poc.exe` oder kompromittierte `*.html`-Dateien mit
+    # dem Buch-Output vermischt und geöffnet werden.
+    _ALLOWED_RENDER_SUFFIXES: dict[str, set[str]] = {
+        "typst": {".pdf", ".typ"},
+        "pdf": {".pdf"},
+        "html": {".html"},
+        "epub": {".epub"},
+        "docx": {".docx"},
+    }
+    _DEFAULT_ALLOWED_SUFFIXES: set[str] = {".pdf", ".html", ".epub", ".docx"}
+
+    @classmethod
+    def _pick_rendered_artifact(cls, out_dir: Path, fmt: str):
+        """Wählt die erste Datei in `out_dir`, deren Suffix in der
+        Whitelist für `fmt` enthalten ist. Liefert `None`, falls keine
+        passende Datei gefunden wurde. **Es werden KEINE anderen
+        Suffixe geöffnet.**"""
+        if not out_dir or not out_dir.exists() or not out_dir.is_dir():
+            return None
+        allowed = cls._ALLOWED_RENDER_SUFFIXES.get(
+            (fmt or "").lower(), cls._DEFAULT_ALLOWED_SUFFIXES
+        )
+        candidates = sorted(
+            p for p in out_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in allowed
+        )
+        return candidates[0] if candidates else None
 
     def _read_config(self):
         reader = getattr(self.studio, "read_config", None)
@@ -129,6 +190,44 @@ class ExportManager:
             return getter()
         return getattr(self.studio, "yaml_engine", None)
 
+    def _get_used_paths_for_render(self):
+        getter = getattr(self.studio, "_get_all_used_paths", None)
+        if callable(getter):
+            return list(getter())
+        alt = getattr(self.studio, "get_all_used_paths", None)
+        if callable(alt):
+            return list(alt())
+        return []
+
+    def _prepare_book_for_render(self):
+        yaml_engine = self._yaml_engine()
+        prepare = getattr(yaml_engine, "prepare_book_for_render", None)
+        if not callable(prepare):
+            return []
+
+        changes = prepare(
+            self._get_used_paths_for_render(),
+            self._adapter.title_registry,
+        )
+        if not changes:
+            return changes
+
+        refresh = getattr(self.studio, "refresh_ui_titles", None)
+        if callable(refresh):
+            refresh()
+
+        guide = getattr(self.studio, "_guide_hint", None)
+        if callable(guide):
+            guide(
+                f"Ich habe {len(changes)} Datei(en) vor dem Rendern für dich vorbereitet "
+                "(fehlendes Frontmatter, versteckte '---' im Text)."
+            )
+
+        for rel_path, file_changes in changes:
+            for change in file_changes:
+                self._log(f"✨ Auto-Healing in {rel_path}: {change}", "info")
+        return changes
+
     def _write_active_render_log(self, message: str):
         handle = self._active_render_log_handle
         if handle is None:
@@ -139,16 +238,15 @@ class ExportManager:
         except OSError:
             return
 
-    def _start_render_log(self, target_fmt, selected_tpl, footnote_mode, enable_footnote_backlinks):
+    def _start_render_log(self, target_fmt, selected_tpl):
         current_book = self._current_book()
         if not current_book:
             return
 
         book_root = Path(current_book)
-        log_dir = book_root / "export" / "render_logs"
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_fmt = re.sub(r"[^A-Za-z0-9._-]", "_", str(target_fmt or "unknown"))
-        log_path = log_dir / f"render_{timestamp}_{safe_fmt}.log"
+        # Phase 2 / Schritt 2.3b: Log-Pfad-Berechnung im RenderService.
+        log_path = _RenderService.build_render_log_path(book_root, target_fmt)
+        log_dir = log_path.parent
 
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
@@ -166,8 +264,6 @@ class ExportManager:
         self._write_active_render_log(f"book={book_root}")
         self._write_active_render_log(f"format={target_fmt}")
         self._write_active_render_log(f"template={selected_tpl}")
-        self._write_active_render_log(f"footnote_mode={footnote_mode}")
-        self._write_active_render_log(f"footnote_backlinks={bool(enable_footnote_backlinks)}")
         self._write_active_render_log(f"profile={profile_name if profile_name else 'default'}")
         self._write_active_render_log("--- render output ---")
         self._log(f"🧾 Render-Log: {log_path}", "dim")
@@ -195,21 +291,19 @@ class ExportManager:
             self._log(f"🧾 Render-Log gespeichert: {path}", "dim")
 
     def _iter_tree_paths(self, tree_data):
-        for item in tree_data:
-            path = item.get("path")
-            if isinstance(path, str):
-                yield path
-            children = item.get("children") or []
-            if children:
-                yield from self._iter_tree_paths(children)
+        # Phase 2 / Schritt 2.3b: pure Generator-Funktion im Service.
+        yield from _RenderService.iter_tree_paths(tree_data)
 
-    def collect_processed_fenced_div_hits(self, processed_tree):
+    def collect_processed_fenced_div_hits(self, processed_tree, book_root=None):
         findings = []
-        current_book = self._current_book()
-        if not current_book:
-            return findings
+        if book_root is None:
+            current_book = self._current_book()
+            if not current_book:
+                return findings
+            book_root = Path(current_book)
+        else:
+            book_root = Path(book_root)
 
-        book_root = Path(current_book)
         for rel_path in self._iter_tree_paths(processed_tree):
             if not isinstance(rel_path, str) or not rel_path.lower().endswith(".md"):
                 continue
@@ -225,7 +319,7 @@ class ExportManager:
 
             issues = self._detect_fenced_div_issues(lines)
             for line_number, issue_kind in issues:
-                source_rel_path = rel_path[len("processed/") :] if rel_path.startswith("processed/") else rel_path
+                source_rel_path = _RenderService.extract_processed_source_path(rel_path)
                 findings.append(
                     {
                         "source_path": source_rel_path,
@@ -237,48 +331,19 @@ class ExportManager:
         return findings
 
     def _detect_fenced_div_issues(self, lines):
-        issues = []
-        stack = []
-        marker_pattern = re.compile(r'^\s*(:{3,})(\s*.*)$')
-        code_fence_pattern = re.compile(r'^\s*(```+|~~~+)')
-        in_code_block = False
+        """SSOT-Wrapper: ruft `quarto_block_parser.find_fenced_div_issues`
+        auf. Liefert `(line_number, kind)`-Tupel mit kanonischen
+        Issue-Kinds (siehe `quarto_block_parser.LEGACY_ISSUE_MESSAGES`).
+        """
+        body = "\n".join(lines)
+        issues = qb_find_fenced_div_issues(body, base_line_number=1)
+        return [(issue.line_number, issue.kind) for issue in issues]
 
-        for line_number, raw_line in enumerate(lines, start=1):
-            line = raw_line.rstrip("\r")
+    def log_processed_fenced_div_hits(self, processed_tree, book_root=None):
+        findings = self.collect_processed_fenced_div_hits(processed_tree, book_root=book_root)
+        return self._log_fenced_div_findings(findings)
 
-            if code_fence_pattern.match(line):
-                in_code_block = not in_code_block
-                continue
-            if in_code_block:
-                continue
-
-            marker_match = marker_pattern.match(line)
-            if marker_match:
-                colon_count = len(marker_match.group(1))
-                tail = marker_match.group(2).strip()
-                if tail:
-                    stack.append((colon_count, line_number))
-                else:
-                    if stack:
-                        top_colon_count, _top_line = stack[-1]
-                        if colon_count >= top_colon_count:
-                            stack.pop()
-                        else:
-                            issues.append((line_number, "mismatched-close"))
-                    else:
-                        issues.append((line_number, "orphan-close"))
-                continue
-
-            if ":::" in line:
-                issues.append((line_number, "inline"))
-
-        for _colon_count, open_line in stack:
-            issues.append((open_line, "unclosed-open"))
-
-        return issues
-
-    def log_processed_fenced_div_hits(self, processed_tree):
-        findings = self.collect_processed_fenced_div_hits(processed_tree)
+    def _log_fenced_div_findings(self, findings):
         if not findings:
             return False
 
@@ -335,14 +400,6 @@ class ExportManager:
             return default_value
         return bool(cfg.get("abort_on_first_render_colon_warning", default_value))
 
-    def should_enable_footnote_backlinks(self):
-        default_value = True
-        try:
-            cfg = self._read_config()
-        except (OSError, TypeError, ValueError):
-            return default_value
-        return bool(cfg.get("enable_footnote_backlinks", default_value))
-
     def is_raw_colon_warning_line(self, line: str):
         if not isinstance(line, str):
             return False
@@ -355,14 +412,17 @@ class ExportManager:
                 return True
         return False
 
-    def build_processed_label_occurrences(self, processed_tree):
+    def build_processed_label_occurrences(self, processed_tree, book_root=None):
         occurrences = {}
-        current_book = self._current_book()
-        if not current_book:
-            return occurrences
+        if book_root is None:
+            current_book = self._current_book()
+            if not current_book:
+                return occurrences
+            book_root = Path(current_book)
+        else:
+            book_root = Path(book_root)
 
         label_pattern = re.compile(r'@([A-Za-z0-9_-]+)(?:\[[^\]]*\])?')
-        book_root = Path(current_book)
 
         for rel_path in self._iter_tree_paths(processed_tree):
             if not isinstance(rel_path, str) or not rel_path.lower().endswith(".md"):
@@ -377,7 +437,7 @@ class ExportManager:
             except OSError:
                 continue
 
-            source_rel_path = rel_path[len("processed/") :] if rel_path.startswith("processed/") else rel_path
+            source_rel_path = _RenderService.extract_processed_source_path(rel_path)
             for line_number, raw_line in enumerate(lines, start=1):
                 for match in label_pattern.finditer(raw_line):
                     label = match.group(1)
@@ -385,14 +445,17 @@ class ExportManager:
 
         return occurrences
 
-    def build_processed_colon_occurrences(self, processed_tree):
+    def build_processed_colon_occurrences(self, processed_tree, book_root=None):
         structural_occurrences = []
         raw_occurrences = []
-        current_book = self._current_book()
-        if not current_book:
-            return structural_occurrences
+        if book_root is None:
+            current_book = self._current_book()
+            if not current_book:
+                return structural_occurrences
+            book_root = Path(current_book)
+        else:
+            book_root = Path(book_root)
 
-        book_root = Path(current_book)
         for rel_path in self._iter_tree_paths(processed_tree):
             if not isinstance(rel_path, str) or not rel_path.lower().endswith(".md"):
                 continue
@@ -406,7 +469,7 @@ class ExportManager:
             except OSError:
                 continue
 
-            source_rel_path = rel_path[len("processed/") :] if rel_path.startswith("processed/") else rel_path
+            source_rel_path = _RenderService.extract_processed_source_path(rel_path)
             structural_issues = self._detect_fenced_div_issues(lines)
             for line_number, issue_kind in structural_issues:
                 structural_occurrences.append(
@@ -662,9 +725,10 @@ class ExportManager:
                 if src.exists():
                     with open(src, 'r', encoding='utf-8') as f:
                         content = f.read()
-                        
-                    match = re.search(r'^---\s*\n.*?\n---\s*\n', content, re.DOTALL)
-                    body = content[match.end():] if match else content
+
+                    # B2/SSOT: Frontmatter-Split über `frontmatter_parser`.
+                    parts = fm_parse(content)
+                    body = parts.body if parts.has_frontmatter else content
                     
                     if level_offset > 0:
                         def shift_heading(m):
@@ -684,11 +748,17 @@ class ExportManager:
         if not self._current_book():
             return
 
+        self._prepare_book_for_render()
         is_healthy, analysis = self._run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
         if not is_healthy:
             if analysis is not None:
-                self._log("⛔ Rendern abgebrochen. Bitte behebe die markierten Dateien in der Buch-Struktur.", "error")
-            self._set_status("Render abgebrochen (Buch-Doktor-Befund)", "#e74c3c")
+                error_count = analysis.get("error_count", 0)
+                self._log(
+                    f"💡 Rendern pausiert: {error_count} Punkt(e) brauchen noch deine Aufmerksamkeit. "
+                    "F4 = nächster Fund, Enter = Datei öffnen.",
+                    "warning",
+                )
+            self._set_status("Render pausiert — siehe Hinweise im Log (F4)", _StatusFg.WARNING_ALT)
             return
 
         templates = self._available_templates()
@@ -705,196 +775,185 @@ class ExportManager:
         self._persist_app_state()
         
         if not self._save_project(show_msg=False, run_doctor_check=False):
-            self._set_status("Render abgebrochen (Speicherfehler)", "#e74c3c")
+            self._set_status("Render abgebrochen (Speicherfehler)", _StatusFg.DANGER)
             return
             
         base_fmt = selected["format"]
-        footnote_mode = selected["footnote_mode"]
         selected_tpl = selected["template"]
-        enable_footnote_backlinks = self.should_enable_footnote_backlinks()
-        
+
         # --- DIE NEUE EXTENSION-WEICHE ---
-        # --- DIE NEUE EXTENSION-WEICHE ---
-        target_fmt = base_fmt
-        extra_opts = None
-        
-        if selected_tpl.startswith("EXT: "):
-            # Es ist eine Quarto Extension (z.B. typstdoc)
-            ext_name = selected_tpl.replace("EXT: ", "").strip()
-            target_fmt = f"{ext_name}-{base_fmt}" 
-            
-            # NEU: Wir injizieren die wichtigsten Buch-Features (TOC, Nummerierung) 
-            # direkt in das Extension-Format!
-            extra_opts = {
-                target_fmt: {
-                    "toc": True,
-                    "toc-depth": 3,
-                    "number-sections": True,
-                    "section-numbering": "1.1.1" #
+        # Phase 2 / Schritt 2.3a: Format-Auflösung an RenderService delegiert.
+        # Logik lebt in `services/render_service.py::resolve_target_format`
+        # (pure Funktion, dort getestet).
+        render_service = getattr(self.studio, "_services", None)
+        render_service = getattr(render_service, "render", None) if render_service else None
+        if render_service is not None:
+            target_fmt, extra_opts = render_service.resolve_target_format(
+                base_fmt, selected_tpl
+            )
+        else:
+            # Phase 1 / B8-Fallback: Wenn der Studio-Service-Container fehlt
+            # (z. B. in einem Standalone-Export-Manager-Test), faellt die
+            # Logik auf die Inline-Implementierung zurueck.
+            target_fmt = base_fmt
+            extra_opts = None
+            if selected_tpl.startswith("EXT: "):
+                ext_name = selected_tpl.replace("EXT: ", "").strip()
+                target_fmt = f"{ext_name}-{base_fmt}"
+                extra_opts = {
+                    target_fmt: {
+                        "toc": True,
+                        "toc-depth": 3,
+                        "number-sections": True,
+                        "section-numbering": "1.1.1",
+                    }
                 }
-            }
-            
-        elif selected_tpl != "Standard":
-            # Es ist eine dumme lokale Datei in templates/
-            extra_opts = {base_fmt: {"template": f"templates/{selected_tpl}"}}
+            elif selected_tpl != "Standard":
+                extra_opts = {base_fmt: {"template": f"templates/{selected_tpl}"}}
         # ----------------------------------
-        
-        self._set_status(f"Rendere {target_fmt} (Pre-Processing)...", "#3498db")
-        
-        processor = PreProcessor(
-            self._current_book(),
-            footnote_mode=footnote_mode,
-            enable_footnote_backlinks=enable_footnote_backlinks,
-            output_format=target_fmt,
-        )
-        original_tree = self._get_tree_data_for_engine()
-        processed_tree = processor.prepare_render_environment(original_tree)
-        self._processed_label_occurrences = self.build_processed_label_occurrences(processed_tree)
-        self._processed_colon_occurrences = self.build_processed_colon_occurrences(processed_tree)
+
+        self._set_status(f"Rendere {target_fmt} (Pre-Processing)...", _StatusFg.INFO)
+
+        # B1/R1: Pre-Processing ausschließlich auf einer schreibgeschützten
+        # Spiegelung des Buchs in einem Temp-Verzeichnis. Das Original darf
+        # KEINEN `processed/`-Ordner und keine überschriebene `_quarto.yml`
+        # behalten — der eigentliche Render läuft anschließend in einer
+        # weiteren Temp-Kopie via quarto_render_safe.py.
+        preflight_analysis = self._run_processed_preflight_analysis(target_fmt=target_fmt)
+        if preflight_analysis is None:
+            self._set_status("Render abgebrochen (Pre-Processing-Fehler)", _StatusFg.DANGER)
+            return
+        self._processed_label_occurrences = preflight_analysis["label_occurrences"]
+        self._processed_colon_occurrences = preflight_analysis["colon_occurrences"]
         self._logged_missing_labels = set()
         self._logged_colon_warning_hint = False
-        has_processed_errors = self.log_processed_fenced_div_hits(processed_tree)
+        has_processed_errors = self._log_fenced_div_findings(
+            preflight_analysis["fenced_div_findings"]
+        )
         if has_processed_errors:
-            self._set_status("Render abgebrochen (erster Preflight-Fehler)", "#e74c3c")
+            self._set_status("Render abgebrochen (erster Preflight-Fehler)", _StatusFg.DANGER)
             return
 
-        # Verwaiste Fußnoten-Marker ins Log schreiben
-        if processor.harvester.orphan_warnings:
-            self._log("⚠️  Verwaiste Fußnoten-Marker (keine Definition gefunden):", "warning")
-            for file_key, label in processor.harvester.orphan_warnings:
-                rel = Path(file_key).name
-                self._log(f"   [{label}] in {rel}", "warning")
-        
+        # B4: Verwaiste Fußnoten-Marker-Log entfernt.
+
         self._log(f"{'='*50}", "dim")
         self._log(f"🖨️  EXPORT PIPELINE: {target_fmt.upper()}", "header")
         self._log(f"{'='*50}", "dim")
-        self._start_render_log(target_fmt, selected_tpl, footnote_mode, enable_footnote_backlinks)
+        self._start_render_log(target_fmt, selected_tpl)
 
+        # Phase 2 / Schritt 2.3c-Mini: Render-Orchestrierung im RenderService.
+        # Threading bleibt hier (UI-Lifecycle); die synchrone Orchestrierung
+        # (Pre-Log, Subprocess-Aufruf, Pfad-Auswahl, Finalize) ist im Service.
         def render_thread():
-            self._after(
-                0,
-                lambda: self._log(
-                    "🛡️ Render startet über sichere temporäre Kopie (processed + ORDER-kompatibel).",
-                    "dim",
-                ),
-            )
-            return_code, aborted_on_colon_warning = self._run_safe_render(
-                target_fmt,
-                footnote_mode,
-                enable_footnote_backlinks,
+            def on_failure(return_code):
+                # Status-Farbwert ist UI-Konzern (StatusFg-Enum); lebt hier.
+                self._after(
+                    0,
+                    lambda: self._set_status("Render fehlgeschlagen", _StatusFg.DANGER),
+                )
+
+            _RenderService.execute_render(
+                target_fmt=target_fmt,
                 profile_name=self._current_profile_name(),
                 extra_format_options=extra_opts,
+                run_safe_render=self._run_safe_render,
+                finalize_render_log=self._finalize_render_log,
+                handle_render_success=self._handle_render_success,
+                log_cb=self._log,
+                after_cb=self._after,
+                on_failure=on_failure,
             )
-
-            if aborted_on_colon_warning:
-                self._finalize_render_log("aborted_on_first_colon_warning", primary_returncode=return_code)
-                return
-
-            if return_code == 0:
-                self._finalize_render_log("success", primary_returncode=return_code)
-                self._handle_render_success(target_fmt)
-            else:
-                self._finalize_render_log("failed", primary_returncode=return_code)
-                self._after(0, lambda: self._log(f"❌ FEHLER: Code {return_code}", "error"))
-                self._after(0, lambda: self._set_status("Render fehlgeschlagen", "#e74c3c"))
 
         threading.Thread(target=render_thread, daemon=True).start()
 
-    def _run_safe_render(self, target_fmt, footnote_mode, enable_footnote_backlinks, profile_name=None, extra_format_options=None):
-        safe_script = Path(__file__).resolve().parent / "quarto_render_safe.py"
-        if not safe_script.exists():
-            self._after(0, lambda: self._log("❌ Fallback-Skript nicht gefunden: quarto_render_safe.py", "error"))
-            return 2, False
+    def _run_safe_render(self, target_fmt, profile_name=None, extra_format_options=None):
+        """Phase 2 / Schritt 2.3c: Duenne Delegation an RenderService.
 
-        cmd = [
-            sys.executable,
-            str(safe_script),
-            str(self._current_book()),
-            "--to",
-            target_fmt,
-            "--footnote-mode",
-            footnote_mode,
-            "--footnote-backlinks" if enable_footnote_backlinks else "--no-footnote-backlinks",
-        ]
-        if profile_name:
-            cmd.extend(["--profile-name", str(profile_name)])
-        if extra_format_options:
-            cmd.extend([
-                "--extra-format-options-json",
-                json.dumps(extra_format_options, ensure_ascii=False, separators=(",", ":")),
-            ])
-        self._write_active_render_log(f"safe_command={' '.join(str(part) for part in cmd)}")
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-        aborted_on_colon_warning = False
-        if proc.stdout is not None:
-            for line in proc.stdout:
-                stripped = line.rstrip()
-                if stripped:
-                    self._after(0, lambda ln=stripped: self._log_render_line(ln))
-                    if (
-                        self.is_raw_colon_warning_line(stripped)
-                        and self.should_abort_on_first_render_colon_warning()
-                        and self.has_structural_colon_occurrences()
-                    ):
-                        aborted_on_colon_warning = True
-                        try:
-                            proc.terminate()
-                        except OSError:
-                            pass
-                        self._after(
-                            0,
-                            lambda: self._log(
-                                "⛔ Render abgebrochen (Config): erster ':::'-Warnhinweis erkannt. Folgefehler werden bewusst unterdrückt.",
-                                "error",
-                            ),
-                        )
-                        self._after(
-                            0,
-                            lambda: self._set_status("Render abgebrochen (erster :::-Warnhinweis)", "#e74c3c"),
-                        )
-                        break
-        proc.wait()
-        return proc.returncode, aborted_on_colon_warning
+        Subprocess-Logik (Popen, Stream-Lesen, Abbruch-Erkennung) lebt
+        jetzt im Service. Diese Methode stellt nur noch die Studio-
+        Callbacks (Log, Status, Abort-UI) bereit und delegiert.
+        """
+        safe_script = Path(__file__).resolve().parent / "quarto_render_safe.py"
+
+        def _on_log_line(line):
+            # Phase 2 / 2.3c: Log-Zeile ins Studio (UI-Thread) + Render-Log-File.
+            self._after(0, lambda ln=line: self._log_render_line(ln))
+
+        def _on_abort_requested():
+            self._after(
+                0,
+                lambda: self._log(
+                    "⛔ Render abgebrochen (Config): erster ':::'-Warnhinweis erkannt. Folgefehler werden bewusst unterdrückt.",
+                    "error",
+                ),
+            )
+            self._after(
+                0,
+                lambda: self._set_status("Render abgebrochen (erster :::-Warnhinweis)", _StatusFg.DANGER),
+            )
+
+        def _on_safe_command_built(cmd):
+            try:
+                self._write_active_render_log(
+                    f"safe_command={' '.join(str(part) for part in cmd)}"
+                )
+            except Exception:
+                pass
+
+        return _RenderService().run_safe_render(
+            target_fmt=target_fmt,
+            profile_name=profile_name,
+            extra_format_options=extra_format_options,
+            book=self._current_book(),
+            safe_script=safe_script,
+            executable=sys.executable,
+            on_log_line=_on_log_line,
+            on_colon_warning=self.is_raw_colon_warning_line,
+            should_abort_on_colon_warning=self.should_abort_on_first_render_colon_warning,
+            has_structural_colon_occurrences=self.has_structural_colon_occurrences,
+            on_abort_requested=_on_abort_requested,
+            on_safe_command_built=_on_safe_command_built,
+        )
 
     # =========================================================================
     # HILFSFUNKTIONEN (Auto-Open & UI)
     # =========================================================================
     def _handle_render_success(self, fmt):
         try:
-            profile = self._current_profile_name()
-            safe_profile = re.sub(r'[^a-zA-Z0-9_\-]', '_', profile) if profile else None
-            out_dir_name = f"_book_{safe_profile}" if safe_profile else "_book"
-            out_dir = self._current_book() / "export" / out_dir_name
+            # Phase 2 / 2.3c voll: out_dir-Berechnung im RenderService.
+            out_dir = _RenderService.build_render_out_dir(
+                self._current_book(), self._current_profile_name()
+            )
 
-            ext = ".pdf" if "pdf" in fmt.lower() or "typst" in fmt.lower() else f".{fmt}"
-            found = list(out_dir.glob(f"*{ext}"))
+            # B1/R3: Nur whitelisted Suffixe öffnen, nicht alle `*{ext}`.
+            artifact = self._pick_rendered_artifact(out_dir, fmt)
 
-            if found:
-                abs_path = str(found[0].resolve())
+            if artifact is not None:
+                abs_path = str(artifact.resolve())
 
                 def _on_success(path=abs_path, output_fmt=fmt):
                     self._copy_to_clipboard(path)
                     self._log(f"✅ ERFOLG: {output_fmt.upper()} generiert!", "success")
                     self._log(f"📋 Pfad in Zwischenablage: {path}", "success")
-                    self._set_status("Render erfolgreich", "#2ecc71")
-                    if platform.system() == 'Windows':
-                        os.startfile(path)
-                    elif platform.system() == 'Darwin':
-                        subprocess.call(('open', path))
-                    else:
-                        subprocess.call(('xdg-open', path))
+                    self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
+                    # Phase 2 / 2.3c voll: OS-spezifischer Open im Service.
+                    _RenderService.open_rendered_artifact(path)
 
                 self._after(0, _on_success)
             else:
                 self._after(0, lambda: self._log(f"✅ ERFOLG: {fmt.upper()} im export/ Ordner generiert.", "success"))
-                self._after(0, lambda: self._set_status("Render erfolgreich", "#2ecc71"))
+                self._after(0, lambda: self._set_status("Render erfolgreich", _StatusFg.SUCCESS))
         except (tk.TclError, OSError, subprocess.SubprocessError) as post_err:
             self._after(0, lambda err=post_err: self._log(f"⚠️  Post-Render-Fehler: {err}", "warning"))
 
     def _open_folder_and_select(self, filepath):
         f_path = Path(filepath).resolve()
         if platform.system() == "Windows":
-            subprocess.Popen(f'explorer /select,"{f_path}"')
+            # B-Fix (Code-Review 2026-07-03): Liste statt manuell
+            # zusammengebautem String, damit Python (`list2cmdline`)
+            # das Quoting korrekt uebernimmt, statt selbst Anfuehrungs-
+            # zeichen in einen String einzubetten.
+            subprocess.Popen(["explorer", f"/select,{f_path}"])
         elif platform.system() == "Darwin":
             subprocess.Popen(["open", "-R", str(f_path)])
         else:

@@ -61,8 +61,12 @@ class PreviewInspector(tk.Toplevel):
         
     def _build_offset_matrix(self, data, current_level, report):
         for item in data:
-            title = item["title"]
-            path = item["path"]
+            # B-Fix (Code-Review 2026-07-03): `.get(...)` statt `[...]`,
+            # damit ein direkt (nicht ueber `_get_tree_data_for_engine()`)
+            # uebergebener `tree_data`-Baum ohne "title"-Schluessel nicht
+            # mit `KeyError` abstuerzt.
+            title = item.get("title", item.get("path", "?"))
+            path = item.get("path", "?")
             children = item.get("children", [])
             
             # Visuelle Einrückung für den Report

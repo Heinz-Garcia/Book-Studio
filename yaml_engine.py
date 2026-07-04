@@ -4,6 +4,13 @@ import json
 import logging
 from pathlib import Path
 
+import app_config as _app_config_service
+from frontmatter_parser import (
+    extract_field as fm_extract_field,
+    parse_file as fm_parse_file,
+    repair_hidden_yaml_dividers as fm_repair_hidden_yaml_dividers,
+)
+
 logger = logging.getLogger(__name__)
 
 class QuartoYamlEngine:
@@ -20,21 +27,18 @@ class QuartoYamlEngine:
         """Liest den Titel aus dem YAML-Frontmatter oder der ersten H1-Überschrift."""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
-                content = f.read(5000) # Nur den Anfang lesen
-            
-            # 1. Suche in YAML Frontmatter
-            match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL | re.MULTILINE)
-            if match:
-                frontmatter = match.group(1)
-                t_match = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', frontmatter, re.MULTILINE)
-                if t_match:
-                    return t_match.group(1).strip()
-            
+                content = f.read(5000)  # Nur den Anfang lesen
+
+            # 1. Suche in YAML Frontmatter (B2/SSOT)
+            title = fm_extract_field(content, "title")
+            if title:
+                return title
+
             # 2. Suche nach erster # Überschrift
             h1_match = re.search(r'^#\s+(.*)$', content, re.MULTILINE)
             if h1_match:
                 return h1_match.group(1).strip()
-            
+
             return None
         except (OSError, ValueError, TypeError):
             return None
@@ -76,12 +80,9 @@ class QuartoYamlEngine:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read(5000)
 
-            match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL | re.MULTILINE)
-            if match:
-                frontmatter = match.group(1)
-                role_match = re.search(r'^content_role:\s*["\']?(.*?)["\']?\s*$', frontmatter, re.MULTILINE)
-                if role_match:
-                    return role_match.group(1).strip().lower()
+            role = fm_extract_field(content, "content_role")
+            if role:
+                return role.lower()
             return None
         except (OSError, ValueError, TypeError):
             return None
@@ -105,13 +106,10 @@ class QuartoYamlEngine:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read(5000)
-            
-            match = re.search(r'^---\s*\n(.*?)\n---', content, re.DOTALL | re.MULTILINE)
-            if match:
-                frontmatter = match.group(1)
-                status_match = re.search(r'^status:\s*["\']?(.*?)["\']?\s*$', frontmatter, re.MULTILINE)
-                if status_match:
-                    return status_match.group(1).strip()
+
+            status = fm_extract_field(content, "status")
+            if status:
+                return status
             return "ohne Eintrag"
         except (OSError, ValueError, TypeError):
             return "ohne Eintrag"
@@ -131,7 +129,11 @@ class QuartoYamlEngine:
             return text
 
         filepath = Path(filepath)
-        config_path = Path(__file__).parent / "studio_config.json"
+        # B-Fix (Code-Review 2026-07-03): las bisher direkt die seit der
+        # B5-Migration veraltete `studio_config.json` und ignorierte
+        # dadurch alle App-Einstellungen aus `app_config.json`. SSOT ist
+        # jetzt `app_config.load_validated_config` (inkl. Defaults).
+        config_path = Path(__file__).parent / "app_config.json"
 
         required_fields = {
             "title": "<filename>",
@@ -140,18 +142,16 @@ class QuartoYamlEngine:
         }
         frontmatter_update_mode = "append_only"
 
-        if config_path.exists():
-            try:
-                with open(config_path, "r", encoding="utf-8") as c_f:
-                    config_data = json.load(c_f)
-                    required_fields = config_data.get(
-                        "frontmatter_requirements", required_fields
-                    )
-                    frontmatter_update_mode = str(
-                        config_data.get("frontmatter_update_mode", frontmatter_update_mode)
-                    ).strip().lower()
-            except (OSError, ValueError, TypeError) as e:
-                logger.warning("Fehler beim Lesen der studio_config.json: %s", e)
+        try:
+            config_data = _app_config_service.load_validated_config(config_path)
+            required_fields = config_data.get(
+                "frontmatter_requirements", required_fields
+            )
+            frontmatter_update_mode = str(
+                config_data.get("frontmatter_update_mode", frontmatter_update_mode)
+            ).strip().lower()
+        except (OSError, ValueError, TypeError) as e:
+            logger.warning("Fehler beim Lesen der app_config.json: %s", e)
 
         try:
             with open(filepath, "r", encoding="utf-8") as f:
@@ -290,6 +290,51 @@ class QuartoYamlEngine:
         except (OSError, ValueError, TypeError) as e:
             logger.warning("Fehler beim Auto-Healing für %s: %s", filepath, e)
             return False
+
+    def prepare_file_for_render(self, filepath, fallback_title=None):
+        """Auto-Healing vor Render: Pflicht-Frontmatter und versteckte ``---`` im Body."""
+        filepath = Path(filepath)
+        changes = []
+
+        if self.ensure_required_frontmatter(filepath, fallback_title):
+            changes.append("Pflicht-Frontmatter ergänzt")
+
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            new_content, repaired = fm_repair_hidden_yaml_dividers(content)
+            if repaired:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                changes.append("Versteckte '---' im Text durch '***' ersetzt")
+        except (OSError, ValueError, TypeError) as e:
+            logger.warning("Fehler beim Render-Auto-Healing für %s: %s", filepath, e)
+
+        return changes
+
+    def prepare_book_for_render(self, used_paths, title_registry=None):
+        """Bereitet alle relevanten Markdown-Dateien vor dem Render-Preflight vor."""
+        title_registry = title_registry or {}
+        ordered_paths = list(dict.fromkeys(["index.md", *list(used_paths or [])]))
+        results = []
+
+        for rel_path in ordered_paths:
+            if not str(rel_path).lower().endswith(".md"):
+                continue
+            full_path = self.book_path / rel_path
+            if not full_path.exists():
+                continue
+
+            fallback_title = title_registry.get(rel_path, Path(rel_path).stem)
+            if isinstance(fallback_title, str):
+                fallback_title = fallback_title.replace("[FEHLT] ", "")
+
+            file_changes = self.prepare_file_for_render(full_path, fallback_title)
+            if file_changes:
+                results.append((rel_path, file_changes))
+
+        return results
+
     # =========================================================================
     # QUARTO YAML PARSING & SAVING
     # =========================================================================
@@ -300,40 +345,116 @@ class QuartoYamlEngine:
         with open(self.yaml_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f) or {}
 
+    def _is_gui_state_fresh(self):
+        """B-Fix (Code-Review 2026-07-03): `.gui_state.json` ist nur ein
+        Cache des zuletzt von der GUI gespeicherten Baums. Vorher wurde er
+        bedingungslos bevorzugt, auch wenn `_quarto.yml` zwischenzeitlich
+        manuell bearbeitet oder frisch (re-)importiert wurde – manuelle
+        Aenderungen verschwanden dadurch unsichtbar. Der Cache gilt nur
+        noch als gueltig, wenn er nicht AELTER ist als `_quarto.yml`.
+        """
+        if not self.gui_state_path.exists():
+            return False
+        if not self.yaml_path.exists():
+            return True
+        try:
+            return self.gui_state_path.stat().st_mtime >= self.yaml_path.stat().st_mtime
+        except OSError:
+            return False
+
     def parse_chapters(self):
         """Konvertiert die Quarto-YAML Liste in das interne Tree-Format der GUI."""
-        # 1. Versuche zuerst, den letzten GUI-Zustand (geöffnete Ordner etc.) zu laden
-        gui_state = self._load_gui_state()
-        if gui_state:
-            return gui_state
-            
-        # 2. Falls kein GUI-State da ist, lade direkt aus der _quarto.yml
+        # 1. Versuche zuerst, den letzten GUI-Zustand (geöffnete Ordner etc.)
+        #    zu laden – aber nur, wenn er nicht durch eine neuere
+        #    `_quarto.yml` bereits ueberholt ist.
+        if self._is_gui_state_fresh():
+            gui_state = self._load_gui_state()
+            if gui_state:
+                return gui_state
+
+        # 2. Falls kein (aktueller) GUI-State da ist, lade direkt aus der _quarto.yml
         config = self._load_quarto_yml()
         chapters = config.get("book", {}).get("chapters", [])
-        
+
         def convert(items):
             res = []
             for item in items:
                 if isinstance(item, str):
-                    res.append({"path": item, "children": []})
+                    res.append({
+                        "path": item,
+                        "title": self._resolve_title_for_path(item),
+                        "children": [],
+                    })
                 elif isinstance(item, dict):
                     # Quarto Parts/Chapters Logik
                     part_title = item.get("part") or item.get("text")
                     sub = item.get("chapters", [])
                     if part_title:
-                        res.append({"path": f"PART:{part_title}", "children": convert(sub)})
+                        res.append({
+                            "path": f"PART:{part_title}",
+                            "title": part_title,
+                            "children": convert(sub),
+                        })
                     else:
-                        # Einfache Datei mit Meta-Daten
-                        file_path = list(item.values())[0] if not item.get("file") else item.get("file")
-                        res.append({"path": file_path, "children": []})
+                        # Einfache Datei mit Meta-Daten. Quarto erlaubt u.a.
+                        # {"file": "x.qmd"} oder {"href": "x.qmd", "text": "..."}.
+                        # B-Fix (Code-Review 2026-07-03): der vorherige Fallback
+                        # `list(item.values())[0]` haengt von der Dict-
+                        # Reihenfolge im YAML ab - bei z. B.
+                        # {"text": "...", "href": "x.qmd"} wurde faelschlich
+                        # der Titel statt des Pfads gezogen. Bekannte
+                        # Schluessel ("file"/"href") haben jetzt Vorrang.
+                        file_path = item.get("file") or item.get("href")
+                        if not file_path:
+                            string_values = [v for v in item.values() if isinstance(v, str)]
+                            file_path = string_values[0] if string_values else ""
+                        res.append({
+                            "path": file_path,
+                            "title": self._resolve_title_for_path(file_path),
+                            "children": [],
+                        })
             return res
-            
+
         return convert(chapters)
+
+    def _resolve_title_for_path(self, rel_path):
+        """Ermittelt einen Anzeige-Titel fuer *rel_path*, wenn `parse_chapters`
+        direkt aus der `_quarto.yml` konvertiert (kein GUI-State-Cache).
+
+        B-Fix (Code-Review 2026-07-03): `convert()` lieferte hier zuvor
+        GAR KEIN `title`-Feld. Das blieb lange unbemerkt, weil `.gui_state
+        .json` (das IMMER Titel enthaelt) bislang bedingungslos bevorzugt
+        wurde. Seit dieser Cache jetzt auf Aktualitaet geprueft wird (siehe
+        `_is_gui_state_fresh`), kann dieser Zweig haeufiger greifen -
+        Konsumenten wie `pre_processor.py` (`root_node["title"]`) brauchen
+        das Feld zwingend.
+        """
+        if not rel_path:
+            return ""
+        try:
+            extracted = self.extract_title_from_md(self.book_path / rel_path)
+        except (OSError, RuntimeError, TypeError, ValueError, AttributeError):
+            extracted = None
+        if extracted:
+            return str(extracted)
+        return Path(rel_path).stem
 
     def save_chapters(self, tree_data, profile_name=None, save_gui_state=True, extra_format_options=None):
         """Speichert die Baum-Struktur in _quarto.yml und injiziert Templates/Profile."""
         config = self._load_quarto_yml()
-        
+        # B-Fix (Code-Review 2026-07-03): eine von Hand bearbeitete
+        # `_quarto.yml`, der die Top-Level-Schluessel `project`/`book`
+        # fehlen, fuehrte weiter unten zu einem KeyError bei
+        # `config["book"]["chapters"] = ...` bzw. `config["project"][...]`.
+        if not isinstance(config, dict):
+            config = {}
+        config.setdefault("project", {"type": "book"})
+        if not isinstance(config.get("project"), dict):
+            config["project"] = {"type": "book"}
+        config.setdefault("book", {})
+        if not isinstance(config.get("book"), dict):
+            config["book"] = {}
+
         # 1. Kapitel aus dem Tree konvertieren
         chapters = self._tree_to_quarto_list(tree_data)
         

@@ -7,10 +7,8 @@
     "indexer_target_folder": "",
     "abort_on_first_preflight_error": false,
     "abort_on_first_render_colon_warning": false,
-    "enable_footnote_backlinks": false,
     "default_export_format": "typst",
     "default_export_template": "EXT: typstdoc",
-    "default_footnote_mode": "footnotes",
     "frontmatter_requirements": {
         "title": "<filename>",
         "description": "<title>",
@@ -44,8 +42,7 @@
         "current_profile_name": null,
         "export_options": {
             "format": "typst",
-            "template": "Standard",
-            "footnote_mode": "pandoc"
+            "template": "Standard"
         },
         "ui_state": {
             "search_text": "",

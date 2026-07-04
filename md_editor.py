@@ -360,14 +360,21 @@ class MarkdownEditor(tk.Toplevel):
         if new_path:
             try:
                 # 1. Text in die NEUE Datei schreiben
+                # B-Fix (Code-Review 2026-07-03): vorher `.strip() + "\n"`,
+                # abweichend von `save_current_file()`/`_normalize_editor_content()`.
+                # Dadurch konnte der geschriebene Dateiinhalt vom in
+                # `_last_saved_content` gespeicherten Vergleichswert abweichen
+                # (z. B. bei fuehrenden Leerzeichen), was `_has_unsaved_changes()`
+                # verfaelschte. Jetzt identisches Normalisierungsverhalten.
+                normalized_content = self._normalize_editor_content(self.text_area.get("1.0", tk.END))
                 with open(new_path, 'w', encoding='utf-8') as f:
-                    f.write(self.text_area.get("1.0", tk.END).strip() + "\n")
+                    f.write(normalized_content)
                 
                 # 2. Den Editor auf die neue Datei "umbiegen"
                 self.file_path = Path(new_path)
                 self.title(f"📝 Markdown Editor: {self.file_path.name}")
                 self.path_label.config(text=self.file_path.as_posix()) # Pfad oben rechts updaten!
-                self._last_saved_content = self._normalize_editor_content(self.text_area.get("1.0", tk.END))
+                self._last_saved_content = normalized_content
                 self._preview_dirty = True
                 if self.view_mode_var.get() == "preview":
                     self._render_preview(force=False)

@@ -1,0 +1,39 @@
+{
+    "help_manual_path": "doc/handbuch.md",
+    "reset_quarto_template_path": "templates/quarto_reset_minimal.yml",
+    "content_root_path": ".",
+    "prep_sources": [],
+    "prep_dest_folder": "",
+    "indexer_target_folder": "",
+    "abort_on_first_preflight_error": false,
+    "abort_on_first_render_colon_warning": false,
+    "default_export_format": "typst",
+    "default_export_template": "EXT: typstdoc",
+    "frontmatter_requirements": {
+        "title": "<filename>",
+        "description": "<title>",
+        "status": "bookstudio"
+    },
+    "frontmatter_update_mode": "append_only",
+    "sanitizer_backup_path": "",
+    "editor_end_commands": [
+        {
+            "id": "pdf_pagebreak_end",
+            "label": "PDF-Seitenumbruch am Dateiende",
+            "append_text": "```{=typst}\n#pagebreak()\n```\n",
+            "detect_pattern": "```\\{=typst\\}\\s*#pagebreak(?:\\([^\\)]*\\))?\\s*```\\s*\\Z",
+            "marks_state": "pdf_pagebreak_end"
+        },
+        {
+            "id": "pdf_pagebreak_end_weak",
+            "label": "Schwacher PDF-Seitenumbruch am Dateiende",
+            "append_text": "```{=typst}\n#pagebreak(weak: true)\n```\n",
+            "detect_pattern": "```\\{=typst\\}\\s*#pagebreak\\(weak:\\s*true\\)\\s*```\\s*\\Z",
+            "marks_state": "pdf_pagebreak_end"
+        }
+    ],
+    "log_font_size": 12,
+    "log_auto_clear_default": false,
+    "log_max_lines_default": 500,
+    "undo_max_depth": 100
+}
