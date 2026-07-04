@@ -27,7 +27,8 @@ def _copy_fixture_to_tmp() -> Path:
     Original nicht verändert. Räumt vorher eventuelle `processed/`- oder
     `export/`-Reste aus der Kopie, damit die Tests reproduzierbar sind.
     """
-    assert SMOKE_FIXTURE.exists(), f"Test-Fixture fehlt: {SMOKE_FIXTURE}"
+    if not SMOKE_FIXTURE.exists():
+        pytest.skip(f"Test-Fixture fehlt: {SMOKE_FIXTURE}")
     tmp_root = Path(tempfile.mkdtemp(prefix="bs_render_"))
     book_copy = tmp_root / SMOKE_FIXTURE.name
     shutil.copytree(SMOKE_FIXTURE, book_copy)

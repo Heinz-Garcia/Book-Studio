@@ -62,9 +62,7 @@ def test_open_rendered_artifact_windows(monkeypatch):
     def _fake_startfile(path):
         called.append(path)
 
-    monkeypatch.setattr("os.startfile", _fake_startfile)
-    # subprocess.call darf nicht aufgerufen werden, sonst Crash auf Windows.
-    # Wir patchen vorsichtshalber.
+    monkeypatch.setattr("services.render_service.os.startfile", _fake_startfile, raising=False)
     monkeypatch.setattr(
         "services.render_service.subprocess.call",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("darf nicht aufgerufen werden")),
