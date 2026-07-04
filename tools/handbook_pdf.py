@@ -43,12 +43,19 @@ def resolve_handbook_path(base_path: Path, cfg: dict) -> Path:
     return manual_path
 
 
-def expected_output_path(manual_path: Path, fmt: str = "pdf") -> Path:
-    ext = fmt.lower().lstrip(".")
-    return manual_path.with_suffix(f".{ext}")
+def output_extension_for_format(fmt: str) -> str:
+    """Dateiendung der gerenderten Ausgabe (typst → .pdf)."""
+    normalized = fmt.lower().lstrip(".")
+    if normalized == "typst":
+        return "pdf"
+    return normalized
 
 
-def build_quarto_command(manual_path: Path, *, fmt: str = "pdf", quarto_bin: str = "quarto") -> list[str]:
+def expected_output_path(manual_path: Path, fmt: str = "typst") -> Path:
+    return manual_path.with_suffix(f".{output_extension_for_format(fmt)}")
+
+
+def build_quarto_command(manual_path: Path, *, fmt: str = "typst", quarto_bin: str = "quarto") -> list[str]:
     return [quarto_bin, "render", str(manual_path), "--to", fmt]
 
 
@@ -56,7 +63,7 @@ def run_quarto_render(
     manual_path: Path,
     *,
     base_path: Path,
-    fmt: str = "pdf",
+    fmt: str = "typst",
     quarto_bin: str = "quarto",
     on_log_line: Optional[Callable[[str], None]] = None,
 ) -> HandbookRenderResult:
@@ -64,6 +71,7 @@ def run_quarto_render(
     manual_path = Path(manual_path).resolve()
     output_path = expected_output_path(manual_path, fmt)
     cmd = build_quarto_command(manual_path, fmt=fmt, quarto_bin=quarto_bin)
+    log_tail: list[str] = []
 
     if on_log_line:
         on_log_line(f"▶ {' '.join(cmd)}")
@@ -97,15 +105,19 @@ def run_quarto_render(
 
     assert proc.stdout is not None
     for line in proc.stdout:
+        stripped = line.rstrip("\n")
+        log_tail.append(stripped)
+        if len(log_tail) > 30:
+            log_tail.pop(0)
         if on_log_line:
-            on_log_line(line.rstrip("\n"))
+            on_log_line(stripped)
     returncode = proc.wait()
 
     if returncode != 0:
         return HandbookRenderResult(
             returncode=returncode,
             manual_path=manual_path,
-            error_message=f"Quarto beendet mit Code {returncode}.",
+            error_message=_format_render_failure(returncode, fmt, log_tail),
         )
 
     if not output_path.is_file():
@@ -120,6 +132,27 @@ def run_quarto_render(
         manual_path=manual_path,
         output_path=output_path,
     )
+
+
+def _format_render_failure(returncode: int, fmt: str, log_tail: list[str]) -> str:
+    joined = "\n".join(log_tail).lower()
+    if "no tex installation was detected" in joined:
+        return (
+            "Kein LaTeX/TinyTeX gefunden (Format pdf). "
+            "Empfehlung: handbuch_pdf_format auf 'typst' setzen (wie Buch-Render), "
+            "oder 'quarto install tinytex' ausführen."
+        )
+    if returncode == 3221225786 or returncode == -1073741510:
+        return (
+            "LaTeX/TinyTeX wurde beim ersten Lauf abgebrochen (Windows-Abbruch während Paket-Installation). "
+            "Bitte erneut versuchen oder auf Typst umstellen (handbuch_pdf_format: typst)."
+        )
+    if "lualatex" in joined and fmt.lower() == "pdf":
+        return (
+            f"LaTeX-Render fehlgeschlagen (Code {returncode}). "
+            "Für dasselbe Ergebnis wie beim Buch-Export: handbuch_pdf_format auf 'typst' setzen."
+        )
+    return f"Quarto beendet mit Code {returncode}."
 
 
 def reveal_in_file_manager(path: Path) -> None:
@@ -144,7 +177,16 @@ def render_from_config(
     on_log_line: Optional[Callable[[str], None]] = None,
 ) -> HandbookRenderResult:
     manual_path = resolve_handbook_path(base_path, cfg)
-    target_fmt = str(fmt or cfg.get("handbuch_pdf_format") or "pdf").strip() or "pdf"
+    target_fmt = (
+        str(
+            fmt
+            or cfg.get("handbuch_pdf_format")
+            or cfg.get("default_export_format")
+            or "typst"
+        )
+        .strip()
+        or "typst"
+    )
     return run_quarto_render(
         manual_path,
         base_path=Path(base_path).resolve(),

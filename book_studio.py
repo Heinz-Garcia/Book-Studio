@@ -2001,7 +2001,7 @@ class BookStudio:
 
         if not messagebox.askyesno(
             "Handbuch als PDF rendern",
-            f"Das Nutzerhandbuch wird mit Quarto als PDF erzeugt.\n\n"
+            f"Das Nutzerhandbuch wird mit Quarto als PDF erzeugt (Motor: Typst, wie Buch-Export).\n\n"
             f"Quelle: {manual_path_hint}\n"
             f"Ziel: gleicher Ordner, Dateiendung .pdf\n\n"
             f"Fortfahren?",

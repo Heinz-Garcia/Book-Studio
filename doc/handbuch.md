@@ -1,7 +1,7 @@
 ---
 title: "Quarto Book Studio — Nutzerhandbuch"
 lang: de
-format: pdf
+format: typst
 ---
 
 # Quarto Book Studio — Nutzerhandbuch
@@ -358,9 +358,9 @@ Ordner `_Sanitizer_Backups_*` und `sanitizer_backup_*` sind **Sicherungskopien**
 
 ### Handbuch als PDF
 
-**Hilfe → Handbuch als PDF rendern…** — startet Quarto im Hintergrund und erzeugt `doc/handbuch.pdf` (neben dieser `.md`-Datei). Vor dem Start erscheint eine kurze Bestätigung; danach siehst du den Fortschritt im Log-Terminal.
+**Hilfe → Handbuch als PDF rendern…** — startet Quarto mit **Typst** (wie beim Buch-Render unter F5) und erzeugt `doc/handbuch.pdf`. Vor dem Start erscheint eine kurze Bestätigung; Fortschritt im Log-Terminal.
 
-Voraussetzung: **Quarto** ist installiert und im `PATH`. Das YAML-Frontmatter oben in dieser Datei steuert das PDF-Layout.
+Voraussetzung: **Quarto** ist installiert. **Kein LaTeX/TinyTeX nötig**, solange `handbuch_pdf_format` auf `typst` steht (Standard). Das YAML-Frontmatter oben steuert das Layout.
 
 Pfad in `app_config.json`:
 

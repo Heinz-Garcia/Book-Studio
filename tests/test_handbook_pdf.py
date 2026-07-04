@@ -30,12 +30,13 @@ def test_resolve_handbook_path_missing_raises(tmp_path: Path) -> None:
 
 
 def test_build_quarto_command() -> None:
-    cmd = build_quarto_command(Path("doc/handbuch.md"), fmt="pdf")
-    assert cmd == ["quarto", "render", "doc/handbuch.md", "--to", "pdf"]
+    cmd = build_quarto_command(Path("doc/handbuch.md"), fmt="typst")
+    assert cmd == ["quarto", "render", "doc/handbuch.md", "--to", "typst"]
 
 
-def test_expected_output_path() -> None:
-    assert expected_output_path(Path("doc/handbuch.md")) == Path("doc/handbuch.pdf")
+def test_expected_output_path_typst_maps_to_pdf() -> None:
+    assert expected_output_path(Path("doc/handbuch.md"), "typst") == Path("doc/handbuch.pdf")
+    assert expected_output_path(Path("doc/handbuch.md"), "pdf") == Path("doc/handbuch.pdf")
 
 
 def test_run_quarto_render_success(tmp_path: Path, monkeypatch) -> None:
@@ -56,6 +57,13 @@ def test_run_quarto_render_success(tmp_path: Path, monkeypatch) -> None:
     result = run_quarto_render(manual, base_path=tmp_path)
     assert result.ok
     assert result.output_path == pdf
+
+
+def test_format_render_failure_tex_hint() -> None:
+    from tools.handbook_pdf import _format_render_failure
+
+    msg = _format_render_failure(1, "pdf", ["No TeX installation was detected"])
+    assert "typst" in msg.lower()
 
 
 def test_render_from_config_uses_default_format(tmp_path: Path, monkeypatch) -> None:
@@ -80,4 +88,4 @@ def test_render_from_config_uses_default_format(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr("tools.handbook_pdf.subprocess.Popen", FakeProc)
     result = render_from_config(tmp_path, {"help_manual_path": "handbuch.md"})
     assert result.ok
-    assert calls[0][-1] == "pdf"
+    assert calls[0][-1] == "typst"
