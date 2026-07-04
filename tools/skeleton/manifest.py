@@ -230,3 +230,50 @@ def resolve_library_root(repo_root: Path, configured_path: str) -> Path:
     if not root.is_absolute():
         root = (repo_root / root).resolve()
     return root
+
+
+def update_manifest_meta(
+    profile_dir: Path,
+    *,
+    label: Optional[str] = None,
+    description: Optional[str] = None,
+) -> SkeletonManifest:
+    manifest = load_manifest(profile_dir)
+    updated = SkeletonManifest(
+        name=manifest.name,
+        label=label if label is not None else manifest.label,
+        description=description if description is not None else manifest.description,
+        root=manifest.root,
+        files=manifest.files,
+    )
+    save_manifest(updated)
+    return updated
+
+
+_PROTECTED_PROFILES = frozenset({"standard"})
+
+
+def delete_profile(
+    library_root: Path,
+    profile_name: str,
+    *,
+    protected: frozenset[str] = _PROTECTED_PROFILES,
+) -> None:
+    name = validate_profile_name(profile_name)
+    if name in protected:
+        raise ValueError(f"Profil '{name}' ist geschützt und kann nicht gelöscht werden.")
+    target = Path(library_root).resolve() / name
+    if not target.is_dir():
+        raise FileNotFoundError(f"Profil nicht gefunden: {name}")
+    shutil.rmtree(target)
+
+
+def profile_labels(library_root: Path, profiles: Optional[list[str]] = None) -> dict[str, str]:
+    names = profiles if profiles is not None else list_profiles(library_root)
+    labels: dict[str, str] = {}
+    for name in names:
+        try:
+            labels[name] = load_manifest(Path(library_root) / name).label
+        except (OSError, ValueError):
+            labels[name] = name
+    return labels

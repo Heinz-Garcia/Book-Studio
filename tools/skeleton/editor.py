@@ -10,15 +10,18 @@ from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 from typing import Any, Optional
 
+from tools.skeleton.config import read_skeleton_settings, set_default_profile, write_skeleton_settings
 from tools.skeleton.manifest import (
     SkeletonFileEntry,
     SkeletonManifest,
     create_markdown_template,
+    delete_profile,
     duplicate_profile,
     list_profiles,
     load_manifest,
     replace_manifest_entries,
     resolve_library_root,
+    update_manifest_meta,
     validate_profile_name,
 )
 
@@ -65,6 +68,8 @@ class SkeletonEditorWindow(tk.Toplevel):
         _try_style_window(self, parent)
 
         self._profile_var = tk.StringVar()
+        self._profile_label_var = tk.StringVar()
+        self._profile_desc_var = tk.StringVar()
         self._title_var = tk.StringVar()
         self._order_var = tk.StringVar()
         self._optional_var = tk.BooleanVar(value=False)
@@ -85,9 +90,23 @@ class SkeletonEditorWindow(tk.Toplevel):
         self._profile_combo.pack(side=tk.LEFT, padx=(6, 12))
         self._profile_combo.bind("<<ComboboxSelected>>", lambda _e: self._on_profile_changed())
         ttk.Button(top, text="Profil duplizieren…", command=self._duplicate_profile).pack(side=tk.LEFT, padx=4)
+        ttk.Button(top, text="Als Standard", command=self._set_default_profile).pack(side=tk.LEFT, padx=4)
+        ttk.Button(top, text="Profil löschen…", command=self._delete_profile).pack(side=tk.LEFT, padx=4)
         ttk.Button(top, text="Aktualisieren", command=lambda: self._reload_profiles(self._profile_var.get())).pack(
             side=tk.LEFT, padx=4
         )
+
+        meta = ttk.LabelFrame(outer, text="Profil-Metadaten", padding=8)
+        meta.pack(fill=tk.X, pady=(0, 8))
+        row1 = ttk.Frame(meta)
+        row1.pack(fill=tk.X)
+        ttk.Label(row1, text="Label").pack(side=tk.LEFT)
+        ttk.Entry(row1, textvariable=self._profile_label_var, width=50).pack(side=tk.LEFT, padx=8, fill=tk.X, expand=True)
+        ttk.Button(row1, text="Speichern", command=self._save_profile_meta).pack(side=tk.RIGHT)
+        row2 = ttk.Frame(meta)
+        row2.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(row2, text="Beschreibung").pack(side=tk.LEFT)
+        ttk.Entry(row2, textvariable=self._profile_desc_var, width=70).pack(side=tk.LEFT, padx=8, fill=tk.X, expand=True)
 
         info = ttk.Label(
             outer,
@@ -159,6 +178,8 @@ class SkeletonEditorWindow(tk.Toplevel):
         profile_dir = self.library_root / profile_name
         self._manifest = load_manifest(profile_dir)
         self._entries = list(self._manifest.files)
+        self._profile_label_var.set(self._manifest.label)
+        self._profile_desc_var.set(self._manifest.description)
         self._selected_index = None
         self._populate_file_list()
         self._clear_editor()
@@ -346,6 +367,49 @@ class SkeletonEditorWindow(tk.Toplevel):
             duplicate_profile(self.library_root, self._manifest.name, dest_name, label=label)
             self._reload_profiles(dest_name)
             messagebox.showinfo("Skeleton", f"Profil '{dest_name}' erstellt.", parent=self)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Skeleton", str(exc), parent=self)
+
+    def _save_profile_meta(self) -> None:
+        if self._manifest is None:
+            return
+        try:
+            self._manifest = update_manifest_meta(
+                self._manifest.root,
+                label=self._profile_label_var.get().strip(),
+                description=self._profile_desc_var.get().strip(),
+            )
+            messagebox.showinfo("Skeleton", "Profil-Metadaten gespeichert.", parent=self)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Skeleton", str(exc), parent=self)
+
+    def _set_default_profile(self) -> None:
+        if self._manifest is None:
+            return
+        try:
+            set_default_profile(_repo_root(), self._manifest.name)
+            messagebox.showinfo(
+                "Skeleton",
+                f"Standard-Profil gesetzt: {self._manifest.name}",
+                parent=self,
+            )
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Skeleton", str(exc), parent=self)
+
+    def _delete_profile(self) -> None:
+        if self._manifest is None:
+            return
+        if not messagebox.askyesno(
+            "Profil löschen",
+            f"Profil '{self._manifest.name}' unwiderruflich löschen?",
+            parent=self,
+        ):
+            return
+        name = self._manifest.name
+        try:
+            delete_profile(self.library_root, name)
+            self._reload_profiles()
+            messagebox.showinfo("Skeleton", f"Profil '{name}' gelöscht.", parent=self)
         except (OSError, ValueError) as exc:
             messagebox.showerror("Skeleton", str(exc), parent=self)
 

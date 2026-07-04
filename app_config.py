@@ -56,6 +56,8 @@ DEFAULTS: dict[str, Any] = {
     "skeleton_default_profile": "standard",
     # ask | skip | replace — bei ask öffnet der Populate-Dialog
     "skeleton_on_conflict": "ask",
+    # all | missing_only — nur fehlende Dateien kopieren
+    "skeleton_populate_mode": "all",
 }
 
 

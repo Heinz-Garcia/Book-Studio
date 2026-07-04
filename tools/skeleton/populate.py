@@ -13,11 +13,15 @@ from typing import Any, Literal, Optional
 from tools.skeleton.dialog import (
     PopulateDialogResult,
     PopulatePlanLine,
+    PopulateMode,
     RunConflictChoice,
+    _apply_plan_rules,
     ask_populate_confirmation,
     ask_profile_selection,
     show_result_message,
 )
+from tools.skeleton.diff import build_diff_map
+from tools.skeleton.config import read_skeleton_settings, write_skeleton_settings
 from tools.skeleton.manifest import (
     SkeletonManifest,
     list_profiles,
@@ -135,12 +139,23 @@ def build_populate_plan(
     manifest: SkeletonManifest,
     book_path: Path,
     *,
-    conflict_mode: ConflictMode,
+    conflict_mode: ConflictMode = "ask",
     run_conflict_choice: Optional[RunConflictChoice] = None,
+    populate_mode: PopulateMode = "all",
+    include_diff: bool = True,
 ) -> list[PopulatePlanLine]:
     book_path = Path(book_path).resolve()
     effective_choice: RunConflictChoice = run_conflict_choice or (
         "skip" if conflict_mode == "skip" else "replace"
+    )
+    diff_map = (
+        build_diff_map(
+            [entry.path for entry in manifest.files],
+            skeleton_root=manifest.root,
+            book_root=book_path,
+        )
+        if include_diff
+        else {}
     )
 
     lines: list[PopulatePlanLine] = []
@@ -149,12 +164,17 @@ def build_populate_plan(
         target = book_path / rel
         exists = target.is_file()
         if exists:
-            if conflict_mode == "ask":
+            if populate_mode == "missing_only":
+                will_copy = False
+            elif conflict_mode == "ask":
                 will_copy = effective_choice == "replace"
             else:
                 will_copy = conflict_mode == "replace"
         else:
             will_copy = True
+        diff_summary = ""
+        if rel in diff_map:
+            diff_summary = diff_map[rel].summary
         lines.append(
             PopulatePlanLine(
                 rel_path=rel,
@@ -162,9 +182,23 @@ def build_populate_plan(
                 will_copy=will_copy,
                 include_in_tree=entry.include_in_tree,
                 title=entry.title,
+                diff_summary=diff_summary,
             )
         )
     return lines
+
+
+def resolve_populate_plan(
+    base_lines: list[PopulatePlanLine],
+    *,
+    conflict_choice: RunConflictChoice,
+    missing_only: bool,
+) -> list[PopulatePlanLine]:
+    return _apply_plan_rules(
+        base_lines,
+        conflict_choice=conflict_choice,
+        missing_only=missing_only,
+    )
 
 
 def _ensure_index_md(book_path: Path, engine) -> None:
@@ -199,9 +233,11 @@ def populate_book(
     conflict_mode: ConflictMode = "ask",
     run_conflict_choice: Optional[RunConflictChoice] = None,
     profile_name: Optional[str] = None,
+    populate_mode: PopulateMode = "all",
     save: bool = True,
     interactive_parent: Any = None,
     on_remember_conflict: Optional[Any] = None,
+    on_remember_mode: Optional[Any] = None,
     skip_dialog: bool = False,
 ) -> PopulateResult:
     """Kopiert Skeleton-Dateien ins Buch und speichert Baum + _quarto.yml."""
@@ -214,14 +250,21 @@ def populate_book(
     manifest = load_manifest(profile_dir)
     result = PopulateResult()
 
-    plan = build_populate_plan(
+    diff_map = build_diff_map(
+        [entry.path for entry in manifest.files],
+        skeleton_root=manifest.root,
+        book_root=book_path,
+    )
+    base_plan = build_populate_plan(
         manifest,
         book_path,
-        conflict_mode=conflict_mode,
-        run_conflict_choice=run_conflict_choice,
+        conflict_mode="ask",
+        run_conflict_choice="skip",
+        populate_mode="all",
+        include_diff=True,
     )
-    has_conflicts = any(line.exists for line in plan)
-
+    has_conflicts = any(line.exists for line in base_plan)
+    plan: list[PopulatePlanLine]
     if conflict_mode == "ask" and not skip_dialog:
         default_conflict: RunConflictChoice = run_conflict_choice or "skip"
         if interactive_parent is None:
@@ -231,21 +274,31 @@ def populate_book(
             manifest_label=manifest.label,
             profile_name=profile_name or manifest.name,
             book_name=book_path.name,
-            lines=plan,
+            lines=base_plan,
             has_conflicts=has_conflicts,
             default_conflict=default_conflict,
+            populate_mode=populate_mode,
+            diff_map=diff_map,
             on_remember=on_remember_conflict,
+            on_remember_mode=on_remember_mode,
         )
         if not dialog_result.confirmed:
             result.cancelled = True
             return result
-        if has_conflicts and dialog_result.conflict_choice:
-            plan = build_populate_plan(
-                manifest,
-                book_path,
-                conflict_mode="ask",
-                run_conflict_choice=dialog_result.conflict_choice,
-            )
+        plan = resolve_populate_plan(
+            base_plan,
+            conflict_choice=dialog_result.conflict_choice or "skip",
+            missing_only=dialog_result.missing_only,
+        )
+    else:
+        plan = build_populate_plan(
+            manifest,
+            book_path,
+            conflict_mode=conflict_mode,
+            run_conflict_choice=run_conflict_choice,
+            populate_mode=populate_mode,
+            include_diff=False,
+        )
 
     engine = QuartoYamlEngine(book_path)
     _ensure_index_md(book_path, engine)
@@ -326,32 +379,25 @@ def refresh_studio_after_populate(studio: Any, result: PopulateResult) -> None:
         )
 
 
-def _read_app_config(repo_root: Path) -> dict:
-    from app_config import read_config
-
-    return read_config(repo_root / "app_config.json")
-
-
 def _write_conflict_preference(repo_root: Path, choice: RunConflictChoice) -> None:
-    from app_config import read_config, write_config
+    write_skeleton_settings(repo_root, on_conflict=choice)
 
-    path = repo_root / "app_config.json"
-    data = read_config(path)
-    data["skeleton_on_conflict"] = choice
-    write_config(path, data)
+
+def _write_populate_mode(repo_root: Path, mode: PopulateMode) -> None:
+    write_skeleton_settings(repo_root, populate_mode=mode)
 
 
 def run(studio: Any = None, **kwargs: Any) -> int:
     """Plugin- und CLI-Entrypoint."""
     repo_root = _repo_root()
-    cfg = _read_app_config(repo_root)
+    settings = read_skeleton_settings(repo_root)
     library_root = resolve_library_root(
         repo_root,
-        str(kwargs.get("library_root") or cfg.get("skeleton_library_path") or "tools/skeleton/library"),
+        str(kwargs.get("library_root") or settings["library_path"]),
     )
 
     parent = getattr(studio, "root", None) if studio is not None else None
-    profile = kwargs.get("profile") or cfg.get("skeleton_default_profile") or "standard"
+    profile = kwargs.get("profile") or settings["default_profile"]
     profiles = list_profiles(library_root)
 
     skip_dialog = bool(kwargs.get("yes") or kwargs.get("skip_dialog"))
@@ -379,9 +425,15 @@ def run(studio: Any = None, **kwargs: Any) -> int:
 
     profile_dir = resolve_profile_dir(library_root, str(profile))
 
-    conflict_mode: ConflictMode = kwargs.get("conflict_mode") or cfg.get("skeleton_on_conflict") or "ask"
+    conflict_mode: ConflictMode = kwargs.get("conflict_mode") or settings["on_conflict"]  # type: ignore[assignment]
     if conflict_mode not in ("ask", "skip", "replace"):
         conflict_mode = "ask"
+
+    populate_mode: PopulateMode = kwargs.get("populate_mode") or settings["populate_mode"]  # type: ignore[assignment]
+    if kwargs.get("missing_only"):
+        populate_mode = "missing_only"
+    if populate_mode not in ("all", "missing_only"):
+        populate_mode = "all"
 
     if studio is not None and getattr(studio, "current_book", None):
         book_path = Path(studio.current_book)
@@ -405,15 +457,23 @@ def run(studio: Any = None, **kwargs: Any) -> int:
     def remember(choice: RunConflictChoice) -> None:
         _write_conflict_preference(repo_root, choice)
 
+    def remember_mode(mode: PopulateMode) -> None:
+        _write_populate_mode(repo_root, mode)
+
     try:
         result = populate_book(
             book_path,
             profile_dir=profile_dir,
             conflict_mode=conflict_mode,
             profile_name=str(profile),
+            populate_mode=populate_mode,
             interactive_parent=parent,
             on_remember_conflict=remember,
+            on_remember_mode=remember_mode,
             skip_dialog=skip_dialog,
+            run_conflict_choice=(
+                "skip" if conflict_mode == "skip" else "replace" if conflict_mode == "replace" else None
+            ),
         )
     except (OSError, ValueError, FileNotFoundError) as exc:
         show_result_message(parent, "Skeleton", str(exc), is_error=True)
@@ -451,6 +511,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Konfliktverhalten bei vorhandenen Dateien",
     )
     parser.add_argument("--yes", action="store_true", help="Kein GUI-Dialog (nur CLI)")
+    parser.add_argument(
+        "--missing-only",
+        action="store_true",
+        help="Nur fehlende Dateien kopieren (vorhandene überspringen)",
+    )
     args = parser.parse_args(argv)
 
     repo_root = _repo_root()
@@ -465,6 +530,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         kwargs["profile"] = args.profile
     if args.on_conflict:
         kwargs["conflict_mode"] = args.on_conflict
+    if args.missing_only:
+        kwargs["missing_only"] = True
     return run(studio=None, **kwargs)
 
 
