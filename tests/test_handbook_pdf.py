@@ -79,6 +79,25 @@ def test_format_render_failure_typst_label_hint() -> None:
     assert "crossref" in msg.lower() or "anker" in msg.lower()
 
 
+def test_format_render_failure_typst_numbering_hint() -> None:
+    from tools.handbook_pdf import _format_render_failure
+
+    msg = _format_render_failure(
+        1,
+        "typst",
+        ["error: cannot reference heading without numbering"],
+    )
+    assert "nummeriert" in msg.lower() or "@sec" in msg.lower()
+
+
+def test_handbuch_has_no_typst_crossrefs() -> None:
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    handbuch = (root / "doc" / "handbuch.md").read_text(encoding="utf-8")
+    assert not re.search(r"@sec-[a-z0-9-]+", handbuch)
+
+
 def test_normalize_markdown_for_typst_strips_gfm_anchors() -> None:
     md = "Siehe [Kapitel 15](#15-skeleton) und [normal](https://example.com)."
     out = normalize_markdown_for_typst(md)

@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** Juli 2026 · **Version:** 1.0.11 („Handbuch Typst robust“)
+**Stand:** Juli 2026 · **Version:** 1.0.12 („Handbuch Typst robust“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -48,7 +48,7 @@ Oben im Dropdown **AKTIVES PROJEKT** dein Buch auswählen (Ordner mit `_quarto.y
 
 Für ein **neues oder leeres Buch**: **Tools → Plugins → Skeleton ins Buch übernehmen…**
 
-Kopiert Standardseiten (Klappentext, Einleitung, Impressum, …) als **eigene Dateien** ins Projekt. Details: @sec-skeleton.
+Kopiert Standardseiten (Klappentext, Einleitung, Impressum, …) als **eigene Dateien** ins Projekt. Details: Kapitel 15 (Skeleton-Bibliothek).
 
 ### Schritt 3 — Kapitel zuordnen
 
@@ -368,7 +368,7 @@ Ordner `_Sanitizer_Backups_*` und `sanitizer_backup_*` sind **Sicherungskopien**
 
 Voraussetzung: **Quarto** ist installiert. **Kein LaTeX/TinyTeX nötig**, solange `handbuch_pdf_format` auf `typst` steht (Standard). Das YAML-Frontmatter oben steuert das Layout (inkl. automatischem Inhaltsverzeichnis).
 
-**Interne Verweise im Handbuch:** Für Typst-PDF Quarto-Crossrefs nutzen (`{#sec-…}` an Überschriften, `@sec-…` im Text). GitHub-Anker (`[Text](#anker)`) funktionieren im Editor, brechen aber beim PDF-Render — die App entfernt solche Links vor dem Rendern als Sicherheitsnetz.
+**Interne Verweise im Handbuch:** Im PDF nutzen wir **Klartext** (z. B. „Kapitel 15“) statt Quarto-Crossrefs (`@sec-…`). Typst erlaubt `@sec-` nur bei nummerierten Überschriften; das Handbuch nummeriert Kapitel bereits im Titel (`1)`, `2)`, …). GitHub-Anker (`[Text](#anker)`) funktionieren im Editor, brechen aber beim PDF-Render — die App entfernt solche Links vor dem Rendern als Sicherheitsnetz.
 
 Pfad in `app_config.json`:
 
@@ -468,7 +468,7 @@ Das mitgelieferte Profil enthält u. a. (unter `content/required/`):
 | Rueckseite.md | `"END-10"` |
 | Template.md | wird kopiert, **nicht** in den Buchbaum eingetragen |
 
-Mapping orientiert sich am Buch *Band_Stoffwechselgesundheit*. Details zu `order`: @sec-projekt-kapitel.
+Mapping orientiert sich am Buch *Band_Stoffwechselgesundheit*. Details zu `order`: Kapitel 3 (Projekt und Kapitel).
 
 ### Skeleton-Bibliothek bearbeiten
 

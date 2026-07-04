@@ -180,6 +180,11 @@ def run_quarto_render(
 
 def _format_render_failure(returncode: int, fmt: str, log_tail: list[str]) -> str:
     joined = "\n".join(log_tail).lower()
+    if "cannot reference heading without numbering" in joined and fmt.lower() == "typst":
+        return (
+            "Typst-Querverweis fehlgeschlagen: @sec-… funktioniert nur mit nummerierten Überschriften. "
+            "Im Handbuch Klartext verwenden (z. B. „Kapitel 15“) oder number-sections aktivieren."
+        )
     if "label" in joined and "does not exist" in joined and fmt.lower() == "typst":
         return (
             "Typst-Querverweis fehlgeschlagen: GitHub-Anker ([Text](#anker)) werden im PDF nicht "
