@@ -15,6 +15,33 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def test_diagnostics_status_callback_maps_semantic_fg_keys() -> None:
+    """Regression: falscher status.config(*args)-Callback crashte nach
+    erfolgreichem Vorabcheck und blockierte den Export-Dialog."""
+    import tkinter as tk
+
+    from services.constants import StatusFg
+
+    root = tk.Tk()
+    root.withdraw()
+    label = tk.Label(root)
+    seen = []
+
+    def on_status(text, fg_key):
+        fg_map = {
+            "success": StatusFg.SUCCESS,
+            "danger": StatusFg.DANGER,
+        }
+        label.config(text=text, fg=fg_map.get(fg_key, StatusFg.NEUTRAL))
+        seen.append((text, fg_key))
+
+    on_status("Render-Vorabcheck: keine kritischen Befunde", "success")
+
+    assert seen == [("Render-Vorabcheck: keine kritischen Befunde", "success")]
+    assert "keine kritischen" in label.cget("text")
+    root.destroy()
+
+
 def test_run_quarto_render_auto_heals_before_preflight(tmp_path: Path) -> None:
     book = tmp_path / "book"
     book.mkdir()

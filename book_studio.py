@@ -149,7 +149,7 @@ class BookStudio:
             render=RenderService(self.exporter),
             diagnostics=DiagnosticsService(
                 self,
-                on_status=lambda *a, **kw: self.status.config(*a, **kw) if self.status else None,
+                on_status=self._on_diagnostics_status,
                 on_log=self.log,
                 on_refresh_tree=self._refresh_tree_titles_from_current_state,
                 on_select_first_issue=self._select_first_doctor_issue,
@@ -451,6 +451,16 @@ class BookStudio:
     def update_status(self, text, fg):
         if self.status is not None:
             self.status.config(text=text, fg=fg)
+
+    def _on_diagnostics_status(self, text, fg_key):
+        """Status-Callback für `DiagnosticsService` (liefert semantische fg-Keys)."""
+        if self.status is None:
+            return
+        fg_map = {
+            "success": _StatusFg.SUCCESS,
+            "danger": _StatusFg.DANGER,
+        }
+        self.status.config(text=text, fg=fg_map.get(fg_key, _StatusFg.NEUTRAL))
 
     def copy_text_to_clipboard(self, text):
         self.root.clipboard_clear()
