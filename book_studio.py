@@ -43,6 +43,24 @@ except ModuleNotFoundError:
 
 logger = logging.getLogger(__name__)
 
+
+def treeview_y_from_event(tree, event):
+    """Widget-relative Y-Koordinate für Treeview-Mausereignisse.
+
+    Nutzt die Zeigerposition relativ zum Widget statt nur ``event.y``.
+    Das ist zuverlässiger, wenn zwischen Press und Release gescrollt wurde
+    (ToDos_Level_3: DnD-Offset-Bug).
+    """
+    try:
+        y = tree.winfo_pointery() - tree.winfo_rooty()
+        height = tree.winfo_height()
+        if height > 1:
+            return max(0, min(y, height - 1))
+        return y
+    except tk.TclError:
+        return event.y
+
+
 # =============================================================================
 # QUARTO BOOK STUDIO
 # =============================================================================
@@ -2477,7 +2495,8 @@ class BookStudio:
         self._push_undo(pre)
 
     def on_drag_start(self, event):
-        self.drag_data['item'] = self.tree_book.identify_row(event.y)
+        y = treeview_y_from_event(self.tree_book, event)
+        self.drag_data['item'] = self.tree_book.identify_row(y)
 
     def on_drag_motion(self, _event):
         if self.drag_data['item']:
@@ -2485,7 +2504,8 @@ class BookStudio:
     
     def on_drop(self, e):
         self.tree_book.config(cursor="")
-        drag, target = self.drag_data['item'], self.tree_book.identify_row(e.y)
+        drop_y = treeview_y_from_event(self.tree_book, e)
+        drag, target = self.drag_data['item'], self.tree_book.identify_row(drop_y)
         self.drag_data['item'] = None
         if not drag or not target or drag == target:
             return
@@ -2497,9 +2517,13 @@ class BookStudio:
             p = self.tree_book.parent(p)
 
         bbox = self.tree_book.bbox(target)
+        if not bbox:
+            self.tree_book.see(target)
+            self.tree_book.update_idletasks()
+            bbox = self.tree_book.bbox(target)
         if bbox:
             pre = self._get_current_state()
-            idx = self.tree_book.index(target) + (1 if e.y > bbox[1] + (bbox[3]/2) else 0)
+            idx = self.tree_book.index(target) + (1 if drop_y > bbox[1] + (bbox[3]/2) else 0)
             self.tree_book.move(drag, self.tree_book.parent(target), idx)
             self.tree_book.selection_set(drag)
             self._push_undo(pre)
