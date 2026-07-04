@@ -35,5 +35,8 @@
     "log_font_size": 12,
     "log_auto_clear_default": false,
     "log_max_lines_default": 500,
-    "undo_max_depth": 100
+    "undo_max_depth": 100,
+    "skeleton_library_path": "tools/skeleton/library",
+    "skeleton_default_profile": "standard",
+    "skeleton_on_conflict": "ask"
 }

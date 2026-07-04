@@ -1,0 +1,9 @@
+{
+  "name": "skeleton_populate",
+  "label": "Skeleton ins Buch übernehmen…",
+  "description": "Kopiert Standard-Vorlagen (Klappentext, Einleitung, Impressum …) ins aktive Buchprojekt.",
+  "entrypoint": "plugins.skeleton_populate:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Tools"
+}

@@ -52,6 +52,10 @@ DEFAULTS: dict[str, Any] = {
     "log_max_lines_default": 500,
     # B6: Tiefe des Undo-Stacks. 0 = unbegrenzt, sonst hartes Cap.
     "undo_max_depth": 100,
+    "skeleton_library_path": "tools/skeleton/library",
+    "skeleton_default_profile": "standard",
+    # ask | skip | replace — bei ask öffnet der Populate-Dialog
+    "skeleton_on_conflict": "ask",
 }
 
 
