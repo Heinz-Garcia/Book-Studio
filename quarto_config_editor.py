@@ -168,7 +168,7 @@ class QuartoConfigEditor(tk.Toplevel):
 
         btn_row = ttk.Frame(content, padding=(16, 16))
         btn_row.pack(fill=tk.X)
-        ttk.Button(btn_row, text="Abbrechen", style="Tool.TButton", command=self.destroy).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(btn_row, text="Abbrechen", style="Tool.TButton", command=self._cancel).pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Button(btn_row, text="Speichern", style="Accent.TButton", command=self._save).pack(side=tk.RIGHT)
 
     def _build_project_section(self, parent):
@@ -714,6 +714,19 @@ class QuartoConfigEditor(tk.Toplevel):
             ),
             parent=self,
         )
+
+    def _cancel(self):
+        self._refresh_dirty_state()
+        if self._dirty_controller.is_dirty:
+            proceed = confirm_discard_changes(
+                self,
+                "Ungespeicherte Änderungen",
+                "Es gibt ungespeicherte Änderungen.\n\nDialog wirklich schließen und Änderungen verwerfen?",
+            )
+            if not proceed:
+                return
+        self._dirty_controller.stop_polling()
+        self.destroy()
 
     def _save(self):
         title = self.book_title_var.get().strip()
