@@ -40,7 +40,7 @@ DEFAULTS: dict[str, Any] = {
     "default_export_format": "typst",
     "default_export_template": "EXT: typstdoc",
     "frontmatter_requirements": {
-        "title": "<filename>",
+        "title": "<h1>",
         "description": "<title>",
         "status": "bookstudio",
     },

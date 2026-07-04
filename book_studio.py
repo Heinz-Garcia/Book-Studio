@@ -1971,6 +1971,45 @@ class BookStudio:
             return
         self._run_doctor_check("Buch-Doktor", emit_success_log=True)
 
+    def heal_frontmatter(self):
+        """Ergänzt fehlendes YAML-Frontmatter gemäß app_config (frontmatter_requirements)."""
+        if not self.current_book:
+            return
+
+        if not messagebox.askyesno(
+            "Frontmatter ergänzen",
+            "Fehlendes YAML-Frontmatter wird gemäß app_config.json "
+            "(frontmatter_requirements) für index.md und alle Kapitel im Buch ergänzt.\n\n"
+            "Bestehende Felder bleiben unverändert.\n\nFortfahren?",
+            parent=self.root,
+        ):
+            return
+
+        healed = self.yaml_engine.heal_frontmatter_for_paths(
+            self._get_all_used_paths(),
+            self.title_registry,
+        )
+        if not healed:
+            messagebox.showinfo(
+                "Frontmatter ergänzen",
+                "Keine Datei benötigte eine Ergänzung.",
+                parent=self.root,
+            )
+            self._run_doctor_check("Buch-Doktor", emit_success_log=True)
+            return
+
+        for rel_path in healed:
+            self.log(f"✨ Frontmatter ergänzt: {rel_path}", _LogLevel.SUCCESS)
+        self.refresh_ui_titles()
+        self._run_doctor_check("Frontmatter ergänzt", emit_success_log=True)
+        messagebox.showinfo(
+            "Frontmatter ergänzen",
+            f"{len(healed)} Datei(en) wurden ergänzt.\n\n"
+            "Bitte prüfe die Metadaten im Editor und speichere die Buchstruktur (Strg+S), "
+            "wenn alles passt.",
+            parent=self.root,
+        )
+
     def open_help_manual(self):
         try:
             cfg = self._read_config()

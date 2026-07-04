@@ -102,6 +102,7 @@ MENU_TOOLS = [
     MenuItem(label="⚙️ Sanitizer-Konfiguration...", command="open_sanitizer_config_editor"),
     MenuItem(label="📘 Quarto.yml konfigurieren...", command="open_quarto_config_editor"),
     MenuItem(label="🩺 Buch-Doktor", command="run_doctor"),
+    MenuItem(label="✨ Frontmatter ergänzen…", command="heal_frontmatter"),
     MenuItem(label="📦 Backup", command="run_backup"),
     MenuItem(label="⏪ Time Machine", command="open_time_machine"),
     MenuSeparator(),
