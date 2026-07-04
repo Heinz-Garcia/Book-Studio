@@ -26,6 +26,7 @@ bleiben im Studio.
 from __future__ import annotations
 
 import os
+import os
 import shutil
 import subprocess
 import sys
@@ -325,8 +326,13 @@ class BackupService:
             "stdout": subprocess.PIPE,
             "stderr": subprocess.STDOUT,
             "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
             "bufsize": 1,
         }
+        env = os.environ.copy()
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        proc_kwargs["env"] = env
         if cwd is not None:
             proc_kwargs["cwd"] = str(cwd)
         proc = popen_factory(cmd, **proc_kwargs)

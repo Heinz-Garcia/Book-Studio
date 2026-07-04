@@ -18,6 +18,39 @@ from quarto_block_parser import find_unclosed_answer_divs as qb_find_unclosed_an
 
 logger = logging.getLogger(__name__)
 
+
+def configure_console_encoding() -> None:
+    """Windows-Konsolen (cp1252) dürfen Emojis/Umlaute nicht crashen lassen."""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            try:
+                stream.reconfigure(errors="replace")
+            except (AttributeError, OSError, ValueError):
+                pass
+
+
+def safe_print(*parts, sep: str = " ", end: str = "\n", file=None) -> None:
+    """Gibt Text aus — ersetzt nicht darstellbare Zeichen statt abzustürzen."""
+    target = file or sys.stdout
+    message = sep.join(str(part) for part in parts) + end
+    try:
+        target.write(message)
+        flush = getattr(target, "flush", None)
+        if callable(flush):
+            flush()
+    except UnicodeEncodeError:
+        encoding = getattr(target, "encoding", None) or "utf-8"
+        buffer = getattr(target, "buffer", None)
+        if buffer is not None:
+            buffer.write(message.encode(encoding, errors="replace"))
+            buffer.flush()
+        else:
+            raise
+
 try:
     tomllib = importlib.import_module("tomllib")
 except ModuleNotFoundError:
@@ -599,16 +632,17 @@ def main():
         ),
     )
     args = parser.parse_args()
+    configure_console_encoding()
 
     if yaml is None:
-        print("Fehler: PyYAML ist erforderlich, aber nicht installiert.")
-        print("Installiere es mit: pip install pyyaml")
+        safe_print("Fehler: PyYAML ist erforderlich, aber nicht installiert.")
+        safe_print("Installiere es mit: pip install pyyaml")
         sys.exit(2)
 
     target_dir = Path(args.directory)
 
     if not target_dir.is_dir():
-        print(
+        safe_print(
             f"Fehler: Das angegebene Verzeichnis '{target_dir}' existiert nicht oder ist kein Ordner."
         )
         return
@@ -618,11 +652,14 @@ def main():
     # =========================================================================
     if (target_dir / "_quarto.yml").exists() and (target_dir / "content").exists():
         scan_dir = target_dir / "content"
-        print(f"📚 Book Studio Projekt erkannt! Begrenze Scan strikt auf: {scan_dir.relative_to(target_dir)}\\")
+        safe_print(
+            f"[Book Studio] Projekt erkannt! Begrenze Scan strikt auf: "
+            f"{scan_dir.relative_to(target_dir)}\\"
+        )
     else:
         scan_dir = target_dir
 
-    print(f"Durchsuche '{scan_dir}' und alle Unterordner nach .md-Dateien...")
+    safe_print(f"Durchsuche '{scan_dir}' und alle Unterordner nach .md-Dateien...")
 
     total_files = 0
     changed_files = 0
@@ -659,7 +696,7 @@ def main():
             if written:
                 changed_files += 1
                 rel_path = md_file.relative_to(target_dir)
-                print(f"[BEREINIGT] {rel_path.name} ({len(changes)} Änderungen)")
+                safe_print(f"[BEREINIGT] {rel_path.name} ({len(changes)} Änderungen)")
                 log_file.write(f"Datei: {rel_path}\n")
                 for change in changes:
                     log_file.write(f"  - {change}\n")
@@ -667,7 +704,7 @@ def main():
             elif skipped:
                 skipped_files += 1
                 rel_path = md_file.relative_to(target_dir)
-                print(f"[ÜBERSPRUNGEN] {rel_path.name} ({len(changes)} Hinweise)")
+                safe_print(f"[ÜBERSPRUNGEN] {rel_path.name} ({len(changes)} Hinweise)")
                 log_file.write(f"Datei: {rel_path}\n")
                 for change in changes:
                     log_file.write(f"  - {change}\n")
@@ -675,14 +712,14 @@ def main():
             elif has_answer_warning:
                 warning_files += 1
                 rel_path = md_file.relative_to(target_dir)
-                print(f"[WARNUNG] {rel_path.name} — ungeschlossener ::: {{.answer}}-Block!")
+                safe_print(f"[WARNUNG] {rel_path.name} — ungeschlossener ::: {{.answer}}-Block!")
                 log_file.write(f"[WARNUNG] Datei: {rel_path}\n")
                 for change in changes:
                     log_file.write(f"  - {change}\n")
                 log_file.write("\n")
             elif changes:
                 rel_path = md_file.relative_to(target_dir)
-                print(f"[GEPRÜFT] {rel_path.name} ({len(changes)} Hinweise)")
+                safe_print(f"[GEPRÜFT] {rel_path.name} ({len(changes)} Hinweise)")
                 log_file.write(f"Datei: {rel_path}\n")
                 for change in changes:
                     log_file.write(f"  - {change}\n")
@@ -698,15 +735,17 @@ def main():
         else:
             log_file.write(f"ERGEBNIS: {warning_files} Datei(en) mit ungeschlossenem {{.answer}}-Block!\n")
 
-    print("\n--- Vorgang abgeschlossen ---")
-    print(f"Geprüfte .md-Dateien gesamt:        {total_files}")
-    print(f"Davon bereinigt und überschrieben:  {changed_files}")
-    print(f"Davon übersprungen (strict/Fehler): {skipped_files}")
+    safe_print("\n--- Vorgang abgeschlossen ---")
+    safe_print(f"Geprüfte .md-Dateien gesamt:        {total_files}")
+    safe_print(f"Davon bereinigt und überschrieben:  {changed_files}")
+    safe_print(f"Davon übersprungen (strict/Fehler): {skipped_files}")
     if warning_files == 0:
-        print("✅  Keine ungeschlossenen {.answer}-Blöcke gefunden.")
+        safe_print("[OK] Keine ungeschlossenen {.answer}-Blöcke gefunden.")
     else:
-        print(f"⚠️   {warning_files} Datei(en) mit ungeschlossenem {{.answer}}-Block!")
-    print(f"Logfile: {log_path}")
+        safe_print(
+            f"[WARN] {warning_files} Datei(en) mit ungeschlossenem {{.answer}}-Block!"
+        )
+    safe_print(f"Logfile: {log_path}")
 
 if __name__ == "__main__":
     main()

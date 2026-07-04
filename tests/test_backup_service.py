@@ -478,6 +478,9 @@ def test_run_sanitizer_subprocess_passes_cwd(tmp_path):
 
     kwargs = popen.instances[0].kwargs
     assert kwargs.get("cwd") == str(cwd)
+    assert kwargs.get("encoding") == "utf-8"
+    assert kwargs.get("errors") == "replace"
+    assert kwargs.get("env", {}).get("PYTHONIOENCODING") == "utf-8"
     # Popen-spezifische kwargs muessen ebenfalls gesetzt sein.
     assert kwargs.get("stdout") == PIPE
     assert kwargs.get("stderr") == STDOUT
