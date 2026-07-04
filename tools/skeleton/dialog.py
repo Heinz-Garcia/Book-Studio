@@ -25,6 +25,61 @@ class PopulateDialogResult:
     confirmed: bool
     conflict_choice: Optional[RunConflictChoice] = None
     remember_conflict_choice: bool = False
+    selected_profile: Optional[str] = None
+
+
+def ask_profile_selection(
+    parent: tk.Misc,
+    profiles: list[str],
+    *,
+    default_profile: Optional[str] = None,
+    labels: Optional[dict[str, str]] = None,
+) -> Optional[str]:
+    """Profil-Auswahl vor dem Populate-Dialog."""
+    if not profiles:
+        return None
+    if len(profiles) == 1:
+        return profiles[0]
+
+    labels = labels or {}
+    dialog = tk.Toplevel(parent)
+    dialog.title("Skeleton-Profil wählen")
+    dialog.transient(parent)
+    dialog.grab_set()
+    dialog.resizable(False, False)
+
+    chosen: dict[str, Optional[str]] = {"value": None}
+    var = tk.StringVar(value=default_profile if default_profile in profiles else profiles[0])
+
+    body = ttk.Frame(dialog, padding=12)
+    body.pack(fill=tk.BOTH, expand=True)
+    ttk.Label(body, text="Welches Skeleton-Profil soll ins Buch kopiert werden?").pack(anchor=tk.W, pady=(0, 8))
+
+    combo = ttk.Combobox(body, textvariable=var, state="readonly", width=48)
+    display = [f"{name} — {labels.get(name, name)}" for name in profiles]
+    combo["values"] = display
+    if default_profile in profiles:
+        combo.current(profiles.index(default_profile))
+    combo.pack(fill=tk.X, pady=(0, 12))
+
+    def confirm() -> None:
+        idx = combo.current()
+        if idx < 0:
+            idx = 0
+        chosen["value"] = profiles[idx]
+        dialog.destroy()
+
+    def cancel() -> None:
+        chosen["value"] = None
+        dialog.destroy()
+
+    row = ttk.Frame(body)
+    row.pack(fill=tk.X)
+    ttk.Button(row, text="Abbrechen", command=cancel).pack(side=tk.RIGHT, padx=(6, 0))
+    ttk.Button(row, text="Weiter", command=confirm).pack(side=tk.RIGHT)
+    dialog.protocol("WM_DELETE_WINDOW", cancel)
+    dialog.wait_window()
+    return chosen["value"]
 
 
 def _build_explanation(manifest_label: str, book_name: str, lines: list[PopulatePlanLine]) -> str:
@@ -58,6 +113,7 @@ class PopulateConfirmDialog(tk.Toplevel):
         parent: tk.Misc,
         *,
         manifest_label: str,
+        profile_name: str,
         book_name: str,
         lines: list[PopulatePlanLine],
         has_conflicts: bool,
@@ -73,6 +129,7 @@ class PopulateConfirmDialog(tk.Toplevel):
 
         self._result = PopulateDialogResult(confirmed=False)
         self._on_remember = on_remember
+        self._profile_name = profile_name
 
         body = ttk.Frame(self, padding=12)
         body.pack(fill=tk.BOTH, expand=True)
@@ -157,6 +214,7 @@ class PopulateConfirmDialog(tk.Toplevel):
             confirmed=True,
             conflict_choice=choice,
             remember_conflict_choice=remember,
+            selected_profile=self._profile_name,
         )
         self.destroy()
 
@@ -169,6 +227,7 @@ def ask_populate_confirmation(
     parent: tk.Misc,
     *,
     manifest_label: str,
+    profile_name: str,
     book_name: str,
     lines: list[PopulatePlanLine],
     has_conflicts: bool,
@@ -178,6 +237,7 @@ def ask_populate_confirmation(
     dialog = PopulateConfirmDialog(
         parent,
         manifest_label=manifest_label,
+        profile_name=profile_name,
         book_name=book_name,
         lines=lines,
         has_conflicts=has_conflicts,

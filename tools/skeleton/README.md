@@ -1,6 +1,11 @@
 # Skeleton-Bibliothek
 
-Autonomes Modul unter `tools/skeleton/` — wird über `plugins/skeleton_populate` im Menü **Tools → Plugins** registriert.
+Autonomes Modul unter `tools/skeleton/` — Menü-Einträge über Plugins:
+
+| Plugin | Menü |
+|--------|------|
+| `skeleton_populate` | Tools → Plugins → *Skeleton ins Buch übernehmen…* |
+| `skeleton_editor` | Tools → Plugins → *Skeleton-Bibliothek bearbeiten…* |
 
 ## Populate (Phase 1)
 
@@ -8,12 +13,28 @@ Kopiert Vorlagen aus `library/<profil>/` ins aktive Buchprojekt:
 
 ```bash
 python tools/skeleton/populate.py --book-path /pfad/zum/Buch --yes
-python tools/skeleton/populate.py --book-path /pfad/zum/Buch --on-conflict replace --yes
+python tools/skeleton/populate.py --book-path /pfad/zum/Buch --profile standard --on-conflict replace --yes
 ```
 
-In der GUI: **Tools → Plugins → Skeleton ins Buch übernehmen…**
+Bei mehreren Profilen: Profil-Auswahl-Dialog in der GUI.
 
-### Konfiguration (`app_config.json`)
+## Editor (Phase 2)
+
+Bearbeitet Vorlagen und Manifest-Einträge **ohne** Code in `book_studio.py`:
+
+```bash
+python tools/skeleton/editor.py
+python tools/skeleton/editor.py --profile standard
+```
+
+Funktionen:
+
+- Markdown-Vorlagen bearbeiten und speichern
+- Manifest-Einträge (Titel, `order`, optional, Buchbaum-Flag)
+- Neue Datei anlegen, Eintrag entfernen (Datei bleibt auf Platte)
+- Profil duplizieren als Ausgangspunkt für Varianten
+
+## Konfiguration (`app_config.json`)
 
 | Key | Bedeutung |
 |-----|-----------|

@@ -15,9 +15,16 @@ from tools.skeleton.dialog import (
     PopulatePlanLine,
     RunConflictChoice,
     ask_populate_confirmation,
+    ask_profile_selection,
     show_result_message,
 )
-from tools.skeleton.manifest import SkeletonManifest, load_manifest, resolve_profile_dir
+from tools.skeleton.manifest import (
+    SkeletonManifest,
+    list_profiles,
+    load_manifest,
+    resolve_library_root,
+    resolve_profile_dir,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -222,6 +229,7 @@ def populate_book(
         dialog_result: PopulateDialogResult = ask_populate_confirmation(
             interactive_parent,
             manifest_label=manifest.label,
+            profile_name=profile_name or manifest.name,
             book_name=book_path.name,
             lines=plan,
             has_conflicts=has_conflicts,
@@ -337,14 +345,39 @@ def run(studio: Any = None, **kwargs: Any) -> int:
     """Plugin- und CLI-Entrypoint."""
     repo_root = _repo_root()
     cfg = _read_app_config(repo_root)
-    library_root = Path(
-        kwargs.get("library_root") or cfg.get("skeleton_library_path") or "tools/skeleton/library"
+    library_root = resolve_library_root(
+        repo_root,
+        str(kwargs.get("library_root") or cfg.get("skeleton_library_path") or "tools/skeleton/library"),
     )
-    if not library_root.is_absolute():
-        library_root = (repo_root / library_root).resolve()
 
-    profile = str(kwargs.get("profile") or cfg.get("skeleton_default_profile") or "standard")
-    profile_dir = resolve_profile_dir(library_root, profile)
+    parent = getattr(studio, "root", None) if studio is not None else None
+    profile = kwargs.get("profile") or cfg.get("skeleton_default_profile") or "standard"
+    profiles = list_profiles(library_root)
+
+    skip_dialog = bool(kwargs.get("yes") or kwargs.get("skip_dialog"))
+    if (
+        parent is not None
+        and not skip_dialog
+        and not kwargs.get("profile")
+        and len(profiles) > 1
+    ):
+        labels = {}
+        for name in profiles:
+            try:
+                labels[name] = load_manifest(library_root / name).label
+            except (OSError, ValueError):
+                labels[name] = name
+        selected = ask_profile_selection(
+            parent,
+            profiles,
+            default_profile=profile if profile in profiles else None,
+            labels=labels,
+        )
+        if not selected:
+            return 0
+        profile = selected
+
+    profile_dir = resolve_profile_dir(library_root, str(profile))
 
     conflict_mode: ConflictMode = kwargs.get("conflict_mode") or cfg.get("skeleton_on_conflict") or "ask"
     if conflict_mode not in ("ask", "skip", "replace"):
@@ -352,7 +385,6 @@ def run(studio: Any = None, **kwargs: Any) -> int:
 
     if studio is not None and getattr(studio, "current_book", None):
         book_path = Path(studio.current_book)
-        parent = getattr(studio, "root", None)
     else:
         book_path = kwargs.get("book_path")
         if not book_path:
@@ -378,7 +410,7 @@ def run(studio: Any = None, **kwargs: Any) -> int:
             book_path,
             profile_dir=profile_dir,
             conflict_mode=conflict_mode,
-            profile_name=profile,
+            profile_name=str(profile),
             interactive_parent=parent,
             on_remember_conflict=remember,
             skip_dialog=skip_dialog,

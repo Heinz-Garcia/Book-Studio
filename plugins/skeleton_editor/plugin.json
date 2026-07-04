@@ -1,0 +1,9 @@
+{
+  "name": "skeleton_editor",
+  "label": "Skeleton-Bibliothek bearbeiten…",
+  "description": "Vorlagen und Manifeste unter tools/skeleton/library pflegen.",
+  "entrypoint": "plugins.skeleton_editor:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Tools"
+}

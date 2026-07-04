@@ -1,4 +1,4 @@
-"""Skeleton-Bibliothek: Vorlagen befüllen und (später) bearbeiten."""
+"""Skeleton-Bibliothek: Vorlagen befüllen und bearbeiten."""
 
 from tools.skeleton.populate import PopulateResult, populate_book
 
