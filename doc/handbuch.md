@@ -1,3 +1,9 @@
+---
+title: "Quarto Book Studio — Nutzerhandbuch"
+lang: de
+format: pdf
+---
+
 # Quarto Book Studio — Nutzerhandbuch
 
 **Stand:** Juli 2026 · **Version:** 1.0.8 („Skeleton Complete“)
@@ -349,6 +355,12 @@ Ordner `_Sanitizer_Backups_*` und `sanitizer_backup_*` sind **Sicherungskopien**
 ### Dieses Handbuch öffnen
 
 **Hilfe → Handbuch öffnen** — öffnet diese Datei im integrierten Markdown-Editor.
+
+### Handbuch als PDF
+
+**Hilfe → Handbuch als PDF rendern…** — startet Quarto im Hintergrund und erzeugt `doc/handbuch.pdf` (neben dieser `.md`-Datei). Vor dem Start erscheint eine kurze Bestätigung; danach siehst du den Fortschritt im Log-Terminal.
+
+Voraussetzung: **Quarto** ist installiert und im `PATH`. Das YAML-Frontmatter oben in dieser Datei steuert das PDF-Layout.
 
 Pfad in `app_config.json`:
 

@@ -1,1 +1,1 @@
-Quarto Book Studio v. 1.0.8 ("Skeleton Complete")
+Quarto Book Studio v. 1.0.9 ("Handbuch PDF")

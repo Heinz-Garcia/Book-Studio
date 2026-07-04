@@ -58,6 +58,7 @@ DEFAULTS: dict[str, Any] = {
     "skeleton_on_conflict": "ask",
     # all | missing_only — nur fehlende Dateien kopieren
     "skeleton_populate_mode": "all",
+    "handbuch_pdf_format": "pdf",
 }
 
 
