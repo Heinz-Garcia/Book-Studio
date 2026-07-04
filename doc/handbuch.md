@@ -1,12 +1,16 @@
 ---
 title: "Quarto Book Studio — Nutzerhandbuch"
 lang: de
-format: typst
+format:
+  typst:
+    toc: true
+    toc-depth: 2
+    number-sections: false
 ---
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** Juli 2026 · **Version:** 1.0.8 („Skeleton Complete“)
+**Stand:** Juli 2026 · **Version:** 1.0.11 („Handbuch Typst robust“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -14,25 +18,27 @@ Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufba
 
 ## Inhalt
 
-1. [Schnellstart (15 Minuten)](#1-schnellstart-15-minuten)
-2. [Die Oberfläche](#2-die-oberfläche)
-3. [Projekt und Kapitel](#3-projekt-und-kapitel)
-4. [Suche und Filter](#4-suche-und-filter)
-5. [Statusmarker und Icon-Legende](#5-statusmarker-und-icon-legende)
-6. [Buch speichern und rendern](#6-buch-speichern-und-rendern)
-7. [Buch-Doktor und Auto-Healing](#7-buch-doktor-und-auto-healing)
-8. [Sanitizer (Markdown bereinigen)](#8-sanitizer-markdown-bereinigen)
-9. [Bilder prüfen](#9-bilder-prüfen)
-10. [Markdown-Editor](#10-markdown-editor)
-11. [Einstellungen](#11-einstellungen)
-12. [Tastenkürzel](#12-tastenkürzel)
-13. [Typische Situationen](#13-typische-situationen)
-14. [Hilfe und Log](#14-hilfe-und-log)
-15. [Skeleton-Bibliothek (Vorlagen)](#15-skeleton-bibliothek-vorlagen)
+Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
+
+1. Schnellstart (15 Minuten)
+2. Die Oberfläche
+3. Projekt und Kapitel
+4. Suche und Filter
+5. Statusmarker und Icon-Legende
+6. Buch speichern und rendern
+7. Buch-Doktor und Auto-Healing
+8. Sanitizer (Markdown bereinigen)
+9. Bilder prüfen
+10. Markdown-Editor
+11. Einstellungen
+12. Tastenkürzel
+13. Typische Situationen
+14. Hilfe und Log
+15. Skeleton-Bibliothek (Vorlagen)
 
 ---
 
-## 1) Schnellstart (15 Minuten)
+## 1) Schnellstart (15 Minuten) {#sec-schnellstart}
 
 ### Schritt 1 — Projekt öffnen
 
@@ -42,7 +48,7 @@ Oben im Dropdown **AKTIVES PROJEKT** dein Buch auswählen (Ordner mit `_quarto.y
 
 Für ein **neues oder leeres Buch**: **Tools → Plugins → Skeleton ins Buch übernehmen…**
 
-Kopiert Standardseiten (Klappentext, Einleitung, Impressum, …) als **eigene Dateien** ins Projekt. Details: [Kapitel 15](#15-skeleton-bibliothek-vorlagen).
+Kopiert Standardseiten (Klappentext, Einleitung, Impressum, …) als **eigene Dateien** ins Projekt. Details: @sec-skeleton.
 
 ### Schritt 3 — Kapitel zuordnen
 
@@ -71,7 +77,7 @@ Rechts per **Drag-and-Drop** oder **Hoch/Runter** sortieren. Mit **Einrücken/Au
 
 ---
 
-## 2) Die Oberfläche
+## 2) Die Oberfläche {#sec-oberflaeche}
 
 | Bereich | Funktion |
 |---------|----------|
@@ -89,7 +95,7 @@ Rechts per **Drag-and-Drop** oder **Hoch/Runter** sortieren. Mit **Einrücken/Au
 
 ---
 
-## 3) Projekt und Kapitel
+## 3) Projekt und Kapitel {#sec-projekt-kapitel}
 
 ### Required-Dateien
 
@@ -108,7 +114,7 @@ Wenn du Dateien in die Buchstruktur übernimmst, ergänzt das Studio fehlende Pf
 
 ---
 
-## 4) Suche und Filter
+## 4) Suche und Filter {#sec-suche-filter}
 
 ### Suchmodus
 
@@ -131,7 +137,7 @@ Wenn du Dateien in die Buchstruktur übernimmst, ergänzt das Studio fehlende Pf
 
 ---
 
-## 5) Statusmarker und Icon-Legende
+## 5) Statusmarker und Icon-Legende {#sec-statusmarker}
 
 Die **Icon-Legende** im mittleren Bereich erklärt die Symbole.
 
@@ -157,7 +163,7 @@ Die **Icon-Legende** im mittleren Bereich erklärt die Symbole.
 
 ---
 
-## 6) Buch speichern und rendern
+## 6) Buch speichern und rendern {#sec-speichern-rendern}
 
 ### Speichern (`Strg+S`)
 
@@ -194,7 +200,7 @@ Das ist **kein Absturz** — springe mit **F4** / **Shift+F4** durch die ☠-Mar
 
 ---
 
-## 7) Buch-Doktor und Auto-Healing
+## 7) Buch-Doktor und Auto-Healing {#sec-buch-doktor}
 
 ### Manuell starten
 
@@ -218,7 +224,7 @@ Das ist **kein Absturz** — springe mit **F4** / **Shift+F4** durch die ☠-Mar
 
 ---
 
-## 8) Sanitizer (Markdown bereinigen)
+## 8) Sanitizer (Markdown bereinigen) {#sec-sanitizer}
 
 **Tools → Sanitizer-Pipeline starten** (nach Bestätigung)
 
@@ -242,7 +248,7 @@ Titel und Status in der GUI werden aktualisiert. Details stehen in `sanitizer_lo
 
 ---
 
-## 9) Bilder prüfen
+## 9) Bilder prüfen {#sec-bilder}
 
 ### Erkennung
 
@@ -265,7 +271,7 @@ Im Dialog: Doppelklick oder **Enter** auf eine Zeile → Editor springt zur Stel
 
 ---
 
-## 10) Markdown-Editor
+## 10) Markdown-Editor {#sec-editor}
 
 - Doppelklick auf Kapitel in links/rechts
 - **Strg+S** speichern
@@ -275,7 +281,7 @@ Beim Öffnen aus der Bildprüfung oder vom Buch-Doktor: Sprung zur gemeldeten Ze
 
 ---
 
-## 11) Einstellungen
+## 11) Einstellungen {#sec-einstellungen}
 
 Konfigurationsdatei: **`app_config.json`** (im Book-Studio-Ordner)
 
@@ -308,7 +314,7 @@ Session-Daten (letztes Buch, Fenstergröße): **`session_state.json`** — wird 
 
 ---
 
-## 12) Tastenkürzel
+## 12) Tastenkürzel {#sec-tastenkuerzel}
 
 | Kürzel | Aktion |
 |--------|--------|
@@ -321,7 +327,7 @@ Session-Daten (letztes Buch, Fenstergröße): **`session_state.json`** — wird 
 
 ---
 
-## 13) Typische Situationen
+## 13) Typische Situationen {#sec-situationen}
 
 ### „Render-Vorabcheck: bereit — 1 Hinweis“
 
@@ -350,7 +356,7 @@ Ordner `_Sanitizer_Backups_*` und `sanitizer_backup_*` sind **Sicherungskopien**
 
 ---
 
-## 14) Hilfe und Log
+## 14) Hilfe und Log {#sec-hilfe-log}
 
 ### Dieses Handbuch öffnen
 
@@ -360,7 +366,9 @@ Ordner `_Sanitizer_Backups_*` und `sanitizer_backup_*` sind **Sicherungskopien**
 
 **Hilfe → Handbuch als PDF rendern…** — startet Quarto mit **Typst** (wie beim Buch-Render unter F5) und erzeugt `doc/handbuch.pdf`. Vor dem Start erscheint eine kurze Bestätigung; Fortschritt im Log-Terminal.
 
-Voraussetzung: **Quarto** ist installiert. **Kein LaTeX/TinyTeX nötig**, solange `handbuch_pdf_format` auf `typst` steht (Standard). Das YAML-Frontmatter oben steuert das Layout.
+Voraussetzung: **Quarto** ist installiert. **Kein LaTeX/TinyTeX nötig**, solange `handbuch_pdf_format` auf `typst` steht (Standard). Das YAML-Frontmatter oben steuert das Layout (inkl. automatischem Inhaltsverzeichnis).
+
+**Interne Verweise im Handbuch:** Für Typst-PDF Quarto-Crossrefs nutzen (`{#sec-…}` an Überschriften, `@sec-…` im Text). GitHub-Anker (`[Text](#anker)`) funktionieren im Editor, brechen aber beim PDF-Render — die App entfernt solche Links vor dem Rendern als Sicherheitsnetz.
 
 Pfad in `app_config.json`:
 
@@ -394,7 +402,7 @@ Das Handbuch liegt bewusst als **Markdown** (`.md`) vor. Kurz die Trade-offs:
 
 ---
 
-## 15) Skeleton-Bibliothek (Vorlagen)
+## 15) Skeleton-Bibliothek (Vorlagen) {#sec-skeleton}
 
 Das **Skeleton**-Feature befüllt Buchprojekte mit wiederkehrenden Seiten (Klappentext, Widmung, Einleitung, Impressum, Glossar, …). Die Logik lebt **autonom** unter `tools/skeleton/` und erscheint nur als Plugin im Menü — nicht als fester Bestandteil der Hauptoberfläche.
 
@@ -460,7 +468,7 @@ Das mitgelieferte Profil enthält u. a. (unter `content/required/`):
 | Rueckseite.md | `"END-10"` |
 | Template.md | wird kopiert, **nicht** in den Buchbaum eingetragen |
 
-Mapping orientiert sich am Buch *Band_Stoffwechselgesundheit*. Details zu `order`: [Kapitel 3](#3-projekt-und-kapitel).
+Mapping orientiert sich am Buch *Band_Stoffwechselgesundheit*. Details zu `order`: @sec-projekt-kapitel.
 
 ### Skeleton-Bibliothek bearbeiten
 
@@ -500,7 +508,7 @@ Technische Details für Entwickler: `tools/skeleton/README.md`.
 
 ---
 
-## Anhang: Ordnerstruktur eines Buchprojekts
+## Anhang: Ordnerstruktur eines Buchprojekts {#sec-anhang-ordnerstruktur}
 
 ```
 MeinBuch/
