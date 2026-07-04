@@ -22,6 +22,7 @@ htmlcov/
 /site_libs/
 /.quarto/
 /output/
+.spike/
 
 # Betriebssystem-Dateien
 .DS_Store

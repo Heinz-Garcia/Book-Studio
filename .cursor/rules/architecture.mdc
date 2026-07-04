@@ -1,0 +1,34 @@
+---
+description: >
+  Architektur-Regeln für Book Studio Unleashed: Service-Layer tk-frei,
+  SSOT-Module, keine Big-Bang-Migrationen, Spike-Doku in .doc/, pytest-Pflicht.
+  Anwenden bei Architekturfragen, Machbarkeits-Spikes, Refactoring-Planung,
+  GUI-Migration, Parser-Konsolidierung und Modulgrenzen.
+alwaysApply: false
+---
+
+# Architektur (Book Studio Unleashed)
+
+Lies zuerst `AGENTS.md` und bei UI-Fragen `.doc/gui_architektur.md`.
+
+## Verbindlich
+
+- `services/` — **kein** `import tkinter`
+- Fenced Divs → `quarto_block_parser.py` (nicht duplizieren)
+- Frontmatter → `frontmatter_parser.py`
+- Große Migrationen: **Spike in `.doc/`** bevor Implementierung; Strangler statt Big-Bang
+- Nach Code-Änderungen: `python3 -m pytest tests -q -m "not slow"` muss grün sein
+- Konservativste Option lokal bevorzugen; Alternative im PR/Spike sichtbar machen
+
+## Bei Architektur-Analyse
+
+1. Readonly explorieren, dann empfehlen
+2. Call-Sites und Testabdeckung nennen
+3. Regressions-Hotspots: Dual-Tree/DnD/Undo, Session-Restore, Render-Preflight
+4. Skill `@architecture-spike` für vollständigen Spike-Ablauf
+
+## Nicht tun
+
+- `app_config.json` / `session_state.json` mit echten Nutzerpfaden ändern
+- Force-Push oder Rebase bestehender Historie
+- PRs selbst mergen
