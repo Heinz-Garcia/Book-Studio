@@ -78,6 +78,21 @@ def test_colons_inside_code_block_are_ignored():
     assert issues == []
 
 
+def test_colons_inside_tilde_fence_are_ignored():
+    body = "~~~markdown\n::: {.note}\n:::\n~~~\n"
+    assert qp.find_fenced_div_issues(body) == []
+
+
+def test_mismatched_close_when_close_has_fewer_colons():
+    """Schließer mit weniger Doppelpunkten als der Top-Öffner → mismatched-close
+    und der ursprüngliche Öffner bleibt ungeschlossen."""
+    body = ":::: {.outer}\nInhalt\n:::\n"
+    issues = qp.find_fenced_div_issues(body)
+    kinds = {issue.kind for issue in issues}
+    assert kinds == {"mismatched-close", "unclosed-open"}
+    assert {issue.line_number for issue in issues} == {1, 3}
+
+
 def test_inline_colon_run_in_text_is_inline_issue():
     body = "Hier steht ::: im Fließtext.\n"
     issues = qp.find_fenced_div_issues(body)

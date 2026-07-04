@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +10,7 @@ from pathlib import Path
 import yaml
 
 from pre_processor import PreProcessor
+from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues
 from yaml_engine import QuartoYamlEngine
 
 
@@ -37,45 +37,12 @@ def _iter_tree_paths(tree_data):
 
 
 def _detect_fenced_div_issues(lines):
-    issues = []
-    stack = []
-    marker_pattern = re.compile(r"^\s*(:{3,})(\s*.*)$")
-    code_fence_pattern = re.compile(r"^\s*(```+|~~~+)")
-    in_code_block = False
-
-    for line_number, raw_line in enumerate(lines, start=1):
-        line = raw_line.rstrip("\r")
-
-        if code_fence_pattern.match(line):
-            in_code_block = not in_code_block
-            continue
-        if in_code_block:
-            continue
-
-        marker_match = marker_pattern.match(line)
-        if marker_match:
-            colon_count = len(marker_match.group(1))
-            tail = marker_match.group(2).strip()
-            if tail:
-                stack.append((colon_count, line_number))
-            else:
-                if stack:
-                    top_colon_count, _top_line = stack[-1]
-                    if colon_count >= top_colon_count:
-                        stack.pop()
-                    else:
-                        issues.append((line_number, "mismatched-close"))
-                else:
-                    issues.append((line_number, "orphan-close"))
-            continue
-
-        if ":::" in line:
-            issues.append((line_number, "inline"))
-
-    for _colon_count, open_line in stack:
-        issues.append((open_line, "unclosed-open"))
-
-    return issues
+    """SSOT-Wrapper für `quarto_block_parser.find_fenced_div_issues`."""
+    body = "\n".join(line.rstrip("\r") for line in lines)
+    return [
+        (issue.line_number, issue.kind)
+        for issue in qb_find_fenced_div_issues(body)
+    ]
 
 
 def _collect_processed_colon_occurrences(book_path: Path, processed_tree):
