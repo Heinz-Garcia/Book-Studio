@@ -1974,39 +1974,94 @@ class BookStudio:
     def open_help_manual(self):
         try:
             cfg = self._read_config()
-        except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
-            self._report_nonfatal_error("Handbuch-Konfiguration konnte nicht gelesen werden", error)
-            cfg = {}
+            from tools.handbook_pdf import resolve_handbook_path
 
-        manual_setting = cfg.get("help_manual_path", "")
-        if not isinstance(manual_setting, str) or not manual_setting.strip():
-            messagebox.showwarning(
-                "Handbuch nicht konfiguriert",
-                "Bitte setze in app_config.json den Eintrag 'help_manual_path'\n"
-                "auf eine Markdown-Datei (relativ zum Projekt oder absolut).",
-            )
+            manual_path = resolve_handbook_path(self.base_path, cfg)
+        except ValueError as error:
+            messagebox.showwarning("Handbuch nicht konfiguriert", str(error), parent=self.root)
             return
-
-        manual_path = Path(manual_setting.strip())
-        if not manual_path.is_absolute():
-            manual_path = self.base_path / manual_path
-
-        manual_path = manual_path.resolve()
-        if not manual_path.exists() or not manual_path.is_file():
-            messagebox.showerror(
-                "Handbuch nicht gefunden",
-                f"Die konfigurierte Handbuch-Datei existiert nicht:\n{manual_path}",
-            )
+        except FileNotFoundError as error:
+            messagebox.showerror("Handbuch nicht gefunden", str(error), parent=self.root)
             return
-
-        if manual_path.suffix.lower() != ".md":
-            messagebox.showwarning(
-                "Ungültiges Handbuch-Format",
-                f"Die konfigurierte Datei ist keine Markdown-Datei:\n{manual_path}",
-            )
+        except (OSError, TypeError, json.JSONDecodeError) as error:
+            self._report_nonfatal_error("Handbuch konnte nicht geöffnet werden", error)
             return
 
         MarkdownEditor(self.root, manual_path, self.on_markdown_saved, self._get_editor_end_commands())
+
+    def render_help_manual_pdf(self):
+        try:
+            cfg = self._read_config()
+            from tools.handbook_pdf import render_from_config, reveal_in_file_manager
+
+            manual_path_hint = cfg.get("help_manual_path", "doc/handbuch.md")
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+            self._report_nonfatal_error("Handbuch-PDF: Konfiguration fehlerhaft", error)
+            return
+
+        if not messagebox.askyesno(
+            "Handbuch als PDF rendern",
+            f"Das Nutzerhandbuch wird mit Quarto als PDF erzeugt (Motor: Typst, wie Buch-Export).\n\n"
+            f"Quelle: {manual_path_hint}\n"
+            f"Ziel: gleicher Ordner, Dateiendung .pdf\n\n"
+            f"Fortfahren?",
+            parent=self.root,
+        ):
+            return
+
+        self.status.config(text="Rendere Handbuch (PDF)…", fg=_StatusFg.INFO)
+        self.log("📄 Handbuch-PDF: Start…", _LogLevel.HEADER)
+
+        def worker() -> None:
+            def log_line(line: str) -> None:
+                self.root.after(0, lambda ln=line: self.log(ln, _LogLevel.DIM))
+
+            try:
+                result = render_from_config(
+                    self.base_path,
+                    cfg,
+                    on_log_line=log_line,
+                )
+            except (OSError, ValueError) as exc:
+                self.root.after(
+                    0,
+                    lambda: self.log(f"❌ Handbuch-PDF: {exc}", _LogLevel.ERROR),
+                )
+                self.root.after(
+                    0,
+                    lambda: self.status.config(text="Handbuch-PDF fehlgeschlagen", fg=_StatusFg.DANGER),
+                )
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror("Handbuch-PDF", str(exc), parent=self.root),
+                )
+                return
+
+            if result.ok:
+                pdf = result.output_path
+
+                def on_success() -> None:
+                    self.log(f"✅ Handbuch-PDF fertig: {pdf}", _LogLevel.SUCCESS)
+                    self.status.config(text="Handbuch-PDF erstellt", fg=_StatusFg.SUCCESS)
+                    if messagebox.askyesno(
+                        "Handbuch-PDF",
+                        f"PDF erstellt:\n{pdf}\n\nIm Dateimanager anzeigen?",
+                        parent=self.root,
+                    ):
+                        reveal_in_file_manager(pdf)
+
+                self.root.after(0, on_success)
+            else:
+                msg = result.error_message or f"Quarto Code {result.returncode}"
+
+                def on_fail() -> None:
+                    self.log(f"❌ Handbuch-PDF: {msg}", _LogLevel.ERROR)
+                    self.status.config(text="Handbuch-PDF fehlgeschlagen", fg=_StatusFg.DANGER)
+                    messagebox.showerror("Handbuch-PDF", msg, parent=self.root)
+
+                self.root.after(0, on_fail)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _open_item_from_widget(self, widget, item):
         if not item:
