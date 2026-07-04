@@ -1,6 +1,6 @@
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** Juli 2026 · **Version:** 1.0.4 („Published Edition“)
+**Stand:** Juli 2026 · **Version:** 1.0.8 („Skeleton Complete“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -22,6 +22,7 @@ Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufba
 12. [Tastenkürzel](#12-tastenkürzel)
 13. [Typische Situationen](#13-typische-situationen)
 14. [Hilfe und Log](#14-hilfe-und-log)
+15. [Skeleton-Bibliothek (Vorlagen)](#15-skeleton-bibliothek-vorlagen)
 
 ---
 
@@ -31,22 +32,28 @@ Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufba
 
 Oben im Dropdown **AKTIVES PROJEKT** dein Buch auswählen (Ordner mit `_quarto.yml`).
 
-### Schritt 2 — Kapitel zuordnen
+### Schritt 2 — (Optional) Skeleton-Vorlagen übernehmen
+
+Für ein **neues oder leeres Buch**: **Tools → Plugins → Skeleton ins Buch übernehmen…**
+
+Kopiert Standardseiten (Klappentext, Einleitung, Impressum, …) als **eigene Dateien** ins Projekt. Details: [Kapitel 15](#15-skeleton-bibliothek-vorlagen).
+
+### Schritt 3 — Kapitel zuordnen
 
 - **Links:** Dateien im Pool (noch nicht im Buch)
 - **Rechts:** Buchstruktur (wird gerendert)
 
 Dateien per **Doppelklick** links → rechts übernehmen, oder Buttons im mittleren Bereich (**Hinzufügen** / **Entfernen**).
 
-### Schritt 3 — Reihenfolge festlegen
+### Schritt 4 — Reihenfolge festlegen
 
 Rechts per **Drag-and-Drop** oder **Hoch/Runter** sortieren. Mit **Einrücken/Ausrücken** Unterkapitel-Ebenen setzen.
 
-### Schritt 4 — Speichern
+### Schritt 5 — Speichern
 
 `Strg+S` oder **Datei → In Quarto speichern** — schreibt die Struktur nach `_quarto.yml`.
 
-### Schritt 5 — Rendern
+### Schritt 6 — Rendern
 
 `F5` oder **Export → Buch rendern...**
 
@@ -278,6 +285,10 @@ GUI: **Tools → Studio-Konfiguration...**
 | `default_export_template` | Standard-Template |
 | `abort_on_first_preflight_error` | Render bei erstem Doctor-Fehler stoppen |
 | `log_font_size` | Schriftgröße im Log (7–24) |
+| `skeleton_library_path` | Ordner mit Skeleton-Profilen (`tools/skeleton/library`) |
+| `skeleton_default_profile` | Standard-Profil beim Populate (z. B. `standard`) |
+| `skeleton_on_conflict` | `ask` \| `skip` \| `replace` bei vorhandenen Dateien |
+| `skeleton_populate_mode` | `all` \| `missing_only` (nur fehlende Dateien kopieren) |
 
 Session-Daten (letztes Buch, Fenstergröße): **`session_state.json`** — wird automatisch gepflegt.
 
@@ -327,6 +338,10 @@ Beim Speichern legt das Studio bei Bedarf eine minimale `index.md` an.
 
 **Tools → _quarto.yml hart zurücksetzen** (mit Sicherheitsabfrage). Template: `templates/quarto_reset_minimal.yml`.
 
+### Skeleton: Dateien im Git-Panel
+
+Ordner `_Sanitizer_Backups_*` und `sanitizer_backup_*` sind **Sicherungskopien** — nicht committen. Sie stehen in `.gitignore`.
+
 ---
 
 ## 14) Hilfe und Log
@@ -352,6 +367,125 @@ Pfad in `app_config.json`:
 
 **Grundsatz:** Das Studio versucht zuerst zu reparieren oder auszuweichen — und erklärt kurz, was es getan hat.
 
+### Doku-Format: Markdown oder HTML?
+
+Das Handbuch liegt bewusst als **Markdown** (`.md`) vor. Kurz die Trade-offs:
+
+| Markdown (aktuell) | HTML |
+|--------------------|------|
+| Im Studio direkt editierbar (**Hilfe → Handbuch öffnen**) | Bräuchte eigenen Viewer oder externen Browser |
+| Gleiche Sprache wie Buch-Kapitel und Skeleton-Vorlagen | Schöneres Layout, feste Navigation, Suche einbettbar |
+| Git-Diffs lesbar, Agenten/Cursor pflegen es gut | Build-Schritt nötig (Quarto, MkDocs, …) |
+| Kein zweiter Wartungskanal | Zwei Quellen oder Generator-Pipeline |
+
+**Empfehlung für Book Studio:** Markdown als **Quelle** behalten; HTML höchstens als **exportiertes** Zielformat (z. B. `quarto render doc/handbuch.md`), nicht als Ersatz für die editierbare Datei in der App.
+
+---
+
+## 15) Skeleton-Bibliothek (Vorlagen)
+
+Das **Skeleton**-Feature befüllt Buchprojekte mit wiederkehrenden Seiten (Klappentext, Widmung, Einleitung, Impressum, Glossar, …). Die Logik lebt **autonom** unter `tools/skeleton/` und erscheint nur als Plugin im Menü — nicht als fester Bestandteil der Hauptoberfläche.
+
+### Zwei Menüpunkte (Tools → Plugins)
+
+| Menüpunkt | Funktion |
+|-----------|----------|
+| **Skeleton ins Buch übernehmen…** | Kopiert Vorlagen ins **aktive Buch** |
+| **Skeleton-Bibliothek bearbeiten…** | Pflegt die Vorlagen in der Bibliothek |
+
+### Grundprinzip: immer Kopie
+
+- Es gibt **keinen Link-Modus** — jede Vorlage wird als **eigene Datei** ins Buchprojekt kopiert.
+- Alle weiteren Bearbeitungen betreffen nur die **Kopien im Buch**, nicht die Skeleton-Bibliothek.
+- Die Bibliothek ist die **Quelle für künftige** Populate-Läufe in anderen Büchern.
+
+### Populate — Ablauf
+
+1. Aktives Buch im Dropdown wählen.
+2. **Tools → Plugins → Skeleton ins Buch übernehmen…**
+3. Bei mehreren Profilen: **Profil wählen** (z. B. `standard`).
+4. Im Dialog siehst du **genau**, was passiert:
+   - welche Dateien **neu** kopiert werden
+   - welche **übersprungen** oder **ersetzt** werden
+   - welche in den **Buchbaum** eingetragen werden
+5. Bei Konflikten (Datei existiert schon):
+   - **Überspringen** (empfohlen) oder **Ersetzen**
+   - optional **Entscheidung merken** → `skeleton_on_conflict` in `app_config.json`
+6. Optional: **Nur fehlende Dateien übernehmen** — vorhandene Dateien werden nie überschrieben (`skeleton_populate_mode: missing_only`).
+7. Nach Bestätigung: Frontmatter wird ergänzt, Kapitel mit `order` werden sortiert, **`_quarto.yml` und GUI-Struktur werden gespeichert**.
+
+### Diff-Vorschau
+
+Im Populate-Dialog:
+
+| Spalte / Aktion | Bedeutung |
+|-----------------|-----------|
+| **Diff** `neu` | Datei gibt es im Buch noch nicht |
+| **Diff** `identisch` | Buchdatei = Skeleton-Vorlage |
+| **Diff** `+N / -M` | Text unterscheidet sich |
+| **Diff für Auswahl…** / Doppelklick | Unified-Diff (Buch vs. Vorlage) |
+
+So siehst du vor dem Ersetzen, **was** sich ändern würde.
+
+### Profil `standard`
+
+Das mitgelieferte Profil enthält u. a. (unter `content/required/`):
+
+| Datei | `order` (Position) |
+|-------|-------------------|
+| Titel.md | `"10"` |
+| Klappentext_vorne.md | `"20"` |
+| Widmung.md | optional, ohne feste Position |
+| Impressum.md | `"30"` |
+| IVZ.md | `"40"` |
+| Danksagung.md | `"50"` |
+| Einleitung.md | `"60"` |
+| These.md | `"70"` |
+| Literaturverzeichnis.md | `"END-50"` |
+| Glossar.md | `"END-40"` |
+| UeberAutor.md | `"END-30"` |
+| Klappentext_hinten.md | `"END-20"` |
+| Rueckseite.md | `"END-10"` |
+| Template.md | wird kopiert, **nicht** in den Buchbaum eingetragen |
+
+Mapping orientiert sich am Buch *Band_Stoffwechselgesundheit*. Details zu `order`: [Kapitel 3](#3-projekt-und-kapitel).
+
+### Skeleton-Bibliothek bearbeiten
+
+**Tools → Plugins → Skeleton-Bibliothek bearbeiten…**
+
+| Aktion | Wirkung |
+|--------|---------|
+| Markdown speichern | Ändert die **Vorlage** in der Bibliothek |
+| Manifest-Eintrag speichern | Titel, `order`, optional, „in Buchbaum“ |
+| Neue Datei | Legt `.md` + Manifest-Eintrag an |
+| Eintrag entfernen | Nur aus Manifest (Datei bleibt auf Platte) |
+| Profil duplizieren | Neues Profil aus bestehendem (z. B. Variante) |
+| Als Standard | setzt `skeleton_default_profile` |
+| Profil löschen | `standard` ist geschützt |
+
+Pfad der Bibliothek: `tools/skeleton/library/<profil>/` mit `manifest.yaml` und den Markdown-Dateien.
+
+### Kommandozeile (optional)
+
+```bash
+python -m tools.skeleton list-profiles
+python -m tools.skeleton populate --book-path C:\Pfad\zum\Buch --yes
+python -m tools.skeleton populate --book-path C:\Pfad\zum\Buch --missing-only --yes
+python -m tools.skeleton edit --profile standard
+```
+
+### Skeleton-Konfiguration (`app_config.json`)
+
+| Schlüssel | Werte | Bedeutung |
+|-----------|-------|-----------|
+| `skeleton_library_path` | Pfad | Wurzel der Profile |
+| `skeleton_default_profile` | Name | Standard beim Öffnen / Populate |
+| `skeleton_on_conflict` | `ask`, `skip`, `replace` | Verhalten bei existierenden Dateien |
+| `skeleton_populate_mode` | `all`, `missing_only` | Nur fehlende Dateien kopieren |
+
+Technische Details für Entwickler: `tools/skeleton/README.md`.
+
 ---
 
 ## Anhang: Ordnerstruktur eines Buchprojekts
@@ -362,10 +496,14 @@ MeinBuch/
 ├── index.md             ← Buch-Einstieg
 ├── content/             ← Markdown-Kapitel
 │   ├── kapitel-01.md
-│   └── required/        ← optionale Pflichtdateien
+│   └── required/        ← optionale Pflichtdateien (oft per Skeleton befüllt)
 ├── bookconfig/          ← GUI-State, Profile
 ├── export/              ← Render-Ausgabe
 └── .backups/            ← Struktur-Backups
+
+Book-Studio-Installation (Auszug):
+tools/skeleton/library/  ← Skeleton-Vorlagen (Profile mit manifest.yaml)
+doc/handbuch.md          ← dieses Nutzerhandbuch
 ```
 
 ---
