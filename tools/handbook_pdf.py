@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-
 LogFn = Callable[[str, str], None]
+
+# GitHub-style internal links break Typst PDF (missing labels). Strip before render.
+_GFM_ANCHOR_LINK = re.compile(r"\[([^\]]+)\]\(#[^)]+\)")
 
 
 @dataclass(frozen=True)
@@ -43,6 +46,27 @@ def resolve_handbook_path(base_path: Path, cfg: dict) -> Path:
     return manual_path
 
 
+def normalize_markdown_for_typst(markdown: str) -> str:
+    """Entfernt GFM-Anker-Links, die Typst-PDF nicht auflösen kann (Linktext bleibt)."""
+    return _GFM_ANCHOR_LINK.sub(r"\1", markdown)
+
+
+def prepare_render_source(manual_path: Path) -> tuple[Path, Optional[Path]]:
+    """
+    Liefert die zu rendernde Markdown-Datei.
+
+    Bei nötiger Normalisierung: temporäre Kopie neben dem Original (für Quarto-Pfade).
+    """
+    manual_path = manual_path.resolve()
+    original = manual_path.read_text(encoding="utf-8")
+    normalized = normalize_markdown_for_typst(original)
+    if normalized == original:
+        return manual_path, None
+    temp_path = manual_path.with_name(f"{manual_path.stem}._render{manual_path.suffix}")
+    temp_path.write_text(normalized, encoding="utf-8")
+    return temp_path, temp_path
+
+
 def output_extension_for_format(fmt: str) -> str:
     """Dateiendung der gerenderten Ausgabe (typst → .pdf)."""
     normalized = fmt.lower().lstrip(".")
@@ -70,7 +94,8 @@ def run_quarto_render(
     """Startet `quarto render` synchron für die Handbuch-Datei."""
     manual_path = Path(manual_path).resolve()
     output_path = expected_output_path(manual_path, fmt)
-    cmd = build_quarto_command(manual_path, fmt=fmt, quarto_bin=quarto_bin)
+    render_path, temp_md = prepare_render_source(manual_path)
+    cmd = build_quarto_command(render_path, fmt=fmt, quarto_bin=quarto_bin)
     log_tail: list[str] = []
 
     if on_log_line:
@@ -113,29 +138,58 @@ def run_quarto_render(
             on_log_line(stripped)
     returncode = proc.wait()
 
-    if returncode != 0:
+    try:
+        if returncode != 0:
+            return HandbookRenderResult(
+                returncode=returncode,
+                manual_path=manual_path,
+                error_message=_format_render_failure(returncode, fmt, log_tail),
+            )
+
+        rendered_pdf = expected_output_path(render_path, fmt)
+        if rendered_pdf != output_path:
+            if rendered_pdf.is_file():
+                if output_path.is_file():
+                    output_path.unlink()
+                rendered_pdf.replace(output_path)
+            elif not output_path.is_file():
+                return HandbookRenderResult(
+                    returncode=returncode,
+                    manual_path=manual_path,
+                    error_message=f"Erwartete Ausgabedatei fehlt: {output_path}",
+                )
+        elif not output_path.is_file():
+            return HandbookRenderResult(
+                returncode=returncode,
+                manual_path=manual_path,
+                error_message=f"Erwartete Ausgabedatei fehlt: {output_path}",
+            )
+
         return HandbookRenderResult(
             returncode=returncode,
             manual_path=manual_path,
-            error_message=_format_render_failure(returncode, fmt, log_tail),
+            output_path=output_path,
         )
-
-    if not output_path.is_file():
-        return HandbookRenderResult(
-            returncode=returncode,
-            manual_path=manual_path,
-            error_message=f"Erwartete Ausgabedatei fehlt: {output_path}",
-        )
-
-    return HandbookRenderResult(
-        returncode=returncode,
-        manual_path=manual_path,
-        output_path=output_path,
-    )
+    finally:
+        if temp_md is not None and temp_md.is_file():
+            temp_md.unlink(missing_ok=True)
+        orphan_pdf = expected_output_path(render_path, fmt)
+        if orphan_pdf != output_path and orphan_pdf.is_file():
+            orphan_pdf.unlink(missing_ok=True)
 
 
 def _format_render_failure(returncode: int, fmt: str, log_tail: list[str]) -> str:
     joined = "\n".join(log_tail).lower()
+    if "cannot reference heading without numbering" in joined and fmt.lower() == "typst":
+        return (
+            "Typst-Querverweis fehlgeschlagen: @sec-… funktioniert nur mit nummerierten Überschriften. "
+            "Im Handbuch Klartext verwenden (z. B. „Kapitel 15“) oder number-sections aktivieren."
+        )
+    if "label" in joined and "does not exist" in joined and fmt.lower() == "typst":
+        return (
+            "Typst-Querverweis fehlgeschlagen: GitHub-Anker ([Text](#anker)) werden im PDF nicht "
+            "unterstützt. Im Handbuch Quarto-Crossrefs nutzen ({#sec-…} und @sec-…)."
+        )
     if "no tex installation was detected" in joined:
         return (
             "Kein LaTeX/TinyTeX gefunden (Format pdf). "
