@@ -1724,39 +1724,46 @@ class BookStudio:
             return False
 
     def _build_tree_from_json(self, parent_id, data):
-        for item in data:
-            path = item.get("path", "")
-            if path == "index.md":
-                continue
-            if self._is_technical_content_node(path):
-                if item.get("children"):
-                    self._build_tree_from_json(parent_id, item["children"])
-                continue
-            title = item.get("title", self.title_registry.get(path, f"[NEU] {Path(path).stem}"))
-            display_title = self._decorate_title_for_path(title, path)
-            status_code = self._status_code_for_path(path)
-            node = self.tree_book.insert(parent_id, "end", text=display_title, values=(path, title, status_code), open=True, tags=self._tree_tags_for_path(path))
-            if item.get("children"):
-                self._build_tree_from_json(node, item["children"])
+        self._build_tree_nodes(parent_id, data, prefer_item_title=True)
 
     # =========================================================================
     # BAUM-HILFSFUNKTIONEN
     # =========================================================================
     def _build_tree_recursive(self, parent_id, data):
+        self._build_tree_nodes(parent_id, data, prefer_item_title=False)
+
+    def _build_tree_nodes(self, parent_id, data, *, prefer_item_title: bool):
+        """Gemeinsame Baum-Einfügelogik für YAML- und JSON-Quellen.
+
+        `prefer_item_title=True` (JSON/Profil): Titel aus `item["title"]` mit
+        Fallback auf `title_registry`. `False` (YAML/_quarto.yml): nur Registry.
+        """
         for item in data:
-            path = item["path"]
+            path = item.get("path", "") if prefer_item_title else item["path"]
             if path == "index.md":
                 continue
             if self._is_technical_content_node(path):
                 if item.get("children"):
-                    self._build_tree_recursive(parent_id, item["children"])
+                    self._build_tree_nodes(
+                        parent_id, item["children"], prefer_item_title=prefer_item_title
+                    )
                 continue
-            title = self.title_registry.get(path, f"[NEU] {Path(path).stem}")
+            fallback_title = self.title_registry.get(path, f"[NEU] {Path(path).stem}")
+            title = item.get("title", fallback_title) if prefer_item_title else fallback_title
             display_title = self._decorate_title_for_path(title, path)
             status_code = self._status_code_for_path(path)
-            node = self.tree_book.insert(parent_id, "end", text=display_title, values=(path, title, status_code), open=True, tags=self._tree_tags_for_path(path))
+            node = self.tree_book.insert(
+                parent_id,
+                "end",
+                text=display_title,
+                values=(path, title, status_code),
+                open=True,
+                tags=self._tree_tags_for_path(path),
+            )
             if item.get("children"):
-                self._build_tree_recursive(node, item["children"])
+                self._build_tree_nodes(
+                    node, item["children"], prefer_item_title=prefer_item_title
+                )
 
     def _update_avail_list(self):
         used_paths = self._get_all_used_paths()
