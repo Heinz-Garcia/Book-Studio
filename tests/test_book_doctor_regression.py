@@ -16,6 +16,7 @@ def _valid_markdown(title: str, description: str | None = None) -> str:
         "---\n"
         f'title: "{title}"\n'
         f'description: "{description}"\n'
+        'status: "bookstudio"\n'
         "---\n\n"
         f"# {title}\n"
     )
@@ -82,7 +83,7 @@ def test_analyze_health_reports_hidden_separator_body_line(tmp_path: Path) -> No
     _write(book / "index.md", _valid_markdown("Index"))
     _write(
         book / "content" / "chapter.md",
-        "---\ntitle: \"Kapitel\"\ndescription: \"Kapitel\"\n---\n\nAbsatz\n---\nMehr Text\n",
+        "---\ntitle: \"Kapitel\"\ndescription: \"Kapitel\"\nstatus: \"bookstudio\"\n---\n\nAbsatz\n---\nMehr Text\n",
     )
 
     doctor = BookDoctor(book, {"content/chapter.md": "Kapitel"})
@@ -90,8 +91,8 @@ def test_analyze_health_reports_hidden_separator_body_line(tmp_path: Path) -> No
     analysis = doctor.analyze_health(["content/chapter.md"], 0)
 
     assert analysis["is_healthy"] is False
-    assert analysis["issue_first_line_by_path"]["content/chapter.md"] == 7
-    assert analysis["issue_details_by_path"]["content/chapter.md"][0]["line_number"] == 7
+    assert analysis["issue_first_line_by_path"]["content/chapter.md"] == 8
+    assert analysis["issue_details_by_path"]["content/chapter.md"][0]["line_number"] == 8
 
 
 def test_analyze_health_single_file_mode_skips_index_requirement(tmp_path: Path) -> None:
@@ -114,6 +115,7 @@ def test_analyze_health_flags_unclosed_fenced_div_with_line_number(tmp_path: Pat
         "---\n"
         "title: \"Kapitel\"\n"
         "description: \"Kapitel\"\n"
+        "status: \"bookstudio\"\n"
         "---\n\n"
         "Text davor\n"
         "::: {.callout-note}\n"
@@ -127,7 +129,7 @@ def test_analyze_health_flags_unclosed_fenced_div_with_line_number(tmp_path: Pat
     assert analysis["is_healthy"] is False
     messages = analysis["issues_by_path"]["content/chapter.md"]
     assert any("FENCED-DIV FEHLER" in message for message in messages)
-    assert analysis["issue_first_line_by_path"]["content/chapter.md"] == 7
+    assert analysis["issue_first_line_by_path"]["content/chapter.md"] == 8
 
 
 def test_analyze_health_accepts_balanced_fenced_div(tmp_path: Path) -> None:
@@ -138,6 +140,7 @@ def test_analyze_health_accepts_balanced_fenced_div(tmp_path: Path) -> None:
         "---\n"
         "title: \"Kapitel\"\n"
         "description: \"Kapitel\"\n"
+        "status: \"bookstudio\"\n"
         "---\n\n"
         "Text davor\n"
         "::: {.callout-note}\n"
