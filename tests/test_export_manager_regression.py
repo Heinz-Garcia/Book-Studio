@@ -48,11 +48,10 @@ def test_run_quarto_render_stops_immediately_on_doctor_preflight_failure() -> No
 
     assert studio.preflight_calls == [("Render-Vorabcheck", False)]
     assert studio.save_calls == []
-    assert any("Rendern abgebrochen" in message for message, _level in studio.logged)
+    assert any("Rendern pausiert" in message for message, _level in studio.logged)
     assert studio.status.last == {
-        "text": "Render abgebrochen (Buch-Doktor-Befund)",
-        # B9: jetzt `ui_theme.COLORS["danger_text"]` statt Legacy-Hex.
-        "fg": "#b91c1c",
+        "text": "Render pausiert — siehe Hinweise im Log (F4)",
+        "fg": "#f59e0b",
     }
 
 

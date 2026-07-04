@@ -183,7 +183,9 @@ class BookDoctor:
                 record_issue(p_str, f"❌ Datei-Lesefehler bei {display_name}: {e}")
 
         if unused_count > 0:
-            warn.append(f"⚠️ Hinweis: {unused_count} Markdown-Dateien liegen aktuell ungenutzt im Datei-Pool.")
+            warn.append(
+                f"ℹ️ {unused_count} Dateien liegen im linken Pool und werden nicht gerendert — das ist in Ordnung."
+            )
 
         report = "\n\n".join(err)
         if warn:

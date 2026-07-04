@@ -152,6 +152,32 @@ def test_resolve_custom_path_with_fallback_no_warning_when_usable(tmp_path):
     assert warning is None
 
 
+def test_create_physical_backup_with_fallback_uses_secondary_base(tmp_path):
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "a.md").write_text("# A", encoding="utf-8")
+
+    readonly_parent = tmp_path / "readonly"
+    readonly_parent.mkdir()
+    readonly_parent.chmod(0o555)
+    fallback = tmp_path / "fallback_backups"
+    try:
+        created, err, hint = BackupService.create_physical_backup_with_fallback(
+            content,
+            readonly_parent / "backups",
+            fallback,
+            "030726_1755",
+        )
+    finally:
+        readonly_parent.chmod(0o755)
+
+    assert err is None
+    assert created is not None
+    assert created.parent == fallback
+    assert hint is not None
+    assert "gewechselt" in hint
+
+
 def test_default_dir_uses_book_parent_and_name():
     book = Path("C:/books/my_book")
     result = BackupService.default_sanitizer_backup_dir_for(book)

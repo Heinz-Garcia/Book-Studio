@@ -286,6 +286,20 @@ class BookStudio:
             return
         logger.warning(message)
 
+    def _guide_hint(self, message, status_text=None):
+        """Freundlicher Hinweis statt Fehlerdialog — Tool führt an der Hand."""
+        text = str(message).strip()
+        if not text:
+            return
+        if not text.startswith("💡"):
+            text = f"💡 {text}"
+        self.log(text, _LogLevel.HEADER)
+        if self.status is not None:
+            self.status.config(
+                text=status_text or text.replace("💡 ", "", 1)[:160],
+                fg=COLORS["auto_heal"],
+            )
+
     def _get_projects_root_path(self) -> Path:
         # Phase 2 / Schritt 2.1: dünner Wrapper, delegiert an WorkspaceService.
         # Logik lebt in `services/workspace_service.py` und ist dort getestet.
@@ -924,7 +938,10 @@ class BookStudio:
         if error_count:
             self.log(f"🩺 {context_label}: {error_count} kritische Befunde, {warning_count} Hinweise", _LogLevel.HEADER)
         elif warning_count:
-            self.log(f"🩺 {context_label}: keine kritischen Befunde, aber {warning_count} Hinweise", _LogLevel.HEADER)
+            self.log(
+                f"🩺 {context_label}: bereit — {warning_count} Hinweis(e), kein Eingriff nötig",
+                _LogLevel.SUCCESS,
+            )
         else:
             self.log(f"🩺 {context_label}: keine Befunde", _LogLevel.SUCCESS)
 
@@ -2611,7 +2628,11 @@ class BookStudio:
         if backup_base_dir is None:
             return  # current_book fehlt; sollte nicht passieren, aber defensiv.
         if backup_path_warning:
-            self.log(f"⚠️ {backup_path_warning}", _LogLevel.WARNING)
+            self._guide_hint(backup_path_warning)
+
+        default_backup_base = BackupService.default_sanitizer_backup_dir_for(
+            self.current_book
+        )
 
         # 2. Zeitstempel-Ordnernamen generieren (Format: DDMMYY_HHMM)
         timestamp = self._services.backup.compute_backup_timestamp()
@@ -2629,15 +2650,30 @@ class BookStudio:
         if not messagebox.askyesno("🧹 Sanitizer Pipeline starten", msg):
             return
 
-        # 4. Backup physisch durchführen
-        # Phase 2 / Schritt 2.5b: Schreib-Operationen im Service.
-        # UI-Fehlerdialog bleibt im Studio.
-        created, err = self._services.backup.create_physical_backup(
-            content_dir, backup_base_dir, backup_dir
+        # 4. Backup physisch durchführen (mit Projekt-Fallback statt Abbruch)
+        created, err, backup_hint = self._services.backup.create_physical_backup_with_fallback(
+            content_dir,
+            backup_base_dir,
+            default_backup_base,
+            timestamp,
         )
+        if backup_hint:
+            self._guide_hint(backup_hint)
         if err is not None or created is None:
-            messagebox.showerror("Backup Fehler", f"Konnte das Pre-Backup nicht erstellen. Abbruch!\n\n{err or 'unbekannt'}")
+            self._guide_hint(
+                "Pre-Backup fehlgeschlagen — Sanitizer wurde nicht gestartet. "
+                f"Grund: {err or 'unbekannt'}"
+            )
+            messagebox.showwarning(
+                "Sanitizer-Hinweis",
+                "Das Pre-Backup konnte nicht angelegt werden.\n\n"
+                f"{err or 'unbekannter Fehler'}\n\n"
+                "Bitte Backup-Ziel in den Einstellungen prüfen oder leer lassen "
+                "(dann wird neben dem Projekt gesichert).",
+            )
             return
+
+        backup_dir = created
 
         # 5. Status melden und Thread starten
         self.log("=" * 50, _LogLevel.DIM)

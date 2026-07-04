@@ -148,23 +148,52 @@ class BackupService:
 
     @staticmethod
     def is_backup_base_usable(path: Path) -> bool:
-        """Prüft, ob in `path` (oder einem existierenden Vorfahren) geschrieben werden kann."""
+        """Prüft, ob das Zielverzeichnis angelegt und beschreibbar ist."""
         try:
             candidate = Path(path)
-            probe_root = candidate
-            if not probe_root.exists():
-                while not probe_root.exists() and probe_root.parent != probe_root:
-                    probe_root = probe_root.parent
-                if not probe_root.exists():
-                    return False
-            if not probe_root.is_dir():
+            candidate.mkdir(parents=True, exist_ok=True)
+            if not candidate.is_dir():
                 return False
-            probe = probe_root / ".bookstudio_write_probe"
+            probe = candidate / ".bookstudio_write_probe"
             probe.write_text("", encoding="utf-8")
             probe.unlink(missing_ok=True)
             return True
         except OSError:
             return False
+
+    @staticmethod
+    def create_physical_backup_with_fallback(
+        content_dir: Path,
+        primary_base: Path,
+        fallback_base: Path,
+        timestamp: str,
+    ) -> tuple[Optional[Path], Optional[str], Optional[str]]:
+        """Versucht Backup am Primärpfad, sonst am Projekt-Fallback.
+
+        Returns: `(backup_dir, error, hint)` — `hint` erklärt einen
+        erfolgreichen Wechsel auf den Fallback.
+        """
+        last_error: Optional[str] = None
+        bases: list[Path] = []
+        for base in (primary_base, fallback_base):
+            if base not in bases:
+                bases.append(base)
+
+        for idx, base in enumerate(bases):
+            backup_dir = BackupService.build_backup_path(base, timestamp)
+            created, err = BackupService.create_physical_backup(
+                content_dir, base, backup_dir
+            )
+            if err is None and created is not None:
+                hint = None
+                if idx > 0:
+                    hint = (
+                        f"Backup-Verzeichnis gewechselt nach {created}, "
+                        f"weil {primary_base} nicht beschreibbar war."
+                    )
+                return created, None, hint
+            last_error = err
+        return None, last_error, None
 
     @staticmethod
     def resolve_backup_base_dir(

@@ -216,6 +216,13 @@ class ExportManager:
         if callable(refresh):
             refresh()
 
+        guide = getattr(self.studio, "_guide_hint", None)
+        if callable(guide):
+            guide(
+                f"Ich habe {len(changes)} Datei(en) vor dem Rendern für dich vorbereitet "
+                "(fehlendes Frontmatter, versteckte '---' im Text)."
+            )
+
         for rel_path, file_changes in changes:
             for change in file_changes:
                 self._log(f"✨ Auto-Healing in {rel_path}: {change}", "info")
@@ -745,8 +752,13 @@ class ExportManager:
         is_healthy, analysis = self._run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
         if not is_healthy:
             if analysis is not None:
-                self._log("⛔ Rendern abgebrochen. Bitte behebe die markierten Dateien in der Buch-Struktur.", "error")
-            self._set_status("Render abgebrochen (Buch-Doktor-Befund)", _StatusFg.DANGER)
+                error_count = analysis.get("error_count", 0)
+                self._log(
+                    f"💡 Rendern pausiert: {error_count} Punkt(e) brauchen noch deine Aufmerksamkeit. "
+                    "F4 = nächster Fund, Enter = Datei öffnen.",
+                    "warning",
+                )
+            self._set_status("Render pausiert — siehe Hinweise im Log (F4)", _StatusFg.WARNING_ALT)
             return
 
         templates = self._available_templates()

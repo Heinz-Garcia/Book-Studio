@@ -1,1 +1,1 @@
-Quarto Book Studio v. 1.0.2 ("Published Edition")
+Quarto Book Studio v. 1.0.3 ("Published Edition")
