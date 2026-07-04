@@ -5,7 +5,11 @@ import logging
 from pathlib import Path
 
 import app_config as _app_config_service
-from frontmatter_parser import extract_field as fm_extract_field, parse_file as fm_parse_file
+from frontmatter_parser import (
+    extract_field as fm_extract_field,
+    parse_file as fm_parse_file,
+    repair_hidden_yaml_dividers as fm_repair_hidden_yaml_dividers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -286,6 +290,51 @@ class QuartoYamlEngine:
         except (OSError, ValueError, TypeError) as e:
             logger.warning("Fehler beim Auto-Healing für %s: %s", filepath, e)
             return False
+
+    def prepare_file_for_render(self, filepath, fallback_title=None):
+        """Auto-Healing vor Render: Pflicht-Frontmatter und versteckte ``---`` im Body."""
+        filepath = Path(filepath)
+        changes = []
+
+        if self.ensure_required_frontmatter(filepath, fallback_title):
+            changes.append("Pflicht-Frontmatter ergänzt")
+
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            new_content, repaired = fm_repair_hidden_yaml_dividers(content)
+            if repaired:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                changes.append("Versteckte '---' im Text durch '***' ersetzt")
+        except (OSError, ValueError, TypeError) as e:
+            logger.warning("Fehler beim Render-Auto-Healing für %s: %s", filepath, e)
+
+        return changes
+
+    def prepare_book_for_render(self, used_paths, title_registry=None):
+        """Bereitet alle relevanten Markdown-Dateien vor dem Render-Preflight vor."""
+        title_registry = title_registry or {}
+        ordered_paths = list(dict.fromkeys(["index.md", *list(used_paths or [])]))
+        results = []
+
+        for rel_path in ordered_paths:
+            if not str(rel_path).lower().endswith(".md"):
+                continue
+            full_path = self.book_path / rel_path
+            if not full_path.exists():
+                continue
+
+            fallback_title = title_registry.get(rel_path, Path(rel_path).stem)
+            if isinstance(fallback_title, str):
+                fallback_title = fallback_title.replace("[FEHLT] ", "")
+
+            file_changes = self.prepare_file_for_render(full_path, fallback_title)
+            if file_changes:
+                results.append((rel_path, file_changes))
+
+        return results
+
     # =========================================================================
     # QUARTO YAML PARSING & SAVING
     # =========================================================================
