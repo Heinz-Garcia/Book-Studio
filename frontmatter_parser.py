@@ -363,6 +363,46 @@ def validate_and_repair(
     return new_content, changes, is_valid
 
 
+def repair_hidden_yaml_dividers(content: str) -> Tuple[str, bool]:
+    """Ersetzt eigenständige ``---``-Zeilen im Markdown-Body durch ``***``.
+
+    Quarto/Pandoc interpretieren ``---`` als YAML-Frontmatter-Grenze und
+    brechen beim Rendern ab. Der Buch-Doktor markiert diese Zeilen als
+    kritischen Befund; diese Funktion repariert sie automatisch.
+    """
+    parts = parse(content)
+    if not parts.has_frontmatter:
+        return content, False
+
+    newline = _detect_newline(content)
+    new_body_lines = []
+    changed = False
+    for line in parts.body.splitlines():
+        if is_yaml_delimiter(line):
+            new_body_lines.append("***")
+            changed = True
+        else:
+            new_body_lines.append(line)
+
+    if not changed:
+        return content, False
+
+    new_body = newline.join(new_body_lines)
+    if parts.body.endswith(("\n", "\r\n", "\r")) and not new_body.endswith(("\n", "\r")):
+        new_body += newline
+
+    header_text = (parts.header or "").rstrip("\r\n") + newline
+    closing = f"---{newline}"
+    body_text = new_body
+    if not body_text.startswith(("\n", "\r")) and body_text:
+        body_text = newline + body_text
+
+    new_content = parts.bom + "---" + newline + header_text + closing + body_text
+    if not new_content.endswith(("\n", "\r")):
+        new_content += newline
+    return new_content, True
+
+
 __all__ = [
     "FRONTMATTER_DELIMITER",
     "FrontmatterParts",
@@ -371,4 +411,5 @@ __all__ = [
     "parse_file",
     "extract_field",
     "validate_and_repair",
+    "repair_hidden_yaml_dividers",
 ]

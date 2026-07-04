@@ -190,6 +190,37 @@ class ExportManager:
             return getter()
         return getattr(self.studio, "yaml_engine", None)
 
+    def _get_used_paths_for_render(self):
+        getter = getattr(self.studio, "_get_all_used_paths", None)
+        if callable(getter):
+            return list(getter())
+        alt = getattr(self.studio, "get_all_used_paths", None)
+        if callable(alt):
+            return list(alt())
+        return []
+
+    def _prepare_book_for_render(self):
+        yaml_engine = self._yaml_engine()
+        prepare = getattr(yaml_engine, "prepare_book_for_render", None)
+        if not callable(prepare):
+            return []
+
+        changes = prepare(
+            self._get_used_paths_for_render(),
+            self._adapter.title_registry,
+        )
+        if not changes:
+            return changes
+
+        refresh = getattr(self.studio, "refresh_ui_titles", None)
+        if callable(refresh):
+            refresh()
+
+        for rel_path, file_changes in changes:
+            for change in file_changes:
+                self._log(f"✨ Auto-Healing in {rel_path}: {change}", "info")
+        return changes
+
     def _write_active_render_log(self, message: str):
         handle = self._active_render_log_handle
         if handle is None:
@@ -710,6 +741,7 @@ class ExportManager:
         if not self._current_book():
             return
 
+        self._prepare_book_for_render()
         is_healthy, analysis = self._run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
         if not is_healthy:
             if analysis is not None:
