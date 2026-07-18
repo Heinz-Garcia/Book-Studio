@@ -87,7 +87,13 @@ def test_create_markdown_template(tmp_path: Path) -> None:
     )
     assert path.is_file()
     text = path.read_text(encoding="utf-8")
-    assert 'order: "15"' in text
+    # YAML-konform serialisiert: order ist der numerische Wert 15 (Quote-Form
+    # egal – beides ist valides YAML). Geprüft wird auf den Wert, nicht auf
+    # die exakte Anführungszeichen-Form.
+    import yaml as _yaml
+
+    parsed = _yaml.safe_load(text.split("---", 2)[1]) if text.count("---") >= 2 else {}
+    assert str(parsed.get("order")) == "15"
 
 
 def test_validate_profile_name_rejects_spaces() -> None:

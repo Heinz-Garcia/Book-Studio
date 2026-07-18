@@ -13,6 +13,8 @@ import re
 from pathlib import Path
 from typing import Literal
 
+import json_io
+
 BumpPart = Literal["patch", "minor", "major"]
 
 DEFAULT_VERSION_FILE = Path(__file__).parent / "version.json"
@@ -22,10 +24,13 @@ APP_TITLE_PREFIX = "Quarto Book Studio"
 
 def load_version(path: Path | None = None) -> dict:
     version_path = path or DEFAULT_VERSION_FILE
-    raw = json.loads(version_path.read_text(encoding="utf-8"))
+    raw = json_io.read_json_safe(version_path, default=None)
+    if raw is None or not isinstance(raw, dict):
+        # SSOT-Datei fehlt oder ist korrupt – nie crashen, Fallback liefern.
+        return {"major": 0, "minor": 0, "patch": 0, "codename": ""}
     return {
-        "major": int(raw["major"]),
-        "minor": int(raw["minor"]),
+        "major": int(raw.get("major", 0)),
+        "minor": int(raw.get("minor", 0)),
         "patch": int(raw.get("patch", 0)),
         "codename": str(raw.get("codename", "")).strip(),
     }
@@ -86,13 +91,17 @@ def write_version_files(
         "patch": int(data.get("patch", 0)),
         "codename": str(data.get("codename", "")).strip(),
     }
-    version_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    # Beide Dateien einzeln atomar schreiben: ein Crash zwischen den beiden
+    # Calls korrumpiert nie eine der beiden (nur die SSOT und die Anzeige
+    # könnten bei einem echten Absturz dazwischen kurzzeitig divergieren,
+    # was beim nächsten Bump durch load_version sauber aufgelöst wird).
+    json_io.write_json_atomic(
+        version_path, payload, indent=2, ensure_ascii=False
     )
-    display_line = render_display_line(payload)
-    display_path.write_text(display_line + "\n", encoding="utf-8")
-    return display_line
+    display_path.write_text(
+        render_display_line(payload) + "\n", encoding="utf-8"
+    )
+    return render_display_line(payload)
 
 
 def parse_display_line(line: str) -> dict | None:

@@ -16,6 +16,8 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
+import json_io
+
 _LOG = logging.getLogger(__name__)
 
 
@@ -87,27 +89,23 @@ def read_config(config_path: Path) -> dict[str, Any]:
     Eine fehlende Datei oder ein Lese-/Parse-Fehler führen zu einem
     leeren Dict – Aufrufer mergen das mit ``DEFAULTS``.
     """
-    if not config_path.exists():
-        return {}
-    try:
-        with config_path.open("r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
-        _LOG.warning("Konnte %s nicht lesen: %s", config_path, exc)
-        return {}
-    if not isinstance(data, dict):
+    data = json_io.read_json_safe(config_path, default=None)
+    if data is None or not isinstance(data, dict):
+        if data is not None:
+            _LOG.warning("app_config.json enthielt keine Map: %s", config_path)
         return {}
     return _strip_forbidden_keys(data)
 
 
 def write_config(config_path: Path, data: dict[str, Any]) -> None:
-    """Schreibt `app_config.json`. Stellt sicher, dass das Parent-Verzeichnis
-    existiert und verbotene Schlüssel (Session-Block) nicht persistiert
-    werden."""
-    config_path.parent.mkdir(parents=True, exist_ok=True)
+    """Schreibt `app_config.json` atomar.
+
+    Stellt sicher, dass das Parent-Verzeichnis existiert und verbotene
+    Schlüssel (Session-Block) nicht persistiert werden. Ein Abbruch
+    während des Schreibens hinterlässt niemals eine korrupte Datei.
+    """
     payload = _strip_forbidden_keys(dict(data))
-    with config_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=4, ensure_ascii=False)
+    json_io.write_json_atomic(config_path, payload, indent=4, ensure_ascii=False)
 
 
 def with_defaults(data: dict[str, Any]) -> dict[str, Any]:

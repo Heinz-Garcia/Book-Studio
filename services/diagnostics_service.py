@@ -224,6 +224,16 @@ class DiagnosticsService:
             return False, None
 
         analysis = studio.doctor.analyze_health(all_paths, tree_child_count)
+        if not isinstance(analysis, dict):
+            # Defensiv: analyze_health lieferte keinen gültigen Analysis-Dict
+            # (z. B. bei internem Fehler im Doctor) – Health-Check abbrechen,
+            # statt einen AttributeError auf analysis.get(...) zu werfen.
+            self._on_status(
+                f"{context_label}: Analyse nicht verfügbar",
+                "danger",
+            )
+            return False, None
+
         self.set_issues_from_analysis(analysis)
 
         # Tree-Refresh + Erstes-Issue-Selektion (UI-Callbacks)
@@ -296,6 +306,8 @@ class DiagnosticsService:
 
         had_issue_before = rel_path in studio.doctor_issue_registry
         analysis = studio.doctor.analyze_health([rel_path], 0, include_index=False)
+        if not isinstance(analysis, dict):
+            return False, [], had_issue_before
         issues = analysis.get("issues_by_path", {}).get(rel_path, []) or []
         issue_details = analysis.get("issue_details_by_path", {}).get(rel_path, []) or []
 

@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -157,21 +158,81 @@ def _resolve_render_target(export: ExportSettings):
 
 def _run_render(book_path: Path, target_fmt: str, quarto_bin: str, timeout_sec: int | None = None):
     command = [quarto_bin, "render", str(book_path), "--to", target_fmt]
+    proc = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     try:
-        result = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=timeout_sec,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        partial = (exc.stdout or "").splitlines()
-        return 124, partial
+        stdout, _ = proc.communicate(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        # Quarto/Kind/Pandoc ggf. als Prozessgruppe terminieren, damit kein
+        # render-Child im Hintergrund hängen bleibt.
+        proc.kill()
+        _ = proc.communicate()
+        return 124, (proc.stdout or b"").decode("utf-8", "replace").splitlines() if proc.stdout else []
+    lines = (stdout or "").splitlines()
+    return proc.returncode, lines
 
-    lines = (result.stdout or "").splitlines()
-    return result.returncode, lines
+
+# Verzeichnisse, die beim Klonen eines Buchs in den Temp-Render ignoriert
+# werden (analog zu quarto_render_safe.IGNORED_DIR_NAMES), damit kein
+# already-generierter Output mitkopiert wird.
+_IGNORED_DIR_NAMES = {
+    ".git",
+    ".venv",
+    ".quarto",
+    "__pycache__",
+    "processed",
+    "export",
+}
+
+
+def _read_output_dir(book_path: Path) -> str:
+    """Liest `output-dir` aus der `_quarto.yml` (Quarto-Default sonst)."""
+    yaml_path = book_path / "_quarto.yml"
+    if not yaml_path.exists():
+        return "export/_book"
+    try:
+        import yaml as _yaml
+
+        data = _yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, TypeError):
+        return "export/_book"
+    project = data.get("project") if isinstance(data, dict) else None
+    if not isinstance(project, dict):
+        return "export/_book"
+    return str(project.get("output-dir", "export/_book"))
+
+
+def _copy_render_artifacts(temp_book: Path, source_book: Path, output_dir: str) -> None:
+    """Kopiert nur Render-Ergebnisse zurück – Original bleibt unangetastet."""
+    temp_output = temp_book / output_dir
+    if temp_output.exists():
+        destination_output = source_book / output_dir
+        destination_output.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(temp_output, destination_output, dirs_exist_ok=True)
+
+    root_suffixes = {".typ", ".pdf", ".html", ".docx", ".tex"}
+    for artifact in temp_book.iterdir():
+        if not artifact.is_file():
+            continue
+        if artifact.suffix.lower() not in root_suffixes:
+            continue
+        shutil.copy2(artifact, source_book / artifact.name)
+
+
+def _copy_book_to_temp(source_book: Path, temp_root: Path) -> Path:
+    destination = temp_root / source_book.name
+
+    def ignore_filter(_dir: str, names: list[str]) -> set[str]:
+        return {name for name in names if name in _IGNORED_DIR_NAMES}
+
+    shutil.copytree(source_book, destination, ignore=ignore_filter)
+    return destination
 
 
 def run_unmanned_trigger(request: TriggerRequest):
@@ -199,24 +260,22 @@ def run_unmanned_trigger(request: TriggerRequest):
             copied = _sync_sources(md_paths, request.md_source_path, request.book_path)
             _emit(f"📥 Synchronisierte Quellen: {copied}", log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
 
-        yaml_engine = QuartoYamlEngine(request.book_path)
         target_fmt, extra_opts = _resolve_render_target(request.export)
         profile_name = request.export.profile_name
 
-        # B4: Footnote-Modus-Argument entfernt.
-        processor = PreProcessor(request.book_path)
-        processed_tree = processor.prepare_render_environment(tree_data)
-
-        # B4: Orphan-Footnote-Warnung-Logik entfernt.
-
-        yaml_engine.save_chapters(
-            processed_tree,
-            profile_name=profile_name,
-            save_gui_state=False,
-            extra_format_options=extra_opts,
-        )
-
         if not request.run_render:
+            # Vorbereitung ohne Render: Struktur direkt im Original anlegen,
+            # da kein Temp-Klon nötig ist und das Original hier bewusst
+            # verändert werden soll (prepare-only-Modus).
+            yaml_engine = QuartoYamlEngine(request.book_path)
+            processor = PreProcessor(request.book_path)
+            processed_tree = processor.prepare_render_environment(tree_data)
+            yaml_engine.save_chapters(
+                processed_tree,
+                profile_name=profile_name,
+                save_gui_state=False,
+                extra_format_options=extra_opts,
+            )
             _emit(
                 "✅ Unmanned-Run vorbereitet (Render übersprungen).",
                 log_handle=log_handle,
@@ -225,33 +284,57 @@ def run_unmanned_trigger(request: TriggerRequest):
             )
             return 0
 
-        _emit(
-            f"🖨️  Starte Render: {target_fmt}",
-            log_handle=log_handle,
-            run_id=request.run_id,
-            job_id=request.job_id,
-        )
-        render_code, render_lines = _run_render(
-            request.book_path,
-            target_fmt,
-            request.quarto_bin,
-            timeout_sec=request.timeout_sec,
-        )
-        for line in render_lines:
-            if line.strip():
-                _emit(line.rstrip(), log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
+        # RENDER-PFAD: Niemals das Original inplace mutieren. Wir kopieren
+        # das Buch in einen Temp-Klon, führen PreProcessing + Render dort
+        # aus und kopieren nur die Render-Artefakte zurück (analog zu
+        # quarto_render_safe.run_safe_render). Das Original behält seine
+        # _quarto.yml und sein processed/-Verzeichnis unangetastet.
+        original_output_dir = _read_output_dir(request.book_path)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            temp_book = _copy_book_to_temp(request.book_path, temp_root)
 
-        if render_code == 124:
+            temp_engine = QuartoYamlEngine(temp_book)
+            temp_processor = PreProcessor(temp_book)
+            processed_tree = temp_processor.prepare_render_environment(tree_data)
+            temp_engine.save_chapters(
+                processed_tree,
+                profile_name=profile_name,
+                save_gui_state=False,
+                extra_format_options=extra_opts,
+            )
+
             _emit(
-                f"⏱️ Render-Timeout nach {request.timeout_sec}s",
-                err=True,
+                f"🖨️  Starte Render: {target_fmt}",
                 log_handle=log_handle,
                 run_id=request.run_id,
                 job_id=request.job_id,
             )
-            return 124
+            render_code, render_lines = _run_render(
+                temp_book,
+                target_fmt,
+                request.quarto_bin,
+                timeout_sec=request.timeout_sec,
+            )
+            for line in render_lines:
+                if line.strip():
+                    _emit(line.rstrip(), log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
 
-        if render_code != 0:
+            if render_code == 0:
+                _copy_render_artifacts(temp_book, request.book_path, original_output_dir)
+                _emit("✅ Render erfolgreich", log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
+                return 0
+
+            if render_code == 124:
+                _emit(
+                    f"⏱️ Render-Timeout nach {request.timeout_sec}s",
+                    err=True,
+                    log_handle=log_handle,
+                    run_id=request.run_id,
+                    job_id=request.job_id,
+                )
+                return 124
+
             _emit(
                 f"❌ Render fehlgeschlagen (Exit-Code {render_code})",
                 err=True,
@@ -260,22 +343,7 @@ def run_unmanned_trigger(request: TriggerRequest):
                 job_id=request.job_id,
             )
             return render_code
-
-        _emit("✅ Render erfolgreich", log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
-        return 0
     finally:
-        try:
-            yaml_engine = QuartoYamlEngine(request.book_path)
-            yaml_engine.save_chapters(tree_data, profile_name=request.export.profile_name, save_gui_state=False)
-        except (OSError, ValueError, TypeError, RuntimeError) as exc:
-            _emit(
-                f"⚠️ Rückbau der _quarto.yml fehlgeschlagen: {exc}",
-                err=True,
-                log_handle=log_handle,
-                run_id=request.run_id,
-                job_id=request.job_id,
-            )
-
         if log_handle is not None:
             log_handle.close()
 

@@ -40,6 +40,7 @@ class PopulateResult:
     copied: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     replaced: list[str] = field(default_factory=list)
+    backed_up: list[str] = field(default_factory=list)
     tree_added: list[str] = field(default_factory=list)
     saved: bool = False
     cancelled: bool = False
@@ -217,13 +218,29 @@ def _copy_skeleton_file(
     manifest: SkeletonManifest,
     entry_rel: str,
     book_path: Path,
-) -> None:
+) -> str | None:
+    """Kopiert eine Skeleton-Datei ins Buch.
+
+    Falls am Ziel bereits eine Datei existiert, wird sie vor dem Überschreiben
+    gesichert (``<name>.bak-<timestamp>`` im selben Verzeichnis), damit ein
+    Fehlklick keinen bearbeiteten Kapitelinhalt unwiderruflich zerstört.
+    Liefert den Pfad des Backups zurück (oder ``None``, falls kein Backup nötig
+    war).
+    """
+    from datetime import datetime
+
     src = manifest.root / entry_rel
     if not src.is_file():
         raise FileNotFoundError(f"Skeleton-Quelldatei fehlt: {src}")
     dest = book_path / entry_rel
+    backup_path: str | None = None
+    if dest.exists():
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_path = f"{dest}.bak-{stamp}"
+        shutil.copy2(dest, backup_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
+    return backup_path
 
 
 def populate_book(
@@ -310,7 +327,9 @@ def populate_book(
             result.skipped.append(rel)
             continue
         existed = line.exists
-        _copy_skeleton_file(manifest, rel, book_path)
+        backup = _copy_skeleton_file(manifest, rel, book_path)
+        if backup is not None:
+            result.backed_up.append(backup)
         engine.ensure_required_frontmatter(book_path / rel, fallback_title=entry.title)
         copied_paths.append(rel)
         if existed:
@@ -369,7 +388,8 @@ def refresh_studio_after_populate(studio: Any, result: PopulateResult) -> None:
     if hasattr(studio, "log"):
         studio.log(
             f"Skeleton: {len(result.copied)} neu, {len(result.replaced)} ersetzt, "
-            f"{len(result.skipped)} übersprungen, {len(result.tree_added)} im Baum.",
+            f"{len(result.skipped)} übersprungen, {len(result.tree_added)} im Baum, "
+            f"{len(result.backed_up)} gesichert.",
             "success",
         )
     if hasattr(studio, "status"):
@@ -490,7 +510,8 @@ def run(studio: Any = None, **kwargs: Any) -> int:
         f"Neu kopiert: {len(result.copied)}\n"
         f"Ersetzt: {len(result.replaced)}\n"
         f"Übersprungen: {len(result.skipped)}\n"
-        f"In Buchbaum eingetragen: {len(result.tree_added)}\n\n"
+        f"In Buchbaum eingetragen: {len(result.tree_added)}\n"
+        f"Vor Überschreiben gesichert: {len(result.backed_up)}\n\n"
         "_quarto.yml und GUI-Struktur wurden gespeichert."
     )
     if parent is not None:

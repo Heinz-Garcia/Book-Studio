@@ -74,6 +74,8 @@ class SkeletonEditorWindow(tk.Toplevel):
         self._order_var = tk.StringVar()
         self._optional_var = tk.BooleanVar(value=False)
         self._include_tree_var = tk.BooleanVar(value=True)
+        for var in (self._title_var, self._order_var, self._optional_var, self._include_tree_var):
+            var.trace_add("write", lambda *_a: self._mark_meta_dirty())
 
         self._build_ui()
         self._reload_profiles(initial_profile)
@@ -226,7 +228,11 @@ class SkeletonEditorWindow(tk.Toplevel):
         self._include_tree_var.set(entry.include_in_tree)
         path = self._manifest.root / entry.path  # type: ignore[union-attr]
         if path.is_file():
-            content = path.read_text(encoding="utf-8")
+            try:
+                content = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                # Vorlage in anderer Kodierung (z. B. cp1252) – nicht crashen.
+                content = path.read_text(encoding="utf-8", errors="replace")
         else:
             content = f"---\ntitle: \"{entry.title}\"\n---\n\n# {entry.title}\n"
         self._text.delete("1.0", tk.END)
@@ -239,6 +245,9 @@ class SkeletonEditorWindow(tk.Toplevel):
         if self._text.edit_modified():
             self._editor_dirty = True
             self._text.edit_modified(False)
+
+    def _mark_meta_dirty(self) -> None:
+        self._meta_dirty = True
 
     def _confirm_discard(self) -> bool:
         if not (self._editor_dirty or self._meta_dirty):
@@ -304,8 +313,7 @@ class SkeletonEditorWindow(tk.Toplevel):
         )
         if not rel:
             return
-        rel = rel.replace("\\", "/").strip().lstrip("/")
-        title = simpledialog.askstring("Titel", "Anzeige-Titel:", parent=self) or Path(rel).stem
+        title = simpledialog.askstring("Titel", "Anzeige-Titel:", parent=self) or Path(rel.strip()).stem
         order_raw = simpledialog.askstring("order", "order (leer = keine feste Position):", parent=self)
         order = order_raw.strip() if order_raw else None
         try:

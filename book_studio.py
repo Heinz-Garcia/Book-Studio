@@ -70,6 +70,9 @@ class BookStudio:
         self.root = root
         self.base_path = Path(__file__).parent
         self._import_path = import_path
+        # Wird in close_app() gesetzt; Callbacks prüfen es, damit kein
+        # Zugriff auf bereits zerstörte Widgets erfolgt.
+        self._closing = False
         
         # Name + Version vollständig aus version.txt
         self.app_name = "Quarto Book Studio"   # Fallback
@@ -123,6 +126,8 @@ class BookStudio:
         self.fmt_box = None
         self.template_var = None
         self.template_box = None
+        self._handbook_pdf_rendering = False
+        self._sanitizer_running = False
         log_auto_clear_default, log_max_lines_default = self._get_log_preference_defaults()
         self.log_auto_clear_var = tk.BooleanVar(value=log_auto_clear_default)
         self.log_max_lines_var = tk.StringVar(value=log_max_lines_default)
@@ -448,6 +453,16 @@ class BookStudio:
         self.session_manager.restore()
 
     def close_app(self):
+        self._closing = True
+        # Trace-Callbacks entfernen, bevor Widgets zerstört werden, damit
+        # ein nachträgliches write/set auf search_var keinen TclError wirft.
+        search_var = getattr(self, "search_var", None)
+        trace_handle = getattr(self, "_search_trace_handle", None)
+        if search_var is not None and trace_handle is not None:
+            try:
+                search_var.trace_remove("write", trace_handle)
+            except (tk.TclError, AttributeError):
+                pass
         self._save_session_state()
         self._save_window_geometry()
         self.root.destroy()
@@ -458,7 +473,7 @@ class BookStudio:
     # --- Manager host API ---
 
     def schedule_ui(self, callback, delay=0):
-        if callable(callback):
+        if callable(callback) and not self._closing:
             return self.root.after(delay, callback)
         return None
 
@@ -675,8 +690,18 @@ class BookStudio:
     # =========================================================================
     def log(self, msg: str, level: str = "info"):
         """Schreibt eine Zeile ins integrierte Log-Terminal.
+
         level: 'info' | 'success' | 'error' | 'warning' | 'header' | 'dim'
+
+        Thread-sicher: Wird `log()` aus einem Worker-Thread (z. B. Render-
+        oder Sanitizer-Thread) aufgerufen, wird der eigentliche Schreib-
+        zugriff auf das Tk-Widget per `root.after(0, ...)` in den Main-Thread
+        verlagert. Ein direkter Zugriff aus einem Fremd-Thread würde Tk mit
+        ``RuntimeError: main thread is not in main loop`` crashen.
         """
+        if threading.current_thread() is not threading.main_thread():
+            self.root.after(0, lambda: self.log_manager.log(msg, level))
+            return
         self.log_manager.log(msg, level)
 
     def _sanitize_log_line_for_navigation(self, line_text: str) -> str:
@@ -1087,7 +1112,12 @@ class BookStudio:
         )
         
         self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *args: self.on_title_search_change()) # Tcl 9 / Python 3.14 Fix
+        # Trace-Handle merken, damit wir ihn in close_app() entfernen können,
+        # bevor das Widget zerstört wird (sonst TclError bei nachträglichem
+        # write nach root.destroy()).
+        self._search_trace_handle = self.search_var.trace_add(
+            "write", lambda *args: self.on_title_search_change()
+        )  # Tcl 9 / Python 3.14 Fix
         ttk.Entry(search_f, textvariable=self.search_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
         self.search_scope_var = tk.StringVar(value="Links")
@@ -2029,6 +2059,14 @@ class BookStudio:
         MarkdownEditor(self.root, manual_path, self.on_markdown_saved, self._get_editor_end_commands())
 
     def render_help_manual_pdf(self):
+        if self._handbook_pdf_rendering:
+            messagebox.showinfo(
+                "Handbuch als PDF rendern",
+                "Es läuft bereits ein Handbuch-PDF-Render. Bitte warten.",
+                parent=self.root,
+            )
+            return
+
         try:
             cfg = self._read_config()
             from tools.handbook_pdf import render_from_config, reveal_in_file_manager
@@ -2048,6 +2086,7 @@ class BookStudio:
         ):
             return
 
+        self._handbook_pdf_rendering = True
         self.status.config(text="Rendere Handbuch (PDF)…", fg=_StatusFg.INFO)
         self.log("📄 Handbuch-PDF: Start…", _LogLevel.HEADER)
 
@@ -2056,49 +2095,55 @@ class BookStudio:
                 self.root.after(0, lambda ln=line: self.log(ln, _LogLevel.DIM))
 
             try:
-                result = render_from_config(
-                    self.base_path,
-                    cfg,
-                    on_log_line=log_line,
-                )
-            except (OSError, ValueError) as exc:
+                try:
+                    result = render_from_config(
+                        self.base_path,
+                        cfg,
+                        on_log_line=log_line,
+                    )
+                except (OSError, ValueError) as exc:
+                    self.root.after(
+                        0,
+                        lambda: self.log(f"❌ Handbuch-PDF: {exc}", _LogLevel.ERROR),
+                    )
+                    self.root.after(
+                        0,
+                        lambda: self.status.config(text="Handbuch-PDF fehlgeschlagen", fg=_StatusFg.DANGER),
+                    )
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showerror("Handbuch-PDF", str(exc), parent=self.root),
+                    )
+                    return
+
+                if result.ok:
+                    pdf = result.output_path
+
+                    def on_success() -> None:
+                        self.log(f"✅ Handbuch-PDF fertig: {pdf}", _LogLevel.SUCCESS)
+                        self.status.config(text="Handbuch-PDF erstellt", fg=_StatusFg.SUCCESS)
+                        if messagebox.askyesno(
+                            "Handbuch-PDF",
+                            f"PDF erstellt:\n{pdf}\n\nIm Dateimanager anzeigen?",
+                            parent=self.root,
+                        ):
+                            reveal_in_file_manager(pdf)
+
+                    self.root.after(0, on_success)
+                else:
+                    msg = result.error_message or f"Quarto Code {result.returncode}"
+
+                    def on_fail() -> None:
+                        self.log(f"❌ Handbuch-PDF: {msg}", _LogLevel.ERROR)
+                        self.status.config(text="Handbuch-PDF fehlgeschlagen", fg=_StatusFg.DANGER)
+                        messagebox.showerror("Handbuch-PDF", msg, parent=self.root)
+
+                    self.root.after(0, on_fail)
+            finally:
                 self.root.after(
                     0,
-                    lambda: self.log(f"❌ Handbuch-PDF: {exc}", _LogLevel.ERROR),
+                    lambda: setattr(self, "_handbook_pdf_rendering", False),
                 )
-                self.root.after(
-                    0,
-                    lambda: self.status.config(text="Handbuch-PDF fehlgeschlagen", fg=_StatusFg.DANGER),
-                )
-                self.root.after(
-                    0,
-                    lambda: messagebox.showerror("Handbuch-PDF", str(exc), parent=self.root),
-                )
-                return
-
-            if result.ok:
-                pdf = result.output_path
-
-                def on_success() -> None:
-                    self.log(f"✅ Handbuch-PDF fertig: {pdf}", _LogLevel.SUCCESS)
-                    self.status.config(text="Handbuch-PDF erstellt", fg=_StatusFg.SUCCESS)
-                    if messagebox.askyesno(
-                        "Handbuch-PDF",
-                        f"PDF erstellt:\n{pdf}\n\nIm Dateimanager anzeigen?",
-                        parent=self.root,
-                    ):
-                        reveal_in_file_manager(pdf)
-
-                self.root.after(0, on_success)
-            else:
-                msg = result.error_message or f"Quarto Code {result.returncode}"
-
-                def on_fail() -> None:
-                    self.log(f"❌ Handbuch-PDF: {msg}", _LogLevel.ERROR)
-                    self.status.config(text="Handbuch-PDF fehlgeschlagen", fg=_StatusFg.DANGER)
-                    messagebox.showerror("Handbuch-PDF", msg, parent=self.root)
-
-                self.root.after(0, on_fail)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -2700,6 +2745,14 @@ class BookStudio:
         if not self.current_book:
             return
 
+        if self._sanitizer_running:
+            messagebox.showinfo(
+                "🧹 Sanitizer Pipeline",
+                "Es läuft bereits ein Sanitizer-Lauf. Bitte warten, bis dieser abgeschlossen ist.",
+                parent=self.root,
+            )
+            return
+
         content_dir = self.current_book / "content"
         if not content_dir.exists():
             messagebox.showerror("Fehler", "Kein 'content'-Ordner gefunden. Es gibt nichts zu bereinigen.")
@@ -2744,6 +2797,8 @@ class BookStudio:
         if not messagebox.askyesno("🧹 Sanitizer Pipeline starten", msg):
             return
 
+        self._sanitizer_running = True
+
         # 4. Backup physisch durchführen (mit Projekt-Fallback statt Abbruch)
         created, err, backup_hint = self._services.backup.create_physical_backup_with_fallback(
             content_dir,
@@ -2765,6 +2820,7 @@ class BookStudio:
                 "Bitte Backup-Ziel in den Einstellungen prüfen oder leer lassen "
                 "(dann wird neben dem Projekt gesichert).",
             )
+            self._sanitizer_running = False
             return
 
         backup_dir = created
@@ -2776,27 +2832,30 @@ class BookStudio:
 
         # 6. Thread starten, damit die GUI nicht einfriert
         def sanitizer_thread():
-            self.root.after(0, lambda: self.log(f"✅ PRE-BACKUP: {backup_dir}", _LogLevel.SUCCESS))
-            self.root.after(0, lambda: self.log("🚀 Starte Sanitizer...", _LogLevel.HEADER))
+            try:
+                self.root.after(0, lambda: self.log(f"✅ PRE-BACKUP: {backup_dir}", _LogLevel.SUCCESS))
+                self.root.after(0, lambda: self.log("🚀 Starte Sanitizer...", _LogLevel.HEADER))
 
-            # Phase 4: Subprocess-Aufruf im BackupService.
-            def _log_line(line):
-                self.root.after(0, lambda ln=line: self.log(ln, _LogLevel.INFO))
+                # Phase 4: Subprocess-Aufruf im BackupService.
+                def _log_line(line):
+                    self.root.after(0, lambda ln=line: self.log(ln, _LogLevel.INFO))
 
-            rc = self._services.backup.run_sanitizer_subprocess(
-                book=self.current_book,
-                on_log_line=_log_line,
-                cwd=self.base_path,
-            )
+                rc = self._services.backup.run_sanitizer_subprocess(
+                    book=self.current_book,
+                    on_log_line=_log_line,
+                    cwd=self.base_path,
+                )
 
-            if rc == 0:
-                self.root.after(0, lambda: self.log("✅ SANITIZER-LAUF ABGESCHLOSSEN!", _LogLevel.SUCCESS))
-                # GANZ WICHTIG: Die UI aktualisieren, falls der Sanitizer defektes Frontmatter repariert hat!
-                self.root.after(0, self.refresh_ui_titles)
-                # B6: Sanitizer hat Dateiinhalte geändert → Cache invalidieren.
-                self.root.after(0, self.invalidate_content_search_cache)
-            else:
-                self.root.after(0, lambda: self.log(f"❌ FEHLER: Crash (Code {rc})", _LogLevel.ERROR))
+                if rc == 0:
+                    self.root.after(0, lambda: self.log("✅ SANITIZER-LAUF ABGESCHLOSSEN!", _LogLevel.SUCCESS))
+                    # GANZ WICHTIG: Die UI aktualisieren, falls der Sanitizer defektes Frontmatter repariert hat!
+                    self.root.after(0, self.refresh_ui_titles)
+                    # B6: Sanitizer hat Dateiinhalte geändert → Cache invalidieren.
+                    self.root.after(0, self.invalidate_content_search_cache)
+                else:
+                    self.root.after(0, lambda: self.log(f"❌ FEHLER: Crash (Code {rc})", _LogLevel.ERROR))
+            finally:
+                self.root.after(0, lambda: setattr(self, "_sanitizer_running", False))
 
         threading.Thread(target=sanitizer_thread, daemon=True).start()
 

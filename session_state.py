@@ -9,32 +9,29 @@ Format: JSON mit UTF-8-Encoding, ``indent=4``, ``ensure_ascii=False``.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
+
+import json_io
 
 _LOG = logging.getLogger(__name__)
 
 
 def read_session_state(session_path: Path) -> dict[str, Any]:
     """Liest `session_state.json`. Fehlende Datei oder Parse-Fehler → {}."""
-    if not session_path.exists():
+    data = json_io.read_json_safe(session_path, default=None)
+    if data is None:
         return {}
-    try:
-        with session_path.open("r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
-        _LOG.warning("Konnte %s nicht lesen: %s", session_path, exc)
+    if not isinstance(data, dict):
+        _LOG.warning("session_state.json enthielt keine Map: %s", session_path)
         return {}
-    return data if isinstance(data, dict) else {}
+    return data
 
 
 def write_session_state(session_path: Path, data: dict[str, Any]) -> None:
-    """Schreibt `session_state.json`."""
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    with session_path.open("w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=4, ensure_ascii=False)
+    """Schreibt `session_state.json` atomar (kein Korruptionsrisiko)."""
+    json_io.write_json_atomic(session_path, data, indent=4, ensure_ascii=False)
 
 
 def clear_active_session(session_path: Path) -> None:

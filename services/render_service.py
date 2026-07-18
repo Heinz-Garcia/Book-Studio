@@ -181,7 +181,9 @@ class RenderService:
             template = "Standard"
 
         if template.startswith(EXTENSION_TEMPLATE_PREFIX):
-            ext_name = template.replace(EXTENSION_TEMPLATE_PREFIX, "").strip()
+            # Prefix-Stripping (nicht str.replace, das ALLE Vorkommen ersetzt
+            # und Extension-Namen korrumpiert, die den Prefix wiederholen).
+            ext_name = template[len(EXTENSION_TEMPLATE_PREFIX):].strip()
             if not ext_name:
                 raise ValueError(
                     f"Extension-Template ohne Namen: {template!r}"
@@ -198,6 +200,13 @@ class RenderService:
             return target_fmt, extra_opts
 
         if template != "Standard":
+            # Template-Namen gegen Pfad-Traversal absichern: nur alphanumerische
+            # Zeichen, Unterstrich, Bindestrich und Punkt erlauben (kein "/",
+            # "..", Laufwerksbuchstaben etc.), analog zu sanitize_profile_name.
+            if not re.fullmatch(r"[A-Za-z0-9_.\-]+", template):
+                raise ValueError(
+                    f"Ungültiger Template-Name (Path-Traversal-Risiko): {template!r}"
+                )
             extra_opts = {base_fmt: {"template": f"templates/{template}"}}
             return base_fmt, extra_opts
 
@@ -539,6 +548,8 @@ class RenderService:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
         )
         aborted_on_colon_warning = False

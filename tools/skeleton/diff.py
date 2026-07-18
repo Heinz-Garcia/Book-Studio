@@ -28,7 +28,9 @@ class FileDiffInfo:
 def _read_text(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # Nicht-UTF-8-Dateien (z. B. cp1252 aus externen Editoren) dürfen
+        # den Diff/Populate-Dialog nicht crashen.
         return ""
 
 

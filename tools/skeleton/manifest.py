@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 import shutil
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
 
 import yaml
+
+import json_io
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,48 @@ def _normalize_rel_path(path: str) -> str:
     return str(path).replace("\\", "/")
 
 
+def sanitize_relative_template_path(rel_path: str, profile_dir: Path) -> str:
+    """SSOT-Validierung für relative Skeleton-Vorlagenpfade.
+
+    Analog zu `validate_profile_name()`: verhindert Path-Traversal beim
+    Anlegen neuer Markdown-Vorlagen (`create_markdown_template`) und beim
+    Laden von `manifest.yaml` (`load_manifest`).
+    Wirft `ValueError` bei leerem, absolutem, `~`-präfixiertem oder
+    traversierendem (`..`-Segment) Pfad, sowie wenn der aufgelöste
+    Zielpfad außerhalb von `profile_dir` läge.
+    """
+    if "\x00" in str(rel_path):
+        raise ValueError(f"Ungültiger Pfad (invalid path, NUL-Byte): {rel_path!r}")
+
+    # Absolutheits-/Home-Präfix-Prüfung MUSS vor dem `lstrip("/")` erfolgen,
+    # sonst würde z. B. "/etc/evil.md" fälschlich zu einem relativen Pfad
+    # normalisiert und die Absolut-Erkennung umgangen.
+    normalized = _normalize_rel_path(rel_path).strip()
+    if not normalized:
+        raise ValueError("Ungültiger Pfad (invalid path): leer.")
+    if normalized.startswith("~"):
+        raise ValueError(
+            f"Ungültiger Pfad (invalid path): Home-Verzeichnis-Präfix '~' nicht erlaubt: {rel_path!r}"
+        )
+    if re.match(r"^[a-zA-Z]:", normalized):
+        raise ValueError(f"Ungültiger absoluter Pfad (invalid absolute path): {rel_path!r}")
+    if PureWindowsPath(normalized).is_absolute() or PurePosixPath(normalized).is_absolute():
+        raise ValueError(f"Ungültiger absoluter Pfad (invalid absolute path): {rel_path!r}")
+
+    rel = normalized.lstrip("/")
+    if not rel:
+        raise ValueError("Ungültiger Pfad (invalid path): leer.")
+    if any(segment == ".." for segment in rel.split("/")):
+        raise ValueError(f"Path-Traversal erkannt (unzulässiges '..'-Segment): {rel_path!r}")
+
+    profile_dir = Path(profile_dir).resolve()
+    candidate = (profile_dir / rel).resolve()
+    if not candidate.is_relative_to(profile_dir):
+        raise ValueError(f"Path-Traversal erkannt (außerhalb des Profilverzeichnisses): {rel_path!r}")
+
+    return rel
+
+
 def load_manifest(profile_dir: Path) -> SkeletonManifest:
     """Lädt `manifest.yaml` aus einem Skeleton-Profilordner."""
     profile_dir = Path(profile_dir).resolve()
@@ -57,9 +101,15 @@ def load_manifest(profile_dir: Path) -> SkeletonManifest:
     for item in raw.get("files") or []:
         if not isinstance(item, dict):
             continue
-        rel = _normalize_rel_path(str(item.get("path") or "").strip())
-        if not rel:
+        raw_path = str(item.get("path") or "").strip()
+        if not raw_path:
             continue
+        try:
+            rel = sanitize_relative_template_path(raw_path, profile_dir)
+        except ValueError as exc:
+            raise ValueError(
+                f"Ungültiger Dateipfad in Manifest {manifest_path}: {exc}"
+            ) from exc
         order_val = item.get("order")
         order = str(order_val).strip() if order_val is not None and str(order_val).strip() else None
         title = str(item.get("title") or Path(rel).stem).strip()
@@ -87,6 +137,7 @@ def load_manifest(profile_dir: Path) -> SkeletonManifest:
 
 
 def resolve_profile_dir(library_root: Path, profile_name: str) -> Path:
+    profile_name = validate_profile_name(profile_name)
     library_root = Path(library_root).resolve()
     profile_dir = library_root / profile_name
     if not profile_dir.is_dir():
@@ -132,12 +183,15 @@ def manifest_to_dict(manifest: SkeletonManifest) -> dict:
 
 
 def save_manifest(manifest: SkeletonManifest) -> None:
-    """Schreibt Manifest zurück nach `manifest.root/manifest.yaml`."""
+    """Schreibt Manifest zurück nach `manifest.root/manifest.yaml`.
+
+    Atomar via Temp-Datei + `os.replace`, damit ein Abbruch während des
+    Schreibens das Profil nicht unbrauchbar macht.
+    """
     data = manifest_to_dict(manifest)
-    manifest.manifest_path.write_text(
-        yaml.dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False),
-        encoding="utf-8",
-    )
+    target = manifest.manifest_path
+    text = yaml.dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    json_io.write_text_atomic(target, text)
 
 
 def replace_manifest_entries(profile_dir: Path, entries: list[SkeletonFileEntry], **meta: str) -> SkeletonManifest:
@@ -155,15 +209,40 @@ def replace_manifest_entries(profile_dir: Path, entries: list[SkeletonFileEntry]
 
 
 _PROFILE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-]{0,63}$")
+_PROFILE_SEGMENT_RE = _PROFILE_NAME_RE
 
 
 def validate_profile_name(name: str) -> str:
+    """Validiert einen Profil-Namen gegen Path-Traversal und ungültige Zeichen.
+
+    Erlaubt sind einzelne Segmente (Buchstaben, Ziffern, Unterstrich,
+    Bindestrich) sowie verschachtelte Profile mit `/`- oder `\\`-Trennern
+    (z. B. `"kategorie/profil"`), solange kein Segment `.`/`..` ist, der Name
+    nicht mit `~` beginnt und kein absoluter Pfad (führendes `/`, `\\` oder
+    Laufwerksbuchstabe) übergeben wird. Wirft `ValueError` (invalid) bei
+    jedem unzulässigen Namen — Aufrufer unterscheiden so zwischen
+    syntaktisch ungültigen Namen und lediglich fehlenden, aber gültig
+    benannten Profilen (`FileNotFoundError`, siehe `resolve_profile_dir()`).
+    """
     cleaned = str(name or "").strip()
-    if not cleaned or not _PROFILE_NAME_RE.match(cleaned):
+    if not cleaned:
+        raise ValueError("Profilname ungültig (invalid): darf nicht leer sein.")
+    if cleaned.startswith("~"):
         raise ValueError(
-            "Profilname ungültig. Erlaubt: Buchstaben, Ziffern, Unterstrich, Bindestrich."
+            f"Profilname ungültig (invalid): Home-Verzeichnis-Präfix '~' nicht erlaubt: {cleaned!r}"
         )
-    return cleaned
+    if re.match(r"^[a-zA-Z]:", cleaned) or cleaned.startswith(("/", "\\")):
+        raise ValueError(f"Profilname ungültig (invalid, absolute Pfade nicht erlaubt): {cleaned!r}")
+
+    segments = re.split(r"[/\\]+", cleaned)
+    if any(segment in ("", ".", "..") for segment in segments):
+        raise ValueError(f"Profilname ungültig (invalid, Path-Traversal/leeres Segment): {cleaned!r}")
+    if not all(_PROFILE_SEGMENT_RE.match(segment) for segment in segments):
+        raise ValueError(
+            f"Profilname ungültig (invalid). Erlaubt: Buchstaben, Ziffern, Unterstrich, "
+            f"Bindestrich (optional mit '/'-getrennten Segmenten): {cleaned!r}"
+        )
+    return "/".join(segments)
 
 
 def duplicate_profile(
@@ -205,23 +284,23 @@ def create_markdown_template(
 ) -> Path:
     """Legt eine neue Markdown-Vorlage im Profil an."""
     profile_dir = Path(profile_dir).resolve()
-    rel = _normalize_rel_path(rel_path)
+    rel = sanitize_relative_template_path(rel_path, profile_dir)
     if not rel.lower().endswith(".md"):
         rel += ".md"
     target = profile_dir / rel
     if target.exists():
         raise FileExistsError(f"Datei existiert bereits: {rel}")
     target.parent.mkdir(parents=True, exist_ok=True)
-    lines = [
-        "---",
-        f'title: "{title}"',
-        f'description: "{title}"',
-        "status: bookstudio",
-    ]
+    # YAML-konform serialisieren, damit Anführungszeichen im Titel/Beschreibung
+    # das Frontmatter nicht corrupt machen (statt manueller String-Interpolation).
+    meta = {"title": title, "description": title, "status": "bookstudio"}
     if order:
-        lines.append(f'order: "{order}"')
-    lines.extend(["---", "", body or f"# {title}", ""])
-    target.write_text("\n".join(lines), encoding="utf-8")
+        meta["order"] = order
+    front = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False).rstrip("\n")
+    target.write_text(
+        "---\n" + front + "\n---\n\n" + (body or f"# {title}") + "\n",
+        encoding="utf-8",
+    )
     return target
 
 
