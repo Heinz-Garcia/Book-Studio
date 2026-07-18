@@ -43,3 +43,15 @@ sanitizer_backup_*/
 # Wenn ein Maintainer lokale Anpassungen vornehmen will, die nicht
 # ins Repo sollen, soll er die Datei einmal umbenennen und in dieser
 # Zeile ergänzen.
+
+# Orchestrator / Claude / lokale Audit-Artefakte (nicht versionieren)
+.claude/
+.orchestrator_state.json
+CLAUDE.md
+Start_Run-Orchestrator-Bugfix.bat
+bug_audit_report.md
+bug_audit_report_july_historical.md
+implementation_plan.md
+orchestrator.py
+pipelines/
+specifications.md
