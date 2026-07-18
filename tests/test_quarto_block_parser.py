@@ -378,6 +378,114 @@ def test_iter_body_lines_backtick_fence_exactly_matches_length():
     assert lines[3][2] is False  # outside
 
 
+# --- Auto-Heal: orphan-close -----------------------------------------------
+
+
+def test_repair_orphan_fenced_div_closes_removes_orphan():
+    content = (
+        "---\n"
+        'title: "T"\n'
+        "---\n"
+        "\n"
+        "Text davor\n"
+        ":::\n"
+        "Text danach\n"
+    )
+    new, removed = qp.repair_orphan_fenced_div_closes(content)
+    assert removed  # mindestens eine entfernte Zeile
+    assert all(isinstance(n, int) and n > 0 for n in removed)
+    assert "\n:::\n" not in new
+    assert "Text davor" in new
+    assert "Text danach" in new
+    # Nach dem Heal keine orphan-close-Issues mehr im Body
+    from frontmatter_parser import parse as fm_parse
+
+    body = fm_parse(new).body
+    assert qp.find_fenced_div_issues(body) == []
+
+
+def test_repair_orphan_fenced_div_closes_keeps_balanced_div():
+    content = (
+        "---\n"
+        'title: "T"\n'
+        "---\n"
+        "\n"
+        "::: {.note}\n"
+        "Inhalt\n"
+        ":::\n"
+    )
+    new, removed = qp.repair_orphan_fenced_div_closes(content)
+    assert removed == []
+    assert new == content
+
+
+def test_repair_orphan_fenced_div_closes_ignores_code_fence():
+    content = (
+        "---\n"
+        'title: "T"\n'
+        "---\n"
+        "\n"
+        "```md\n"
+        ":::\n"
+        "```\n"
+        "ok\n"
+    )
+    new, removed = qp.repair_orphan_fenced_div_closes(content)
+    assert removed == []
+    assert ":::" in new
+
+
+def test_repair_orphan_fenced_div_closes_leaves_frontmatter_untouched():
+    content = (
+        "---\n"
+        'title: "Keep Me"\n'
+        'description: "Keep Me"\n'
+        "---\n"
+        "\n"
+        ":::\n"
+    )
+    new, removed = qp.repair_orphan_fenced_div_closes(content)
+    assert removed  # orphan entfernt
+    assert 'title: "Keep Me"' in new
+    assert 'description: "Keep Me"' in new
+    # Nur eine Frontmatter-Öffnung/Schließe, kein orphan ::: im Body
+    assert new.count("---") == 2
+
+
+def test_repair_orphan_fenced_div_closes_does_not_heal_unclosed_open():
+    content = (
+        "---\n"
+        'title: "T"\n'
+        "---\n"
+        "\n"
+        "::: {.note}\n"
+        "ohne Schluss\n"
+    )
+    new, removed = qp.repair_orphan_fenced_div_closes(content)
+    assert removed == []
+    assert new == content
+    from frontmatter_parser import parse as fm_parse
+
+    issues = qp.find_fenced_div_issues(fm_parse(new).body)
+    assert any(i.kind == "unclosed-open" for i in issues)
+
+
+def test_repair_orphan_fenced_div_closes_reports_file_line_numbers():
+    """Removed-Zeilen sind Datei-Koordinaten (wie Buch-Doktor L-Nummern)."""
+    content = (
+        "---\n"          # 1
+        'title: "T"\n'   # 2
+        "---\n"          # 3
+        "\n"             # 4
+        "Text\n"         # 5
+        ":::\n"          # 6 <- orphan
+        "Mehr\n"         # 7
+    )
+    _new, removed = qp.repair_orphan_fenced_div_closes(content)
+    assert removed == [6]
+
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

@@ -221,3 +221,50 @@ def test_prepare_book_for_render_heals_missing_description_and_hidden_dashes(
     changed_paths = {rel_path for rel_path, _ in changes}
     assert "content/Text_1.md" in changed_paths
     assert "content/Prozessbeschreibung_content.md" in changed_paths
+
+
+def test_prepare_book_for_render_heals_orphan_fenced_div_closes(tmp_path: Path) -> None:
+    """Auto-Heal entfernt verwaiste `:::`; Buch-Doktor danach gesund."""
+    from book_doctor import BookDoctor
+
+    book = _create_book(tmp_path)
+    _write(
+        book / "content" / "chapter.md",
+        (
+            "---\n"
+            'title: "Kapitel"\n'
+            'description: "Kapitel"\n'
+            "status: bookstudio\n"
+            "---\n"
+            "\n"
+            "Absatz vor dem Fehler.\n"
+            ":::\n"
+            "Absatz danach.\n"
+        ),
+    )
+
+    engine = QuartoYamlEngine(book)
+    changes = engine.prepare_book_for_render(
+        ["content/chapter.md"],
+        {"content/chapter.md": "Kapitel"},
+    )
+
+    change_map = {rel_path: msgs for rel_path, msgs in changes}
+    assert "content/chapter.md" in change_map
+    heal_msgs = change_map["content/chapter.md"]
+    assert any(
+        msg.startswith("Verwaiste schließende ':::'-Marker entfernt (L")
+        for msg in heal_msgs
+    )
+
+    text = (book / "content" / "chapter.md").read_text(encoding="utf-8")
+    body = text.split("---", 2)[2]
+    assert "\n:::\n" not in body
+    assert not body.lstrip().startswith(":::")
+
+    doctor = BookDoctor(book, {"content/chapter.md": "Kapitel"})
+    analysis = doctor.analyze_health(
+        ["content/chapter.md"], unused_count=0, include_index=True
+    )
+    assert analysis["is_healthy"] is True
+    assert analysis["error_count"] == 0

@@ -14,6 +14,9 @@ from frontmatter_parser import (
     parse_file as fm_parse_file,
     repair_hidden_yaml_dividers as fm_repair_hidden_yaml_dividers,
 )
+from quarto_block_parser import (
+    repair_orphan_fenced_div_closes as qb_repair_orphan_fenced_div_closes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +300,7 @@ class QuartoYamlEngine:
         return healed
 
     def prepare_file_for_render(self, filepath, fallback_title=None):
-        """Auto-Healing vor Render: Pflicht-Frontmatter und versteckte ``---`` im Body."""
+        """Auto-Healing vor Render: Pflicht-Frontmatter, versteckte ``---`` und verwaiste ``:::``."""
         filepath = Path(filepath)
         changes = []
 
@@ -309,9 +312,20 @@ class QuartoYamlEngine:
                 content = f.read()
             new_content, repaired = fm_repair_hidden_yaml_dividers(content)
             if repaired:
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(new_content)
+                content = new_content
                 changes.append("Versteckte '---' im Text durch '***' ersetzt")
+
+            new_content, removed_orphan_lines = qb_repair_orphan_fenced_div_closes(content)
+            if removed_orphan_lines:
+                content = new_content
+                locs = ", ".join(f"L{n}" for n in removed_orphan_lines)
+                changes.append(
+                    f"Verwaiste schließende ':::'-Marker entfernt ({locs})"
+                )
+
+            if repaired or removed_orphan_lines:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(content)
         except (OSError, ValueError, TypeError) as e:
             logger.warning("Fehler beim Render-Auto-Healing für %s: %s", filepath, e)
 

@@ -14,6 +14,7 @@ API:
     FencedDivIssue                   – Dataclass mit line_number und kind
     find_fenced_div_issues(body, …)  → list[FencedDivIssue]
     find_unclosed_answer_divs(body)  → list[dict]
+    repair_orphan_fenced_div_closes(content) → (content, removed_line_numbers)
 
 Issue-Kinds (kanonisch):
     "unclosed-open"     – Öffner ohne Schluss
@@ -216,11 +217,112 @@ def to_legacy_tuples(issues: list[FencedDivIssue]) -> list[tuple[int, str]]:
     ]
 
 
+def _detect_newline(content: str) -> str:
+    if "\r\n" in content:
+        return "\r\n"
+    if "\r" in content:
+        return "\r"
+    return "\n"
+
+
+def repair_orphan_fenced_div_closes(content: str) -> tuple[str, list[int]]:
+    """Entfernt verwaiste schließende ``:::``-Zeilen (orphan-close) im Body.
+
+    Analog zu ``frontmatter_parser.repair_hidden_yaml_dividers``: konservative
+    Auto-Reparatur vor dem Render-Preflight. Frontmatter bleibt unangetastet;
+    Code-Fences werden respektiert. Nicht geheilt werden ``unclosed-open``,
+    ``mismatched-close`` und ``inline`` (zu riskant / mehrdeutig).
+
+    Returns:
+        ``(new_content, removed_line_numbers)`` — die Zeilennummern sind
+        1-basiert bezogen auf die Originaldatei (identisch zum Buch-Doktor),
+        damit Auto-Healing-Logs ``L3611`` etc. anzeigen können. Leere Liste
+        bedeutet: keine Änderung.
+
+    Lazy-Import von ``frontmatter_parser``, um den Circular-Import zu vermeiden
+    (``frontmatter_parser`` importiert bereits dieses Modul).
+    """
+    from frontmatter_parser import parse as fm_parse
+
+    parts = fm_parse(content)
+    body = parts.body
+    newline = _detect_newline(content)
+
+    # Body-Offset wie in book_doctor.analyze_health — damit Log-Zeilen
+    # denselben L-Nummern entsprechen wie die Vorabcheck-Befunde.
+    if parts.has_frontmatter:
+        opener_count = 1 + parts.duplicate_opening_count
+        if parts.had_closing_delimiter:
+            opener_count += 1
+        body_base = (
+            (1 if parts.bom else 0)
+            + opener_count
+            + len((parts.header or "").splitlines())
+            + 1
+        )
+    else:
+        body_base = 1
+
+    stack: list[int] = []  # colon_count of open divs
+    new_body_lines: list[str] = []
+    removed_lines: list[int] = []
+
+    for body_line_number, line, in_fence in iter_body_lines_outside_code_fences(body):
+        if in_fence:
+            new_body_lines.append(line)
+            continue
+
+        marker_match = _MARKER_PATTERN.match(line)
+        if marker_match:
+            colon_count = len(marker_match.group(1))
+            tail = marker_match.group(2).strip()
+            if tail:
+                stack.append(colon_count)
+                new_body_lines.append(line)
+            elif stack:
+                top_colon_count = stack[-1]
+                if colon_count >= top_colon_count:
+                    stack.pop()
+                # mismatched-close: Zeile behalten (nicht auto-heilen)
+                new_body_lines.append(line)
+            else:
+                # orphan-close: Zeile entfernen und Datei-Zeile merken
+                removed_lines.append(body_base + body_line_number - 1)
+            continue
+
+        new_body_lines.append(line)
+
+    if not removed_lines:
+        return content, []
+
+    new_body = newline.join(new_body_lines)
+    if body.endswith(("\n", "\r\n", "\r")) and not new_body.endswith(("\n", "\r")):
+        new_body += newline
+
+    if not parts.has_frontmatter:
+        new_content = parts.bom + new_body
+        if not new_content.endswith(("\n", "\r")) and content.endswith(("\n", "\r\n", "\r")):
+            new_content += newline
+        return new_content, removed_lines
+
+    header_text = (parts.header or "").rstrip("\r\n") + newline
+    closing = f"---{newline}"
+    body_text = new_body
+    if not body_text.startswith(("\n", "\r")) and body_text:
+        body_text = newline + body_text
+
+    new_content = parts.bom + "---" + newline + header_text + closing + body_text
+    if not new_content.endswith(("\n", "\r")):
+        new_content += newline
+    return new_content, removed_lines
+
+
 __all__ = [
     "FencedDivIssue",
     "LEGACY_ISSUE_MESSAGES",
     "find_fenced_div_issues",
     "find_unclosed_answer_divs",
     "iter_body_lines_outside_code_fences",
+    "repair_orphan_fenced_div_closes",
     "to_legacy_tuples",
 ]

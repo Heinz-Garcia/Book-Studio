@@ -221,7 +221,7 @@ class ExportManager:
         if callable(guide):
             guide(
                 f"Ich habe {len(changes)} Datei(en) vor dem Rendern für dich vorbereitet "
-                "(fehlendes Frontmatter, versteckte '---' im Text)."
+                "(fehlendes Frontmatter, versteckte '---', verwaiste ':::')."
             )
 
         for rel_path, file_changes in changes:
