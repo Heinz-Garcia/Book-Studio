@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple
 
+from quarto_block_parser import iter_body_lines_outside_code_fences
+
 try:
     import yaml  # PyYAML
 except ImportError:  # pragma: no cover - PyYAML ist harte Abhängigkeit
@@ -377,8 +379,8 @@ def repair_hidden_yaml_dividers(content: str) -> Tuple[str, bool]:
     newline = _detect_newline(content)
     new_body_lines = []
     changed = False
-    for line in parts.body.splitlines():
-        if is_yaml_delimiter(line):
+    for _line_number, line, in_fence in iter_body_lines_outside_code_fences(parts.body):
+        if not in_fence and is_yaml_delimiter(line):
             new_body_lines.append("***")
             changed = True
         else:

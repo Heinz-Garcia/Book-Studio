@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -62,7 +63,9 @@ def prepare_render_source(manual_path: Path) -> tuple[Path, Optional[Path]]:
     normalized = normalize_markdown_for_typst(original)
     if normalized == original:
         return manual_path, None
-    temp_path = manual_path.with_name(f"{manual_path.stem}._render{manual_path.suffix}")
+    temp_path = manual_path.with_name(
+        f"{manual_path.stem}._render_{uuid.uuid4().hex[:8]}{manual_path.suffix}"
+    )
     temp_path.write_text(normalized, encoding="utf-8")
     return temp_path, temp_path
 
@@ -102,43 +105,45 @@ def run_quarto_render(
         on_log_line(f"▶ {' '.join(cmd)}")
 
     try:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(base_path),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-        )
-    except FileNotFoundError:
-        return HandbookRenderResult(
-            returncode=127,
-            manual_path=manual_path,
-            error_message=(
-                f"Quarto nicht gefunden ({quarto_bin}). "
-                "Bitte Quarto installieren und im PATH verfügbar machen."
-            ),
-        )
-    except OSError as exc:
-        return HandbookRenderResult(
-            returncode=1,
-            manual_path=manual_path,
-            error_message=str(exc),
-        )
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(base_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+        except FileNotFoundError:
+            return HandbookRenderResult(
+                returncode=127,
+                manual_path=manual_path,
+                error_message=(
+                    f"Quarto nicht gefunden ({quarto_bin}). "
+                    "Bitte Quarto installieren und im PATH verfügbar machen."
+                ),
+            )
+        except OSError as exc:
+            return HandbookRenderResult(
+                returncode=1,
+                manual_path=manual_path,
+                error_message=str(exc),
+            )
 
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        stripped = line.rstrip("\n")
-        log_tail.append(stripped)
-        if len(log_tail) > 30:
-            log_tail.pop(0)
-        if on_log_line:
-            on_log_line(stripped)
-    returncode = proc.wait()
+        assert proc.stdout is not None
+        try:
+            for line in proc.stdout:
+                stripped = line.rstrip("\n")
+                log_tail.append(stripped)
+                if len(log_tail) > 30:
+                    log_tail.pop(0)
+                if on_log_line:
+                    on_log_line(stripped)
+        finally:
+            returncode = proc.wait()
 
-    try:
         if returncode != 0:
             return HandbookRenderResult(
                 returncode=returncode,

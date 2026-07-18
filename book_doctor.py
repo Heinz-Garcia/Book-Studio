@@ -14,7 +14,11 @@ from frontmatter_requirements import (
     load_frontmatter_settings,
     ordered_frontmatter_keys,
 )
-from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues, to_legacy_tuples
+from quarto_block_parser import (
+    find_fenced_div_issues as qb_find_fenced_div_issues,
+    iter_body_lines_outside_code_fences,
+    to_legacy_tuples,
+)
 
 # =========================================================================
 # 1. DER BUCH-DOKTOR (DIAGNOSE & SICHERHEIT)
@@ -157,12 +161,14 @@ class BookDoctor:
                         + 1
                     )
                     seen_fenced_issue_keys = set()
-                    for offset, line in enumerate(body.split('\n')):
+                    for fence_line_number, line, in_fence in iter_body_lines_outside_code_fences(body):
+                        if in_fence:
+                            continue
                         if line.strip() == '---':
                             record_issue(
                                 p_str,
                                 f"❌ VERSTECKTER TRENNSTRICH in {display_name}: Quarto stürzt bei '---' im Text ab. (Bitte *** nutzen)",
-                                line_number=body_line_number + offset,
+                                line_number=body_line_number + fence_line_number - 1,
                             )
 
                     for line_number, fence_message in find_fenced_div_issues(body, body_line_number):

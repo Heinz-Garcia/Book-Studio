@@ -180,3 +180,74 @@ def test_analyze_health_ignores_colons_inside_code_fence_but_flags_real_unclosed
     messages = analysis["issues_by_path"]["content/chapter.md"]
     assert any("FENCED-DIV FEHLER" in message for message in messages)
     assert not any("WARNZEICHEN" in message for message in messages)
+
+
+# --- Phase 3: Code-Fence-sichere `---`-Erkennung (Cluster 3.5) ---------------
+
+
+def test_analyze_health_ignores_tripledash_in_code_fence(tmp_path: Path) -> None:
+    """Test für Cluster 3.5: `---` INNERHALB eines Code-Blocks sollte
+    NICHT als "VERSTECKTER TRENNSTRICH" gemeldet werden.
+
+    Diese Test wird rot sein, bis die fence-bewusste Implementierung
+    in book_doctor.py eingebaut ist."""
+    book = tmp_path / "book"
+    _write(book / "index.md", _valid_markdown("Index"))
+    _write(
+        book / "content" / "chapter.md",
+        "---\n"
+        "title: \"YAML-Demo\"\n"
+        "description: \"Demo mit YAML-Code\"\n"
+        "status: \"bookstudio\"\n"
+        "---\n\n"
+        "Hier ist ein YAML-Beispiel mit `---` im Code:\n\n"
+        "```yaml\n"
+        "key1: value1\n"
+        "---\n"
+        "key2: value2\n"
+        "```\n\n"
+        "Fertig.\n",
+    )
+
+    doctor = BookDoctor(book, {"content/chapter.md": "YAML-Demo"})
+
+    analysis = doctor.analyze_health(["content/chapter.md"], 0)
+
+    # Es sollte KEINE "VERSTECKTER TRENNSTRICH"-Meldung geben
+    messages = analysis["issues_by_path"].get("content/chapter.md", [])
+    hidden_dash_messages = [m for m in messages if "VERSTECKTER TRENNSTRICH" in m]
+    assert len(hidden_dash_messages) == 0, \
+        f"Sollte keine versteckten Trennstrich-Fehler haben, aber fand: {hidden_dash_messages}"
+
+    # Datei sollte insgesamt gesund sein (mit richtigen frontmatter)
+    assert analysis["is_healthy"] is True
+
+
+def test_analyze_health_still_finds_real_hidden_tripledash(tmp_path: Path) -> None:
+    """Test für Cluster 3.5: `---` AUSSERHALB von Code-Blocks sollte
+    weiterhin als "VERSTECKTER TRENNSTRICH" erkannt werden (Regression-Test)."""
+    book = tmp_path / "book"
+    _write(book / "index.md", _valid_markdown("Index"))
+    _write(
+        book / "content" / "chapter.md",
+        "---\n"
+        "title: \"Problem-Kapitel\"\n"
+        "description: \"Mit echtem Problem-Trennstrich\"\n"
+        "status: \"bookstudio\"\n"
+        "---\n\n"
+        "Absatz 1\n"
+        "---\n"  # Dieser `---` ist NICHT in einem Code-Block
+        "Absatz 2\n",
+    )
+
+    doctor = BookDoctor(book, {"content/chapter.md": "Problem-Kapitel"})
+
+    analysis = doctor.analyze_health(["content/chapter.md"], 0)
+
+    # Es SOLLTE eine "VERSTECKTER TRENNSTRICH"-Meldung geben
+    messages = analysis["issues_by_path"].get("content/chapter.md", [])
+    hidden_dash_messages = [m for m in messages if "VERSTECKTER TRENNSTRICH" in m]
+    assert len(hidden_dash_messages) > 0, \
+        "Sollte einen versteckten Trennstrich-Fehler haben"
+
+    assert analysis["is_healthy"] is False

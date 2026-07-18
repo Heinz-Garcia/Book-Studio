@@ -118,3 +118,62 @@ def test_doctor_flags_missing_frontmatter_block(tmp_path: Path, monkeypatch) -> 
     healthy, report = doctor.check_health(["content/raw.md"], 0)
     assert healthy is False
     assert "FRONTMATTER DEFEKT" in report
+
+
+# --- Phase 3: Code-Fence-sichere `---`-Reparatur (Cluster 3.5) ---------------
+
+
+def test_repair_hidden_yaml_dividers_ignores_tripledash_in_code_fence(tmp_path: Path) -> None:
+    """Test für Cluster 3.5: `---` INNERHALB eines Code-Blocks sollte
+    NICHT zu `***` repariert werden.
+
+    `repair_hidden_yaml_dividers()` nimmt (wie dokumentiert) den
+    rohen Markdown-`content`-String entgegen und liefert
+    `(new_content, changed)` zurück."""
+    import frontmatter_parser as fp
+
+    content = (
+        "---\n"
+        "title: YAML-Demo\n"
+        "description: Demo\n"
+        "---\n\n"
+        "Hier ist ein YAML-Code-Beispiel:\n\n"
+        "```yaml\n"
+        "key1: value1\n"
+        "---\n"  # Dieser --- ist im Code-Block
+        "key2: value2\n"
+        "```\n\n"
+        "Fertig.\n"
+    )
+
+    new_content, changed = fp.repair_hidden_yaml_dividers(content)
+
+    # Es sollte KEINE Änderung geben (--- im Code-Block bleibt unangetastet).
+    assert changed is False, "--- im Code-Block sollte nicht geändert werden"
+    assert new_content == content
+    assert "key1: value1\n---\nkey2: value2" in new_content
+
+
+def test_repair_hidden_yaml_dividers_still_fixes_real_dividers(tmp_path: Path) -> None:
+    """Test für Cluster 3.5: `---` AUSSERHALB von Code-Blocks sollte
+    weiterhin zu `***` repariert werden (Regression-Test)."""
+    import frontmatter_parser as fp
+
+    content = (
+        "---\n"
+        "title: Problem\n"
+        "description: Demo\n"
+        "---\n\n"
+        "Absatz 1\n"
+        "---\n"  # Dieser --- ist NICHT im Code-Block
+        "Absatz 2\n"
+    )
+
+    new_content, changed = fp.repair_hidden_yaml_dividers(content)
+
+    # Es SOLLTE eine Änderung geben
+    assert changed is True, "--- außerhalb Code-Block sollte repariert werden"
+    parts = fp.parse(new_content)
+    assert "***" in parts.body, "--- sollte zu *** repariert werden"
+    assert "---" not in parts.body, \
+        "Nur noch der Frontmatter-Trennstrich sollte --- enthalten"

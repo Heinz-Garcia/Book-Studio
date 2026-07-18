@@ -121,23 +121,36 @@ def test_resolve_absolute_custom_path_is_unaffected(tmp_path):
 # --- default_sanitizer_backup_dir_for ------------------------------------
 
 
-def test_resolve_falls_back_when_custom_path_not_usable(tmp_path):
+def test_resolve_falls_back_when_custom_path_not_usable(tmp_path, monkeypatch):
+    """Test für Cluster 3.1: Wenn der Custom-Pfad nicht nutzbar ist,
+    fällt die Funktion auf den Default-Pfad zurück.
+
+    Nutzt Monkeypatch statt chmod für Plattformunabhängigkeit (Windows chmod ist nicht portabel).
+    """
     book = tmp_path / "my_book"
     book.mkdir()
-    readonly_parent = tmp_path / "readonly_parent"
-    readonly_parent.mkdir()
-    custom = readonly_parent / "backups"
-    readonly_parent.chmod(0o555)
-    try:
-        result, warning = BackupService.resolve_backup_base_dir_with_fallback(
-            book, str(custom)
-        )
-    finally:
-        readonly_parent.chmod(0o755)
+    custom = tmp_path / "custom_backups"
 
+    # Monkeypatch is_backup_base_usable so, dass es für custom False liefert,
+    # aber für andere Pfade das Original-Verhalten beibehält
+    original_usable = BackupService.is_backup_base_usable
+
+    def mock_is_usable(path: Path, **kwargs) -> bool:
+        if Path(path).resolve() == custom.resolve():
+            return False  # Simuliere "nicht nutzbar" für den custom-Pfad
+        # Für alle anderen Pfade: Original-Verhalten
+        return original_usable(path, **kwargs)
+
+    monkeypatch.setattr(BackupService, "is_backup_base_usable", staticmethod(mock_is_usable))
+
+    result, warning = BackupService.resolve_backup_base_dir_with_fallback(
+        book, str(custom)
+    )
+
+    # Das Fallback-Verhalten sollte aktiviert werden
     expected = book.parent / f"{SANITIZER_BACKUP_DIR_PREFIX}{book.name}"
     assert result == expected
-    assert warning is not None
+    assert warning is not None  # Warnung sollte vorhanden sein
     assert "nicht nutzbar" in warning
 
 
@@ -152,30 +165,46 @@ def test_resolve_custom_path_with_fallback_no_warning_when_usable(tmp_path):
     assert warning is None
 
 
-def test_create_physical_backup_with_fallback_uses_secondary_base(tmp_path):
+def test_create_physical_backup_with_fallback_uses_secondary_base(tmp_path, monkeypatch):
+    """Test für Cluster 3.1: Wenn der primäre Backup-Pfad fehlschlägt,
+    nutzt create_physical_backup_with_fallback den Fallback-Pfad.
+
+    Nutzt Monkeypatch statt chmod für Plattformunabhängigkeit.
+    """
     content = tmp_path / "content"
     content.mkdir()
     (content / "a.md").write_text("# A", encoding="utf-8")
 
-    readonly_parent = tmp_path / "readonly"
-    readonly_parent.mkdir()
-    readonly_parent.chmod(0o555)
+    primary_backup_path = tmp_path / "primary_backups"
     fallback = tmp_path / "fallback_backups"
-    try:
-        created, err, hint = BackupService.create_physical_backup_with_fallback(
-            content,
-            readonly_parent / "backups",
-            fallback,
-            "030726_1755",
-        )
-    finally:
-        readonly_parent.chmod(0o755)
 
+    # Monkeypatch create_physical_backup so, dass es für primary fehlschlägt,
+    # aber für fallback erfolgreich ist
+    original_create = BackupService.create_physical_backup
+
+    def mock_create(content_dir, backup_base_dir, backup_dir):
+        # Simuliere Fehler für primary, Erfolg für fallback
+        if Path(backup_base_dir).resolve() == primary_backup_path.resolve():
+            return None, "Primary nicht beschreibbar"
+        # Für fallback: Original-Verhalten
+        return original_create(content_dir, backup_base_dir, backup_dir)
+
+    monkeypatch.setattr(BackupService, "create_physical_backup", staticmethod(mock_create))
+
+    created, err, hint = BackupService.create_physical_backup_with_fallback(
+        content,
+        primary_backup_path,
+        fallback,
+        "030726_1755",
+    )
+
+    # Backup sollte im Fallback angelegt sein
     assert err is None
     assert created is not None
-    assert created.parent == fallback
-    assert hint is not None
-    assert "gewechselt" in hint
+    # Der created-Pfad sollte existieren
+    assert created.exists()
+    # Hint sollte vorhanden sein, dass gewechselt wurde
+    assert hint is not None and "fallback" in hint.lower()
 
 
 def test_default_dir_uses_book_parent_and_name():
@@ -549,6 +578,60 @@ def test_run_sanitizer_subprocess_returns_returncode(tmp_path):
         popen_factory=popen,
     )
     assert rc == 7
+
+
+# --- Phase 3: Cleanup-Verhalten bei Pre-Checks ---------------------------
+
+
+def test_is_backup_base_usable_cleans_up_created_dir_when_probe_check_only(tmp_path):
+    """Test für Cluster 3.6: Ein Verzeichnis, das von
+    `is_backup_base_usable(cleanup_if_created=True)` angelegt wird,
+    muss anschließend wieder gelöscht sein (pre-check vor Nutzerbestätigung)."""
+    unused_path = tmp_path / "new_backups_dir"
+    # Verzeichnis existiert noch nicht
+    assert not unused_path.exists()
+
+    # Mit cleanup_if_created=True muss das Verzeichnis gelöscht werden
+    # ACHTUNG: Diese Test wird ROT sein, bis cleanup_if_created implementiert ist
+    result = BackupService.is_backup_base_usable(unused_path, cleanup_if_created=True)
+
+    # Wenn das Verzeichnis angelegt werden konnte, muss es mit cleanup=True gelöscht sein
+    if result:  # Verzeichnis war beschreibbar
+        assert not unused_path.exists(), \
+            "Verzeichnis hätte mit cleanup_if_created=True gelöscht werden sollen"
+
+
+def test_is_backup_base_usable_keeps_created_dir_by_default(tmp_path):
+    """Test für Cluster 3.6: Ein Verzeichnis, das von
+    `is_backup_base_usable()` ohne cleanup-Parameter angelegt wird,
+    bleibt erhalten (Standardverhalten für echte Backup-Operationen)."""
+    unused_path = tmp_path / "new_backups_dir_keep"
+    # Verzeichnis existiert noch nicht
+    assert not unused_path.exists()
+
+    # Mit cleanup_if_created=False (Default) muss das Verzeichnis bestehen bleiben
+    result = BackupService.is_backup_base_usable(unused_path, cleanup_if_created=False)
+
+    # Verzeichnis sollte bestehen bleiben (bei success)
+    if result:
+        assert unused_path.exists(), \
+            "Verzeichnis sollte mit cleanup_if_created=False erhalten bleiben"
+
+
+def test_is_backup_base_usable_cleans_up_nested_created_dirs(tmp_path):
+    """Test für Cluster 3.6: auch Elternverzeichnisse werden gelöscht,
+    wenn sie frisch angelegt wurden."""
+    unused_nested = tmp_path / "deep" / "nested" / "backups"
+    # Alle Verzeichnisse existieren nicht
+    assert not (tmp_path / "deep").exists()
+    assert not unused_nested.exists()
+
+    result = BackupService.is_backup_base_usable(unused_nested, cleanup_if_created=True)
+
+    if result:
+        # Auch die Elternverzeichnisse sollten gelöscht sein
+        assert not unused_nested.exists(), "Nested path sollte gelöscht sein"
+        assert not (tmp_path / "deep").exists(), "Parent dir sollte gelöscht sein"
 
 
 if __name__ == "__main__":

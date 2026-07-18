@@ -125,6 +125,47 @@ def find_fenced_div_issues(
     return issues
 
 
+def iter_body_lines_outside_code_fences(body: str):
+    """Liefert (line_number, line, in_code_fence) für jede Body-Zeile.
+
+    `line_number` ist 1-basiert relativ zum `body`-Anfang (Aufrufer
+    addiert ggf. `base_line_number` selbst, analog zu
+    `find_fenced_div_issues`). `in_code_fence=True` für Zeilen
+    innerhalb ```-/~~~-Code-Blöcken (inkl. der Fence-Zeilen selbst).
+
+    Merkt sich den öffnenden Fence-Typ (Zeichen ` bzw. ~ und Lauflänge)
+    und schließt nur bei einer Fence-Zeile desselben Zeichens mit
+    mindestens gleicher Länge (CommonMark-Semantik) — verhindert, dass
+    ein `~~~`-Fence in einem verschachtelten Beispiel einen äußeren
+    ```-Block vorzeitig schließt (R1, Rescan 2026-07-18).
+    """
+    in_code_block = False
+    fence_char = None
+    fence_len = 0
+    for offset, raw_line in enumerate(body.splitlines()):
+        line = raw_line.rstrip("\r")
+        line_number = offset + 1
+        match = _CODE_FENCE_PATTERN.match(line)
+        if match:
+            marker = match.group(1)
+            char = marker[0]
+            length = len(marker)
+            if not in_code_block:
+                in_code_block = True
+                fence_char = char
+                fence_len = length
+            elif char == fence_char and length >= fence_len:
+                in_code_block = False
+                fence_char = None
+                fence_len = 0
+            # sonst: fence-ähnliche Zeile eines anderen Typs/kürzerer
+            # Länge INNERHALB eines offenen Blocks -> bleibt "in_fence",
+            # togglet den Zustand NICHT.
+            yield line_number, line, True
+            continue
+        yield line_number, line, in_code_block
+
+
 def find_unclosed_answer_divs(body: str) -> list[dict]:
     """Findet ungeschlossene `{.answer}`-Divs im `body`.
 
@@ -180,5 +221,6 @@ __all__ = [
     "LEGACY_ISSUE_MESSAGES",
     "find_fenced_div_issues",
     "find_unclosed_answer_divs",
+    "iter_body_lines_outside_code_fences",
     "to_legacy_tuples",
 ]

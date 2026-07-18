@@ -26,7 +26,6 @@ bleiben im Studio.
 from __future__ import annotations
 
 import os
-import os
 import shutil
 import subprocess
 import sys
@@ -148,10 +147,26 @@ class BackupService:
         return path
 
     @staticmethod
-    def is_backup_base_usable(path: Path) -> bool:
-        """Prüft, ob das Zielverzeichnis angelegt und beschreibbar ist."""
+    def is_backup_base_usable(path: Path, *, cleanup_if_created: bool = False) -> bool:
+        """Prüft, ob das Zielverzeichnis angelegt und beschreibbar ist.
+
+        `cleanup_if_created=True`: entfernt ein von diesem Aufruf frisch
+        angelegtes Verzeichnis wieder (für reine Vorab-Prüfungen VOR
+        einer Nutzerbestätigung, z. B. `run_sanitizer_pipeline`), damit
+        kein leeres Verzeichnis auf der Platte zurückbleibt, wenn der
+        Nutzer den nachfolgenden Dialog abbricht.
+        """
+        candidate = Path(path)
+        created_root: Optional[Path] = None
+        if cleanup_if_created:
+            node = candidate
+            while not node.exists():
+                created_root = node
+                parent = node.parent
+                if parent == node:
+                    break
+                node = parent
         try:
-            candidate = Path(path)
             candidate.mkdir(parents=True, exist_ok=True)
             if not candidate.is_dir():
                 return False
@@ -161,6 +176,9 @@ class BackupService:
             return True
         except OSError:
             return False
+        finally:
+            if cleanup_if_created and created_root is not None and created_root.exists():
+                shutil.rmtree(created_root, ignore_errors=True)
 
     @staticmethod
     def create_physical_backup_with_fallback(
@@ -234,7 +252,7 @@ class BackupService:
             else:
                 resolved = current_book.parent / candidate
 
-            if BackupService.is_backup_base_usable(resolved):
+            if BackupService.is_backup_base_usable(resolved, cleanup_if_created=True):
                 return resolved, None
 
             return (

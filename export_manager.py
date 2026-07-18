@@ -31,6 +31,7 @@ class ExportManager:
         self._logged_colon_warning_hint = False
         self._active_render_log_handle = None
         self._active_render_log_path = None
+        self._render_running = False
 
     def _log(self, message, level="info"):
         self._adapter.log(message, level)
@@ -748,123 +749,141 @@ class ExportManager:
         if not self._current_book():
             return
 
-        self._prepare_book_for_render()
-        is_healthy, analysis = self._run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
-        if not is_healthy:
-            if analysis is not None:
-                error_count = analysis.get("error_count", 0)
-                self._log(
-                    f"💡 Rendern pausiert: {error_count} Punkt(e) brauchen noch deine Aufmerksamkeit. "
-                    "F4 = nächster Fund, Enter = Datei öffnen.",
-                    "warning",
-                )
-            self._set_status("Render pausiert — siehe Hinweise im Log (F4)", _StatusFg.WARNING_ALT)
-            return
-
-        templates = self._available_templates()
-        selected = ExportDialog.ask(
-            self._root(),
-            templates,
-            initial=self._last_export_options(),
-        )
-        if not selected:
-            self._set_status("Export abgebrochen", "#95a5a6")
-            return
-
-        self._set_last_export_options(selected)
-        self._persist_app_state()
-        
-        if not self._save_project(show_msg=False, run_doctor_check=False):
-            self._set_status("Render abgebrochen (Speicherfehler)", _StatusFg.DANGER)
-            return
-            
-        base_fmt = selected["format"]
-        selected_tpl = selected["template"]
-
-        # --- DIE NEUE EXTENSION-WEICHE ---
-        # Phase 2 / Schritt 2.3a: Format-Auflösung an RenderService delegiert.
-        # Logik lebt in `services/render_service.py::resolve_target_format`
-        # (pure Funktion, dort getestet).
-        render_service = getattr(self.studio, "_services", None)
-        render_service = getattr(render_service, "render", None) if render_service else None
-        if render_service is not None:
-            target_fmt, extra_opts = render_service.resolve_target_format(
-                base_fmt, selected_tpl
+        if self._render_running:
+            messagebox.showinfo(
+                "Render",
+                "Es läuft bereits ein Render-Vorgang. Bitte warten, bis dieser abgeschlossen ist.",
+                parent=self._root(),
             )
-        else:
-            # Phase 1 / B8-Fallback: Wenn der Studio-Service-Container fehlt
-            # (z. B. in einem Standalone-Export-Manager-Test), faellt die
-            # Logik auf die Inline-Implementierung zurueck.
-            target_fmt = base_fmt
-            extra_opts = None
-            if selected_tpl.startswith("EXT: "):
-                ext_name = selected_tpl.replace("EXT: ", "").strip()
-                target_fmt = f"{ext_name}-{base_fmt}"
-                extra_opts = {
-                    target_fmt: {
-                        "toc": True,
-                        "toc-depth": 3,
-                        "number-sections": True,
-                        "section-numbering": "1.1.1",
+            return
+
+        self._render_running = True
+        dispatched = False
+        try:
+            self._prepare_book_for_render()
+            is_healthy, analysis = self._run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
+            if not is_healthy:
+                if analysis is not None:
+                    error_count = analysis.get("error_count", 0)
+                    self._log(
+                        f"💡 Rendern pausiert: {error_count} Punkt(e) brauchen noch deine Aufmerksamkeit. "
+                        "F4 = nächster Fund, Enter = Datei öffnen.",
+                        "warning",
+                    )
+                self._set_status("Render pausiert — siehe Hinweise im Log (F4)", _StatusFg.WARNING_ALT)
+                return
+
+            templates = self._available_templates()
+            selected = ExportDialog.ask(
+                self._root(),
+                templates,
+                initial=self._last_export_options(),
+            )
+            if not selected:
+                self._set_status("Export abgebrochen", "#95a5a6")
+                return
+
+            self._set_last_export_options(selected)
+            self._persist_app_state()
+
+            if not self._save_project(show_msg=False, run_doctor_check=False):
+                self._set_status("Render abgebrochen (Speicherfehler)", _StatusFg.DANGER)
+                return
+
+            base_fmt = selected["format"]
+            selected_tpl = selected["template"]
+
+            # --- DIE NEUE EXTENSION-WEICHE ---
+            # Phase 2 / Schritt 2.3a: Format-Auflösung an RenderService delegiert.
+            # Logik lebt in `services/render_service.py::resolve_target_format`
+            # (pure Funktion, dort getestet).
+            render_service = getattr(self.studio, "_services", None)
+            render_service = getattr(render_service, "render", None) if render_service else None
+            if render_service is not None:
+                target_fmt, extra_opts = render_service.resolve_target_format(
+                    base_fmt, selected_tpl
+                )
+            else:
+                # Phase 1 / B8-Fallback: Wenn der Studio-Service-Container fehlt
+                # (z. B. in einem Standalone-Export-Manager-Test), faellt die
+                # Logik auf die Inline-Implementierung zurueck.
+                target_fmt = base_fmt
+                extra_opts = None
+                if selected_tpl.startswith("EXT: "):
+                    ext_name = selected_tpl.replace("EXT: ", "").strip()
+                    target_fmt = f"{ext_name}-{base_fmt}"
+                    extra_opts = {
+                        target_fmt: {
+                            "toc": True,
+                            "toc-depth": 3,
+                            "number-sections": True,
+                            "section-numbering": "1.1.1",
+                        }
                     }
-                }
-            elif selected_tpl != "Standard":
-                extra_opts = {base_fmt: {"template": f"templates/{selected_tpl}"}}
-        # ----------------------------------
+                elif selected_tpl != "Standard":
+                    extra_opts = {base_fmt: {"template": f"templates/{selected_tpl}"}}
+            # ----------------------------------
 
-        self._set_status(f"Rendere {target_fmt} (Pre-Processing)...", _StatusFg.INFO)
+            self._set_status(f"Rendere {target_fmt} (Pre-Processing)...", _StatusFg.INFO)
 
-        # B1/R1: Pre-Processing ausschließlich auf einer schreibgeschützten
-        # Spiegelung des Buchs in einem Temp-Verzeichnis. Das Original darf
-        # KEINEN `processed/`-Ordner und keine überschriebene `_quarto.yml`
-        # behalten — der eigentliche Render läuft anschließend in einer
-        # weiteren Temp-Kopie via quarto_render_safe.py.
-        preflight_analysis = self._run_processed_preflight_analysis(target_fmt=target_fmt)
-        if preflight_analysis is None:
-            self._set_status("Render abgebrochen (Pre-Processing-Fehler)", _StatusFg.DANGER)
-            return
-        self._processed_label_occurrences = preflight_analysis["label_occurrences"]
-        self._processed_colon_occurrences = preflight_analysis["colon_occurrences"]
-        self._logged_missing_labels = set()
-        self._logged_colon_warning_hint = False
-        has_processed_errors = self._log_fenced_div_findings(
-            preflight_analysis["fenced_div_findings"]
-        )
-        if has_processed_errors:
-            self._set_status("Render abgebrochen (erster Preflight-Fehler)", _StatusFg.DANGER)
-            return
-
-        # B4: Verwaiste Fußnoten-Marker-Log entfernt.
-
-        self._log(f"{'='*50}", "dim")
-        self._log(f"🖨️  EXPORT PIPELINE: {target_fmt.upper()}", "header")
-        self._log(f"{'='*50}", "dim")
-        self._start_render_log(target_fmt, selected_tpl)
-
-        # Phase 2 / Schritt 2.3c-Mini: Render-Orchestrierung im RenderService.
-        # Threading bleibt hier (UI-Lifecycle); die synchrone Orchestrierung
-        # (Pre-Log, Subprocess-Aufruf, Pfad-Auswahl, Finalize) ist im Service.
-        def render_thread():
-            def on_failure(return_code):
-                # Status-Farbwert ist UI-Konzern (StatusFg-Enum); lebt hier.
-                self._after(
-                    0,
-                    lambda: self._set_status("Render fehlgeschlagen", _StatusFg.DANGER),
-                )
-
-            _RenderService.execute_render(
-                target_fmt=target_fmt,
-                profile_name=self._current_profile_name(),
-                extra_format_options=extra_opts,
-                run_safe_render=self._run_safe_render,
-                finalize_render_log=self._finalize_render_log,
-                handle_render_success=self._handle_render_success,
-                log_cb=self._log,
-                after_cb=self._after,
-                on_failure=on_failure,
+            # B1/R1: Pre-Processing ausschließlich auf einer schreibgeschützten
+            # Spiegelung des Buchs in einem Temp-Verzeichnis. Das Original darf
+            # KEINEN `processed/`-Ordner und keine überschriebene `_quarto.yml`
+            # behalten — der eigentliche Render läuft anschließend in einer
+            # weiteren Temp-Kopie via quarto_render_safe.py.
+            preflight_analysis = self._run_processed_preflight_analysis(target_fmt=target_fmt)
+            if preflight_analysis is None:
+                self._set_status("Render abgebrochen (Pre-Processing-Fehler)", _StatusFg.DANGER)
+                return
+            self._processed_label_occurrences = preflight_analysis["label_occurrences"]
+            self._processed_colon_occurrences = preflight_analysis["colon_occurrences"]
+            self._logged_missing_labels = set()
+            self._logged_colon_warning_hint = False
+            has_processed_errors = self._log_fenced_div_findings(
+                preflight_analysis["fenced_div_findings"]
             )
+            if has_processed_errors:
+                self._set_status("Render abgebrochen (erster Preflight-Fehler)", _StatusFg.DANGER)
+                return
 
-        threading.Thread(target=render_thread, daemon=True).start()
+            # B4: Verwaiste Fußnoten-Marker-Log entfernt.
+
+            self._log(f"{'='*50}", "dim")
+            self._log(f"🖨️  EXPORT PIPELINE: {target_fmt.upper()}", "header")
+            self._log(f"{'='*50}", "dim")
+            self._start_render_log(target_fmt, selected_tpl)
+
+            # Phase 2 / Schritt 2.3c-Mini: Render-Orchestrierung im RenderService.
+            # Threading bleibt hier (UI-Lifecycle); die synchrone Orchestrierung
+            # (Pre-Log, Subprocess-Aufruf, Pfad-Auswahl, Finalize) ist im Service.
+            def render_thread():
+                def on_failure(return_code):
+                    # Status-Farbwert ist UI-Konzern (StatusFg-Enum); lebt hier.
+                    self._after(
+                        0,
+                        lambda: self._set_status("Render fehlgeschlagen", _StatusFg.DANGER),
+                    )
+
+                try:
+                    _RenderService.execute_render(
+                        target_fmt=target_fmt,
+                        profile_name=self._current_profile_name(),
+                        extra_format_options=extra_opts,
+                        run_safe_render=self._run_safe_render,
+                        finalize_render_log=self._finalize_render_log,
+                        handle_render_success=self._handle_render_success,
+                        log_cb=self._log,
+                        after_cb=self._after,
+                        on_failure=on_failure,
+                    )
+                finally:
+                    self._after(0, lambda: setattr(self, "_render_running", False))
+
+            threading.Thread(target=render_thread, daemon=True).start()
+            dispatched = True
+        finally:
+            if not dispatched:
+                self._render_running = False
 
     def _run_safe_render(self, target_fmt, profile_name=None, extra_format_options=None):
         """Phase 2 / Schritt 2.3c: Duenne Delegation an RenderService.

@@ -8,3 +8,6 @@ sv-ttk>=2.6.0
 
 # Kleine Regression-Suite für Nicht-GUI-Kernlogik
 pytest>=8.3.0
+
+# orchestrator.py's live multi-agent console output (from GrammarGraph)
+rich>=13.0
