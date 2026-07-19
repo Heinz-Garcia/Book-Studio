@@ -26,6 +26,7 @@ _LOG = logging.getLogger(__name__)
 # diesem Dict ergänzt – die Defaults sind also versionierungsfreundlich.
 DEFAULTS: dict[str, Any] = {
     "help_manual_path": "doc/handbuch.md",
+    "help_html_path": "doc/handbuch.html",
     "reset_quarto_template_path": "templates/quarto_reset_minimal.yml",
     "content_root_path": ".",
     "prep_sources": [],

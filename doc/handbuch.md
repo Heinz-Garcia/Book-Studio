@@ -10,9 +10,11 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** Juli 2026 · **Version:** 1.0.12 („Handbuch Typst robust“)
+**Stand:** Juli 2026 · **Version:** 1.1.0 („HTML-Hilfe mit Suche“)
 
-Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
+Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
+
+In der App öffnest du die Hilfe als **HTML-Fenster mit Suchfeld** (**Hilfe → Handbuch öffnen**). Die editierbare Quelle bleibt Markdown (`doc/handbuch.md`).
 
 ---
 
@@ -73,7 +75,7 @@ Rechts per **Drag-and-Drop** oder **Hoch/Runter** sortieren. Mit **Einrücken/Au
 2. **Export-Dialog** (Format + Template wählen)
 3. Quarto rendert im Hintergrund; Fortschritt im **Log-Terminal**
 
-> Das Studio repariert vor dem Rendern häufig kleine Probleme selbst (fehlendes Frontmatter, versteckte `---` im Text) und schreibt einen **Hinweis** ins Log — kein Eingriff nötig.
+> Das Studio repariert vor dem Rendern häufig kleine Probleme selbst (fehlendes Frontmatter, versteckte `---` im Text, überzählige schließende `:::`) und schreibt einen **Hinweis** ins Log — kein Eingriff nötig.
 
 ---
 
@@ -176,11 +178,11 @@ Die **Icon-Legende** im mittleren Bereich erklärt die Symbole.
 
 **Ablauf:**
 
-1. **Auto-Vorbereitung** — fehlendes Frontmatter, versteckte `---`-Zeilen im Text
+1. **Auto-Vorbereitung** — fehlendes Frontmatter, versteckte `---`-Zeilen, überzählige `:::`-Schließer
 2. **Render-Vorabcheck** — Buch-Doktor auf alle Kapitel + `index.md`
 3. **Export-Dialog** — Format (typst, pdf, html, docx) und Template
-4. **Pre-Processing** in temporärer Kopie (Original bleibt unverändert)
-5. **Quarto-Render**
+4. **Temp-Klon** — Buch wird in eine temporäre Kopie kopiert; Pre-Processing und Quarto laufen nur dort
+5. **Quarto-Render** — Originalprojekt (`_quarto.yml`, `processed/`) bleibt unverändert
 
 ### Wenn der Vorabcheck „pausiert“
 
@@ -197,6 +199,7 @@ Das ist **kein Absturz** — springe mit **F4** / **Shift+F4** durch die ☠-Mar
 | `description` fehlt im Frontmatter | wird vor dem Rendern oft automatisch ergänzt |
 | Eigenständige Zeile `---` im Text | wird automatisch zu `***` — oder manuell `***` nutzen |
 | Ungeschlossene `:::`-Blöcke | Buch-Doktor meldet das; vor Rendern schließen |
+| Überzählige schließende `:::` | werden vor dem Rendern oft automatisch entfernt (Log-Hinweis mit Zeilennummer) |
 
 ---
 
@@ -305,7 +308,8 @@ GUI: **Tools → Studio-Konfiguration...**
 | Eintrag | Bedeutung |
 |---------|-----------|
 | `content_root_path` | Wo Buchprojekte gesucht werden (`.` = Studio-Ordner) |
-| `help_manual_path` | Dieses Handbuch (`doc/handbuch.md`) |
+| `help_manual_path` | Handbuch-Quelle Markdown (`doc/handbuch.md`) — PDF + Pflege |
+| `help_html_path` | Angezeigte Hilfe HTML (`doc/handbuch.html`) — Hilfe-Fenster |
 | `sanitizer_backup_path` | Optional; leer = Backup neben dem Projekt |
 | `frontmatter_requirements` | Pflichtfelder für Auto-Healing und Buch-Doktor (`<h1>`, `<title>`, `<filename>`, fester Text) |
 | `default_export_format` | Standard beim Export-Dialog |
@@ -375,7 +379,23 @@ Ordner `_Sanitizer_Backups_*` und `sanitizer_backup_*` sind **Sicherungskopien**
 
 ### Dieses Handbuch öffnen
 
-**Hilfe → Handbuch öffnen** — öffnet diese Datei im integrierten Markdown-Editor.
+**Hilfe → Handbuch öffnen** — öffnet die **HTML-Hilfe** in einem eigenen Fenster:
+
+- **Suchfeld** oben (filtert Kapitel und Abschnitte)
+- **Inhaltsverzeichnis** links
+- **HTML-Inhalt** rechts
+
+Keine Bearbeitung in diesem Fenster. Quarto ist zum Öffnen **nicht** nötig — `doc/handbuch.html` liegt fertig im Installationsordner.
+
+### Handbuch-Quelle bearbeiten
+
+**Hilfe → Handbuch-Quelle bearbeiten…** — öffnet `doc/handbuch.md` im Markdown-Editor (Pflege der SSOT).
+
+Nach inhaltlichen Änderungen die HTML-Datei neu erzeugen:
+
+```bash
+python -m tools.handbook_html
+```
 
 ### Handbuch als PDF
 
@@ -383,12 +403,13 @@ Ordner `_Sanitizer_Backups_*` und `sanitizer_backup_*` sind **Sicherungskopien**
 
 Voraussetzung: **Quarto** ist installiert. **Kein LaTeX/TinyTeX nötig**, solange `handbuch_pdf_format` auf `typst` steht (Standard). Das YAML-Frontmatter oben steuert das Layout (inkl. automatischem Inhaltsverzeichnis).
 
-**Interne Verweise im Handbuch:** Im PDF nutzen wir **Klartext** (z. B. „Kapitel 15“) statt Quarto-Crossrefs (`@sec-…`). Typst erlaubt `@sec-` nur bei nummerierten Überschriften; das Handbuch nummeriert Kapitel bereits im Titel (`1)`, `2)`, …). GitHub-Anker (`[Text](#anker)`) funktionieren im Editor, brechen aber beim PDF-Render — die App entfernt solche Links vor dem Rendern als Sicherheitsnetz.
+**Interne Verweise im Handbuch:** Im PDF nutzen wir **Klartext** (z. B. „Kapitel 15“) statt Quarto-Crossrefs (`@sec-…`). Typst erlaubt `@sec-` nur bei nummerierten Überschriften; das Handbuch nummeriert Kapitel bereits im Titel (`1)`, `2)`, …). GitHub-Anker (`[Text](#anker)`) funktionieren in der HTML-Hilfe, werden aber vor dem PDF-Render entfernt.
 
-Pfad in `app_config.json`:
+Pfade in `app_config.json`:
 
 ```json
-"help_manual_path": "doc/handbuch.md"
+"help_manual_path": "doc/handbuch.md",
+"help_html_path": "doc/handbuch.html"
 ```
 
 ### Wo Meldungen landen
@@ -402,18 +423,14 @@ Pfad in `app_config.json`:
 
 **Grundsatz:** Das Studio versucht zuerst zu reparieren oder auszuweichen — und erklärt kurz, was es getan hat.
 
-### Doku-Format: Markdown oder HTML?
+### Quelle und Anzeige
 
-Das Handbuch liegt bewusst als **Markdown** (`.md`) vor. Kurz die Trade-offs:
+| Rolle | Datei |
+|-------|--------|
+| **Quelle (SSOT)** | `doc/handbuch.md` — editierbar, Git-freundlich, PDF-Render |
+| **Anzeige** | `doc/handbuch.html` — Hilfe-Fenster mit Suche |
 
-| Markdown (aktuell) | HTML |
-|--------------------|------|
-| Im Studio direkt editierbar (**Hilfe → Handbuch öffnen**) | Bräuchte eigenen Viewer oder externen Browser |
-| Gleiche Sprache wie Buch-Kapitel und Skeleton-Vorlagen | Schöneres Layout, feste Navigation, Suche einbettbar |
-| Git-Diffs lesbar, Agenten/Cursor pflegen es gut | Build-Schritt nötig (Quarto, MkDocs, …) |
-| Kein zweiter Wartungskanal | Zwei Quellen oder Generator-Pipeline |
-
-**Empfehlung für Book Studio:** Markdown als **Quelle** behalten; HTML höchstens als **exportiertes** Zielformat (z. B. `quarto render doc/handbuch.md`), nicht als Ersatz für die editierbare Datei in der App.
+HTML ist **kein** zweiter Hand-Editierkanal: immer aus Markdown neu bauen (`python -m tools.handbook_html`).
 
 ---
 
@@ -428,11 +445,13 @@ Das **Skeleton**-Feature befüllt Buchprojekte mit wiederkehrenden Seiten (Klapp
 | **Skeleton ins Buch übernehmen…** | Kopiert Vorlagen ins **aktive Buch** |
 | **Skeleton-Bibliothek bearbeiten…** | Pflegt die Vorlagen in der Bibliothek |
 
-### Grundprinzip: immer Kopie
+### Grundprinzip: Pool + Kopie
 
-- Es gibt **keinen Link-Modus** — jede Vorlage wird als **eigene Datei** ins Buchprojekt kopiert.
+- Der **Skeleton-Pool** liegt unter `tools/skeleton/library/` (Profil z. B. `standard`).
+- Es gibt **keinen Link-Modus** und **keine GrammarGraph-Anbindung** — jede Vorlage wird als **eigene Datei** ins Buchprojekt kopiert.
 - Alle weiteren Bearbeitungen betreffen nur die **Kopien im Buch**, nicht die Skeleton-Bibliothek.
 - Die Bibliothek ist die **Quelle für künftige** Populate-Läufe in anderen Büchern.
+- Beide Menüpunkte bleiben sichtbar (Betreiber = User und Admin).
 
 ### Populate — Ablauf
 
@@ -538,7 +557,8 @@ MeinBuch/
 
 Book-Studio-Installation (Auszug):
 tools/skeleton/library/  ← Skeleton-Vorlagen (Profile mit manifest.yaml)
-doc/handbuch.md          ← dieses Nutzerhandbuch
+doc/handbuch.md          ← Handbuch-Quelle (Markdown)
+doc/handbuch.html        ← Hilfe-Anzeige (HTML, mit Suche)
 ```
 
 ---

@@ -2072,6 +2072,33 @@ class BookStudio:
         )
 
     def open_help_manual(self):
+        """Öffnet die HTML-Hilfe mit Suchfeld (SSOT bleibt Markdown)."""
+        try:
+            cfg = self._read_config()
+            from help_viewer import HelpViewer
+            from tools.handbook_html import resolve_handbook_html_path
+            from tools.handbook_pdf import resolve_handbook_path
+
+            html_path = resolve_handbook_html_path(self.base_path, cfg)
+            md_path = None
+            try:
+                md_path = resolve_handbook_path(self.base_path, cfg)
+            except (ValueError, FileNotFoundError, OSError):
+                md_path = None
+        except ValueError as error:
+            messagebox.showwarning("Hilfe nicht konfiguriert", str(error), parent=self.root)
+            return
+        except FileNotFoundError as error:
+            messagebox.showerror("Hilfe nicht gefunden", str(error), parent=self.root)
+            return
+        except (OSError, TypeError, json.JSONDecodeError) as error:
+            self._report_nonfatal_error("Hilfe konnte nicht geöffnet werden", error)
+            return
+
+        HelpViewer(self.root, html_path, md_path=md_path)
+
+    def edit_help_manual_source(self):
+        """Öffnet die Markdown-Quelle des Handbuchs im Editor (Pflege)."""
         try:
             cfg = self._read_config()
             from tools.handbook_pdf import resolve_handbook_path
@@ -2084,7 +2111,7 @@ class BookStudio:
             messagebox.showerror("Handbuch nicht gefunden", str(error), parent=self.root)
             return
         except (OSError, TypeError, json.JSONDecodeError) as error:
-            self._report_nonfatal_error("Handbuch konnte nicht geöffnet werden", error)
+            self._report_nonfatal_error("Handbuch-Quelle konnte nicht geöffnet werden", error)
             return
 
         MarkdownEditor(self.root, manual_path, self.on_markdown_saved, self._get_editor_end_commands())
