@@ -64,11 +64,15 @@ def test_populate_copies_files_and_updates_yaml(tmp_path: Path) -> None:
         skip_dialog=True,
     )
 
+    # Batch 2: optionale Slots (Widmung, Template) werden standardmäßig
+    # NICHT kopiert -> 12 der 14 Manifest-Einträge sind "optional: false".
     assert result.ok
-    assert len(result.copied) == 14
-    assert len(result.skipped) == 0
+    assert len(result.copied) == 12
+    assert len(result.skipped) == 2
+    assert "content/required/Widmung.md" in result.skipped
+    assert "content/required/Template.md" in result.skipped
     assert "content/required/Einleitung.md" in result.copied
-    assert "content/required/Template.md" in result.copied
+    assert "content/required/Template.md" not in result.copied
     assert "content/required/Template.md" not in result.tree_added
 
     einleitung = book / "content/required/Einleitung.md"
@@ -89,6 +93,48 @@ def test_populate_copies_files_and_updates_yaml(tmp_path: Path) -> None:
     tree_paths = [item["path"].replace("\\", "/") for item in tree]
     assert "content/required/Einleitung.md" in tree_paths
     assert "content/required/Template.md" not in tree_paths
+    assert "content/required/Widmung.md" not in tree_paths
+
+
+def test_populate_skips_optional_by_default(tmp_path: Path) -> None:
+    """Batch 2: `optional: true`-Slots werden ohne explizites Opt-in nicht kopiert."""
+    book = _create_empty_book(tmp_path)
+    result = populate_book(
+        book,
+        profile_dir=_standard_profile(),
+        conflict_mode="skip",
+        skip_dialog=True,
+    )
+
+    assert result.ok
+    assert not (book / "content/required/Widmung.md").exists()
+    assert not (book / "content/required/Template.md").exists()
+    assert "content/required/Widmung.md" in result.skipped
+    assert "content/required/Template.md" in result.skipped
+
+
+def test_populate_include_optional_copies_optional_slots(tmp_path: Path) -> None:
+    """Batch 2: mit `include_optional=True` werden auch optionale Slots kopiert."""
+    book = _create_empty_book(tmp_path)
+    result = populate_book(
+        book,
+        profile_dir=_standard_profile(),
+        conflict_mode="skip",
+        skip_dialog=True,
+        include_optional=True,
+    )
+
+    assert result.ok
+    assert len(result.copied) == 14
+    assert len(result.skipped) == 0
+    assert (book / "content/required/Widmung.md").is_file()
+    assert (book / "content/required/Template.md").is_file()
+    assert "content/required/Widmung.md" in result.copied
+    assert "content/required/Template.md" in result.copied
+    # Template bleibt trotz include_optional außerhalb des Buchbaums
+    # (include_in_tree: false in der manifest.yaml).
+    assert "content/required/Template.md" not in result.tree_added
+    assert "content/required/Widmung.md" in result.tree_added
 
 
 def test_populate_skip_existing_file(tmp_path: Path) -> None:
@@ -107,7 +153,8 @@ def test_populate_skip_existing_file(tmp_path: Path) -> None:
     assert result.ok
     assert "content/required/Einleitung.md" in result.skipped
     assert "# Alt" in existing.read_text(encoding="utf-8")
-    assert len(result.copied) == 13
+    # 12 nicht-optionale Einträge minus 1 Konflikt-Skip (Einleitung) = 11.
+    assert len(result.copied) == 11
 
 
 def test_populate_replace_existing_file(tmp_path: Path) -> None:

@@ -44,6 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     populate.add_argument("--profile", default=None)
     populate.add_argument("--on-conflict", choices=("ask", "skip", "replace"), default=None)
     populate.add_argument("--missing-only", action="store_true")
+    populate.add_argument(
+        "--include-optional",
+        action="store_true",
+        help="Optionale Slots (z. B. Widmung, Vorlagen-Referenz) mitkopieren (Default: aus)",
+    )
     populate.add_argument("--yes", action="store_true")
 
     editor = sub.add_parser("edit", help="Skeleton-Bibliothek bearbeiten")
@@ -62,6 +67,8 @@ def main(argv: list[str] | None = None) -> int:
             kwargs["conflict_mode"] = args.on_conflict
         if args.missing_only:
             kwargs["missing_only"] = True
+        if args.include_optional:
+            kwargs["include_optional"] = True
         return run(studio=None, **kwargs)
     if args.command == "edit":
         from tools.skeleton.editor import run

@@ -648,6 +648,37 @@ class BookStudio:
         self.log(f"📖 Publish-Verzeichnis importiert: {self._import_path.name}", _LogLevel.SUCCESS)
 
         self._import_path = None  # einmalig
+        self._maybe_offer_skeleton_populate()
+
+    def _maybe_offer_skeleton_populate(self) -> None:
+        """Skeleton-Pool Batch 4 (weiche UX, kein Zwang): nach einem Import ohne
+        vorhandene Pflichtseiten einmalig fragen, ob der Standard-Rahmen aus der
+        Skeleton-Bibliothek übernommen werden soll.
+
+        Kein Auto-Populate: Es wird ausschließlich bei Zustimmung der reguläre
+        Populate-Dialog geöffnet (`plugins.skeleton_populate.run`). Beide
+        Skeleton-Menüpunkte (Populate/Editor) bleiben davon unberührt sichtbar —
+        siehe `.doc/skeleton-pool.md` (kein Rollen-Split User/Admin).
+        """
+        if not self.current_book:
+            return
+        required_dir = self.current_book / "content" / "required"
+        if required_dir.is_dir() and any(required_dir.glob("*.md")):
+            return  # Pflichtseiten schon vorhanden -- nicht nerven
+        if not messagebox.askyesno(
+            "Skeleton-Rahmen übernehmen?",
+            "Für dieses Buch wurden noch keine Pflichtseiten (Titel, Klappentext, "
+            "Impressum, Einleitung, …) gefunden.\n\n"
+            "Rahmen aus der Skeleton-Bibliothek jetzt ins Buch übernehmen?",
+            parent=self.root,
+        ):
+            return
+        try:
+            from plugins.skeleton_populate import run as run_skeleton_populate
+
+            run_skeleton_populate(studio=self)
+        except (OSError, ValueError, ImportError, RuntimeError) as exc:
+            self.log(f"Skeleton-Populate-Hinweis fehlgeschlagen: {exc}", _LogLevel.ERROR)
 
     def _reload_books_from_current_root(self):
         previous_book = self.current_book

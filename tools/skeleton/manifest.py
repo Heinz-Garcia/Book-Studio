@@ -10,6 +10,7 @@ from typing import Optional
 
 import yaml
 
+import frontmatter_parser
 import json_io
 
 
@@ -302,6 +303,58 @@ def create_markdown_template(
         encoding="utf-8",
     )
     return target
+
+
+def sync_markdown_order(target: Path, order: Optional[str]) -> bool:
+    """Hält die MD-Frontmatter `order` synchron zum Manifest-Eintrag (Batch 3: Order-SSOT).
+
+    Kanonisch ist die MD-Frontmatter `order` (wie überall sonst im Buch —
+    `yaml_engine.parse_required_order` liest `order` immer aus der Markdown-
+    Datei). Der Skeleton-Editor ist die einzige Stelle, an der ein
+    Manifest-Eintrag *und* die zugehörige Pool-Vorlage geändert werden;
+    diese Funktion schreibt den neuen Manifest-`order`-Wert dorthin zurück,
+    damit keine zweite, abweichende Order-Semantik entsteht.
+
+    Gibt ``True`` zurück, wenn die Datei geändert wurde (neuer Wert wich
+    vom bisherigen `order`-Feld ab), sonst ``False``. Fehlt die Zieldatei
+    (z. B. weil der Manifest-Eintrag noch keine physische Vorlage hat),
+    wird nichts geschrieben und ``False`` geliefert.
+    """
+    target = Path(target)
+    if not target.is_file():
+        return False
+
+    content = target.read_text(encoding="utf-8")
+    parts = frontmatter_parser.parse(content)
+    if not parts.has_frontmatter:
+        return False
+
+    data = parts.parsed()
+    if not isinstance(data, dict):
+        return False
+
+    current = data.get("order")
+    current_str = str(current).strip() if current not in (None, "") else None
+    new_order = order.strip() if order else None
+    if current_str == new_order:
+        return False
+
+    if new_order:
+        data["order"] = new_order
+    else:
+        data.pop("order", None)
+
+    newline = "\r\n" if "\r\n" in content else "\n"
+    header_text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip("\r\n")
+    new_content = (
+        parts.bom
+        + "---" + newline
+        + header_text + newline
+        + "---" + newline
+        + parts.body
+    )
+    target.write_text(new_content, encoding="utf-8")
+    return True
 
 
 def resolve_library_root(repo_root: Path, configured_path: str) -> Path:

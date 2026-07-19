@@ -1,5 +1,9 @@
 # Skeleton-Bibliothek
 
+> **Architektur/Konzept:** `.doc/skeleton-pool.md` (Pool+Kopie, GrammarGraph-
+> Trennung, `order`-Sandwich, `optional`-Slots, Soft-UX-Hinweis).
+> **Batch-Fortschritt:** `.doc/skeleton.md`.
+
 Autonomes Modul unter `tools/skeleton/` — Menü-Einträge über Plugins:
 
 | Plugin | Menü |
@@ -48,6 +52,16 @@ Im Populate-Dialog:
 
 - Checkbox im Dialog oder `skeleton_populate_mode: missing_only` in `app_config.json`
 - CLI: `--missing-only` bzw. `python -m tools.skeleton populate --missing-only --yes`
+
+### Optionale Slots (`optional: true`)
+
+Manifest-Einträge mit `optional: true` (z. B. `Widmung.md`, `Template.md` im
+Profil `standard`) werden **standardmäßig nicht** kopiert. Checkbox im Dialog
+„Optionale Slots mitnehmen“ (Default aus) bzw. CLI-Flag `--include-optional`:
+
+```bash
+python -m tools.skeleton populate --book-path /pfad/zum/Buch --yes --include-optional
+```
 
 ### CLI-Helfer
 

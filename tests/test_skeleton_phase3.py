@@ -123,6 +123,57 @@ def test_delete_profile_removes_directory(tmp_path: Path) -> None:
     assert not (library / "copy_me").exists()
 
 
+def test_build_populate_plan_skips_optional_by_default(tmp_path: Path) -> None:
+    """Batch 2: `build_populate_plan` markiert `optional: true`-Einträge als
+    `will_copy=False`, solange `include_optional` nicht gesetzt ist."""
+    book = _create_book(tmp_path)
+    manifest = load_manifest(_standard_profile())
+    plan = build_populate_plan(manifest, book, include_diff=False)
+    widmung = next(line for line in plan if line.rel_path.endswith("Widmung.md"))
+    assert widmung.optional is True
+    assert widmung.will_copy is False
+
+
+def test_build_populate_plan_include_optional_copies_optional_entries(tmp_path: Path) -> None:
+    book = _create_book(tmp_path)
+    manifest = load_manifest(_standard_profile())
+    plan = build_populate_plan(manifest, book, include_diff=False, include_optional=True)
+    widmung = next(line for line in plan if line.rel_path.endswith("Widmung.md"))
+    assert widmung.will_copy is True
+
+
+def test_resolve_populate_plan_respects_include_optional(tmp_path: Path) -> None:
+    book = _create_book(tmp_path)
+    manifest = load_manifest(_standard_profile())
+    base = build_populate_plan(manifest, book, include_diff=False)
+    resolved_default = resolve_populate_plan(base, conflict_choice="replace", missing_only=False)
+    resolved_opt_in = resolve_populate_plan(
+        base, conflict_choice="replace", missing_only=False, include_optional=True
+    )
+    widmung_default = next(line for line in resolved_default if line.rel_path.endswith("Widmung.md"))
+    widmung_opt_in = next(line for line in resolved_opt_in if line.rel_path.endswith("Widmung.md"))
+    assert widmung_default.will_copy is False
+    assert widmung_opt_in.will_copy is True
+
+
+def test_cli_populate_accepts_include_optional_flag(tmp_path: Path, monkeypatch) -> None:
+    """CLI-Flag `--include-optional` wird als kwarg an `run()` durchgereicht."""
+    from tools.skeleton import populate as populate_module
+
+    captured: dict = {}
+
+    def fake_run(studio=None, **kwargs):
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(populate_module, "run", fake_run)
+    rc = populate_module.main(
+        ["--book-path", str(tmp_path), "--yes", "--include-optional"]
+    )
+    assert rc == 0
+    assert captured.get("include_optional") is True
+
+
 def test_delete_profile_protects_standard(tmp_path: Path) -> None:
     library = tmp_path / "library"
     library.mkdir()

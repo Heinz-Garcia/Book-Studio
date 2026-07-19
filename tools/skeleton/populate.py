@@ -144,7 +144,14 @@ def build_populate_plan(
     run_conflict_choice: Optional[RunConflictChoice] = None,
     populate_mode: PopulateMode = "all",
     include_diff: bool = True,
+    include_optional: bool = False,
 ) -> list[PopulatePlanLine]:
+    """Baut den Populate-Plan (eine Zeile je Manifest-Eintrag).
+
+    Batch 2 (Order-SSOT-Doku: `.doc/skeleton-pool.md` Abschnitt 5): Einträge
+    mit `optional: true` werden standardmäßig NICHT kopiert
+    (``will_copy=False``), es sei denn `include_optional=True`.
+    """
     book_path = Path(book_path).resolve()
     effective_choice: RunConflictChoice = run_conflict_choice or (
         "skip" if conflict_mode == "skip" else "replace"
@@ -164,7 +171,9 @@ def build_populate_plan(
         rel = _normalize_rel(entry.path)
         target = book_path / rel
         exists = target.is_file()
-        if exists:
+        if entry.optional and not include_optional:
+            will_copy = False
+        elif exists:
             if populate_mode == "missing_only":
                 will_copy = False
             elif conflict_mode == "ask":
@@ -184,6 +193,7 @@ def build_populate_plan(
                 include_in_tree=entry.include_in_tree,
                 title=entry.title,
                 diff_summary=diff_summary,
+                optional=entry.optional,
             )
         )
     return lines
@@ -194,11 +204,13 @@ def resolve_populate_plan(
     *,
     conflict_choice: RunConflictChoice,
     missing_only: bool,
+    include_optional: bool = False,
 ) -> list[PopulatePlanLine]:
     return _apply_plan_rules(
         base_lines,
         conflict_choice=conflict_choice,
         missing_only=missing_only,
+        include_optional=include_optional,
     )
 
 
@@ -256,8 +268,13 @@ def populate_book(
     on_remember_conflict: Optional[Any] = None,
     on_remember_mode: Optional[Any] = None,
     skip_dialog: bool = False,
+    include_optional: bool = False,
 ) -> PopulateResult:
-    """Kopiert Skeleton-Dateien ins Buch und speichert Baum + _quarto.yml."""
+    """Kopiert Skeleton-Dateien ins Buch und speichert Baum + _quarto.yml.
+
+    `include_optional` (Batch 2): Manifest-Einträge mit `optional: true`
+    (z. B. `Widmung.md`, `Template.md`) werden standardmäßig NICHT kopiert.
+    """
     from yaml_engine import QuartoYamlEngine
 
     book_path = Path(book_path).resolve()
@@ -279,6 +296,7 @@ def populate_book(
         run_conflict_choice="skip",
         populate_mode="all",
         include_diff=True,
+        include_optional=include_optional,
     )
     has_conflicts = any(line.exists for line in base_plan)
     plan: list[PopulatePlanLine]
@@ -298,6 +316,7 @@ def populate_book(
             diff_map=diff_map,
             on_remember=on_remember_conflict,
             on_remember_mode=on_remember_mode,
+            include_optional=include_optional,
         )
         if not dialog_result.confirmed:
             result.cancelled = True
@@ -306,6 +325,7 @@ def populate_book(
             base_plan,
             conflict_choice=dialog_result.conflict_choice or "skip",
             missing_only=dialog_result.missing_only,
+            include_optional=dialog_result.include_optional,
         )
     else:
         plan = build_populate_plan(
@@ -315,6 +335,7 @@ def populate_book(
             run_conflict_choice=run_conflict_choice,
             populate_mode=populate_mode,
             include_diff=False,
+            include_optional=include_optional,
         )
 
     engine = QuartoYamlEngine(book_path)
@@ -480,6 +501,8 @@ def run(studio: Any = None, **kwargs: Any) -> int:
     def remember_mode(mode: PopulateMode) -> None:
         _write_populate_mode(repo_root, mode)
 
+    include_optional = bool(kwargs.get("include_optional"))
+
     try:
         result = populate_book(
             book_path,
@@ -494,6 +517,7 @@ def run(studio: Any = None, **kwargs: Any) -> int:
             run_conflict_choice=(
                 "skip" if conflict_mode == "skip" else "replace" if conflict_mode == "replace" else None
             ),
+            include_optional=include_optional,
         )
     except (OSError, ValueError, FileNotFoundError) as exc:
         show_result_message(parent, "Skeleton", str(exc), is_error=True)
@@ -537,6 +561,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="Nur fehlende Dateien kopieren (vorhandene überspringen)",
     )
+    parser.add_argument(
+        "--include-optional",
+        action="store_true",
+        help="Optionale Slots (z. B. Widmung, Vorlagen-Referenz) mitkopieren (Default: aus)",
+    )
     args = parser.parse_args(argv)
 
     repo_root = _repo_root()
@@ -553,6 +582,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         kwargs["conflict_mode"] = args.on_conflict
     if args.missing_only:
         kwargs["missing_only"] = True
+    if args.include_optional:
+        kwargs["include_optional"] = True
     return run(studio=None, **kwargs)
 
 

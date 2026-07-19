@@ -21,6 +21,7 @@ from tools.skeleton.manifest import (
     load_manifest,
     replace_manifest_entries,
     resolve_library_root,
+    sync_markdown_order,
     update_manifest_meta,
     validate_profile_name,
 )
@@ -298,10 +299,34 @@ class SkeletonEditorWindow(tk.Toplevel):
             description=self._manifest.description,
         )
         self._entries = list(self._manifest.files)
+
+        # Order-SSOT (Batch 3): MD-Frontmatter `order` synchron zum
+        # Manifest-Eintrag halten, damit keine zweite Order-Semantik driftet.
+        md_path = self._manifest.root / updated.path
+        if sync_markdown_order(md_path, updated.order):
+            self._reload_markdown_after_sync(md_path)
+
         self._meta_dirty = False
         self._populate_file_list()
         self._file_list.selection_set(self._selected_index)
         messagebox.showinfo("Skeleton", "Manifest-Eintrag gespeichert.", parent=self)
+
+    def _reload_markdown_after_sync(self, md_path: Path) -> None:
+        """Lädt das Text-Widget nach `sync_markdown_order()` neu.
+
+        Ohne diesen Refresh würde ein nachfolgendes "Markdown speichern" den
+        (im Widget noch veralteten) `order`-Wert zurück auf die Platte
+        schreiben und den gerade erst hergestellten Sync sofort wieder
+        zerstören.
+        """
+        try:
+            content = md_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return
+        self._text.delete("1.0", tk.END)
+        self._text.insert("1.0", content)
+        self._editor_dirty = False
+        self._text.edit_modified(False)
 
     def _add_file(self) -> None:
         if self._manifest is None:

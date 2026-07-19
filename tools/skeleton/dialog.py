@@ -22,6 +22,7 @@ class PopulatePlanLine:
     include_in_tree: bool
     title: str
     diff_summary: str = ""
+    optional: bool = False
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class PopulateDialogResult:
     selected_profile: Optional[str] = None
     missing_only: bool = False
     remember_populate_mode: bool = False
+    include_optional: bool = False
 
 
 def ask_profile_selection(
@@ -91,7 +93,8 @@ def ask_profile_selection(
 def _build_explanation(manifest_label: str, book_name: str, lines: list[PopulatePlanLine]) -> str:
     new_count = sum(1 for line in lines if line.will_copy and not line.exists)
     replace_count = sum(1 for line in lines if line.will_copy and line.exists)
-    skip_count = sum(1 for line in lines if not line.will_copy and line.exists)
+    skip_count = sum(1 for line in lines if not line.will_copy)
+    optional_skip_count = sum(1 for line in lines if not line.will_copy and line.optional)
     tree_count = sum(1 for line in lines if line.will_copy and line.include_in_tree)
 
     parts = [
@@ -104,9 +107,11 @@ def _build_explanation(manifest_label: str, book_name: str, lines: list[Populate
         "3) Neue Kapitel werden in den Buchbaum eingetragen (required-ORDER wird beachtet).",
         "4) _quarto.yml und .gui_state.json werden gespeichert (Struktur persistiert).",
         "5) Bereits vorhandene Dateien werden je nach Konflikt-Entscheidung übersprungen oder ersetzt.",
+        "6) Optionale Slots (z. B. Widmung, Vorlagen-Referenz) werden nur bei aktivierter "
+        "Checkbox mitkopiert.",
         "",
-        f"Geplant: {new_count} neu, {replace_count} ersetzen, {skip_count} überspringen, "
-        f"{tree_count} in den Buchbaum.",
+        f"Geplant: {new_count} neu, {replace_count} ersetzen, {skip_count} überspringen "
+        f"(davon {optional_skip_count} optional), {tree_count} in den Buchbaum.",
     ]
     return "\n".join(parts)
 
@@ -137,7 +142,9 @@ class DiffViewerDialog(tk.Toplevel):
 
 
 def _action_label(line: PopulatePlanLine) -> str:
-    if not line.exists:
+    if not line.will_copy and line.optional:
+        action = "überspringen (optional)"
+    elif not line.exists:
         action = "kopieren (neu)"
     elif line.will_copy:
         action = "ersetzen"
@@ -153,15 +160,17 @@ def _apply_plan_rules(
     *,
     conflict_choice: RunConflictChoice,
     missing_only: bool,
+    include_optional: bool = False,
 ) -> list[PopulatePlanLine]:
+    """Berechnet `will_copy` je Zeile aus Konflikt-Modus, Missing-Only und
+    dem `optional`-Flag (Batch 2: `optional: true`-Slots werden standard-
+    mäßig NICHT mitkopiert, es sei denn `include_optional=True`)."""
     updated: list[PopulatePlanLine] = []
     for line in base_lines:
-        will_copy = line.will_copy
-        if line.exists:
-            if missing_only:
-                will_copy = False
-            else:
-                will_copy = conflict_choice == "replace"
+        if line.optional and not include_optional:
+            will_copy = False
+        elif line.exists:
+            will_copy = False if missing_only else conflict_choice == "replace"
         else:
             will_copy = True
         updated.append(
@@ -172,6 +181,7 @@ def _apply_plan_rules(
                 include_in_tree=line.include_in_tree,
                 title=line.title,
                 diff_summary=line.diff_summary,
+                optional=line.optional,
             )
         )
     return updated
@@ -194,6 +204,7 @@ class PopulateConfirmDialog(tk.Toplevel):
         diff_map: Optional[dict[str, FileDiffInfo]] = None,
         on_remember: Optional[Callable[[RunConflictChoice], None]] = None,
         on_remember_mode: Optional[Callable[[PopulateMode], None]] = None,
+        include_optional: bool = False,
     ) -> None:
         super().__init__(parent)
         self.title("Skeleton ins Buch übernehmen")
@@ -218,6 +229,7 @@ class PopulateConfirmDialog(tk.Toplevel):
         self._remember_var = tk.BooleanVar(value=False)
         self._remember_mode_var = tk.BooleanVar(value=False)
         self._missing_only_var = tk.BooleanVar(value=populate_mode == "missing_only")
+        self._include_optional_var = tk.BooleanVar(value=include_optional)
 
         explanation = _build_explanation(
             manifest_label,
@@ -226,6 +238,7 @@ class PopulateConfirmDialog(tk.Toplevel):
                 lines,
                 conflict_choice=default_conflict,
                 missing_only=populate_mode == "missing_only",
+                include_optional=include_optional,
             ),
         )
         expl = tk.Text(body, height=10, wrap=tk.WORD, relief=tk.FLAT, bg=self.cget("bg"))
@@ -269,6 +282,12 @@ class PopulateConfirmDialog(tk.Toplevel):
             mode_frame,
             text="Modus merken (skeleton_populate_mode in app_config.json)",
             variable=self._remember_mode_var,
+        ).pack(anchor=tk.W, pady=(4, 0))
+        ttk.Checkbutton(
+            mode_frame,
+            text="Optionale Slots mitnehmen (z. B. Widmung, Vorlagen-Referenz)",
+            variable=self._include_optional_var,
+            command=self._refresh_plan_view,
         ).pack(anchor=tk.W, pady=(4, 0))
 
         conflict_frame = ttk.LabelFrame(body, text="Bei bereits vorhandenen Dateien", padding=8)
@@ -315,11 +334,15 @@ class PopulateConfirmDialog(tk.Toplevel):
     def _current_conflict_choice(self) -> RunConflictChoice:
         return self._conflict_var.get()  # type: ignore[return-value]
 
+    def _current_include_optional(self) -> bool:
+        return bool(self._include_optional_var.get())
+
     def _current_plan(self) -> list[PopulatePlanLine]:
         return _apply_plan_rules(
             self._base_lines,
             conflict_choice=self._current_conflict_choice(),
             missing_only=self._current_missing_only(),
+            include_optional=self._current_include_optional(),
         )
 
     def _refresh_plan_view(self) -> None:
@@ -344,7 +367,8 @@ class PopulateConfirmDialog(tk.Toplevel):
         plan = self._current_plan()
         new_count = sum(1 for line in plan if line.will_copy and not line.exists)
         replace_count = sum(1 for line in plan if line.will_copy and line.exists)
-        skip_count = sum(1 for line in plan if not line.will_copy and line.exists)
+        skip_count = sum(1 for line in plan if not line.will_copy)
+        optional_skip_count = sum(1 for line in plan if not line.will_copy and line.optional)
         tree_count = sum(1 for line in plan if line.will_copy and line.include_in_tree)
         mode_hint = "\n[Modus: Nur fehlende Dateien]\n" if missing_only else ""
         self._expl_widget.configure(state=tk.NORMAL)
@@ -353,8 +377,8 @@ class PopulateConfirmDialog(tk.Toplevel):
             "1.0",
             self._full_explanation_prefix
             + mode_hint
-            + f"\nGeplant: {new_count} neu, {replace_count} ersetzen, {skip_count} überspringen, "
-            f"{tree_count} in den Buchbaum.\n\n"
+            + f"\nGeplant: {new_count} neu, {replace_count} ersetzen, {skip_count} überspringen "
+            f"(davon {optional_skip_count} optional), {tree_count} in den Buchbaum.\n\n"
             "Tipp: Doppelklick oder „Diff für Auswahl…“ zeigt Textunterschiede.",
         )
         self._expl_widget.configure(state=tk.DISABLED)
@@ -380,6 +404,7 @@ class PopulateConfirmDialog(tk.Toplevel):
         remember = bool(self._remember_var.get())
         missing_only = self._current_missing_only()
         remember_mode = bool(self._remember_mode_var.get())
+        include_optional = self._current_include_optional()
         if remember and choice and self._on_remember:
             self._on_remember(choice)
         if remember_mode and self._on_remember_mode:
@@ -391,6 +416,7 @@ class PopulateConfirmDialog(tk.Toplevel):
             selected_profile=self._profile_name,
             missing_only=missing_only,
             remember_populate_mode=remember_mode,
+            include_optional=include_optional,
         )
         self.destroy()
 
@@ -412,6 +438,7 @@ def ask_populate_confirmation(
     diff_map: Optional[dict[str, FileDiffInfo]] = None,
     on_remember: Optional[Callable[[RunConflictChoice], None]] = None,
     on_remember_mode: Optional[Callable[[PopulateMode], None]] = None,
+    include_optional: bool = False,
 ) -> PopulateDialogResult:
     dialog = PopulateConfirmDialog(
         parent,
@@ -425,6 +452,7 @@ def ask_populate_confirmation(
         diff_map=diff_map,
         on_remember=on_remember,
         on_remember_mode=on_remember_mode,
+        include_optional=include_optional,
     )
     return dialog.show()
 

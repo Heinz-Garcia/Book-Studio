@@ -13,6 +13,7 @@ from tools.skeleton.manifest import (
     manifest_to_dict,
     replace_manifest_entries,
     save_manifest,
+    sync_markdown_order,
     validate_profile_name,
     SkeletonFileEntry,
 )
@@ -110,6 +111,54 @@ def test_manifest_to_dict_shape() -> None:
     assert data["name"] == "standard"
     assert isinstance(data["files"], list)
     assert data["files"][0]["path"].startswith("content/")
+
+
+def test_sync_markdown_order_updates_frontmatter(tmp_path: Path) -> None:
+    """Batch 3 (Order-SSOT): `sync_markdown_order` schreibt einen neuen
+    `order`-Wert ins MD-Frontmatter und meldet die Änderung."""
+    target = tmp_path / "Einleitung.md"
+    target.write_text(
+        '---\ntitle: "Einleitung"\norder: "60"\n---\n\n# Einleitung\n',
+        encoding="utf-8",
+    )
+    changed = sync_markdown_order(target, "15")
+    assert changed is True
+
+    from frontmatter_parser import extract_field
+
+    text = target.read_text(encoding="utf-8")
+    assert extract_field(text, "order") == "15"
+    assert "# Einleitung" in text
+
+
+def test_sync_markdown_order_noop_when_value_unchanged(tmp_path: Path) -> None:
+    target = tmp_path / "Einleitung.md"
+    original = '---\ntitle: "Einleitung"\norder: "60"\n---\n\n# Einleitung\n'
+    target.write_text(original, encoding="utf-8")
+    changed = sync_markdown_order(target, "60")
+    assert changed is False
+    assert target.read_text(encoding="utf-8") == original
+
+
+def test_sync_markdown_order_removes_field_when_none(tmp_path: Path) -> None:
+    target = tmp_path / "Widmung.md"
+    target.write_text(
+        '---\ntitle: "Widmung"\norder: "20"\n---\n\n# Widmung\n',
+        encoding="utf-8",
+    )
+    changed = sync_markdown_order(target, None)
+    assert changed is True
+
+    from frontmatter_parser import extract_field
+
+    text = target.read_text(encoding="utf-8")
+    assert extract_field(text, "order") is None
+    assert 'title: "Widmung"' in text or "title: Widmung" in text
+
+
+def test_sync_markdown_order_missing_file_is_noop(tmp_path: Path) -> None:
+    target = tmp_path / "does_not_exist.md"
+    assert sync_markdown_order(target, "10") is False
 
 
 def test_skeleton_editor_plugin_discoverable() -> None:
