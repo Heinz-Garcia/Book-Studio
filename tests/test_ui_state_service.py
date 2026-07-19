@@ -445,6 +445,42 @@ def test_build_left_list_entries_sorts_by_title():
     assert out == [("y.md", "Alpha"), ("z.md", "Bravo"), ("x.md", "Charlie")]
 
 
+def test_build_left_list_entries_sorts_by_required_order():
+    title_reg = {
+        "content/required/Glossar.md": "Glossar",
+        "content/required/Titel.md": "Titel",
+        "content/chapter.md": "Kapitel Z",
+        "content/required/Impressum.md": "Impressum",
+        "content/required/Rueckseite.md": "Rückseite",
+    }
+
+    def order_meta(path):
+        mapping = {
+            "content/required/Titel.md": (10, "front"),
+            "content/required/Impressum.md": (30, "front"),
+            "content/required/Glossar.md": (40, "end"),
+            "content/required/Rueckseite.md": (10, "end"),
+        }
+        return mapping.get(path, (None, None))
+
+    out = UiStateService.build_left_list_entries(
+        title_reg, [], order_meta_for_path=order_meta
+    )
+    assert [p for p, _ in out] == [
+        "content/required/Titel.md",
+        "content/required/Impressum.md",
+        "content/chapter.md",
+        "content/required/Glossar.md",
+        "content/required/Rueckseite.md",
+    ]
+
+
+def test_left_list_sort_key_without_meta_is_title():
+    a = UiStateService.left_list_sort_key("b.md", "Bravo")
+    b = UiStateService.left_list_sort_key("a.md", "Alpha")
+    assert b < a
+
+
 def test_build_left_list_entries_no_used_filter():
     out = UiStateService.build_left_list_entries({}, [])
     assert out == []

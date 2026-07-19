@@ -46,7 +46,7 @@ Funktionen:
 Im Populate-Dialog:
 
 - Spalte **Diff** (`neu`, `identisch`, `+N / -M`)
-- **Diff für Auswahl…** / Doppelklick → Unified-Diff (Buch vs. Skeleton)
+- **Diff Skeleton-Vorlage <-> File in place** / Doppelklick → Unified-Diff (Buch vs. Skeleton)
 
 ### Modus „Nur fehlende Dateien“
 

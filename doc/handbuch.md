@@ -459,9 +459,9 @@ Das **Skeleton**-Feature befüllt Buchprojekte mit wiederkehrenden Seiten (Klapp
 2. **Tools → Plugins → Skeleton ins Buch übernehmen…**
 3. Bei mehreren Profilen: **Profil wählen** (z. B. `standard`).
 4. Im Dialog siehst du **genau**, was passiert:
-   - welche Dateien **neu** kopiert werden
+   - welche Dateien **neu** kopiert werden (landen links im Pool)
    - welche **übersprungen** oder **ersetzt** werden
-   - welche in den **Buchbaum** eingetragen werden
+   - **Hinweis:** der rechte Buchbaum bleibt unverändert (manuell einhängen)
 5. Bei Konflikten (Datei existiert schon):
    - **Überspringen** (empfohlen) oder **Ersetzen**
    - optional **Entscheidung merken** → `skeleton_on_conflict` in `app_config.json`
@@ -477,7 +477,7 @@ Im Populate-Dialog:
 | **Diff** `neu` | Datei gibt es im Buch noch nicht |
 | **Diff** `identisch` | Buchdatei = Skeleton-Vorlage |
 | **Diff** `+N / -M` | Text unterscheidet sich |
-| **Diff für Auswahl…** / Doppelklick | Unified-Diff (Buch vs. Vorlage) |
+| **Diff Skeleton-Vorlage <-> File in place** / Doppelklick | Unified-Diff (Buch vs. Vorlage) |
 
 So siehst du vor dem Ersetzen, **was** sich ändern würde.
 
@@ -500,7 +500,7 @@ Das mitgelieferte Profil enthält u. a. (unter `content/required/`):
 | UeberAutor.md | `"END-30"` |
 | Klappentext_hinten.md | `"END-20"` |
 | Rueckseite.md | `"END-10"` |
-| Template.md | wird kopiert, **nicht** in den Buchbaum eingetragen |
+| Template.md | optional; wie alle Vorlagen nur Kopie, Buchbaum manuell |
 
 Mapping orientiert sich am Buch *Band_Stoffwechselgesundheit*. Details zu `order`: Kapitel 3 (Projekt und Kapitel).
 

@@ -55,16 +55,18 @@ class PreProcessor:
         if order_val is None:
             return frontmatter
 
-        is_numeric_order = False
-        if isinstance(order_val, (int, float)):
-            is_numeric_order = True
-        elif isinstance(order_val, str) and re.fullmatch(r"\d+", order_val.strip()):
-            is_numeric_order = True
-
-        if is_numeric_order:
+        # Quarto-Schema verlangt `order` als Number. Book-Studio speichert
+        # Positionen oft als String ("10", "END-50"): Zahlen-Strings → int,
+        # bereits numerisch → unverändert, sonst (END-*) → Feld entfernen.
+        if isinstance(order_val, bool):
+            parsed.pop("order", None)
+        elif isinstance(order_val, (int, float)):
             return frontmatter
+        elif isinstance(order_val, str) and re.fullmatch(r"\d+", order_val.strip()):
+            parsed["order"] = int(order_val.strip())
+        else:
+            parsed.pop("order", None)
 
-        parsed.pop("order", None)
         dumped = yaml.safe_dump(
             parsed,
             sort_keys=False,

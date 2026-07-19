@@ -95,7 +95,6 @@ def _build_explanation(manifest_label: str, book_name: str, lines: list[Populate
     replace_count = sum(1 for line in lines if line.will_copy and line.exists)
     skip_count = sum(1 for line in lines if not line.will_copy)
     optional_skip_count = sum(1 for line in lines if not line.will_copy and line.optional)
-    tree_count = sum(1 for line in lines if line.will_copy and line.include_in_tree)
 
     parts = [
         f"Skeleton-Profil: {manifest_label}",
@@ -104,14 +103,15 @@ def _build_explanation(manifest_label: str, book_name: str, lines: list[Populate
         "Was passiert beim Bestätigen:",
         "1) Ausgewählte Vorlagen werden als KOPIE ins Buchprojekt geschrieben.",
         "2) Pflicht-Frontmatter wird bei neuen Dateien ergänzt (title, description, status).",
-        "3) Neue Kapitel werden in den Buchbaum eingetragen (required-ORDER wird beachtet).",
-        "4) _quarto.yml und .gui_state.json werden gespeichert (Struktur persistiert).",
+        "3) Die Dateien erscheinen links im Datei-Pool (nicht zugeordnet).",
+        "4) Der rechte Buchbaum und _quarto.yml bleiben unverändert — "
+        "du hängst Kapitel rechts manuell ein.",
         "5) Bereits vorhandene Dateien werden je nach Konflikt-Entscheidung übersprungen oder ersetzt.",
         "6) Optionale Slots (z. B. Widmung, Vorlagen-Referenz) werden nur bei aktivierter "
         "Checkbox mitkopiert.",
         "",
         f"Geplant: {new_count} neu, {replace_count} ersetzen, {skip_count} überspringen "
-        f"(davon {optional_skip_count} optional), {tree_count} in den Buchbaum.",
+        f"(davon {optional_skip_count} optional).",
     ]
     return "\n".join(parts)
 
@@ -143,17 +143,12 @@ class DiffViewerDialog(tk.Toplevel):
 
 def _action_label(line: PopulatePlanLine) -> str:
     if not line.will_copy and line.optional:
-        action = "überspringen (optional)"
-    elif not line.exists:
-        action = "kopieren (neu)"
-    elif line.will_copy:
-        action = "ersetzen"
-    else:
-        action = "überspringen"
-    if line.will_copy and not line.include_in_tree:
-        action += " · nicht im Baum"
-    return action
-
+        return "überspringen (optional)"
+    if not line.exists:
+        return "kopieren (neu → links im Pool)"
+    if line.will_copy:
+        return "ersetzen"
+    return "überspringen"
 
 def _apply_plan_rules(
     base_lines: list[PopulatePlanLine],
@@ -211,7 +206,7 @@ class PopulateConfirmDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
         self.resizable(True, True)
-        self.minsize(560, 420)
+        self.minsize(720, 640)
 
         self._result = PopulateDialogResult(confirmed=False)
         self._on_remember = on_remember
@@ -231,47 +226,14 @@ class PopulateConfirmDialog(tk.Toplevel):
         self._missing_only_var = tk.BooleanVar(value=populate_mode == "missing_only")
         self._include_optional_var = tk.BooleanVar(value=include_optional)
 
-        explanation = _build_explanation(
-            manifest_label,
-            book_name,
-            _apply_plan_rules(
-                lines,
-                conflict_choice=default_conflict,
-                missing_only=populate_mode == "missing_only",
-                include_optional=include_optional,
-            ),
-        )
-        expl = tk.Text(body, height=10, wrap=tk.WORD, relief=tk.FLAT, bg=self.cget("bg"))
-        expl.insert("1.0", explanation)
-        expl.configure(state=tk.DISABLED)
-        expl.pack(fill=tk.X, pady=(0, 8))
-        self._expl_widget = expl
-        self._full_explanation_prefix = explanation.split("Geplant:")[0].rstrip()
-
-        list_header = ttk.Frame(body)
-        list_header.pack(fill=tk.X)
-        ttk.Label(list_header, text="Dateien:").pack(side=tk.LEFT)
-        ttk.Button(list_header, text="Diff für Auswahl…", command=self._show_diff).pack(side=tk.RIGHT)
-
-        list_frame = ttk.Frame(body)
-        list_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
-
-        columns = ("path", "diff", "action")
-        self._tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=10)
-        self._tree.heading("path", text="Pfad")
-        self._tree.heading("diff", text="Diff")
-        self._tree.heading("action", text="Aktion")
-        self._tree.column("path", width=300, stretch=True)
-        self._tree.column("diff", width=100, stretch=False)
-        self._tree.column("action", width=160, stretch=False)
-        scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self._tree.yview)
-        self._tree.configure(yscrollcommand=scroll.set)
-        self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self._tree.bind("<Double-1>", lambda _e: self._show_diff())
+        # Unten zuerst (side=BOTTOM), damit Modus + Buttons immer sichtbar bleiben.
+        btn_row = ttk.Frame(body)
+        btn_row.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
+        ttk.Button(btn_row, text="Abbrechen", command=self._cancel).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(btn_row, text="Übernehmen und speichern", command=self._confirm).pack(side=tk.RIGHT)
 
         mode_frame = ttk.LabelFrame(body, text="Modus", padding=8)
-        mode_frame.pack(fill=tk.X, pady=(0, 8))
+        mode_frame.pack(side=tk.BOTTOM, fill=tk.X)
         ttk.Checkbutton(
             mode_frame,
             text="Nur fehlende Dateien übernehmen (vorhandene nie ersetzen)",
@@ -292,9 +254,8 @@ class PopulateConfirmDialog(tk.Toplevel):
 
         conflict_frame = ttk.LabelFrame(body, text="Bei bereits vorhandenen Dateien", padding=8)
         self._conflict_frame = conflict_frame
-
         if has_conflicts:
-            conflict_frame.pack(fill=tk.X, pady=(0, 8))
+            conflict_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 8))
             ttk.Radiobutton(
                 conflict_frame,
                 text="Vorhandene Dateien überspringen (empfohlen)",
@@ -314,19 +275,60 @@ class PopulateConfirmDialog(tk.Toplevel):
                 text="Entscheidung merken (für künftige Skeleton-Läufe)",
                 variable=self._remember_var,
             ).pack(anchor=tk.W, pady=(6, 0))
-        else:
-            conflict_frame.pack_forget()
+
+        explanation = _build_explanation(
+            manifest_label,
+            book_name,
+            _apply_plan_rules(
+                lines,
+                conflict_choice=default_conflict,
+                missing_only=populate_mode == "missing_only",
+                include_optional=include_optional,
+            ),
+        )
+        expl = tk.Text(body, height=8, wrap=tk.WORD, relief=tk.FLAT, bg=self.cget("bg"))
+        expl.insert("1.0", explanation)
+        expl.configure(state=tk.DISABLED)
+        expl.pack(fill=tk.X, pady=(0, 8))
+        self._expl_widget = expl
+        self._full_explanation_prefix = explanation.split("Geplant:")[0].rstrip()
+
+        list_header = ttk.Frame(body)
+        list_header.pack(fill=tk.X)
+        ttk.Label(list_header, text="Dateien:").pack(side=tk.LEFT)
+        ttk.Button(
+            list_header,
+            text="Diff Skeleton-Vorlage <-> File in place",
+            command=self._show_diff,
+        ).pack(side=tk.RIGHT)
+
+        list_frame = ttk.Frame(body)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
+
+        columns = ("path", "diff", "action")
+        self._tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=12)
+        self._tree.heading("path", text="Pfad")
+        self._tree.heading("diff", text="Diff")
+        self._tree.heading("action", text="Aktion")
+        self._tree.column("path", width=360, stretch=True)
+        self._tree.column("diff", width=100, stretch=False)
+        self._tree.column("action", width=180, stretch=False)
+        scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self._tree.yview)
+        self._tree.configure(yscrollcommand=scroll.set)
+        self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self._tree.bind("<Double-1>", lambda _e: self._show_diff())
 
         self._refresh_plan_view()
 
-        btn_row = ttk.Frame(body)
-        btn_row.pack(fill=tk.X)
-        ttk.Button(btn_row, text="Abbrechen", command=self._cancel).pack(side=tk.RIGHT, padx=(6, 0))
-        ttk.Button(btn_row, text="Übernehmen und speichern", command=self._confirm).pack(side=tk.RIGHT)
-
         self.protocol("WM_DELETE_WINDOW", self._cancel)
         self.update_idletasks()
-        self.geometry("800x620")
+        try:
+            from ui_theme import center_on_parent
+
+            center_on_parent(self, parent, 920, 780)
+        except ImportError:
+            self.geometry("920x780")
 
     def _current_missing_only(self) -> bool:
         return bool(self._missing_only_var.get())
@@ -369,7 +371,6 @@ class PopulateConfirmDialog(tk.Toplevel):
         replace_count = sum(1 for line in plan if line.will_copy and line.exists)
         skip_count = sum(1 for line in plan if not line.will_copy)
         optional_skip_count = sum(1 for line in plan if not line.will_copy and line.optional)
-        tree_count = sum(1 for line in plan if line.will_copy and line.include_in_tree)
         mode_hint = "\n[Modus: Nur fehlende Dateien]\n" if missing_only else ""
         self._expl_widget.configure(state=tk.NORMAL)
         self._expl_widget.delete("1.0", tk.END)
@@ -378,8 +379,8 @@ class PopulateConfirmDialog(tk.Toplevel):
             self._full_explanation_prefix
             + mode_hint
             + f"\nGeplant: {new_count} neu, {replace_count} ersetzen, {skip_count} überspringen "
-            f"(davon {optional_skip_count} optional), {tree_count} in den Buchbaum.\n\n"
-            "Tipp: Doppelklick oder „Diff für Auswahl…“ zeigt Textunterschiede.",
+            f"(davon {optional_skip_count} optional).\n\n"
+            "Tipp: Doppelklick oder „Diff Skeleton-Vorlage <-> File in place“ zeigt Textunterschiede.",
         )
         self._expl_widget.configure(state=tk.DISABLED)
 

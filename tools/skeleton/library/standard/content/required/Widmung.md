@@ -2,8 +2,9 @@
 title: "Widmung"
 description: "Widmung"
 status: bookstudio
+comment: "Persönliche Widmung"
 ---
 
 # Widmung
 
-Optional: persönliche Widmung.
+

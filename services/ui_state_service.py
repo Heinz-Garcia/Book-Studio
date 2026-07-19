@@ -242,6 +242,31 @@ class UiStateService:
         return status_ok, state_ok, search_ok, self_match, is_visible
 
     @staticmethod
+    def left_list_sort_key(
+        path: str,
+        title: str,
+        order_meta_for_path: Optional[Any] = None,
+    ) -> tuple:
+        """Sortierschlüssel für den linken Pool (required-order SSOT).
+
+        Reihenfolge wie beim Speichern in `_quarto.yml`:
+        Front (`order: "10"` …) → ohne order (Titel) → End (`END-50` … `END-10`).
+        """
+        title_cf = str(title or "").casefold()
+        if not callable(order_meta_for_path):
+            return (1, 0, title_cf, str(path or "").casefold())
+        try:
+            sort_key, group = order_meta_for_path(path)
+        except (TypeError, ValueError, OSError, AttributeError):
+            return (1, 0, title_cf, str(path or "").casefold())
+        if group == "front" and sort_key is not None:
+            return (0, int(sort_key), title_cf, str(path or "").casefold())
+        if group == "end" and sort_key is not None:
+            # Wie yaml_engine._apply_required_ordering: höhere END-Zahl zuerst.
+            return (2, -int(sort_key), title_cf, str(path or "").casefold())
+        return (1, 0, title_cf, str(path or "").casefold())
+
+    @staticmethod
     def build_left_list_entries(
         title_registry: dict,
         used_paths: Iterable[str],
@@ -252,6 +277,7 @@ class UiStateService:
         apply_left_search: bool = False,
         is_fulltext: bool = False,
         content_lookup: Optional[Any] = None,
+        order_meta_for_path: Optional[Any] = None,
     ) -> list[tuple[str, str]]:
         """Berechnet die sortierte Liste der "nicht zugeordneten Kapitel".
 
@@ -278,14 +304,15 @@ class UiStateService:
             content_lookup: Optional callable `path -> lowered str`
                 fuer Volltextsuche. Wenn `None` und `is_fulltext`
                 True, wird Content ignoriert (nur Titel/Pfad-Match).
+            order_meta_for_path: Optional callable `path -> (sort_key, group)`
+                (wie `yaml_engine.get_required_order`). Wenn gesetzt,
+                sortiert der Pool nach Frontmatter-`order`, sonst nach Titel.
 
-        Returns: Liste von `(path, title)`-Tupeln, sortiert nach Title.
+        Returns: Liste von `(path, title)`-Tupeln, sortiert nach order/Titel.
         """
         used = set(used_paths or [])
         out: list[tuple[str, str]] = []
-        for path, title in sorted(
-            (title_registry or {}).items(), key=lambda x: x[1]
-        ):
+        for path, title in (title_registry or {}).items():
             if path in used:
                 continue
             if callable(file_state_for_path):
@@ -307,6 +334,11 @@ class UiStateService:
                 if not matched:
                     continue
             out.append((path, title))
+        out.sort(
+            key=lambda item: UiStateService.left_list_sort_key(
+                item[0], item[1], order_meta_for_path
+            )
+        )
         return out
 
 

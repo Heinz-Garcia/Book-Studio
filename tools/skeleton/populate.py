@@ -270,7 +270,11 @@ def populate_book(
     skip_dialog: bool = False,
     include_optional: bool = False,
 ) -> PopulateResult:
-    """Kopiert Skeleton-Dateien ins Buch und speichert Baum + _quarto.yml.
+    """Kopiert Skeleton-Dateien ins Buchprojekt (Pool links).
+
+    Der rechte Buchbaum / ``_quarto.yml`` bleibt unangetastet — Kapitel
+    hängt der Nutzer manuell ein. ``include_in_tree`` im Manifest wird
+    beim Populate ignoriert.
 
     `include_optional` (Batch 2): Manifest-Einträge mit `optional: true`
     (z. B. `Widmung.md`, `Template.md`) werden standardmäßig NICHT kopiert.
@@ -341,7 +345,6 @@ def populate_book(
     engine = QuartoYamlEngine(book_path)
     _ensure_index_md(book_path, engine)
 
-    copied_paths: list[str] = []
     for entry, line in zip(manifest.files, plan, strict=True):
         rel = _normalize_rel(entry.path)
         if not line.will_copy:
@@ -352,72 +355,75 @@ def populate_book(
         if backup is not None:
             result.backed_up.append(backup)
         engine.ensure_required_frontmatter(book_path / rel, fallback_title=entry.title)
-        copied_paths.append(rel)
         if existed:
             result.replaced.append(rel)
         else:
             result.copied.append(rel)
 
-    if not save:
-        return result
-
-    tree_data = engine.parse_chapters()
-    if not isinstance(tree_data, list):
-        tree_data = []
-
-    existing_paths = _collect_tree_paths(tree_data)
-    for entry, line in zip(manifest.files, plan, strict=True):
-        rel = _normalize_rel(entry.path)
-        if rel not in copied_paths:
-            continue
-        if not entry.include_in_tree:
-            continue
-        if rel in existing_paths:
-            continue
-        node = _make_tree_node(engine, rel, entry.title)
-        _insert_node_by_order(tree_data, node, engine)
-        existing_paths.add(rel)
-        result.tree_added.append(rel)
-
-    engine.save_chapters(tree_data, save_gui_state=True)
-    result.saved = True
+    # Kein Anfassen von Buchbaum / _quarto.yml — Nutzer hängt rechts manuell ein.
+    if save:
+        result.saved = True
     return result
 
 
 def refresh_studio_after_populate(studio: Any, result: PopulateResult) -> None:
-    """Aktualisiert GUI-Baum und Registries nach erfolgreichem Populate."""
+    """Lädt die Buchansicht nach erfolgreichem Populate neu (Baum + Pool).
+
+    Nutzt bewusst ``load_book``, damit Registries, Filter und beide Listen
+    denselben Pfad wie beim manuellen Projektwechsel durchlaufen.
+    """
     if studio is None or not result.ok:
         return
     if not getattr(studio, "current_book", None):
         return
-    if not hasattr(studio, "yaml_engine") or studio.yaml_engine is None:
-        return
 
-    tree = studio.tree_book
-    for item in tree.get_children():
-        tree.delete(item)
+    def _reload() -> None:
+        try:
+            if hasattr(studio, "load_book"):
+                studio.load_book(None)
+            else:
+                # Fallback ohne vollständige Studio-API (Tests / CLI)
+                if not hasattr(studio, "yaml_engine") or studio.yaml_engine is None:
+                    return
+                tree = studio.tree_book
+                for item in tree.get_children():
+                    tree.delete(item)
+                studio.title_registry = studio.yaml_engine.build_title_registry()
+                if hasattr(studio, "_build_file_state_registry"):
+                    studio._build_file_state_registry()
+                struct = studio.yaml_engine.parse_chapters()
+                studio._build_tree_recursive("", struct)
+                if hasattr(studio, "_update_avail_list"):
+                    studio._update_avail_list()
+                if hasattr(studio, "_apply_tree_filters"):
+                    studio._apply_tree_filters()
 
-    struct = studio.yaml_engine.parse_chapters()
-    studio._build_tree_recursive("", struct)
-    studio.title_registry = studio.yaml_engine.build_title_registry()
-    if hasattr(studio, "_build_file_state_registry"):
-        studio._build_file_state_registry()
-    if hasattr(studio, "_update_avail_list"):
-        studio._update_avail_list()
-    if hasattr(studio, "_apply_tree_filters"):
-        studio._apply_tree_filters()
-    if hasattr(studio, "log"):
-        studio.log(
-            f"Skeleton: {len(result.copied)} neu, {len(result.replaced)} ersetzt, "
-            f"{len(result.skipped)} übersprungen, {len(result.tree_added)} im Baum, "
-            f"{len(result.backed_up)} gesichert.",
-            "success",
-        )
-    if hasattr(studio, "status"):
-        studio.status.config(
-            text=f"Skeleton übernommen ({len(result.copied) + len(result.replaced)} Dateien)",
-            fg="green",
-        )
+            if hasattr(studio, "log"):
+                studio.log(
+                    f"Skeleton: {len(result.copied)} neu, {len(result.replaced)} ersetzt, "
+                    f"{len(result.skipped)} übersprungen — Dateien liegen im Pool (links); "
+                    f"Buchbaum (rechts) unverändert.",
+                    "success",
+                )
+            if hasattr(studio, "status"):
+                studio.status.config(
+                    text=(
+                        f"Skeleton übernommen ({len(result.copied) + len(result.replaced)} Dateien) "
+                        "— links im Pool"
+                    ),
+                    fg="green",
+                )
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            _LOG.exception("GUI-Reload nach Skeleton-Populate fehlgeschlagen")
+            if hasattr(studio, "log"):
+                studio.log(f"Skeleton: GUI-Reload fehlgeschlagen: {exc}", "error")
+
+    # Nach modalen Dialogen erst im Idle-Tick neu laden, sonst bleibt der Baum leer.
+    root = getattr(studio, "root", None)
+    if root is not None and hasattr(root, "after"):
+        root.after(50, _reload)
+    else:
+        _reload()
 
 
 def _write_conflict_preference(repo_root: Path, choice: RunConflictChoice) -> None:
@@ -527,21 +533,22 @@ def run(studio: Any = None, **kwargs: Any) -> int:
     if result.cancelled:
         return 0
 
-    refresh_studio_after_populate(studio, result)
-
     summary = (
         f"Skeleton '{profile}' übernommen.\n\n"
         f"Neu kopiert: {len(result.copied)}\n"
         f"Ersetzt: {len(result.replaced)}\n"
         f"Übersprungen: {len(result.skipped)}\n"
-        f"In Buchbaum eingetragen: {len(result.tree_added)}\n"
         f"Vor Überschreiben gesichert: {len(result.backed_up)}\n\n"
-        "_quarto.yml und GUI-Struktur wurden gespeichert."
+        "Die Dateien liegen im Projekt-Pool (linke Liste).\n"
+        "Den Buchbaum (rechts) füllst du manuell."
     )
     if parent is not None:
         show_result_message(parent, "Skeleton übernommen", summary)
     else:
         print(summary)
+
+    # Nach Bestätigung: GUI neu laden, damit die Dateien links erscheinen.
+    refresh_studio_after_populate(studio, result)
     return 0
 
 

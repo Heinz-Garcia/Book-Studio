@@ -1,49 +1,45 @@
 name: standard
 label: Standard (vollständiges Front- und Backmatter)
-description: >
-  Vollständiges Set aus Klappentext, Impressum, Einleitung, Glossar und weiteren
-  wiederkehrenden Pflichtseiten (Mapping Band_Stoffwechselgesundheit).
+description: Vollständiges Set aus Klappentext, Impressum, Einleitung, Glossar und
+  weiteren wiederkehrenden Pflichtseiten (Mapping Band_Stoffwechselgesundheit).
 files:
-  - path: content/required/Titel.md
-    title: Titel
-    order: "10"
-  - path: content/required/Klappentext_vorne.md
-    title: Klappentext (vorne)
-    order: "20"
-  - path: content/required/Widmung.md
-    title: Widmung
-    optional: true
-  - path: content/required/Impressum.md
-    title: Impressum
-    order: "30"
-  - path: content/required/IVZ.md
-    title: Inhaltsverzeichnis
-    order: "40"
-  - path: content/required/Danksagung.md
-    title: Danksagung
-    order: "50"
-  - path: content/required/Einleitung.md
-    title: Einleitung
-    order: "60"
-  - path: content/required/These.md
-    title: These
-    order: "70"
-  - path: content/required/Literaturverzeichnis.md
-    title: Literaturverzeichnis
-    order: "END-50"
-  - path: content/required/Glossar.md
-    title: Glossar
-    order: "END-40"
-  - path: content/required/UeberAutor.md
-    title: Über den Autor
-    order: "END-30"
-  - path: content/required/Klappentext_hinten.md
-    title: Klappentext (hinten)
-    order: "END-20"
-  - path: content/required/Rueckseite.md
-    title: Rückseite
-    order: "END-10"
-  - path: content/required/Template.md
-    title: Vorlagen-Referenz
-    optional: true
-    include_in_tree: false
+- path: content/required/Titel.md
+  title: Titel
+  order: '10'
+- path: content/required/Klappentext_vorne.md
+  title: Klappentext (vorne)
+  order: '20'
+- path: content/required/Widmung.md
+  title: Widmung
+  optional: true
+- path: content/required/Impressum.md
+  title: Impressum
+  order: '30'
+- path: content/required/IVZ.md
+  title: Inhaltsverzeichnis
+  order: '40'
+- path: content/required/Danksagung.md
+  title: Danksagung
+  order: '50'
+- path: content/required/Einleitung.md
+  title: Einleitung
+  order: '60'
+- path: content/required/These.md
+  title: These
+  order: '70'
+- path: content/required/Glossar.md
+  title: Glossar
+  order: END-40
+- path: content/required/UeberAutor.md
+  title: Über den Autor
+  order: END-30
+- path: content/required/Klappentext_hinten.md
+  title: Klappentext (hinten)
+  order: END-20
+- path: content/required/Rueckseite.md
+  title: Rückseite
+  order: END-10
+- path: content/required/Template.md
+  title: Vorlagen-Referenz
+  optional: true
+  include_in_tree: false

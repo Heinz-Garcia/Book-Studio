@@ -1129,7 +1129,7 @@ class BookStudio:
         
         # --- LINKS ---
         l_frame = tk.Frame(self.pane, bg="white")
-        self.pane.add(l_frame, width=450, minsize=700, stretch="always")
+        self.pane.add(l_frame, width=420, minsize=280, stretch="always")
         self.lbl_avail_count = tk.Label(l_frame, text="NICHT ZUGEORDNETE KAPITEL (0)", bg=COLORS["surface_muted"], fg=COLORS["heading"], font=("Segoe UI Semibold", 9), pady=7)
         self.lbl_avail_count.pack(fill=tk.X)        
         search_f = tk.Frame(l_frame, bg=COLORS["surface_alt"], pady=6)
@@ -1858,6 +1858,10 @@ class BookStudio:
         count = 0
 
         # Phase 2 / Schritt 2.6b: Filter/Sort im Service.
+        # required-order (Frontmatter) steuert die Pool-Reihenfolge analog zu Save.
+        order_meta = None
+        if getattr(self, "yaml_engine", None) is not None:
+            order_meta = self.yaml_engine.get_required_order
         entries = self._services.ui_state.build_left_list_entries(
             self.title_registry,
             used_paths,
@@ -1867,6 +1871,7 @@ class BookStudio:
             apply_left_search=apply_left_search,
             is_fulltext=is_fulltext,
             content_lookup=self._get_content_for_search if is_fulltext else None,
+            order_meta_for_path=order_meta,
         )
 
         for path, title in entries:
@@ -1877,6 +1882,33 @@ class BookStudio:
 
         if hasattr(self, 'lbl_avail_count'):
             self.lbl_avail_count.config(text=f"NICHT ZUGEORDNETE KAPITEL ({count}) - DOPPELKLICK = EDIT")
+
+    def _resort_avail_list(self):
+        """Sortiert die linke Liste nach required-order, ohne Filter neu anzuwenden.
+
+        Wird nach `remove_files` genutzt: entfernte Kapitel müssen auch bei
+        aktivem Suchfilter sichtbar bleiben (B-Fix), sollen aber trotzdem in
+        order-Reihenfolge erscheinen.
+        """
+        order_meta = None
+        if getattr(self, "yaml_engine", None) is not None:
+            order_meta = self.yaml_engine.get_required_order
+
+        rows = []
+        for iid in self.list_avail.get_children():
+            vals = self.list_avail.item(iid, "values")
+            path = vals[0] if vals else ""
+            text = self.list_avail.item(iid, "text")
+            tags = self.list_avail.item(iid, "tags")
+            rows.append((path, text, tags))
+        rows.sort(
+            key=lambda row: self._services.ui_state.left_list_sort_key(
+                row[0], row[1], order_meta
+            )
+        )
+        self.list_avail.delete(*self.list_avail.get_children())
+        for path, text, tags in rows:
+            self.list_avail.insert("", "end", text=text, values=(path,), tags=tags)
     
     def _get_all_used_paths(self):
         res = []
@@ -2584,13 +2616,25 @@ class BookStudio:
             # Wir wollen die neuen Dateien DIREKT UNTER dem Cursor einfügen
             target_index = self.tree_book.index(cursor_node) + 1
         # -----------------------------------
-        
+
+        # Mehrfachauswahl in required-order verarbeiten (stabiles Einfügen).
+        selected_rows = []
         for i in self.list_avail.selection():
             rel_path = self.list_avail.item(i, "values")[0]
+            fallback_title = self.list_avail.item(i, "text").replace("[FEHLT] ", "")
+            selected_rows.append((i, rel_path, fallback_title))
+        selected_rows.sort(
+            key=lambda row: self._services.ui_state.left_list_sort_key(
+                row[1], row[2], get_order_meta
+            )
+        )
+
+        for i, rel_path, fallback_title in selected_rows:
+            if not self.list_avail.exists(i):
+                continue
             full_path = self.current_book / rel_path
             
             # Auto-Healing
-            fallback_title = self.list_avail.item(i, "text").replace("[FEHLT] ", "")
             if self.yaml_engine.ensure_required_frontmatter(full_path, fallback_title):
                 files_healed = True
 
@@ -2634,6 +2678,7 @@ class BookStudio:
                 path = vals[0] if vals else ""
                 self.list_avail.insert("", "end", text=txt, values=(path,))
             self.tree_book.delete(i)
+        self._resort_avail_list()
         self._push_undo(pre)
 
     def reset_structure(self):

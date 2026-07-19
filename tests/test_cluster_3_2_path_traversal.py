@@ -447,10 +447,10 @@ class TestEditorAddFilePathTraversal:
         from tools.skeleton import editor as editor_module
 
         # Mock simpledialog.askstring mit Sequenz:
-        # 1. rel_path = "../../evil.md"
-        # 2. title = "Evil"
+        # 1. title = "Evil"
+        # 2. rel_path = "../../evil.md"
         # 3. order = None
-        call_sequence = ["../../evil.md", "Evil", None]
+        call_sequence = ["Evil", "../../evil.md", None]
         mock_askstring = mock.Mock(side_effect=call_sequence)
         monkeypatch.setattr(editor_module.simpledialog, "askstring", mock_askstring)
 
@@ -479,8 +479,8 @@ class TestEditorAddFilePathTraversal:
         from tools.skeleton import editor as editor_module
 
         # Mock simpledialog mit gültigem Pfad
-        # Sequenz: rel_path, title, order
-        call_sequence = ["content/chapter.md", "Chapter 1", None]
+        # Sequenz: title, rel_path, order
+        call_sequence = ["Chapter 1", "content/chapter.md", None]
         mock_askstring = mock.Mock(side_effect=call_sequence)
         monkeypatch.setattr(
             editor_module.simpledialog,

@@ -179,6 +179,69 @@ def _copy_render_artifacts(temp_book: Path, source_book: Path, output_dir: str) 
         shutil.copy2(artifact, source_book / artifact.name)
 
 
+def _ensure_typst_book_author(book_path: Path) -> None:
+    """orange-book erwartet `author` als String; ohne Wert knallt Typst (Array-Default).
+
+    Nur im temporären Render-Klon: fehlenden/leeren/Listen-Autor zu einem
+    nicht-leeren String normalisieren. Original-Buch bleibt unverändert.
+    """
+    yaml_path = book_path / "_quarto.yml"
+    if not yaml_path.exists():
+        return
+    try:
+        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    book = data.get("book")
+    if not isinstance(book, dict):
+        book = {}
+        data["book"] = book
+
+    author = book.get("author")
+    if isinstance(author, list):
+        parts = []
+        for item in author:
+            if isinstance(item, dict):
+                name = item.get("name") or item.get("family") or ""
+                if name:
+                    parts.append(str(name))
+            elif item is not None and str(item).strip():
+                parts.append(str(item).strip())
+        author = ", ".join(parts)
+    elif author is None:
+        author = ""
+    else:
+        author = str(author).strip()
+
+    if not author:
+        title = book.get("title")
+        author = str(title).strip() if title else "Autor"
+        if not author:
+            author = "Autor"
+        book["author"] = author
+        try:
+            yaml_path.write_text(
+                yaml.dump(data, sort_keys=False, allow_unicode=True, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            return
+        print(f"[safe-render] Hinweis: book.author fehlte – Platzhalter gesetzt: {author!r}")
+        return
+
+    if book.get("author") != author:
+        book["author"] = author
+        try:
+            yaml_path.write_text(
+                yaml.dump(data, sort_keys=False, allow_unicode=True, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            return
+
+
 def run_safe_render(
     book_path: Path,
     output_format: str,
@@ -219,6 +282,9 @@ def run_safe_render(
         # Pfad traf. Der Original-`book_path` wird von diesem Render nicht
         # angetastet; der `original_output_dir` wird nur noch in
         # `_copy_render_artifacts` verwendet.
+
+        if str(output_format).lower().startswith("typst"):
+            _ensure_typst_book_author(temp_book)
 
         cmd = ["quarto", "render", str(temp_book), "--to", output_format]
         print(f"[safe-render] book={book_path.name} format={output_format}")

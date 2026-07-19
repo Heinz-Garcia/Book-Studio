@@ -63,6 +63,32 @@ def test_prepare_render_environment_keeps_numeric_order_in_processed_frontmatter
     assert "order: 5" in processed
 
 
+def test_prepare_render_environment_converts_quoted_numeric_order_to_number(tmp_path: Path) -> None:
+    """Skeleton speichert order: \"10\"; Quarto verlangt Number (nicht String)."""
+    book = _create_book(tmp_path)
+    source = book / "content" / "required" / "Titel.md"
+    _write(
+        source,
+        "---\n"
+        "title: \"Titel\"\n"
+        'order: "10"\n'
+        "---\n\n"
+        "# Titel\n",
+    )
+
+    processor = PreProcessor(book)
+    tree_data = [{"title": "Titel", "path": "content/required/Titel.md", "children": []}]
+
+    processor.prepare_render_environment(tree_data)
+
+    processed = (book / "processed" / "content" / "required" / "Titel.md").read_text(encoding="utf-8")
+    original = source.read_text(encoding="utf-8")
+
+    assert 'order: "10"' in original
+    assert "order: 10" in processed
+    assert 'order: "10"' not in processed
+
+
 # B4: Die folgenden Footnote-spezifischen Tests wurden entfernt, weil das
 # komplette Fußnoten-System (FootnoteHarvester, Modus, Backlinks, Endnoten-
 # Generierung) abgeschaltet ist. Pandoc-konforme `[^1]`-Marker werden
