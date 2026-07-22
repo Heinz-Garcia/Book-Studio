@@ -59,3 +59,68 @@ def test_resolve_command_unknown_name_shows_warning_on_invocation():
     mock_warn.assert_called_once()
     args, _ = mock_warn.call_args
     assert "typo_method" in args[1]
+
+
+# --- "Letzte aktive Projekte": dynamisches Untermenue -----------------------
+
+
+class _FakeMenu:
+    """Minimaler Tk-Menu-Stand-in: zeichnet nur Aufrufe auf, kein echtes Tk."""
+
+    def __init__(self):
+        self.calls = []
+
+    def delete(self, start, end):
+        self.calls.append(("delete", start, end))
+
+    def add_command(self, **kwargs):
+        self.calls.append(("add_command", kwargs))
+
+
+def test_refresh_recent_projects_menu_shows_placeholder_when_empty():
+    studio = SimpleNamespace(get_recent_books=lambda: [])
+    mgr = MenuManager(studio)
+    menu = _FakeMenu()
+
+    mgr._refresh_recent_projects_menu(menu)
+
+    assert ("delete", 0, "end") in menu.calls
+    add_calls = [c for c in menu.calls if c[0] == "add_command"]
+    assert len(add_calls) == 1
+    assert add_calls[0][1]["state"] == "disabled"
+
+
+def test_refresh_recent_projects_menu_lists_entries_and_wires_open_recent_book():
+    opened = []
+    studio = SimpleNamespace(
+        get_recent_books=lambda: [
+            {"key": "Band_A", "label": "Band_A", "path": "irrelevant"},
+            {"key": "Band_B", "label": "Band_B", "path": "irrelevant"},
+        ],
+        open_recent_book=lambda key: opened.append(key),
+    )
+    mgr = MenuManager(studio)
+    menu = _FakeMenu()
+
+    mgr._refresh_recent_projects_menu(menu)
+
+    add_calls = [c for c in menu.calls if c[0] == "add_command"]
+    assert [c[1]["label"] for c in add_calls] == ["Band_A", "Band_B"]
+
+    # Jeder Eintrag ruft beim Klick open_recent_book mit seinem eigenen Key auf.
+    add_calls[0][1]["command"]()
+    add_calls[1][1]["command"]()
+    assert opened == ["Band_A", "Band_B"]
+
+
+def test_refresh_recent_projects_menu_handles_missing_get_recent_books():
+    """Falls das Studio (noch) kein get_recent_books hat, kein Crash."""
+    studio = SimpleNamespace()
+    mgr = MenuManager(studio)
+    menu = _FakeMenu()
+
+    mgr._refresh_recent_projects_menu(menu)
+
+    add_calls = [c for c in menu.calls if c[0] == "add_command"]
+    assert len(add_calls) == 1
+    assert add_calls[0][1]["state"] == "disabled"

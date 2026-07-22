@@ -205,12 +205,14 @@ def resolve_populate_plan(
     conflict_choice: RunConflictChoice,
     missing_only: bool,
     include_optional: bool = False,
+    file_overrides: Optional[dict] = None,
 ) -> list[PopulatePlanLine]:
     return _apply_plan_rules(
         base_lines,
         conflict_choice=conflict_choice,
         missing_only=missing_only,
         include_optional=include_optional,
+        overrides=file_overrides,
     )
 
 
@@ -234,8 +236,13 @@ def _copy_skeleton_file(
     """Kopiert eine Skeleton-Datei ins Buch.
 
     Falls am Ziel bereits eine Datei existiert, wird sie vor dem Überschreiben
-    gesichert (``<name>.bak-<timestamp>`` im selben Verzeichnis), damit ein
+    unter ``.backups/skeleton-populate/`` gesichert (gleiche relative Struktur,
+    Dateiname mit ``.bak-<timestamp>``-Suffix vor der Endung), damit ein
     Fehlklick keinen bearbeiteten Kapitelinhalt unwiderruflich zerstört.
+    ``.backups`` liegt bewusst außerhalb von ``content/`` (siehe
+    ``EXCLUDED_PATH_SEGMENTS`` in ``services/workspace_service.py``), damit die
+    gesicherte Kopie nicht versehentlich weiterhin als ``*.md``-Kapitel in der
+    Titel-Registry auftaucht (vgl. ``yaml_engine.build_title_registry``).
     Liefert den Pfad des Backups zurück (oder ``None``, falls kein Backup nötig
     war).
     """
@@ -248,8 +255,12 @@ def _copy_skeleton_file(
     backup_path: str | None = None
     if dest.exists():
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_path = f"{dest}.bak-{stamp}"
-        shutil.copy2(dest, backup_path)
+        rel_path = Path(entry_rel)
+        backup_name = f"{rel_path.stem}.bak-{stamp}{rel_path.suffix}"
+        backup_dest = book_path / ".backups" / "skeleton-populate" / rel_path.parent / backup_name
+        backup_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(dest, backup_dest)
+        backup_path = str(backup_dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
     return backup_path
@@ -330,6 +341,7 @@ def populate_book(
             conflict_choice=dialog_result.conflict_choice or "skip",
             missing_only=dialog_result.missing_only,
             include_optional=dialog_result.include_optional,
+            file_overrides=dialog_result.file_overrides,
         )
     else:
         plan = build_populate_plan(
@@ -354,7 +366,12 @@ def populate_book(
         backup = _copy_skeleton_file(manifest, rel, book_path)
         if backup is not None:
             result.backed_up.append(backup)
-        engine.ensure_required_frontmatter(book_path / rel, fallback_title=entry.title)
+        if rel.lower().endswith(".md"):
+            # Nur Markdown-Dateien bekommen Pflicht-Frontmatter ergaenzt.
+            # Nicht-.md-Vorlagen (z.B. typst-show.typ, ein Build-Asset ohne
+            # YAML-Frontmatter-Konzept) wuerden sonst durch einen
+            # faelschlich vorangestellten "---"-Block korrumpiert.
+            engine.ensure_required_frontmatter(book_path / rel, fallback_title=entry.title)
         if existed:
             result.replaced.append(rel)
         else:

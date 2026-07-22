@@ -9,6 +9,7 @@ import yaml
 from tkinter import ttk
 from ui_theme import COLORS, FONTS, center_on_parent, style_dialog
 
+from yaml_engine import MISSING_TITLE_LABEL
 from frontmatter_parser import parse as fm_parse
 from frontmatter_requirements import (
     load_frontmatter_settings,
@@ -18,6 +19,9 @@ from quarto_block_parser import (
     find_fenced_div_issues as qb_find_fenced_div_issues,
     iter_body_lines_outside_code_fences,
     to_legacy_tuples,
+)
+from markdown_asset_scanner import (
+    find_fragile_relative_image_refs as mas_find_fragile_relative_image_refs,
 )
 
 # =========================================================================
@@ -98,14 +102,14 @@ class BookDoctor:
             full_p = self.current_book / p_str
 
             doc_title = self.title_registry.get(p_str, "Unbekannter Titel")
-            clean_title = doc_title.replace("[FEHLT] ", "")
+            clean_title = doc_title.replace(f"{MISSING_TITLE_LABEL} ", "")
             display_name = f"'{clean_title}' ({Path(p_str).name})"
 
             if not full_p.exists():
                 record_issue(p_str, f"❌ Geister-Datei: {display_name} existiert nicht.")
                 continue
 
-            if doc_title.startswith("[FEHLT]") and p_str != "index.md":
+            if doc_title.startswith(MISSING_TITLE_LABEL) and p_str != "index.md":
                 record_issue(p_str, f"❌ Frontmatter-Fehler: {display_name} hat gar keinen YAML Titel.", line_number=1)
 
             try:
@@ -180,6 +184,16 @@ class BookDoctor:
                             p_str,
                             f"{fence_message} in {display_name}",
                             line_number=line_number,
+                        )
+
+                    for rel_line_number, target in mas_find_fragile_relative_image_refs(body):
+                        record_issue(
+                            p_str,
+                            f"❌ FRAGILER BILDPFAD in {display_name}: Bildpfad '{target}' ist relativ zur "
+                            "Datei und zeigt nach dem Render-Kopiervorgang (Datei wandert nach "
+                            f"processed/) ins Leere. Bitte '/img/{Path(target).name}' verwenden "
+                            "(Bild im Buch-Root unter img/ ablegen).",
+                            line_number=body_line_number + rel_line_number - 1,
                         )
 
                     sanitized_body = sanitize_markdown_preview(body)

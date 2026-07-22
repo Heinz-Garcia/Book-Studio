@@ -50,7 +50,24 @@ class WorkspaceLike(Protocol):
 
     base_path: Path
     projects_root_path: Path
+    projects_root_paths: list[Path]
     books: list[Path]
+
+
+def normalize_content_root_paths(raw_value: Any) -> list[str]:
+    """Normalisiert den rohen `content_root_path`-Config-Wert auf eine Liste.
+
+    Backward-kompatibel: `content_root_path` war historisch ein einzelner
+    String; unterstützt wird jetzt zusätzlich eine Liste von Strings (mehrere
+    unabhängige Suchwurzeln, z.B. das eigene Repo plus ein externes
+    Publish-Verzeichnis eines Zulieferer-Tools). Leere/nicht-String-Einträge
+    werden verworfen.
+    """
+    if isinstance(raw_value, list):
+        return [item.strip() for item in raw_value if isinstance(item, str) and item.strip()]
+    if isinstance(raw_value, str) and raw_value.strip():
+        return [raw_value.strip()]
+    return []
 
 
 # --- Service ----------------------------------------------------------------
@@ -79,73 +96,96 @@ class WorkspaceService:
     # --- Pfad-Auflösung ---------------------------------------------------
 
     def get_projects_root_path(self) -> Path:
-        """Liest `content_root_path` aus der App-Config und validiert den Pfad.
-
-        Fallback: `studio.base_path`, falls die Config nicht lesbar ist,
-        der Wert kein String/leer ist, oder der Pfad nicht existiert.
+        """Backward-kompatibler Wrapper: liefert die erste konfigurierte
+        Projekt-Wurzel (bzw. `studio.base_path`, falls keine gültige Wurzel
+        konfiguriert ist). Neuer Code sollte `get_projects_root_paths()`
+        verwenden, das alle konfigurierten Wurzeln liefert.
         """
-        default_root = self._studio.base_path
+        roots = self.get_projects_root_paths()
+        return roots[0] if roots else self._studio.base_path
+
+    def get_projects_root_paths(self) -> list[Path]:
+        """Liest `content_root_path` aus der App-Config und validiert die Pfade.
+
+        `content_root_path` kann ein einzelner String oder eine Liste von
+        Strings sein (mehrere unabhängige Suchwurzeln, z.B. das eigene Repo
+        plus ein externes Publish-Verzeichnis eines Zulieferer-Tools).
+        Fallback: `[studio.base_path]`, falls die Config nicht lesbar ist,
+        kein gültiger Wert vorhanden ist, oder kein konfigurierter Pfad
+        existiert.
+        """
+        default_roots = [self._studio.base_path]
         if self._read_config is None:
-            return default_root
+            return default_roots
 
         try:
             cfg = self._read_config()
         except (OSError, ValueError, TypeError) as error:  # json.JSONDecodeError erbt von ValueError
             self._report_nonfatal("Projekt-Root konnte nicht aus Config geladen werden", error)
-            return default_root
+            return default_roots
 
-        raw_value = cfg.get("content_root_path", ".")
-        if not isinstance(raw_value, str) or not raw_value.strip():
-            return default_root
+        raw_values = normalize_content_root_paths(cfg.get("content_root_path", "."))
+        if not raw_values:
+            return default_roots
 
-        configured_path = Path(raw_value.strip()).expanduser()
-        root_path = (
-            configured_path
-            if configured_path.is_absolute()
-            else (self._studio.base_path / configured_path)
-        )
-        try:
-            root_path = root_path.resolve()
-        except OSError as error:
-            # B-Fix (Code-Review 2026-07-03): `.resolve()` kann auf manchen
-            # Plattformen/Dateisystemen (kaputte Symlinks, Berechtigungs-
-            # fehler) einen OSError werfen. Vorher lief das ungeschuetzt
-            # ausserhalb jeglichen try/except und konnte den Aufrufer crashen.
-            self._report_nonfatal(
-                "Konfigurierter content_root_path konnte nicht aufgeloest werden",
-                error,
+        resolved_roots: list[Path] = []
+        for raw_value in raw_values:
+            configured_path = Path(raw_value).expanduser()
+            root_path = (
+                configured_path
+                if configured_path.is_absolute()
+                else (self._studio.base_path / configured_path)
             )
-            return default_root
-        if not root_path.exists() or not root_path.is_dir():
-            self._report_nonfatal(
-                "Konfigurierter content_root_path ist ungültig, verwende Code-Ordner",
-                root_path,
-            )
-            return default_root
-        return root_path
+            try:
+                root_path = root_path.resolve()
+            except OSError as error:
+                # B-Fix (Code-Review 2026-07-03): `.resolve()` kann auf manchen
+                # Plattformen/Dateisystemen (kaputte Symlinks, Berechtigungs-
+                # fehler) einen OSError werfen. Vorher lief das ungeschuetzt
+                # ausserhalb jeglichen try/except und konnte den Aufrufer crashen.
+                self._report_nonfatal(
+                    "Konfigurierter content_root_path konnte nicht aufgeloest werden",
+                    error,
+                )
+                continue
+            if not root_path.exists() or not root_path.is_dir():
+                self._report_nonfatal(
+                    "Konfigurierter content_root_path ist ungültig, wird übersprungen",
+                    root_path,
+                )
+                continue
+            if root_path not in resolved_roots:
+                resolved_roots.append(root_path)
+
+        return resolved_roots if resolved_roots else default_roots
 
     # --- Project-Discovery -----------------------------------------------
 
     def discover_projects(self) -> list[Path]:
-        """Findet alle Quarto-Bücher unterhalb des aktuellen Projekt-Roots.
+        """Findet alle Quarto-Bücher unterhalb der aktuellen Projekt-Wurzeln.
 
-        Sucht nach `_quarto.yml`, schließt Pfade aus, deren Segmente in
-        `EXCLUDED_PATH_SEGMENTS` enthalten sind, und liefert die
-        zugehörigen Elternverzeichnisse.
+        Sucht nach `_quarto.yml` unterhalb jeder konfigurierten Wurzel,
+        schließt Pfade aus, deren Segmente in `EXCLUDED_PATH_SEGMENTS`
+        enthalten sind, und liefert die zugehörigen Elternverzeichnisse
+        (dedupliziert, Reihenfolge der Wurzeln bleibt erhalten).
         """
-        root = self._studio.projects_root_path
-        if not root.exists() or not root.is_dir():
-            return []
-        return [
-            p.parent
-            for p in root.rglob("_quarto.yml")
-            if not any(seg in p.parts for seg in EXCLUDED_PATH_SEGMENTS)
-        ]
+        roots = getattr(self._studio, "projects_root_paths", None) or [self._studio.projects_root_path]
+        found: list[Path] = []
+        for root in roots:
+            if not root.exists() or not root.is_dir():
+                continue
+            for p in root.rglob("_quarto.yml"):
+                if any(seg in p.parts for seg in EXCLUDED_PATH_SEGMENTS):
+                    continue
+                book_path = p.parent
+                if book_path not in found:
+                    found.append(book_path)
+        return found
 
     # --- Membership-Check -------------------------------------------------
 
     def is_within_project(self, path: Path) -> bool:
-        """True, wenn `path` unterhalb des aktuellen Projekt-Roots liegt.
+        """True, wenn `path` unterhalb einer der aktuellen Projekt-Wurzeln liegt.
 
         B-Fix (Code-Review 2026-07-03): beide Seiten werden jetzt vor dem
         Vergleich mit `resolve()` normalisiert. Vorher konnten unter
@@ -155,14 +195,20 @@ class WorkspaceService:
         """
         try:
             resolved_path = Path(path).resolve()
-            resolved_root = Path(self._studio.projects_root_path).resolve()
         except OSError:
             return False
-        try:
-            resolved_path.relative_to(resolved_root)
-            return True
-        except ValueError:
-            return False
+        roots = getattr(self._studio, "projects_root_paths", None) or [self._studio.projects_root_path]
+        for root in roots:
+            try:
+                resolved_root = Path(root).resolve()
+            except OSError:
+                continue
+            try:
+                resolved_path.relative_to(resolved_root)
+                return True
+            except ValueError:
+                continue
+        return False
 
     # --- Intern -----------------------------------------------------------
 

@@ -44,14 +44,16 @@ def test_list_profiles_includes_standard():
 def test_load_standard_manifest_has_expected_files():
     manifest = load_manifest(_standard_profile())
     assert manifest.name == "standard"
-    assert len(manifest.files) == 13
+    assert len(manifest.files) == 15
     paths = [entry.path.replace("\\", "/") for entry in manifest.files]
     assert "content/required/Einleitung.md" in paths
     assert "content/required/Template.md" in paths
+    assert "content/required/Deckblatt.md" in paths
+    assert "typst-show.typ" in paths
     optional = [e for e in manifest.files if e.optional]
     assert len(optional) == 2
     required_non_optional = [e for e in manifest.files if not e.optional]
-    assert len(required_non_optional) == 11
+    assert len(required_non_optional) == 13
     template = next(e for e in manifest.files if e.path.endswith("Template.md"))
     assert template.include_in_tree is False
 
@@ -69,9 +71,9 @@ def test_populate_copies_files_and_updates_yaml(tmp_path: Path) -> None:
     )
 
     # Batch 2: optionale Slots (Widmung, Template) werden standardmäßig
-    # NICHT kopiert -> 11 der 13 Manifest-Einträge sind "optional: false".
+    # NICHT kopiert -> 13 der 15 Manifest-Einträge sind "optional: false".
     assert result.ok
-    assert len(result.copied) == 11
+    assert len(result.copied) == 13
     assert len(result.skipped) == 2
     assert "content/required/Widmung.md" in result.skipped
     assert "content/required/Template.md" in result.skipped
@@ -119,7 +121,7 @@ def test_populate_include_optional_copies_optional_slots(tmp_path: Path) -> None
     )
 
     assert result.ok
-    assert len(result.copied) == 13
+    assert len(result.copied) == 15
     assert len(result.skipped) == 0
     assert (book / "content/required/Widmung.md").is_file()
     assert (book / "content/required/Template.md").is_file()
@@ -147,8 +149,8 @@ def test_populate_skip_existing_file(tmp_path: Path) -> None:
     assert result.ok
     assert "content/required/Einleitung.md" in result.skipped
     assert "# Alt" in existing.read_text(encoding="utf-8")
-    # 11 nicht-optionale Einträge minus 1 Konflikt-Skip (Einleitung) = 10.
-    assert len(result.copied) == 10
+    # 13 nicht-optionale Einträge minus 1 Konflikt-Skip (Einleitung) = 12.
+    assert len(result.copied) == 12
 
 
 def test_populate_replace_existing_file(tmp_path: Path) -> None:
@@ -169,6 +171,38 @@ def test_populate_replace_existing_file(tmp_path: Path) -> None:
     assert "# Einleitung" in existing.read_text(encoding="utf-8")
 
 
+def test_populate_replace_backup_stays_outside_title_registry(tmp_path: Path) -> None:
+    """Regression: Backup bei Konflikt-Replace darf nicht als eigenes *.md-Kapitel
+    in der Titel-Registry auftauchen (sonst "verschwindet" der Original-Inhalt
+    für den Nutzer aus der Liste der nicht zugeordneten Kapitel, weil er nur
+    noch unter einem generischen `.bak-<timestamp>`-Namen existiert)."""
+    book = _create_empty_book(tmp_path)
+    existing = book / "content/required/Einleitung.md"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("---\ntitle: Alt\n---\n\n# Payload-Original\n", encoding="utf-8")
+
+    result = populate_book(
+        book,
+        profile_dir=_standard_profile(),
+        conflict_mode="replace",
+        skip_dialog=True,
+    )
+
+    assert result.ok
+    assert len(result.backed_up) == 1
+    backup_path = Path(result.backed_up[0])
+    assert backup_path.is_file()
+    assert "# Payload-Original" in backup_path.read_text(encoding="utf-8")
+    # Backup liegt außerhalb von content/ -> nicht mehr Teil der *.md-Discovery.
+    assert ".backups" in backup_path.parts
+    assert (book / "content") not in backup_path.parents
+
+    engine = QuartoYamlEngine(book)
+    registry = engine.build_title_registry()
+    einleitung_entries = [p for p in registry if p.endswith("Einleitung.md")]
+    assert einleitung_entries == ["content/required/Einleitung.md"]
+
+
 def test_populate_does_not_modify_quarto_chapters(tmp_path: Path) -> None:
     """Populate kopiert Dateien, schreibt aber keine Kapitel nach _quarto.yml."""
     book = _create_empty_book(tmp_path)
@@ -183,6 +217,29 @@ def test_populate_does_not_modify_quarto_chapters(tmp_path: Path) -> None:
     assert chapters == ["index.md"]
     assert (book / "content/required/Titel.md").is_file()
     assert (book / "content/required/Einleitung.md").is_file()
+
+
+def test_populate_copies_typst_show_partial_without_corrupting_it(tmp_path: Path) -> None:
+    """Regression: `typst-show.typ` unterdrueckt Quartos automatischen
+    Titelblock (siehe Deckblatt-Vollbild-Fix). Es ist eine Pandoc-Template-
+    Datei ohne YAML-Frontmatter-Konzept -- `ensure_required_frontmatter` darf
+    ihr NICHT versehentlich einen '---'-Block voranstellen, sonst wuerde das
+    Template beim Rendern nicht mehr als gueltiges Pandoc-Template geparst."""
+    book = _create_empty_book(tmp_path)
+    result = populate_book(
+        book,
+        profile_dir=_standard_profile(),
+        conflict_mode="skip",
+        skip_dialog=True,
+    )
+
+    assert result.ok
+    assert "typst-show.typ" in result.copied
+    typst_show = book / "typst-show.typ"
+    assert typst_show.is_file()
+    content = typst_show.read_text(encoding="utf-8")
+    assert not content.startswith("---")
+    assert "#show: doc => article(" in content
 
 
 def test_plugin_manifest_discoverable(tmp_path: Path) -> None:

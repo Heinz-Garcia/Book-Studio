@@ -34,6 +34,11 @@ class PopulateDialogResult:
     missing_only: bool = False
     remember_populate_mode: bool = False
     include_optional: bool = False
+    file_overrides: Optional[dict] = None
+    """rel_path -> will_copy. Manuelle Pro-Datei-Auswahl (Checkbox in der
+    Dateiliste), überschreibt die aus den globalen Reglern (Konflikt-Modus,
+    Missing-Only, Optionale-Slots) berechnete Standard-Entscheidung für genau
+    diese Datei. ``None``/leer = keine Überschreibung, reine globale Regeln."""
 
 
 def ask_profile_selection(
@@ -156,13 +161,20 @@ def _apply_plan_rules(
     conflict_choice: RunConflictChoice,
     missing_only: bool,
     include_optional: bool = False,
+    overrides: Optional[dict] = None,
 ) -> list[PopulatePlanLine]:
     """Berechnet `will_copy` je Zeile aus Konflikt-Modus, Missing-Only und
     dem `optional`-Flag (Batch 2: `optional: true`-Slots werden standard-
-    mäßig NICHT mitkopiert, es sei denn `include_optional=True`)."""
+    mäßig NICHT mitkopiert, es sei denn `include_optional=True`).
+
+    `overrides` (rel_path -> will_copy) hat für die betroffenen Zeilen
+    Vorrang vor allen anderen Regeln (manuelle Pro-Datei-Auswahl im Dialog)."""
+    overrides = overrides or {}
     updated: list[PopulatePlanLine] = []
     for line in base_lines:
-        if line.optional and not include_optional:
+        if line.rel_path in overrides:
+            will_copy = bool(overrides[line.rel_path])
+        elif line.optional and not include_optional:
             will_copy = False
         elif line.exists:
             will_copy = False if missing_only else conflict_choice == "replace"
@@ -216,6 +228,11 @@ class PopulateConfirmDialog(tk.Toplevel):
         self._book_name = book_name
         self._base_lines = lines
         self._diff_map = diff_map or {}
+        # Pro-Datei-Auswahl (Checkbox-Spalte): rel_path -> manuell gesetztes
+        # will_copy. Hat Vorrang vor den globalen Reglern (siehe
+        # `_apply_plan_rules`). Wird geleert, sobald ein globaler Regler
+        # verändert wird (neue Baseline, keine verwaisten Overrides).
+        self._overrides: dict[str, bool] = {}
 
         body = ttk.Frame(self, padding=12)
         body.pack(fill=tk.BOTH, expand=True)
@@ -238,7 +255,7 @@ class PopulateConfirmDialog(tk.Toplevel):
             mode_frame,
             text="Nur fehlende Dateien übernehmen (vorhandene nie ersetzen)",
             variable=self._missing_only_var,
-            command=self._refresh_plan_view,
+            command=self._on_global_toggle_changed,
         ).pack(anchor=tk.W)
         ttk.Checkbutton(
             mode_frame,
@@ -249,7 +266,7 @@ class PopulateConfirmDialog(tk.Toplevel):
             mode_frame,
             text="Optionale Slots mitnehmen (z. B. Widmung, Vorlagen-Referenz)",
             variable=self._include_optional_var,
-            command=self._refresh_plan_view,
+            command=self._on_global_toggle_changed,
         ).pack(anchor=tk.W, pady=(4, 0))
 
         conflict_frame = ttk.LabelFrame(body, text="Bei bereits vorhandenen Dateien", padding=8)
@@ -261,14 +278,14 @@ class PopulateConfirmDialog(tk.Toplevel):
                 text="Vorhandene Dateien überspringen (empfohlen)",
                 variable=self._conflict_var,
                 value="skip",
-                command=self._refresh_plan_view,
+                command=self._on_global_toggle_changed,
             ).pack(anchor=tk.W)
             ttk.Radiobutton(
                 conflict_frame,
                 text="Vorhandene Dateien durch Skeleton-Kopie ersetzen",
                 variable=self._conflict_var,
                 value="replace",
-                command=self._refresh_plan_view,
+                command=self._on_global_toggle_changed,
             ).pack(anchor=tk.W)
             ttk.Checkbutton(
                 conflict_frame,
@@ -305,12 +322,14 @@ class PopulateConfirmDialog(tk.Toplevel):
         list_frame = ttk.Frame(body)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
 
-        columns = ("path", "diff", "action")
+        columns = ("select", "path", "diff", "action")
         self._tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=12)
+        self._tree.heading("select", text="Übernehmen")
         self._tree.heading("path", text="Pfad")
         self._tree.heading("diff", text="Diff")
         self._tree.heading("action", text="Aktion")
-        self._tree.column("path", width=360, stretch=True)
+        self._tree.column("select", width=90, stretch=False, anchor=tk.CENTER)
+        self._tree.column("path", width=330, stretch=True)
         self._tree.column("diff", width=100, stretch=False)
         self._tree.column("action", width=180, stretch=False)
         scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self._tree.yview)
@@ -318,6 +337,7 @@ class PopulateConfirmDialog(tk.Toplevel):
         self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self._tree.bind("<Double-1>", lambda _e: self._show_diff())
+        self._tree.bind("<Button-1>", self._on_tree_click)
 
         self._refresh_plan_view()
 
@@ -345,7 +365,29 @@ class PopulateConfirmDialog(tk.Toplevel):
             conflict_choice=self._current_conflict_choice(),
             missing_only=self._current_missing_only(),
             include_optional=self._current_include_optional(),
+            overrides=self._overrides,
         )
+
+    def _on_global_toggle_changed(self) -> None:
+        # Ein globaler Regler wurde verändert -> neue Baseline, verwaiste
+        # Pro-Datei-Overrides waeren verwirrend, also zuruecksetzen.
+        self._overrides.clear()
+        self._refresh_plan_view()
+
+    def _on_tree_click(self, event: tk.Event) -> None:
+        region = self._tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        column = self._tree.identify_column(event.x)
+        row = self._tree.identify_row(event.y)
+        if not row or column != "#1":  # "#1" = erste deklarierte Spalte ("select")
+            return
+        rel_path = self._tree.item(row, "values")[1]  # Spalten: select, path, diff, action
+        current_line = next((line for line in self._current_plan() if line.rel_path == rel_path), None)
+        if current_line is None:
+            return
+        self._overrides[rel_path] = not current_line.will_copy
+        self._refresh_plan_view()
 
     def _refresh_plan_view(self) -> None:
         plan = self._current_plan()
@@ -357,7 +399,13 @@ class PopulateConfirmDialog(tk.Toplevel):
                 diff_text = diff_summary.summary
             else:
                 diff_text = str(diff_summary or ("neu" if not line.exists else "—"))
-            self._tree.insert("", tk.END, values=(line.rel_path, diff_text, _action_label(line)))
+            checkbox = "☑" if line.will_copy else "☐"
+            action_text = _action_label(line)
+            if line.rel_path in self._overrides:
+                action_text += " (manuell)"
+            self._tree.insert(
+                "", tk.END, values=(checkbox, line.rel_path, diff_text, action_text)
+            )
 
         missing_only = self._current_missing_only()
         for child in self._conflict_frame.winfo_children():
@@ -389,7 +437,7 @@ class PopulateConfirmDialog(tk.Toplevel):
         if not selection:
             messagebox.showinfo("Diff", "Bitte zuerst eine Datei auswählen.", parent=self)
             return
-        rel_path = self._tree.item(selection[0], "values")[0]
+        rel_path = self._tree.item(selection[0], "values")[1]
         info = self._diff_map.get(rel_path)
         if info is None:
             messagebox.showinfo("Diff", "Keine Diff-Daten für diese Datei.", parent=self)
@@ -418,6 +466,7 @@ class PopulateConfirmDialog(tk.Toplevel):
             missing_only=missing_only,
             remember_populate_mode=remember_mode,
             include_optional=include_optional,
+            file_overrides=dict(self._overrides) or None,
         )
         self.destroy()
 

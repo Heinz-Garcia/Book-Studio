@@ -25,7 +25,7 @@ from services.search_cache import SearchCache
 
 # --- UNSERE NEUEN, SAUBEREN MODULE ---
 from md_editor import MarkdownEditor
-from yaml_engine import QuartoYamlEngine
+from yaml_engine import QuartoYamlEngine, MISSING_TITLE_LABEL
 from book_doctor import BookDoctor, BackupManager
 from menu_manager import MenuManager
 from markdown_asset_scanner import find_missing_image_refs
@@ -163,7 +163,8 @@ class BookStudio:
             backup=BackupService(self),
             ui_state=UiStateService(self),
         )
-        self.projects_root_path = self._services.workspace.get_projects_root_path()
+        self.projects_root_paths = self._services.workspace.get_projects_root_paths()
+        self.projects_root_path = self.projects_root_paths[0]
         self.books = self._services.workspace.discover_projects()
         self.current_book = None
 
@@ -310,6 +311,9 @@ class BookStudio:
         # Logik lebt in `services/workspace_service.py` und ist dort getestet.
         return self._services.workspace.get_projects_root_path()
 
+    def _get_projects_root_paths(self) -> list[Path]:
+        return self._services.workspace.get_projects_root_paths()
+
     def get_log_font_size(self) -> int:
         default_size = 9
         min_size = 7
@@ -452,6 +456,36 @@ class BookStudio:
     def _restore_session_state(self):
         self.session_manager.restore()
 
+    def get_recent_books(self) -> list:
+        return self.session_manager.get_recent_books()
+
+    def open_recent_book(self, book_key: str) -> None:
+        """Wählt ein Projekt aus dem 'Letzte aktive Projekte'-Menü an.
+
+        Ist der Ordner noch unter `self.books` bekannt, wird nur umgeschaltet.
+        Existiert er zwar noch auf der Platte, wurde aber (z.B. wegen eines
+        geänderten content_root_path) nicht mehr entdeckt, wird er wie beim
+        CLI-Import einmalig ergänzt, statt den Nutzer mit "nicht gefunden"
+        abzuweisen.
+        """
+        root_path = self.projects_root_path
+        candidate = Path(book_key)
+        resolved = candidate if candidate.is_absolute() else (root_path / candidate)
+        if not (resolved / "_quarto.yml").is_file():
+            messagebox.showwarning(
+                "Projekt nicht gefunden",
+                f"Der Projektordner existiert nicht mehr oder enthält keine _quarto.yml:\n{resolved}",
+            )
+            return
+
+        existing_idx = next((i for i, b in enumerate(self.books) if b == resolved), None)
+        if existing_idx is None:
+            self.books.append(resolved)
+            self.book_combo.config(values=[b.name for b in self.books])
+            existing_idx = len(self.books) - 1
+        self.book_combo.current(existing_idx)
+        self.load_book(None)
+
     def close_app(self):
         self._closing = True
         # Trace-Callbacks entfernen, bevor Widgets zerstört werden, damit
@@ -567,7 +601,8 @@ class BookStudio:
         cfg.update(updates)
         self._write_config(cfg)
 
-        self.projects_root_path = self._get_projects_root_path()
+        self.projects_root_paths = self._get_projects_root_paths()
+        self.projects_root_path = self.projects_root_paths[0]
         self._reload_books_from_current_root()
         self._apply_log_font_size()
         self._apply_log_preferences_from_config()
@@ -631,15 +666,10 @@ class BookStudio:
 
         self.load_book(None)
 
-        # build_title_registry scannt NUR content/ – unser Publish-Verzeichnis
-        # hat die .md-Dateien aber im Root.  Daher mischen wir sie nach.
-        for md_file in self._import_path.glob("*.md"):
-            rel = md_file.relative_to(self._import_path).as_posix()
-            if rel not in self.title_registry:
-                title = self.yaml_engine.extract_title_from_md(md_file) or md_file.stem
-                self.title_registry[rel] = title
-
-        # avail-Liste neu aufbauen (zeigt nun die Root-.md-Dateien)
+        # build_title_registry() scannt seit der Multi-Root-Payload-Fix (siehe
+        # yaml_engine.QuartoYamlEngine.build_title_registry) bereits selbst
+        # sowohl content/ als auch die Buch-Wurzel -- Root-.md-Dateien unseres
+        # Publish-Verzeichnisses stehen also schon in self.title_registry.
         self._update_avail_list()
 
         self.status.config(
@@ -679,6 +709,20 @@ class BookStudio:
             run_skeleton_populate(studio=self)
         except (OSError, ValueError, ImportError, RuntimeError) as exc:
             self.log(f"Skeleton-Populate-Hinweis fehlgeschlagen: {exc}", _LogLevel.ERROR)
+
+    def reload_projects(self):
+        """Scannt alle konfigurierten content_root_path-Wurzeln erneut nach
+        Quarto-Buchprojekten.
+
+        Neu angelegte Projekte (z.B. per Kopie aus Band_Template oder via
+        externem Tooling) erscheinen sonst erst nach Neustart oder Speichern
+        der Studio-Konfiguration in der "Aktive Projekte"-Dropdown, da
+        `self.books` nur ein einmalig gezogener Snapshot ist.
+        """
+        self.projects_root_paths = self._get_projects_root_paths()
+        self.projects_root_path = self.projects_root_paths[0]
+        self._reload_books_from_current_root()
+        self.log("📁 Projektliste neu geladen.", _LogLevel.SUCCESS)
 
     def _reload_books_from_current_root(self):
         previous_book = self.current_book
@@ -2621,7 +2665,7 @@ class BookStudio:
         selected_rows = []
         for i in self.list_avail.selection():
             rel_path = self.list_avail.item(i, "values")[0]
-            fallback_title = self.list_avail.item(i, "text").replace("[FEHLT] ", "")
+            fallback_title = self.list_avail.item(i, "text").replace(f"{MISSING_TITLE_LABEL} ", "")
             selected_rows.append((i, rel_path, fallback_title))
         selected_rows.sort(
             key=lambda row: self._services.ui_state.left_list_sort_key(

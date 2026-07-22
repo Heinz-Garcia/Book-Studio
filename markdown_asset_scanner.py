@@ -1,9 +1,12 @@
 import bisect
 import re
+import shutil
 from pathlib import Path
 
 
 _INLINE_IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
+_INLINE_IMAGE_REPLACE_PATTERN = re.compile(r"(!\[[^\]]*\]\()([^)]+)(\))")
+_SVG_COMPANION_PATTERN = re.compile(r"^svg_.*\.svg$", re.IGNORECASE)
 _REF_IMAGE_PATTERN = re.compile(r"!\[([^\]]*)\]\[([^\]]*)\]")
 _REF_DEF_PATTERN = re.compile(r"^\s*\[([^\]]+)\]:\s*(.+?)\s*$", re.MULTILINE)
 _URL_SCHEME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -150,3 +153,95 @@ def find_missing_image_refs(markdown_text, markdown_file_path, book_root_path):
 def find_missing_images(markdown_text, markdown_file_path, book_root_path):
     missing_refs = find_missing_image_refs(markdown_text, markdown_file_path, book_root_path)
     return sorted({target for _, target in missing_refs})
+
+
+def is_render_safe_relative_target(target):
+    """True, wenn ein lokaler Bildpfad den Render-Kopiervorgang unbeschadet
+    uebersteht.
+
+    Der Render-Preflight (``yaml_engine.QuartoYamlEngine.prepare_file_for_render``
+    -> ``pre_processor.PreProcessor.prepare_render_environment``) kopiert
+    jede Kapitel-Datei nach ``processed/<gleicher relativer Pfad>``, OHNE
+    Bilder aus demselben Ordner mitzukopieren (Ausnahme: ``svg_*.svg``-
+    Companions, siehe ``_copy_companion_svgs``). Ein Bildpfad relativ zur
+    Quelldatei (z.B. ``img/Foto.png``) zeigt danach ins Leere. Root-relative
+    Pfade (fuehrender ``/``) werden von Quarto/Typst gegen den Projekt-Root
+    aufgeloest und ueberleben die Kopie unveraendert.
+    """
+    normalized = str(target).replace("\\", "/")
+    if normalized.startswith("/"):
+        return True
+    name = normalized.rsplit("/", 1)[-1]
+    return bool(_SVG_COMPANION_PATTERN.match(name))
+
+
+def find_fragile_relative_image_refs(markdown_text):
+    """Findet lokale Bildreferenzen, die den Render-Kopiervorgang NICHT
+    ueberleben werden (siehe ``is_render_safe_relative_target``).
+
+    Anders als ``find_missing_image_refs`` prueft dies nicht, ob das Bild
+    JETZT auffindbar ist -- ein Bild, das brav neben der Quelldatei liegt,
+    ist trotzdem eine tickende Zeitbombe, sobald der Render-Preflight die
+    Datei nach ``processed/`` kopiert.
+    """
+    fragile = []
+    for target, line_number in collect_image_refs(markdown_text):
+        if not _is_local_asset_target(target):
+            continue
+        if is_render_safe_relative_target(target):
+            continue
+        fragile.append((line_number, target))
+    return sorted(set(fragile), key=lambda item: (item[0], item[1].lower()))
+
+
+def repair_fragile_relative_image_refs(content, source_dir, book_root):
+    """Repariert render-fragile, lokale Inline-Bildreferenzen in ``content``.
+
+    Fuer jede fragile Referenz (siehe ``find_fragile_relative_image_refs``),
+    deren Bild sich relativ zu ``source_dir`` auffinden laesst, wird das Bild
+    nach ``book_root/img/<name>`` verschoben und die Referenz auf den
+    root-relativen Pfad ``/img/<name>`` umgeschrieben.
+
+    Bewusst konservativ: Referenzen, deren Bild nicht auffindbar ist ODER
+    deren Zielname in ``book_root/img/`` bereits von einer anderen Datei
+    belegt ist, werden NICHT angefasst (bleiben ein Fall fuer
+    ``find_missing_image_refs``/Buch-Doktor, statt eine falsche Datei
+    unterzuschieben). Nur Inline-Syntax (``![alt](pfad)``) wird geheilt;
+    Referenz-Stil-Bilder (``![alt][ref]``) werden nur erkannt, nicht
+    automatisch repariert.
+
+    Liefert ``(new_content, changes)``; ``changes`` ist eine Liste von
+    Freitext-Beschreibungen fuer das Auto-Heal-Log (leer, wenn nichts
+    geheilt wurde).
+    """
+    source_dir = Path(source_dir)
+    book_root = Path(book_root)
+    changes = []
+
+    def _replace(match):
+        prefix, raw_target, suffix = match.group(1), match.group(2), match.group(3)
+        target = _extract_target(raw_target)
+        if not target or not _is_local_asset_target(target):
+            return match.group(0)
+        if is_render_safe_relative_target(target):
+            return match.group(0)
+
+        candidate = source_dir / target.replace("\\", "/")
+        if not candidate.is_file():
+            return match.group(0)
+
+        img_dir = book_root / "img"
+        dest = img_dir / candidate.name
+        if dest.exists():
+            return match.group(0)  # Namenskollision -- nicht automatisch ueberschreiben.
+
+        img_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(candidate), str(dest))
+        changes.append(
+            f"Bild '{target}' nach img/{candidate.name} verschoben, "
+            f"Referenz auf '/img/{candidate.name}' umgeschrieben"
+        )
+        return f"{prefix}/img/{candidate.name}{suffix}"
+
+    new_content = _INLINE_IMAGE_REPLACE_PATTERN.sub(_replace, content)
+    return new_content, changes

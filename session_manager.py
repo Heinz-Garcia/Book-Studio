@@ -1,11 +1,15 @@
 import json
 import logging
 import tkinter as tk
+from pathlib import Path
 
 import session_state as _session_state_service
 from services.book_session_service import sanitize_profile_name
 
 logger = logging.getLogger(__name__)
+
+# Obergrenze für die "Letzte aktive Projekte"-Liste (Datei-Menü).
+MAX_RECENT_BOOKS = 10
 
 
 class SessionManager:
@@ -47,6 +51,16 @@ class SessionManager:
         except ValueError:
             return book_path.name
 
+    def _merge_recent_books(self, existing: dict, active_book_path) -> list:
+        """Baut die 'Letzte aktive Projekte'-Liste: aktives Buch nach vorne,
+        Duplikate entfernt, auf `MAX_RECENT_BOOKS` begrenzt."""
+        raw = existing.get("recent_books") if isinstance(existing, dict) else None
+        recent = [k for k in raw if isinstance(k, str) and k] if isinstance(raw, list) else []
+        if active_book_path:
+            recent = [k for k in recent if k != active_book_path]
+            recent.insert(0, active_book_path)
+        return recent[:MAX_RECENT_BOOKS]
+
     def save(self):
         try:
             session_path = getattr(self.studio, "_session_state_path", None)
@@ -70,6 +84,7 @@ class SessionManager:
             existing_ui = existing.get("ui_state") if isinstance(existing, dict) else None
             if isinstance(existing_ui, dict) and "window_geometry" in existing_ui:
                 payload.setdefault("ui_state", {})["window_geometry"] = existing_ui["window_geometry"]
+            payload["recent_books"] = self._merge_recent_books(existing, active_book_path)
             _session_state_service.write_session_state(session_path, payload)
         except (OSError, TypeError, ValueError) as error:
             # B-Fix (Code-Review 2026-07-03): Fehler wurden bisher komplett
@@ -81,6 +96,44 @@ class SessionManager:
                 report("Sitzung konnte nicht gespeichert werden", error)
             else:
                 logger.warning("Sitzung konnte nicht gespeichert werden: %s", error)
+
+    def get_recent_books(self) -> list:
+        """Liefert die zuletzt aktiven Projekte (neuestes zuerst) als Liste
+        von `{"key": book_key, "label": Anzeigename, "path": Path}`.
+
+        Liest `recent_books` direkt aus `session_state.json` (nicht aus
+        `studio.books`), damit auch Projekte auftauchen, die aktuell nicht
+        (mehr) unter `content_root_path` gefunden werden. Einträge, deren
+        Ordner nicht mehr existiert (gelöscht/verschoben) oder die dem
+        gerade aktiven Buch entsprechen, werden ausgeblendet.
+        """
+        session_path = getattr(self.studio, "_session_state_path", None)
+        if session_path is None:
+            return []
+        try:
+            state = _session_state_service.read_session_state(session_path)
+        except (OSError, TypeError, ValueError):
+            return []
+        raw = state.get("recent_books") if isinstance(state, dict) else None
+        if not isinstance(raw, list):
+            return []
+
+        studio = self.studio
+        root_path = getattr(studio, "projects_root_path", studio.base_path)
+        active_key = self.book_key(studio.current_book) if studio.current_book else None
+
+        results = []
+        for key in raw:
+            if not isinstance(key, str) or not key or key == active_key:
+                continue
+            candidate = Path(key)
+            resolved = candidate if candidate.is_absolute() else root_path / candidate
+            if not (resolved / "_quarto.yml").is_file():
+                continue
+            results.append({"key": key, "label": resolved.name, "path": resolved})
+            if len(results) >= MAX_RECENT_BOOKS:
+                break
+        return results
 
     # =========================================================================
     # UI STATE COLLECTION

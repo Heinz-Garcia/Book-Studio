@@ -17,8 +17,18 @@ from frontmatter_parser import (
 from quarto_block_parser import (
     repair_orphan_fenced_div_closes as qb_repair_orphan_fenced_div_closes,
 )
+from markdown_asset_scanner import (
+    repair_fragile_relative_image_refs as mas_repair_fragile_relative_image_refs,
+)
 
 logger = logging.getLogger(__name__)
+
+# Anzeige-Label in title_registry/Pool/Baum, wenn eine .md-Datei kein
+# `title:`-Frontmatter und keine `# Ueberschrift` hat. Bewusst NICHT
+# "[FEHLT]" (liest sich wie "Datei fehlt", obwohl die Datei inkl. Inhalt
+# vollstaendig vorhanden ist -- nur der Titel konnte nicht extrahiert werden).
+MISSING_TITLE_LABEL = "[Kein Titel]"
+
 
 class QuartoYamlEngine:
     def __init__(self, book_path):
@@ -51,34 +61,47 @@ class QuartoYamlEngine:
             return None
 
     def build_title_registry(self):
-        """Erstellt eine Liste aller .md Dateien mit ihren Titeln und Icons (nur im content-Ordner)."""
+        """Erstellt eine Liste aller .md Dateien mit ihren Titeln und Icons.
+
+        Durchsucht `content/` (rekursiv, wie von `_quarto.yml` referenziert)
+        UND die Buch-Wurzel selbst (nicht rekursiv, außer `index.md` keine
+        Unterordner): externe Zulieferer (z. B. GrammarGraph) legen ihren
+        Nutzinhalt oft als lose .md-Datei direkt im Buchordner ab statt unter
+        `content/`; ohne diesen zweiten Scan taucht so eine Datei nie im
+        Pool der nicht zugeordneten Kapitel auf.
+        """
         registry = {}
         content_dir = self.book_path / "content"
-        
-        # Sicherstellen, dass der content-Ordner existiert, bevor wir suchen
-        if not content_dir.exists():
-            return registry
-            
-        for p in content_dir.rglob("*.md"):
-            # Wir ignorieren nur noch versteckte Systemordner innerhalb von content
-            if not any(x.startswith(".") for x in p.parts):
-                # Der relative Pfad MUSS weiterhin ab book_path gebildet werden, 
-                # da die _quarto.yml die Pfade inkl. "content/..." erwartet!
-                rel_path = p.relative_to(self.book_path).as_posix()
-                
-                title = self.extract_title_from_md(p)
-                if title: 
-                    content_role = self.extract_content_role_from_md(p)
-                    icons = []
-                    if "required" in p.parts:
-                        icons.append("📌")
-                    if content_role == "outline":
-                        icons.append("🧭")
-                    if icons:
-                        title = f"{' '.join(icons)} {title}"
-                    registry[rel_path] = title
-                else: 
-                    registry[rel_path] = f"[FEHLT] {p.stem}"
+
+        if content_dir.exists():
+            for p in content_dir.rglob("*.md"):
+                # Wir ignorieren nur noch versteckte Systemordner innerhalb von content
+                if not any(x.startswith(".") for x in p.parts):
+                    # Der relative Pfad MUSS weiterhin ab book_path gebildet werden,
+                    # da die _quarto.yml die Pfade inkl. "content/..." erwartet!
+                    rel_path = p.relative_to(self.book_path).as_posix()
+
+                    title = self.extract_title_from_md(p)
+                    if title:
+                        content_role = self.extract_content_role_from_md(p)
+                        icons = []
+                        if "required" in p.parts:
+                            icons.append("📌")
+                        if content_role == "outline":
+                            icons.append("🧭")
+                        if icons:
+                            title = f"{' '.join(icons)} {title}"
+                        registry[rel_path] = title
+                    else:
+                        registry[rel_path] = f"{MISSING_TITLE_LABEL} {p.stem}"
+
+        for p in self.book_path.glob("*.md"):
+            rel_path = p.name
+            if rel_path in registry:
+                continue
+            title = self.extract_title_from_md(p)
+            registry[rel_path] = title if title else f"{MISSING_TITLE_LABEL} {p.stem}"
+
         return registry
 
     def extract_content_role_from_md(self, filepath):
@@ -292,7 +315,7 @@ class QuartoYamlEngine:
 
             fallback_title = title_registry.get(rel_path, Path(rel_path).stem)
             if isinstance(fallback_title, str):
-                fallback_title = fallback_title.replace("[FEHLT] ", "")
+                fallback_title = fallback_title.replace(f"{MISSING_TITLE_LABEL} ", "")
 
             if self.ensure_required_frontmatter(full_path, fallback_title):
                 healed.append(rel_path)
@@ -300,7 +323,8 @@ class QuartoYamlEngine:
         return healed
 
     def prepare_file_for_render(self, filepath, fallback_title=None):
-        """Auto-Healing vor Render: Pflicht-Frontmatter, versteckte ``---`` und verwaiste ``:::``."""
+        """Auto-Healing vor Render: Pflicht-Frontmatter, versteckte ``---``,
+        verwaiste ``:::`` und render-fragile relative Bildpfade."""
         filepath = Path(filepath)
         changes = []
 
@@ -323,7 +347,14 @@ class QuartoYamlEngine:
                     f"Verwaiste schließende ':::'-Marker entfernt ({locs})"
                 )
 
-            if repaired or removed_orphan_lines:
+            new_content, image_changes = mas_repair_fragile_relative_image_refs(
+                content, filepath.parent, self.book_path
+            )
+            if image_changes:
+                content = new_content
+                changes.extend(image_changes)
+
+            if repaired or removed_orphan_lines or image_changes:
                 with open(filepath, "w", encoding="utf-8") as f:
                     f.write(content)
         except (OSError, ValueError, TypeError) as e:
@@ -346,7 +377,7 @@ class QuartoYamlEngine:
 
             fallback_title = title_registry.get(rel_path, Path(rel_path).stem)
             if isinstance(fallback_title, str):
-                fallback_title = fallback_title.replace("[FEHLT] ", "")
+                fallback_title = fallback_title.replace(f"{MISSING_TITLE_LABEL} ", "")
 
             file_changes = self.prepare_file_for_render(full_path, fallback_title)
             if file_changes:

@@ -251,3 +251,44 @@ def test_analyze_health_still_finds_real_hidden_tripledash(tmp_path: Path) -> No
         "Sollte einen versteckten Trennstrich-Fehler haben"
 
     assert analysis["is_healthy"] is False
+
+
+def test_analyze_health_flags_fragile_relative_image_ref(tmp_path: Path) -> None:
+    """Regression fuer den realen GrammarGraph-Vorfall: ein Bildpfad relativ
+    zur Datei (statt root-relativ mit '/') wird als Befund gemeldet, weil er
+    den Render-Kopiervorgang nach processed/ nicht ueberlebt -- unabhaengig
+    davon, ob das Bild aktuell existiert."""
+    book = tmp_path / "book"
+    _write(book / "index.md", _valid_markdown("Index"))
+    _write(
+        book / "content" / "required" / "Titel.md",
+        _valid_markdown("Titel") + "\n![Deckblatt](img/Deckblatt.png)\n",
+    )
+
+    doctor = BookDoctor(book, {"content/required/Titel.md": "Titel"})
+
+    analysis = doctor.analyze_health(["content/required/Titel.md"], 0)
+
+    messages = analysis["issues_by_path"].get("content/required/Titel.md", [])
+    fragile_messages = [m for m in messages if "FRAGILER BILDPFAD" in m]
+    assert len(fragile_messages) == 1
+    assert "img/Deckblatt.png" in fragile_messages[0]
+    assert analysis["is_healthy"] is False
+
+
+def test_analyze_health_accepts_root_relative_image_ref(tmp_path: Path) -> None:
+    book = tmp_path / "book"
+    _write(book / "index.md", _valid_markdown("Index"))
+    _write(
+        book / "content" / "required" / "Titel.md",
+        _valid_markdown("Titel") + "\n![Deckblatt](/img/Deckblatt.png)\n",
+    )
+
+    doctor = BookDoctor(book, {"content/required/Titel.md": "Titel"})
+
+    analysis = doctor.analyze_health(["content/required/Titel.md"], 0)
+
+    messages = analysis["issues_by_path"].get("content/required/Titel.md", [])
+    fragile_messages = [m for m in messages if "FRAGILER BILDPFAD" in m]
+    assert fragile_messages == []
+    assert analysis["is_healthy"] is True

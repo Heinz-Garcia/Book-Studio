@@ -152,7 +152,6 @@ class MenuManager:
         apply_menu_theme(menu_bar)
 
         for label, items in [
-            ("Datei", MENU_FILE),
             ("Export", MENU_EXPORT),
             ("Bearbeiten", MENU_EDIT),
             ("Ansicht", MENU_VIEW),
@@ -163,7 +162,35 @@ class MenuManager:
             self._populate(sub, items)
             menu_bar.add_cascade(label=label, menu=sub)
 
+        # "Datei" wird gesondert gebaut: enthaelt das dynamische
+        # "Letzte aktive Projekte"-Untermenue (siehe _build_file_menu).
+        menu_bar.insert_cascade(0, label="Datei", menu=self._build_file_menu(menu_bar))
+
         self.studio.root.config(menu=menu_bar)
+
+    def _build_file_menu(self, parent):
+        """Baut das 'Datei'-Menue inkl. dynamischem 'Letzte aktive
+        Projekte'-Untermenue (per `postcommand` bei jedem Oeffnen neu
+        befuellt, da sich die Liste waehrend der Sitzung aendert)."""
+        menu = self._create_menu(parent)
+        recent_menu = self._create_menu(menu)
+        recent_menu.configure(postcommand=lambda: self._refresh_recent_projects_menu(recent_menu))
+        menu.add_cascade(label="📁 Letzte aktive Projekte", menu=recent_menu)
+        menu.add_separator()
+        self._populate(menu, MENU_FILE)
+        return menu
+
+    def _refresh_recent_projects_menu(self, menu_widget):
+        menu_widget.delete(0, "end")
+        entries = self.studio.get_recent_books() if hasattr(self.studio, "get_recent_books") else []
+        if not entries:
+            menu_widget.add_command(label="(keine)", state="disabled")
+            return
+        for entry in entries:
+            menu_widget.add_command(
+                label=entry["label"],
+                command=lambda k=entry["key"]: self.studio.open_recent_book(k),
+            )
 
     def _build_tools_items(self) -> list:
         """Erzeugt die Tools-Menue-Items inkl. dynamischer Plugin-Eintraege.

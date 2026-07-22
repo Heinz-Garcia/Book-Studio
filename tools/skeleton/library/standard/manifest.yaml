@@ -3,6 +3,9 @@ label: Standard (vollständiges Front- und Backmatter)
 description: Vollständiges Set aus Klappentext, Impressum, Einleitung, Glossar und
   weiteren wiederkehrenden Pflichtseiten (Mapping Band_Stoffwechselgesundheit).
 files:
+- path: content/required/Deckblatt.md
+  title: Deckblatt
+  order: '5'
 - path: content/required/Titel.md
   title: Titel
   order: '10'
@@ -43,3 +46,8 @@ files:
   title: Vorlagen-Referenz
   optional: true
   include_in_tree: false
+- path: typst-show.typ
+  title: Typst-Titelblock unterdrücken
+  include_in_tree: false
+  description: Ueberschreibt Quartos automatisches Titelblock-Partial (Titel/Autor/Datum
+    vor dem ersten Kapitel), damit das Deckblatt wirklich die erste Seite ist.

@@ -11,12 +11,13 @@ JSON-Datei als Profil geladen wird. `restore()` nutzt jetzt
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import session_manager
-from session_manager import SessionManager
+from session_manager import SessionManager, MAX_RECENT_BOOKS
 
 
 def _make_studio(tmp_path: Path, profile_name):
@@ -139,3 +140,99 @@ def test_save_falls_back_to_module_logger_without_studio_hook(tmp_path):
         mgr.save()
 
     mock_warn.assert_called_once()
+
+
+# --- "Letzte aktive Projekte": recent_books wird gepflegt/aufgeloest -------
+
+
+def _make_recent_studio(tmp_path: Path, current_book=None):
+    root = tmp_path
+    return SimpleNamespace(
+        _session_state_path=tmp_path / "session_state.json",
+        base_path=root,
+        projects_root_path=root,
+        current_book=current_book,
+        current_profile_name=None,
+        last_export_options={},
+    )
+
+
+def _make_book(tmp_path: Path, name: str) -> Path:
+    book = tmp_path / name
+    (book / "_quarto.yml").parent.mkdir(parents=True, exist_ok=True)
+    (book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    return book
+
+
+def test_save_adds_active_book_to_recent_books(tmp_path: Path):
+    book = _make_book(tmp_path, "Band_A")
+    studio = _make_recent_studio(tmp_path, current_book=book)
+    mgr = SessionManager(studio)
+
+    mgr.save()
+
+    state = json.loads(studio._session_state_path.read_text(encoding="utf-8"))
+    assert state["recent_books"] == ["Band_A"]
+
+
+def test_save_moves_reopened_book_to_front_without_duplicating(tmp_path: Path):
+    book_a = _make_book(tmp_path, "Band_A")
+    book_b = _make_book(tmp_path, "Band_B")
+    studio = _make_recent_studio(tmp_path, current_book=book_a)
+    mgr = SessionManager(studio)
+    mgr.save()
+    studio.current_book = book_b
+    mgr.save()
+    studio.current_book = book_a
+    mgr.save()
+
+    state = json.loads(studio._session_state_path.read_text(encoding="utf-8"))
+    assert state["recent_books"] == ["Band_A", "Band_B"]
+
+
+def test_save_caps_recent_books_at_max(tmp_path: Path):
+    studio = _make_recent_studio(tmp_path, current_book=None)
+    mgr = SessionManager(studio)
+    for i in range(MAX_RECENT_BOOKS + 5):
+        book = _make_book(tmp_path, f"Band_{i}")
+        studio.current_book = book
+        mgr.save()
+
+    state = json.loads(studio._session_state_path.read_text(encoding="utf-8"))
+    assert len(state["recent_books"]) == MAX_RECENT_BOOKS
+    # Neuestes zuerst.
+    assert state["recent_books"][0] == f"Band_{MAX_RECENT_BOOKS + 4}"
+
+
+def test_get_recent_books_excludes_current_and_missing_folders(tmp_path: Path):
+    book_a = _make_book(tmp_path, "Band_A")
+    book_b = _make_book(tmp_path, "Band_B")
+    studio = _make_recent_studio(tmp_path, current_book=book_a)
+    mgr = SessionManager(studio)
+
+    session_manager._session_state_service.write_session_state(
+        studio._session_state_path,
+        {"recent_books": ["Band_A", "Band_B", "Band_Deleted"]},
+    )
+
+    entries = mgr.get_recent_books()
+
+    keys = [e["key"] for e in entries]
+    assert "Band_A" not in keys  # aktuell aktives Buch wird ausgeblendet
+    assert "Band_Deleted" not in keys  # Ordner existiert nicht mehr
+    assert keys == ["Band_B"]
+    assert entries[0]["path"] == book_b
+    assert entries[0]["label"] == "Band_B"
+
+
+def test_get_recent_books_returns_empty_without_session_path(tmp_path: Path):
+    studio = SimpleNamespace(current_book=None)
+    mgr = SessionManager(studio)
+    assert mgr.get_recent_books() == []
+
+
+def test_get_recent_books_survives_corrupt_session_state(tmp_path: Path):
+    studio = _make_recent_studio(tmp_path, current_book=None)
+    studio._session_state_path.write_text("not json{{{", encoding="utf-8")
+    mgr = SessionManager(studio)
+    assert mgr.get_recent_books() == []

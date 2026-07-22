@@ -21,6 +21,7 @@ import pytest
 from services.workspace_service import (
     EXCLUDED_PATH_SEGMENTS,
     WorkspaceService,
+    normalize_content_root_paths,
 )
 
 
@@ -290,6 +291,115 @@ def test_service_works_without_any_backdoors(tmp_path: Path):
     assert svc.get_projects_root_path() == tmp_path
     assert svc.discover_projects() == []  # keine _quarto.yml im tmp_path
     assert svc.is_within_project(tmp_path / "x") is True
+
+
+# --- Mehrere Projekt-Wurzeln (content_root_path als Liste) ----------------
+# Regression: GrammarGraph legt Publish-Ordner in einem separaten Verzeichnis-
+# baum ab (z.B. `IDE/GrammarGraph/Publish/...`), der nie unter dem
+# Book-Studio-eigenen `content_root_path` liegt. Ohne Multi-Root-Unterstuetzung
+# sind solche Projekte in der Dropdown-Liste nie auffindbar.
+
+
+def test_normalize_content_root_paths_from_string():
+    assert normalize_content_root_paths(".") == ["."]
+
+
+def test_normalize_content_root_paths_from_list():
+    assert normalize_content_root_paths([".", "../Other", "  ", 42]) == [".", "../Other"]
+
+
+def test_normalize_content_root_paths_empty_cases():
+    assert normalize_content_root_paths("") == []
+    assert normalize_content_root_paths(None) == []
+    assert normalize_content_root_paths([]) == []
+
+
+def test_get_projects_root_paths_accepts_list(tmp_path: Path):
+    root_a = tmp_path / "root_a"
+    root_b = tmp_path / "root_b"
+    root_a.mkdir()
+    root_b.mkdir()
+    studio = _make_studio(tmp_path, tmp_path)
+    svc = WorkspaceService(
+        studio,
+        read_config=lambda: {"content_root_path": [str(root_a), str(root_b)]},
+    )
+    assert svc.get_projects_root_paths() == [root_a.resolve(), root_b.resolve()]
+    # get_projects_root_path() bleibt abwärtskompatibel: erste Wurzel.
+    assert svc.get_projects_root_path() == root_a.resolve()
+
+
+def test_get_projects_root_paths_skips_invalid_entries_but_keeps_valid(tmp_path: Path):
+    root_a = tmp_path / "root_a"
+    root_a.mkdir()
+    studio = _make_studio(tmp_path, tmp_path)
+    svc = WorkspaceService(
+        studio,
+        read_config=lambda: {"content_root_path": [str(root_a), str(tmp_path / "nope")]},
+    )
+    assert svc.get_projects_root_paths() == [root_a.resolve()]
+
+
+def test_get_projects_root_paths_falls_back_when_all_invalid(tmp_path: Path):
+    studio = _make_studio(tmp_path, tmp_path)
+    svc = WorkspaceService(
+        studio,
+        read_config=lambda: {"content_root_path": [str(tmp_path / "nope")]},
+    )
+    assert svc.get_projects_root_paths() == [tmp_path]
+
+
+def test_discover_projects_scans_multiple_roots(tmp_path: Path):
+    """Regression fuer den GrammarGraph-Publish-Bug: ein Buch ausserhalb des
+    Haupt-Roots muss gefunden werden, wenn es als zweite Wurzel konfiguriert ist."""
+    main_root = tmp_path / "book_studio_repo"
+    external_root = tmp_path / "grammargraph_publish"
+    main_root.mkdir()
+    external_root.mkdir()
+    _touch_yml(main_root, "Band_Dummy/_quarto.yml")
+    _touch_yml(external_root, "Publish_Foo/_quarto.yml")
+
+    studio = SimpleNamespace(
+        base_path=tmp_path,
+        projects_root_path=main_root,
+        projects_root_paths=[main_root, external_root],
+    )
+    svc = WorkspaceService(studio)
+    found = {p.name for p in svc.discover_projects()}
+    assert found == {"Band_Dummy", "Publish_Foo"}
+
+
+def test_discover_projects_dedupes_across_roots(tmp_path: Path):
+    """Ueberlappende Wurzeln (z.B. ein Root ist Unterordner eines anderen)
+    duerfen dasselbe Buch nicht doppelt liefern."""
+    root = tmp_path / "root"
+    root.mkdir()
+    _touch_yml(root, "Band_Dummy/_quarto.yml")
+    sub_root = root / "Band_Dummy"
+
+    studio = SimpleNamespace(
+        base_path=tmp_path,
+        projects_root_path=root,
+        projects_root_paths=[root, sub_root.parent],
+    )
+    svc = WorkspaceService(studio)
+    found = [p.name for p in svc.discover_projects()]
+    assert found == ["Band_Dummy"]
+
+
+def test_is_within_project_checks_all_roots(tmp_path: Path):
+    root_a = tmp_path / "root_a"
+    root_b = tmp_path / "root_b"
+    root_a.mkdir()
+    root_b.mkdir()
+    studio = SimpleNamespace(
+        base_path=tmp_path,
+        projects_root_path=root_a,
+        projects_root_paths=[root_a, root_b],
+    )
+    svc = WorkspaceService(studio)
+    assert svc.is_within_project(root_b / "some_book" / "file.md") is True
+    assert svc.is_within_project(tmp_path / "elsewhere" / "file.md") is False
 
 
 if __name__ == "__main__":

@@ -89,6 +89,7 @@ MENU_EDIT = [
 MENU_VIEW = [
     MenuItem(label="🔍 Preview öffnen", command="open_preview"),
     MenuItem(label="🔄 Titel neu laden", command="refresh_ui_titles"),
+    MenuItem(label="📁 Projekte neu laden", command="reload_projects"),
     MenuSeparator(),
     MenuItem(label="🧹 Status-Filter zurücksetzen", command="reset_status_filter"),
 ]

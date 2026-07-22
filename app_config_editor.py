@@ -41,7 +41,7 @@ class AppConfigEditor(tk.Toplevel):
         self._dirty_controller = DirtyStateController(self, self._base_title)
         self.config_data = self._load_config()
 
-        self.content_root_var = tk.StringVar(value=str(self.config_data.get("content_root_path", self.DEFAULTS["content_root_path"])))
+        self.content_root_var = tk.StringVar(value=self._serialize_sources(self.config_data.get("content_root_path", self.DEFAULTS["content_root_path"])))
         self.resolved_content_root_var = tk.StringVar(value="")
         self.log_font_size_var = tk.StringVar(value=str(self._sanitize_font_size(self.config_data.get("log_font_size", self.DEFAULTS["log_font_size"]))))
         self.abort_on_first_preflight_error_var = tk.BooleanVar(value=bool(self.config_data.get("abort_on_first_preflight_error", self.DEFAULTS["abort_on_first_preflight_error"])))
@@ -159,10 +159,10 @@ class AppConfigEditor(tk.Toplevel):
 
         ttk.Label(wrapper, text="Studio-Konfiguration", font=("Segoe UI Semibold", 11)).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
 
-        ttk.Label(wrapper, text="Projekt-Root (content_root_path):").grid(row=1, column=0, sticky="w", pady=6)
+        ttk.Label(wrapper, text="Projekt-Roots (content_root_path, „; “ getrennt):").grid(row=1, column=0, sticky="w", pady=6)
         root_entry = ttk.Entry(wrapper, textvariable=self.content_root_var, width=58)
         root_entry.grid(row=1, column=1, sticky="we", pady=6)
-        ttk.Button(wrapper, text="Ordner...", style="Tool.TButton", command=self._browse_root).grid(row=1, column=2, sticky="e", padx=(8, 0), pady=6)
+        ttk.Button(wrapper, text="Ordner +", style="Tool.TButton", command=self._browse_root).grid(row=1, column=2, sticky="e", padx=(8, 0), pady=6)
 
         ttk.Label(wrapper, text="Aktuell aufgelöst:", font=("Segoe UI", 8, "bold")).grid(row=2, column=0, sticky="nw", pady=(0, 6))
         ttk.Label(
@@ -255,9 +255,13 @@ class AppConfigEditor(tk.Toplevel):
         self._update_resolved_content_root_display()
 
     def _browse_root(self):
-        selected = filedialog.askdirectory(parent=self, title="Projekt-Root auswählen")
-        if selected:
-            self.content_root_var.set(selected)
+        selected = filedialog.askdirectory(parent=self, title="Projekt-Root hinzufügen")
+        if not selected:
+            return
+        current = self._parse_sources(self.content_root_var.get())
+        if selected not in current:
+            current.append(selected)
+        self.content_root_var.set("; ".join(current))
 
     def _add_prep_source_folder(self):
         selected = filedialog.askdirectory(parent=self, title="Merge-Quellordner hinzufügen")
@@ -280,7 +284,7 @@ class AppConfigEditor(tk.Toplevel):
 
     def _collect_values(self):
         return {
-            "content_root_path": self.content_root_var.get().strip() or ".",
+            "content_root_path": self._parse_sources(self.content_root_var.get()) or ["."],
             "log_font_size": self.log_font_size_var.get().strip() or "9",
             "abort_on_first_preflight_error": bool(self.abort_on_first_preflight_error_var.get()),
             "abort_on_first_render_colon_warning": bool(self.abort_on_first_render_colon_warning_var.get()),
@@ -298,15 +302,18 @@ class AppConfigEditor(tk.Toplevel):
         self._dirty_controller.refresh(self._collect_values())
 
     def _update_resolved_content_root_display(self):
-        root_value = self.content_root_var.get().strip() or "."
-        root_path = Path(root_value).expanduser()
-        if not root_path.is_absolute():
-            root_path = self.config_path.parent / root_path
-        root_path = root_path.resolve()
-        if root_path.exists() and root_path.is_dir():
-            self.resolved_content_root_var.set(str(root_path))
-        else:
-            self.resolved_content_root_var.set(f"{root_path}  (⚠ ungültig)")
+        raw_roots = self._parse_sources(self.content_root_var.get()) or ["."]
+        lines = []
+        for raw_value in raw_roots:
+            root_path = Path(raw_value).expanduser()
+            if not root_path.is_absolute():
+                root_path = self.config_path.parent / root_path
+            root_path = root_path.resolve()
+            if root_path.exists() and root_path.is_dir():
+                lines.append(str(root_path))
+            else:
+                lines.append(f"{root_path}  (⚠ ungültig)")
+        self.resolved_content_root_var.set("\n".join(lines))
 
     def _reset_defaults(self):
         self.content_root_var.set(self.DEFAULTS["content_root_path"])
@@ -324,13 +331,20 @@ class AppConfigEditor(tk.Toplevel):
     def _save(self):
         values = self._collect_values()
 
-        root_value = values["content_root_path"]
-        root_path = Path(root_value).expanduser()
-        if not root_path.is_absolute():
-            root_path = (self.config_path.parent / root_path)
-        root_path = root_path.resolve()
-        if not root_path.exists() or not root_path.is_dir():
-            messagebox.showerror("Ungültiger Root-Pfad", f"Der gewählte content_root_path ist kein existierender Ordner:\n{root_path}")
+        invalid_roots = []
+        for root_value in values["content_root_path"]:
+            root_path = Path(root_value).expanduser()
+            if not root_path.is_absolute():
+                root_path = (self.config_path.parent / root_path)
+            root_path = root_path.resolve()
+            if not root_path.exists() or not root_path.is_dir():
+                invalid_roots.append(str(root_path))
+        if invalid_roots:
+            messagebox.showerror(
+                "Ungültiger Root-Pfad",
+                "Folgende content_root_path-Einträge sind kein existierender Ordner:\n"
+                + "\n".join(invalid_roots),
+            )
             return
 
         try:

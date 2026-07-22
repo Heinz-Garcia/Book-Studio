@@ -156,6 +156,94 @@ def test_resolve_populate_plan_respects_include_optional(tmp_path: Path) -> None
     assert widmung_opt_in.will_copy is True
 
 
+def test_resolve_populate_plan_file_overrides_force_include_optional(tmp_path: Path) -> None:
+    """Pro-Datei-Override im Populate-Dialog (Checkbox) hat Vorrang vor dem
+    globalen optional-Default: eine einzelne optionale Datei laesst sich
+    gezielt mitnehmen, ohne `include_optional` fuer ALLE optionalen Slots
+    einzuschalten."""
+    book = _create_book(tmp_path)
+    manifest = load_manifest(_standard_profile())
+    base = build_populate_plan(manifest, book, include_diff=False)
+
+    resolved = resolve_populate_plan(
+        base,
+        conflict_choice="skip",
+        missing_only=False,
+        include_optional=False,
+        file_overrides={"content/required/Widmung.md": True},
+    )
+
+    widmung = next(line for line in resolved if line.rel_path.endswith("Widmung.md"))
+    template = next(line for line in resolved if line.rel_path.endswith("Template.md"))
+    assert widmung.will_copy is True
+    # Andere optionale Slots bleiben von der gezielten Ausnahme unberuehrt.
+    assert template.will_copy is False
+
+
+def test_resolve_populate_plan_file_overrides_force_skip_required_file(tmp_path: Path) -> None:
+    """Umgekehrter Fall: eine normalerweise kopierte Pflicht-Datei laesst
+    sich gezielt abwaehlen, ohne den globalen Konflikt-/Missing-Only-Modus
+    fuer alle anderen Dateien zu aendern."""
+    book = _create_book(tmp_path)
+    manifest = load_manifest(_standard_profile())
+    base = build_populate_plan(manifest, book, include_diff=False)
+
+    resolved = resolve_populate_plan(
+        base,
+        conflict_choice="skip",
+        missing_only=False,
+        include_optional=False,
+        file_overrides={"content/required/Einleitung.md": False},
+    )
+
+    einleitung = next(line for line in resolved if line.rel_path.endswith("Einleitung.md"))
+    titel = next(line for line in resolved if line.rel_path.endswith("Titel.md"))
+    assert einleitung.will_copy is False
+    assert titel.will_copy is True
+
+
+def test_populate_book_respects_dialog_file_overrides(tmp_path: Path, monkeypatch) -> None:
+    """End-to-End: Der (gemockte) Populate-Dialog liefert einen Pro-Datei-
+    Override zurueck; `populate_book` muss ihn beim tatsaechlichen Kopieren
+    respektieren, obwohl die globalen Regler etwas anderes vorgeben wuerden."""
+    from tools.skeleton import dialog as dialog_module
+    from tools.skeleton import populate as populate_module
+
+    book = _create_book(tmp_path)
+
+    def fake_ask_populate_confirmation(*_args, **_kwargs):
+        return dialog_module.PopulateDialogResult(
+            confirmed=True,
+            conflict_choice="skip",
+            missing_only=False,
+            include_optional=False,
+            # Globale Regel wuerde Einleitung.md kopieren (neu) und Widmung.md
+            # (optional) ueberspringen -- die Overrides drehen genau das um.
+            file_overrides={
+                "content/required/Einleitung.md": False,
+                "content/required/Widmung.md": True,
+            },
+        )
+
+    monkeypatch.setattr(
+        populate_module, "ask_populate_confirmation", fake_ask_populate_confirmation
+    )
+
+    result = populate_book(
+        book,
+        profile_dir=_standard_profile(),
+        conflict_mode="ask",
+        interactive_parent=object(),
+    )
+
+    assert result.ok
+    assert "content/required/Einleitung.md" not in result.copied
+    assert "content/required/Einleitung.md" in result.skipped
+    assert "content/required/Widmung.md" in result.copied
+    assert not (book / "content/required/Einleitung.md").exists()
+    assert (book / "content/required/Widmung.md").is_file()
+
+
 def test_cli_populate_accepts_include_optional_flag(tmp_path: Path, monkeypatch) -> None:
     """CLI-Flag `--include-optional` wird als kwarg an `run()` durchgereicht."""
     from tools.skeleton import populate as populate_module
