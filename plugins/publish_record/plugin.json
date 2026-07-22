@@ -1,0 +1,16 @@
+{
+  "name": "publish_record",
+  "label": "Publish Record",
+  "description": "Durchgängiges Buchprojekt-Log (Import, Qualität, Render).",
+  "entrypoint": "plugins.publish_record:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 6,
+  "show_in_menu": false,
+  "hooks": {
+    "after_book_import": "on_after_book_import",
+    "after_doctor_check": "on_after_doctor_check",
+    "after_render": "on_after_render"
+  }
+}

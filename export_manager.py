@@ -51,6 +51,11 @@ class ExportManager:
     def _after(self, delay, callback):
         return self._adapter.schedule_ui(callback, delay=delay)
 
+    def _fire_after_render_hook(self, fmt, artifact_path: str) -> None:
+        fire_hooks = getattr(self.studio, "_fire_plugin_hooks_after_render", None)
+        if callable(fire_hooks):
+            fire_hooks(format=fmt, artifact_path=artifact_path)
+
     def _set_status(self, text, fg):
         self._adapter.update_status(text, fg)
 
@@ -957,11 +962,16 @@ class ExportManager:
                     self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
                     # Phase 2 / 2.3c voll: OS-spezifischer Open im Service.
                     _RenderService.open_rendered_artifact(path)
+                    self._fire_after_render_hook(output_fmt, path)
 
                 self._after(0, _on_success)
             else:
-                self._after(0, lambda: self._log(f"✅ ERFOLG: {fmt.upper()} im export/ Ordner generiert.", "success"))
-                self._after(0, lambda: self._set_status("Render erfolgreich", _StatusFg.SUCCESS))
+                def _on_success_no_artifact(output_fmt=fmt):
+                    self._log(f"✅ ERFOLG: {output_fmt.upper()} im export/ Ordner generiert.", "success")
+                    self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
+                    self._fire_after_render_hook(output_fmt, "")
+
+                self._after(0, _on_success_no_artifact)
         except (tk.TclError, OSError, subprocess.SubprocessError) as post_err:
             self._after(0, lambda err=post_err: self._log(f"⚠️  Post-Render-Fehler: {err}", "warning"))
 

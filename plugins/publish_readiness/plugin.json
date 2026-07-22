@@ -1,0 +1,10 @@
+{
+  "name": "publish_readiness",
+  "label": "Publish Readiness…",
+  "description": "Qualitätsbefunde mit Owner und Fix-Spur (Quality Contract).",
+  "entrypoint": "plugins.publish_readiness:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 15
+}

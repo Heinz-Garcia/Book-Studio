@@ -1,29 +1,22 @@
-"""Skeleton-Editor — dünner Plugin-Adapter für tools.skeleton.editor."""
+"""Skeleton-Editor — Plugin-Adapter für tools.skeleton.editor."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any, Optional
 
+from services.plugin_runtime import ensure_repo_on_path, tool_exists
 
-def _ensure_repo_on_path() -> Path:
-    root = Path(__file__).resolve().parents[2]
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    return root
+_REPO_ROOT = ensure_repo_on_path(__file__)
 
 
 def run(studio: Optional[Any] = None, **kwargs) -> int:
-    _ensure_repo_on_path()
     from tools.skeleton.editor import run as editor_run
 
     return editor_run(studio=studio, **kwargs)
 
 
 def is_available() -> bool:
-    root = Path(__file__).resolve().parents[2]
-    return (root / "tools" / "skeleton" / "editor.py").is_file()
+    return tool_exists(_REPO_ROOT, "tools", "skeleton", "editor.py")
 
 
 __all__ = ["run", "is_available"]

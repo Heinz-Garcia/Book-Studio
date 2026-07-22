@@ -45,6 +45,26 @@ def test_discover_empty_dir(tmp_path):
     assert loader.discover() == []
 
 
+def test_manifest_with_hooks(tmp_path):
+    _write_plugin(
+        tmp_path,
+        "hooked",
+        hooks={"after_book_import": "on_after_book_import"},
+    )
+    loader = PluginLoader(tmp_path)
+    info = loader.get("hooked")
+    assert info is not None
+    assert info.hooks == {"after_book_import": "on_after_book_import"}
+
+
+def test_show_in_menu_false(tmp_path):
+    _write_plugin(tmp_path, "hidden", show_in_menu=False)
+    loader = PluginLoader(tmp_path)
+    info = loader.get("hidden")
+    assert info is not None
+    assert info.show_in_menu is False
+
+
 def test_discover_nonexistent_dir(tmp_path):
     loader = PluginLoader(tmp_path / "does_not_exist")
     assert loader.discover() == []
@@ -144,7 +164,7 @@ def test_discover_resolves_known_entrypoint(tmp_path):
     assert plugins[0].callable() == "ok"
 
 
-def any_str() -> str:
+def any_str(studio=None, **kwargs) -> str:
     return "ok"
 
 

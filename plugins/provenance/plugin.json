@@ -1,0 +1,14 @@
+{
+  "name": "provenance",
+  "label": "Provenance",
+  "description": "GrammarGraph-Export-Metadaten beim Import übernehmen.",
+  "entrypoint": "plugins.provenance:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 5,
+  "show_in_menu": false,
+  "hooks": {
+    "after_book_import": "on_after_book_import"
+  }
+}

@@ -5,7 +5,8 @@ Datenstrukturen definiert. Diese Datei enthaelt nur noch die
 Wandlung Daten -> Tk-Menu-Widgets.
 
 Plugins werden per `PluginLoader` selbstregistriert und erscheinen
-unter dem Top-Level-Menue „Plugins“ (nicht unter Tools).
+unter dem Top-Level-Menue „Plugins“ (nicht unter Tools). Ausführung
+läuft über `services.plugin_runtime.PluginExecutor`.
 
 Verweise:
 - .doc/gui_architektur.md (Modulgrenzen)
@@ -95,39 +96,11 @@ class MenuManager:
         return _missing_command
 
     def _make_plugin_runner(self, plugin_name: str):
-        """Erzeugt einen Runner fuer ein Plugin.
-
-        Delegiert an `services.plugin_loader.PluginLoader.discover()`.
-        Wenn das Plugin nicht gefunden wird, wird ein No-Op-Runner
-        geliefert, der eine Warnung loggt (kein Crash).
-        """
-        from services.plugin_loader import PluginLoader
+        """Erzeugt einen Runner für ein Plugin (via PluginExecutor)."""
+        from services.plugin_runtime import PluginExecutor
 
         def _runner():
-            loader = PluginLoader(self._plugins_dir)
-            info = loader.get(plugin_name)
-            if info is None:
-                if hasattr(self.studio, "log"):
-                    self.studio.log(
-                        f"⚠️ Plugin nicht gefunden: {plugin_name}",
-                        "warning",
-                    )
-                return
-            if info.load_error:
-                if hasattr(self.studio, "log"):
-                    self.studio.log(
-                        f"⚠️ Plugin {plugin_name} nicht ladbar: {info.load_error}",
-                        "warning",
-                    )
-                return
-            try:
-                info.callable(self.studio)
-            except Exception as exc:  # pragma: no cover - defensive
-                if hasattr(self.studio, "log"):
-                    self.studio.log(
-                        f"❌ Plugin {plugin_name} abgestuerzt: {exc}",
-                        "error",
-                    )
+            PluginExecutor(self._plugins_dir).run(plugin_name, self.studio)
 
         return _runner
 
@@ -218,7 +191,9 @@ class MenuManager:
         infos = [
             i
             for i in loader.discover()
-            if i.menu_section == DEFAULT_PLUGIN_MENU_SECTION and i.load_error is None
+            if i.menu_section == DEFAULT_PLUGIN_MENU_SECTION
+            and i.load_error is None
+            and i.show_in_menu
         ]
         return [
             MenuItem(label=info.label, command=f"plugin:{info.name}")

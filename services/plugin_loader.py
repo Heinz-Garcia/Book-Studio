@@ -15,7 +15,13 @@ Plugin-Manifest-Schema (JSON):
         "author": "...",
         "menu_section": "Plugins",
         "order": 10,
-        "config": "tools/file_indexer/config.toml"
+        "config": "tools/<feature>/config.toml"
+    }
+
+Optionale Hooks (Lifecycle, ohne Core-Kopplung):
+
+    "hooks": {
+        "after_book_import": "on_after_book_import"
     }
 
 Discovery:
@@ -65,6 +71,8 @@ class PluginInfo:
     menu_section: str = "Plugins"
     order: int = 100
     config: str = ""
+    hooks: dict[str, str] = field(default_factory=dict)
+    show_in_menu: bool = True
     manifest_path: Path = field(default_factory=Path)
     # Das aufgeloeste Entrypoint-Callable (None, wenn noch nicht
     # aufgeloest oder Aufloesung fehlgeschlagen).
@@ -178,6 +186,13 @@ class PluginLoader:
             order = int(order_raw)
         except (TypeError, ValueError):
             order = 100
+        hooks_raw = raw.get("hooks", {})
+        hooks: dict[str, str] = {}
+        if isinstance(hooks_raw, dict):
+            hooks = {str(k): str(v) for k, v in hooks_raw.items() if v}
+        show_in_menu = raw.get("show_in_menu", True)
+        if not isinstance(show_in_menu, bool):
+            show_in_menu = bool(show_in_menu)
         return PluginInfo(
             name=name,
             label=str(raw["label"]),
@@ -188,6 +203,8 @@ class PluginLoader:
             menu_section=str(raw.get("menu_section", "Plugins")),
             order=order,
             config=str(raw.get("config", "") or ""),
+            hooks=hooks,
+            show_in_menu=show_in_menu,
             manifest_path=manifest_path,
             callable=callable_obj,
             load_error=err,

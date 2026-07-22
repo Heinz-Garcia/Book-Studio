@@ -8,8 +8,10 @@ Autonomes Modul unter `tools/skeleton/` — Menü-Einträge über Plugins:
 
 | Plugin | Menü |
 |--------|------|
-| `skeleton_populate` | Tools → Plugins → *Skeleton ins Buch übernehmen…* |
-| `skeleton_editor` | Tools → Plugins → *Skeleton-Bibliothek bearbeiten…* |
+| `skeleton_populate` | Plugins → *Skeleton ins Buch übernehmen…* |
+| `skeleton_editor` | Plugins → *Skeleton-Bibliothek bearbeiten…* |
+
+Implementierung: `tools/skeleton/` · Adapter: `plugins/skeleton_*` · siehe `plugins/README.md`
 
 ## Populate (Phase 1)
 

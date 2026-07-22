@@ -691,38 +691,21 @@ class BookStudio:
             fg=_StatusFg.SUCCESS)
         self.log(f"📖 Publish-Verzeichnis importiert: {self._import_path.name}", _LogLevel.SUCCESS)
 
+        imported_from = self._import_path
         self._import_path = None  # einmalig
-        self._maybe_offer_skeleton_populate()
+        self._fire_plugin_hooks_after_book_import(import_path=imported_from)
 
-    def _maybe_offer_skeleton_populate(self) -> None:
-        """Skeleton-Pool Batch 4 (weiche UX, kein Zwang): nach einem Import ohne
-        vorhandene Pflichtseiten einmalig fragen, ob der Standard-Rahmen aus der
-        Skeleton-Bibliothek übernommen werden soll.
+    def _fire_plugin_hooks_after_book_import(self, *, import_path=None) -> None:
+        """Delegiert an Plugin-Hooks (z. B. Skeleton-Populate-Angebot)."""
+        from services.plugin_runtime import fire_plugin_hooks
 
-        Kein Auto-Populate: Es wird ausschließlich bei Zustimmung der reguläre
-        Populate-Dialog geöffnet (`plugins.skeleton_populate.run`). Beide
-        Skeleton-Menüpunkte (Populate/Editor) bleiben davon unberührt sichtbar —
-        siehe `.doc/skeleton-pool.md` (kein Rollen-Split User/Admin).
-        """
-        if not self.current_book:
-            return
-        required_dir = self.current_book / "content" / "required"
-        if required_dir.is_dir() and any(required_dir.glob("*.md")):
-            return  # Pflichtseiten schon vorhanden -- nicht nerven
-        if not messagebox.askyesno(
-            "Skeleton-Rahmen übernehmen?",
-            "Für dieses Buch wurden noch keine Pflichtseiten (Titel, Klappentext, "
-            "Impressum, Einleitung, …) gefunden.\n\n"
-            "Rahmen aus der Skeleton-Bibliothek jetzt ins Buch übernehmen?",
-            parent=self.root,
-        ):
-            return
-        try:
-            from plugins.skeleton_populate import run as run_skeleton_populate
-
-            run_skeleton_populate(studio=self)
-        except (OSError, ValueError, ImportError, RuntimeError) as exc:
-            self.log(f"Skeleton-Populate-Hinweis fehlgeschlagen: {exc}", _LogLevel.ERROR)
+        plugins_dir = Path(__file__).resolve().parent / "plugins"
+        fire_plugin_hooks(
+            "after_book_import",
+            self,
+            plugins_dir=plugins_dir,
+            import_path=import_path,
+        )
 
     def reload_projects(self):
         """Scannt alle konfigurierten content_root_path-Wurzeln erneut nach
@@ -1137,11 +1120,46 @@ class BookStudio:
         # Phase 2 / Schritt 2.4b: Tree-Orchestrierung im Service.
         # Studio-Callbacks (Status/Log/Tree/Selection) wurden in der
         # Service-Init injiziert.
-        return self._services.diagnostics.run_full_health_check(
+        result = self._services.diagnostics.run_full_health_check(
             context_label=context_label,
             all_paths=self._get_all_used_paths(),
             tree_child_count=len(self.list_avail.get_children("")),
             emit_success_log=emit_success_log,
+        )
+        is_healthy, analysis = result
+        if analysis:
+            self._fire_plugin_hooks_after_doctor_check(
+                analysis=analysis,
+                context_label=context_label,
+            )
+        return result
+
+    def _fire_plugin_hooks_after_doctor_check(self, *, analysis, context_label) -> None:
+        from pathlib import Path
+
+        from services.plugin_runtime import fire_plugin_hooks
+
+        plugins_dir = Path(__file__).resolve().parent / "plugins"
+        fire_plugin_hooks(
+            "after_doctor_check",
+            self,
+            plugins_dir=plugins_dir,
+            analysis=analysis,
+            context_label=context_label,
+        )
+
+    def _fire_plugin_hooks_after_render(self, *, format="", artifact_path="") -> None:
+        from pathlib import Path
+
+        from services.plugin_runtime import fire_plugin_hooks
+
+        plugins_dir = Path(__file__).resolve().parent / "plugins"
+        fire_plugin_hooks(
+            "after_render",
+            self,
+            plugins_dir=plugins_dir,
+            format=format,
+            artifact_path=artifact_path,
         )
 
     def run_doctor_preflight(self, context_label, emit_success_log=False):

@@ -90,6 +90,31 @@ def test_refresh_recent_projects_menu_shows_placeholder_when_empty():
     assert add_calls[0][1]["state"] == "disabled"
 
 
+def test_make_plugin_runner_uses_plugin_executor(tmp_path):
+    import json
+
+    plugin_dir = tmp_path / "demo"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "demo",
+                "label": "Demo",
+                "entrypoint": "tests.test_plugin_loader:any_str",
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[str] = []
+    studio = SimpleNamespace(log=lambda msg, level: calls.append(level))
+    mgr = MenuManager(studio, plugins_dir=tmp_path)
+    with patch("services.plugin_runtime.PluginExecutor") as mock_executor_cls:
+        mock_executor_cls.return_value.run.return_value = True
+        mgr._make_plugin_runner("demo")()
+    mock_executor_cls.assert_called_once_with(tmp_path)
+    mock_executor_cls.return_value.run.assert_called_once_with("demo", studio)
+
+
 def test_refresh_recent_projects_menu_lists_entries_and_wires_open_recent_book():
     opened = []
     studio = SimpleNamespace(

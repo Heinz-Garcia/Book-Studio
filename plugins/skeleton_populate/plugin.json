@@ -6,5 +6,8 @@
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 10
+  "order": 10,
+  "hooks": {
+    "after_book_import": "on_after_book_import"
+  }
 }
