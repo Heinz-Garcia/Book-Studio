@@ -44,16 +44,17 @@ def test_list_profiles_includes_standard():
 def test_load_standard_manifest_has_expected_files():
     manifest = load_manifest(_standard_profile())
     assert manifest.name == "standard"
-    assert len(manifest.files) == 15
+    assert len(manifest.files) == 16
     paths = [entry.path.replace("\\", "/") for entry in manifest.files]
     assert "content/required/Einleitung.md" in paths
     assert "content/required/Template.md" in paths
     assert "content/required/Deckblatt.md" in paths
     assert "typst-show.typ" in paths
+    assert "page.typ" in paths
     optional = [e for e in manifest.files if e.optional]
     assert len(optional) == 2
     required_non_optional = [e for e in manifest.files if not e.optional]
-    assert len(required_non_optional) == 13
+    assert len(required_non_optional) == 14
     template = next(e for e in manifest.files if e.path.endswith("Template.md"))
     assert template.include_in_tree is False
 
@@ -71,9 +72,9 @@ def test_populate_copies_files_and_updates_yaml(tmp_path: Path) -> None:
     )
 
     # Batch 2: optionale Slots (Widmung, Template) werden standardmäßig
-    # NICHT kopiert -> 13 der 15 Manifest-Einträge sind "optional: false".
+    # NICHT kopiert -> 14 der 16 Manifest-Einträge sind "optional: false".
     assert result.ok
-    assert len(result.copied) == 13
+    assert len(result.copied) == 14
     assert len(result.skipped) == 2
     assert "content/required/Widmung.md" in result.skipped
     assert "content/required/Template.md" in result.skipped
@@ -121,7 +122,7 @@ def test_populate_include_optional_copies_optional_slots(tmp_path: Path) -> None
     )
 
     assert result.ok
-    assert len(result.copied) == 15
+    assert len(result.copied) == 16
     assert len(result.skipped) == 0
     assert (book / "content/required/Widmung.md").is_file()
     assert (book / "content/required/Template.md").is_file()
@@ -149,8 +150,8 @@ def test_populate_skip_existing_file(tmp_path: Path) -> None:
     assert result.ok
     assert "content/required/Einleitung.md" in result.skipped
     assert "# Alt" in existing.read_text(encoding="utf-8")
-    # 13 nicht-optionale Einträge minus 1 Konflikt-Skip (Einleitung) = 12.
-    assert len(result.copied) == 12
+    # 14 nicht-optionale Einträge minus 1 Konflikt-Skip (Einleitung) = 13.
+    assert len(result.copied) == 13
 
 
 def test_populate_replace_existing_file(tmp_path: Path) -> None:
@@ -240,6 +241,30 @@ def test_populate_copies_typst_show_partial_without_corrupting_it(tmp_path: Path
     content = typst_show.read_text(encoding="utf-8")
     assert not content.startswith("---")
     assert "#show: doc => article(" in content
+
+
+def test_populate_copies_page_typ_partial_without_corrupting_it(tmp_path: Path) -> None:
+    """Regression (analog zu typst-show.typ): `page.typ` ist ebenfalls eine
+    Pandoc-Template-Datei ohne YAML-Frontmatter-Konzept -- darf beim
+    Populate nicht durch `ensure_required_frontmatter` mit einem
+    '---'-Block korrumpiert werden (siehe Paperback-Layout-Profil,
+    tools/layout_profiles/catalog.py)."""
+    book = _create_empty_book(tmp_path)
+    result = populate_book(
+        book,
+        profile_dir=_standard_profile(),
+        conflict_mode="skip",
+        skip_dialog=True,
+    )
+
+    assert result.ok
+    assert "page.typ" in result.copied
+    page_typ = book / "page.typ"
+    assert page_typ.is_file()
+    content = page_typ.read_text(encoding="utf-8")
+    assert not content.startswith("---")
+    assert "#set page(" in content
+    assert "typst-page-width" in content
 
 
 def test_plugin_manifest_discoverable(tmp_path: Path) -> None:

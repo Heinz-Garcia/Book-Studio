@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Optional
 
+from tools.publish_map.schema import RENDER_ARCHIVE_DIR as RENDER_ARCHIVE_DIR_NAME
+
 
 @dataclass(frozen=True)
 class GeneratedPdf:
@@ -84,9 +86,13 @@ def _iter_export_pdfs(book_path: Path) -> Iterable[Path]:
         if not child.is_dir():
             continue
         name = child.name
-        if name != "_book" and not name.startswith("_book_"):
-            continue
-        yield from child.rglob("*.pdf")
+        if name == "_book" or name.startswith("_book_"):
+            yield from child.rglob("*.pdf")
+        elif name == RENDER_ARCHIVE_DIR_NAME:
+            # Dauerhafte, pro-Publish-Input archivierte Renders (siehe
+            # tools.publish_map.store.snapshot_render_dir) — Fallback-
+            # Discovery, falls publish_map.json verloren geht/verändert wird.
+            yield from child.rglob("*.pdf")
 
 
 def find_generated_pdfs(

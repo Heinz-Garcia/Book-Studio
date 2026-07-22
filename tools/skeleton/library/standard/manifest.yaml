@@ -51,3 +51,9 @@ files:
   include_in_tree: false
   description: Ueberschreibt Quartos automatisches Titelblock-Partial (Titel/Autor/Datum
     vor dem ersten Kapitel), damit das Deckblatt wirklich die erste Seite ist.
+- path: page.typ
+  title: Typst-Seitenformat (Custom-Trimm)
+  include_in_tree: false
+  description: Ueberschreibt Quartos Standard-Seiteneinrichtung um optionale
+    page-width/page-height-Metadaten (z. B. fuer das Paperback-Layout-Profil) -
+    faellt auf das normale papersize-Preset zurueck, wenn nicht gesetzt.

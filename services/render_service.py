@@ -90,6 +90,7 @@ PROCESSED_TREE_PREFIX = "processed/"
 SAFE_RENDER_ARG_TO = "--to"
 SAFE_RENDER_ARG_PROFILE = "--profile-name"
 SAFE_RENDER_ARG_EXTRA_OPTS = "--extra-format-options-json"
+SAFE_RENDER_ARG_ARCHIVE_DIR = "--archive-dir"
 
 
 # Log-Status-Werte, die `execute_render` an die `finalize_render_log`-
@@ -297,13 +298,14 @@ class RenderService:
         target_fmt: str,
         profile_name: Optional[str] = None,
         extra_format_options: Optional[dict] = None,
+        archive_dir: Optional[Path] = None,
     ) -> list:
         """Baut die argv-Liste fuer den sicheren Render-Subprocess.
 
         Aufbau:
         `[executable, str(safe_script), str(book), "--to", target_fmt]`
-        plus optional `--profile-name <name>` und
-        `--extra-format-options-json <json>`.
+        plus optional `--profile-name <name>`,
+        `--extra-format-options-json <json>` und `--archive-dir <path>`.
 
         Die Funktion ist *pur* (kein Subprocess-Aufruf, kein I/O).
         `extra_format_options` wird via `json.dumps(..., ensure_ascii=False,
@@ -325,6 +327,8 @@ class RenderService:
                 SAFE_RENDER_ARG_EXTRA_OPTS,
                 _json.dumps(extra_format_options, ensure_ascii=False, separators=(",", ":")),
             ])
+        if archive_dir:
+            cmd.extend([SAFE_RENDER_ARG_ARCHIVE_DIR, str(archive_dir)])
         return cmd
 
     # --- Processed-Tree-Mapping (Phase 2 / 2.3b) -----------------------
@@ -466,6 +470,42 @@ class RenderService:
             out_dir_name = "_book"
         return book / "export" / out_dir_name
 
+    # Suffix-Whitelist fuer `pick_latest_artifact` (analog zu
+    # `export_manager.ExportManager._ALLOWED_RENDER_SUFFIXES`, Bug R3:
+    # nur bekannte Render-Ergebnisse duerfen ausgewaehlt/geoeffnet werden).
+    ALLOWED_RENDER_SUFFIXES: dict[str, set] = {
+        "typst": {".pdf", ".typ"},
+        "pdf": {".pdf"},
+        "html": {".html"},
+        "epub": {".epub"},
+        "docx": {".docx"},
+    }
+    DEFAULT_ALLOWED_SUFFIXES: set = {".pdf", ".html", ".epub", ".docx"}
+
+    @classmethod
+    def pick_latest_artifact(cls, dir_path: Optional[Path], fmt: str) -> Optional[Path]:
+        """Waehlt die zuletzt geaenderte Datei in `dir_path`, deren Suffix
+        in der Whitelist fuer `fmt` enthalten ist (`None`, falls keine
+        passt oder `dir_path` nicht existiert).
+
+        Fuer Archiv-Ordner (`tools.publish_map.store.snapshot_render_dir`)
+        gedacht, die mehrere zeitstempel-benannte Artefakte enthalten
+        koennen - im Unterschied zu `export_manager._pick_rendered_artifact`,
+        das nur eine Datei pro festem Pfad erwartet und alphabetisch waehlt.
+        """
+        if not dir_path or not Path(dir_path).is_dir():
+            return None
+        allowed = cls.ALLOWED_RENDER_SUFFIXES.get(
+            (fmt or "").lower(), cls.DEFAULT_ALLOWED_SUFFIXES
+        )
+        candidates = [
+            p for p in Path(dir_path).iterdir()
+            if p.is_file() and p.suffix.lower() in allowed
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda p: p.stat().st_mtime)
+
     @staticmethod
     def open_rendered_artifact(path: str, *, system_name: Optional[str] = None) -> None:
         """Plattform-spezifisches Oeffnen einer gerenderten Datei.
@@ -507,6 +547,7 @@ class RenderService:
         popen_factory: Optional[PopenFactory] = None,
         popen_killer: Optional[PopenKiller] = None,
         on_safe_command_built: Optional[Callable[[list], None]] = None,
+        archive_dir: Optional[Path] = None,
     ) -> tuple:
         """Kapselt den Subprocess-Aufruf von `quarto_render_safe.py`.
 
@@ -571,6 +612,7 @@ class RenderService:
             target_fmt=target_fmt,
             profile_name=profile_name,
             extra_format_options=extra_format_options,
+            archive_dir=archive_dir,
         )
         if on_safe_command_built is not None:
             try:
@@ -669,6 +711,7 @@ __all__ = [
     "RENDER_STATUS_ABORTED_ON_COLON",
     "RENDER_STATUS_FAILED",
     "RENDER_STATUS_SUCCESS",
+    "SAFE_RENDER_ARG_ARCHIVE_DIR",
     "SAFE_RENDER_ARG_EXTRA_OPTS",
     "SAFE_RENDER_ARG_PROFILE",
     "SAFE_RENDER_ARG_TO",

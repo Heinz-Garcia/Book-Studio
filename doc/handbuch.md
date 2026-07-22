@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** Juli 2026 · **Version:** 1.8.0 („Mapping Manager & Publish Map“)
+**Stand:** Juli 2026 · **Version:** 1.13.0 („Skeleton Unleashed“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -186,6 +186,26 @@ Die **Icon-Legende** im mittleren Bereich erklärt die Symbole.
 3. **Export-Dialog** — Format (typst, pdf, html, docx) und Template
 4. **Temp-Klon** — Buch wird in eine temporäre Kopie kopiert; Pre-Processing und Quarto laufen nur dort
 5. **Quarto-Render** — Originalprojekt (`_quarto.yml`, `processed/`) bleibt unverändert
+
+### Layout-Profile (Export-Dialog)
+
+Im Export-Dialog wählst du neben Format und Template auch ein **Layout-Profil** — es bestimmt Papierformat, Schriftgröße und Zeilenabstand:
+
+| Profil | Papierformat | Zeilenabstand | Besonderheit |
+|--------|--------------|----------------|--------------|
+| **Standard** | A5 | 1,0 | Ausgewogenes Layout |
+| **Taschenbuch / Book on Demand** | A5 | 1,2 | Typisch für Print-on-Demand |
+| **(Pb) Paperback** | 135×215mm (Custom-Trimm) | 1,2 | Bundsteg-Rand (innen 20mm/außen 16mm), 36 Zeilen/Seite, 62 Zeichen/Zeile |
+| **Verlagsdruck** | A5 | 1,15 | Schusterjungen-/Hurenkinder-Kontrolle |
+| **Manuskript / Lektorat** | A5 | 2,0 | Großzügiger Abstand zum Korrekturlesen |
+
+Der **Zeilenabstand** lässt sich unabhängig vom gewählten Profil per eigenem Dropdown feinjustieren.
+
+**„(Pb) Paperback“ — funktioniert ohne Zusatzschritt.** Anders als die übrigen Profile setzt Paperback ein **exaktes** Seitenformat statt nur ein Papierformat-Preset. Das Studio richtet die dafür nötigen Vorlagendateien beim Rendern **automatisch** ein:
+
+- Fehlen sie im Buchprojekt, kopiert das Studio sie in die temporäre Render-Kopie — dein Original bleibt beim Render selbst unberührt.
+- Nach einem erfolgreichen Paperback-Render tauchen zwei zusätzliche Dateien (`page.typ`, `typst-show.typ`) in deinem Buchordner auf. Das ist **beabsichtigt** (sie wirken nur, solange Paperback aktiv ist, und beschleunigen künftige Paperback-Renders) — kein Grund zur Sorge, wenn du sie im Ordner siehst.
+- Kein manuelles Bearbeiten von `_quarto.yml` nötig, auf keinem Buchprojekt.
 
 ### Wenn der Vorabcheck „pausiert“
 
@@ -730,6 +750,8 @@ Der **Mapping Manager** verbindet den **Publish-Input** (GrammarGraph-Import ode
 
 Im Gegensatz zur flachen PDF-Liste (früher „Generierte Bücher“, jetzt versteckt) siehst du hier die **Herkunft** und kannst mehrere Import-/Render-Zyklen nebeneinander vergleichen.
 
+**Jeder Render bekommt eine eigene, dauerhafte Datei.** Renderst du dieselbe Produktionslinie mehrfach — auch mit unterschiedlichem Format oder Layout-Profil (z. B. erst BoD, dann Paperback) —, überschreibt der neue Render **nicht** den vorherigen. Alle Renders derselben Produktionslinie bleiben nebeneinander bestehen und erscheinen hier als eigene Zeilen.
+
 ### Aufruf
 
 **Plugins → Mapping Manager…**
@@ -751,14 +773,24 @@ Jede Linie enthält Buchtitel, Provenance-Zusammenfassung (falls vorhanden) und 
 
 | Spalte | Bedeutung |
 |--------|-----------|
-| **PDF** | Dateiname der Ausgabe unter `export/_book/` |
+| **PDF** | Dateiname der Ausgabe — zeitstempel-eindeutig, liegt dauerhaft unter `export/publish_renders/<Snapshot-ID>/` (siehe unten) |
+| **Layout-Profil** | Verwendetes Layout-Profil (z. B. „(Pb) Paperback“, „Taschenbuch / Book on Demand“) |
 | **Template** | Gewähltes Render-Template (z. B. `EXT: typstdoc`) |
 | **Format** | Export-Format (z. B. `typst`, `pdf`, `html`) |
-| **Profil** | Aktives Studio-Profil zum Render-Zeitpunkt |
+| **Profil** | Aktives Quarto-`--profile-name` zum Render-Zeitpunkt — **nicht** dasselbe wie Layout-Profil |
 | **Datum** | Zeitstempel des Render-Laufs |
 | **Status** | `OK` — Datei vorhanden; `fehlt` — Pfad in der Map, Datei gelöscht oder verschoben |
 
 **Doppelklick** oder **Enter** auf eine Zeile öffnet die PDF (wie der Button **PDF öffnen**).
+
+### Zwei Speicherorte, zwei Zwecke
+
+| Ort | Zweck | Verhalten |
+|-----|-------|-----------|
+| `export/_book/…pdf` | Komfort-Kopie für „direkt nach dem Render öffnen“ und Zwischenablage | Wird bei **jedem** Render überschrieben — nicht die Quelle des Mapping Managers |
+| `export/publish_renders/<Snapshot-ID>/…pdf` | Dauerhaftes Archiv, eine Datei pro Render | **Nie** überschrieben — das ist, was der Mapping Manager anzeigt |
+
+Falls dein Buchprojekt beide Vorlagendateien für „(Pb) Paperback“ noch nicht hatte, legt das Studio sie beim ersten Paperback-Render automatisch an (siehe [Kapitel 6, Layout-Profile](#sec-speichern-rendern)) — kein manueller Schritt nötig.
 
 ### Schaltflächen
 
@@ -781,7 +813,7 @@ publish_map.json
     ├── id, origin, import_path, book_title, provenance
     └── renders[]           ← Kinder pro erfolgreichem Render
         ├── format, template, layout_profile, profile_name
-        ├── artifact_path   ← Pfad zur PDF
+        ├── artifact_path   ← Pfad zur dauerhaften PDF-Kopie (export/publish_renders/…)
         └── metadata        ← Buch-Metadaten zum Render-Zeitpunkt
 ```
 
@@ -805,8 +837,8 @@ Du musst die Map **nicht manuell** pflegen — Plugin-Hooks schreiben bei:
 ### Empfohlener Einsatz
 
 1. Nach **mehreren GrammarGraph-Importen** — welche PDF gehört zu welchem Export?
-2. Nach **Template-Wechseln** — Format/Template/Profil pro Lauf nachvollziehen
-3. Vor **Übergabe an Lektorat** — fehlende PDFs (`fehlt`) erkennen und neu rendern
+2. Nach **Template-/Layout-Profil-Wechseln** — z. B. BoD- und Paperback-Render derselben Produktionslinie direkt nebeneinander vergleichen
+3. Vor **Übergabe an Lektorat/Druckerei** — fehlende PDFs (`fehlt`) erkennen und neu rendern
 
 **Mapping Manager ersetzt nicht Publish Readiness** — er verwaltet Ausgaben und Herkunft, nicht Qualitätsbefunde.
 
@@ -818,6 +850,8 @@ Du musst die Map **nicht manuell** pflegen — Plugin-Hooks schreiben bei:
 MeinBuch/
 ├── _quarto.yml          ← Kapitelreihenfolge (vom Studio geschrieben)
 ├── index.md             ← Buch-Einstieg
+├── page.typ             ← optional, nur bei "(Pb) Paperback": Custom-Seitenformat (auto-angelegt)
+├── typst-show.typ       ← optional, nur bei "(Pb) Paperback"/Skeleton: Typst-Vorlagen-Override (auto-angelegt)
 ├── content/             ← Markdown-Kapitel
 │   ├── kapitel-01.md
 │   └── required/        ← optionale Pflichtdateien (oft per Skeleton befüllt)
@@ -828,6 +862,8 @@ MeinBuch/
 │   ├── publish_map.json           ← Produktionslinien (Snapshot → PDFs)
 │   └── reports/                   ← Doctor-/Readiness-Reports (JSON)
 ├── export/              ← Render-Ausgabe
+│   ├── _book/                     ← Komfort-Kopie, wird bei jedem Render überschrieben
+│   └── publish_renders/<Snapshot-ID>/   ← dauerhaftes Archiv, eine Datei pro Render (Mapping Manager)
 └── .backups/            ← Struktur-Backups
 
 Book-Studio-Installation (Auszug):

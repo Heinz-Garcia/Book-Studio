@@ -9,6 +9,12 @@ from datetime import datetime
 from pathlib import Path
 
 from pre_processor import PreProcessor
+from render_artifact_store import (
+    archive_render_artifacts,
+    copy_render_artifacts,
+    ensure_typst_template_partials,
+    read_output_dir,
+)
 from yaml_engine import QuartoYamlEngine
 
 
@@ -33,6 +39,7 @@ class TriggerRequest:
     log_file: Path | None = None
     timeout_sec: int | None = None
     strict: bool = False
+    archive_dir: Path | None = None
 
 
 def _emit(message: str, *, err: bool = False, log_handle=None, run_id=None, job_id=None):
@@ -191,40 +198,6 @@ _IGNORED_DIR_NAMES = {
 }
 
 
-def _read_output_dir(book_path: Path) -> str:
-    """Liest `output-dir` aus der `_quarto.yml` (Quarto-Default sonst)."""
-    yaml_path = book_path / "_quarto.yml"
-    if not yaml_path.exists():
-        return "export/_book"
-    try:
-        import yaml as _yaml
-
-        data = _yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
-    except (OSError, ValueError, TypeError):
-        return "export/_book"
-    project = data.get("project") if isinstance(data, dict) else None
-    if not isinstance(project, dict):
-        return "export/_book"
-    return str(project.get("output-dir", "export/_book"))
-
-
-def _copy_render_artifacts(temp_book: Path, source_book: Path, output_dir: str) -> None:
-    """Kopiert nur Render-Ergebnisse zurück – Original bleibt unangetastet."""
-    temp_output = temp_book / output_dir
-    if temp_output.exists():
-        destination_output = source_book / output_dir
-        destination_output.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(temp_output, destination_output, dirs_exist_ok=True)
-
-    root_suffixes = {".typ", ".pdf", ".html", ".docx", ".tex"}
-    for artifact in temp_book.iterdir():
-        if not artifact.is_file():
-            continue
-        if artifact.suffix.lower() not in root_suffixes:
-            continue
-        shutil.copy2(artifact, source_book / artifact.name)
-
-
 def _copy_book_to_temp(source_book: Path, temp_root: Path) -> Path:
     destination = temp_root / source_book.name
 
@@ -289,7 +262,7 @@ def run_unmanned_trigger(request: TriggerRequest):
         # aus und kopieren nur die Render-Artefakte zurück (analog zu
         # quarto_render_safe.run_safe_render). Das Original behält seine
         # _quarto.yml und sein processed/-Verzeichnis unangetastet.
-        original_output_dir = _read_output_dir(request.book_path)
+        original_output_dir = read_output_dir(request.book_path)
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
             temp_book = _copy_book_to_temp(request.book_path, temp_root)
@@ -303,6 +276,11 @@ def run_unmanned_trigger(request: TriggerRequest):
                 save_gui_state=False,
                 extra_format_options=extra_opts,
             )
+            # Custom-Trimm-Layoutprofile deklarieren `template-partials` in
+            # extra_opts - noetige Dateien (page.typ/typst-show.typ) im
+            # Temp-Klon aus der Skeleton-Bibliothek ergaenzen, falls nicht
+            # schon vom Buchprojekt selbst mitgebracht.
+            ensure_typst_template_partials(temp_book, extra_opts, target_fmt)
 
             _emit(
                 f"🖨️  Starte Render: {target_fmt}",
@@ -321,7 +299,11 @@ def run_unmanned_trigger(request: TriggerRequest):
                     _emit(line.rstrip(), log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
 
             if render_code == 0:
-                _copy_render_artifacts(temp_book, request.book_path, original_output_dir)
+                copy_render_artifacts(temp_book, request.book_path, original_output_dir)
+                if request.archive_dir is not None:
+                    archive_render_artifacts(
+                        temp_book, request.archive_dir, output_dir=original_output_dir
+                    )
                 _emit("✅ Render erfolgreich", log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
                 return 0
 
@@ -392,6 +374,11 @@ def _build_parser():
     parser.add_argument("--log-file", help="Optionaler Pfad für persistentes Logfile.")
     parser.add_argument("--timeout-sec", type=int, help="Optionales Render-Timeout in Sekunden.")
     parser.add_argument("--strict", action="store_true", help="Bricht bei Warnungen (z. B. verwaiste Fußnotenmarker) mit Code 3 ab.")
+    parser.add_argument(
+        "--archive-dir",
+        help="Optionaler dauerhafter Ordner (pro Publish-Input), in den das Render-Ergebnis "
+        "zusätzlich mit zeitstempel-eindeutigem Dateinamen kopiert wird.",
+    )
     return parser
 
 
@@ -414,6 +401,7 @@ def main():
             log_file=Path(args.log_file).resolve() if args.log_file else None,
             timeout_sec=args.timeout_sec,
             strict=bool(args.strict),
+            archive_dir=Path(args.archive_dir).resolve() if args.archive_dir else None,
         )
 
         if not request.book_path.exists():

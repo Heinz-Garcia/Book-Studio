@@ -145,6 +145,20 @@ def test_build_command_minimal():
     assert cmd[4] == "html"
     assert "--profile-name" not in cmd
     assert "--extra-format-options-json" not in cmd
+    assert "--archive-dir" not in cmd
+
+
+def test_build_command_with_archive_dir():
+    cmd = RenderService.build_safe_render_command(
+        executable="python",
+        safe_script=Path("/s/q.py"),
+        book=Path("/b/A"),
+        target_fmt="html",
+        archive_dir=Path("/b/A/export/publish_renders/snap-1"),
+    )
+    assert "--archive-dir" in cmd
+    idx = cmd.index("--archive-dir") + 1
+    assert cmd[idx] == str(Path("/b/A/export/publish_renders/snap-1"))
 
 
 def test_build_command_with_profile_name():

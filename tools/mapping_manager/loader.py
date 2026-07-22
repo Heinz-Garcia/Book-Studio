@@ -66,6 +66,7 @@ def load_renders(book_path: Path, snapshot_id: str) -> list[RenderView]:
                 at=str(render.get("at") or ""),
                 at_display=_format_at_display(str(render.get("at") or "")),
                 exists=pdf_path.is_file() if artifact else False,
+                notes=str(render.get("notes") or ""),
             )
         )
     views.sort(key=lambda r: r.at, reverse=True)

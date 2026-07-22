@@ -11,6 +11,12 @@ import yaml
 
 from pre_processor import PreProcessor
 from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues
+from render_artifact_store import (
+    archive_render_artifacts,
+    copy_render_artifacts,
+    ensure_typst_template_partials,
+    read_output_dir,
+)
 from yaml_engine import QuartoYamlEngine
 
 
@@ -22,8 +28,6 @@ IGNORED_DIR_NAMES = {
     "processed",
     "export",
 }
-
-ROOT_OUTPUT_SUFFIXES = {".typ", ".pdf", ".html", ".docx", ".tex"}
 
 
 def _iter_tree_paths(tree_data):
@@ -147,38 +151,6 @@ def _copy_book_to_temp(source_book: Path, temp_root: Path) -> Path:
     return destination
 
 
-def _read_output_dir(book_path: Path) -> str:
-    yaml_path = book_path / "_quarto.yml"
-    if not yaml_path.exists():
-        return "export/_book"
-
-    try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError, TypeError, ValueError):
-        return "export/_book"
-
-    project = data.get("project") if isinstance(data, dict) else None
-    if not isinstance(project, dict):
-        return "export/_book"
-    output_dir = project.get("output-dir", "export/_book")
-    return str(output_dir)
-
-
-def _copy_render_artifacts(temp_book: Path, source_book: Path, output_dir: str) -> None:
-    temp_output = temp_book / output_dir
-    if temp_output.exists():
-        destination_output = source_book / output_dir
-        destination_output.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(temp_output, destination_output, dirs_exist_ok=True)
-
-    for artifact in temp_book.iterdir():
-        if not artifact.is_file():
-            continue
-        if artifact.suffix.lower() not in ROOT_OUTPUT_SUFFIXES:
-            continue
-        shutil.copy2(artifact, source_book / artifact.name)
-
-
 def _ensure_typst_book_author(book_path: Path) -> None:
     """orange-book erwartet `author` als String; ohne Wert knallt Typst (Array-Default).
 
@@ -247,15 +219,23 @@ def run_safe_render(
     output_format: str,
     profile_name: str | None = None,
     extra_format_options: dict | None = None,
+    archive_dir: Path | None = None,
 ) -> int:
     """Rendert ein Quarto-Buch in einer temporären Spiegelung.
 
     B4: Footnote-Parameter (`footnote_mode`, `enable_footnote_backlinks`)
     wurden entfernt — das Fußnoten-System ist abgeschaltet. Pandoc-
     konforme `[^1]`-Marker werden unverändert weitergereicht.
+
+    `archive_dir`: optionaler, dauerhafter Pfad (pro Publish-Input), in
+    den das Render-Ergebnis zusätzlich mit zeitstempel-eindeutigem
+    Dateinamen kopiert wird — siehe `render_artifact_store.
+    archive_render_artifacts`. Der feste Convenience-Pfad
+    (`copy_render_artifacts`) bleibt davon unberührt und wird weiterhin
+    bei jedem Render überschrieben.
     """
     project_root = Path(__file__).resolve().parent
-    original_output_dir = _read_output_dir(book_path)
+    original_output_dir = read_output_dir(book_path)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
@@ -276,6 +256,13 @@ def run_safe_render(
             save_gui_state=False,
             extra_format_options=extra_format_options,
         )
+        # Custom-Trimm-Layoutprofile (z. B. "(Pb) Paperback") deklarieren
+        # `template-partials` in extra_format_options - die referenzierten
+        # Dateien (page.typ/typst-show.typ) muessen im Temp-Klon liegen,
+        # damit Quarto sie findet. Automatisch aus der Skeleton-Bibliothek
+        # ergaenzt, falls das Buchprojekt sie nicht schon selbst mitbringt -
+        # kein manuelles Setup pro Projekt noetig.
+        ensure_typst_template_partials(temp_book, extra_format_options, output_format)
         # B1/R2: Wir restaurieren _quarto.yml NICHT mehr im temp_book-Klon.
         # Der Klon wird ohnehin am Ende von `with tempfile.TemporaryDirectory`
         # gelöscht — die Restauration war toter Code, der zudem den falschen
@@ -292,7 +279,9 @@ def run_safe_render(
         if result.returncode != 0:
             return result.returncode
 
-        _copy_render_artifacts(temp_book, book_path, original_output_dir)
+        copy_render_artifacts(temp_book, book_path, original_output_dir)
+        if archive_dir is not None:
+            archive_render_artifacts(temp_book, archive_dir, output_dir=original_output_dir)
         return 0
 
 
@@ -304,6 +293,11 @@ def main() -> int:
     parser.add_argument(
         "--extra-format-options-json",
         help="JSON-Objekt mit zusätzlichen format-Optionen, die nur im temporären Render-Klon injiziert werden.",
+    )
+    parser.add_argument(
+        "--archive-dir",
+        help="Optionaler dauerhafter Ordner (pro Publish-Input), in den das Render-Ergebnis "
+        "zusätzlich mit zeitstempel-eindeutigem Dateinamen kopiert wird.",
     )
     args = parser.parse_args()
 
@@ -329,6 +323,7 @@ def main() -> int:
         args.output_format,
         profile_name=args.profile_name,
         extra_format_options=extra_format_options,
+        archive_dir=Path(args.archive_dir).resolve() if args.archive_dir else None,
     )
 
 

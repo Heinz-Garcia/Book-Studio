@@ -32,3 +32,29 @@ def reveal_in_explorer(path: Path) -> None:
 
 def delete_pdf(path: Path) -> None:
     delete_generated_pdf(path)
+
+
+def rename_pdf(path: Path, new_name: str) -> Path:
+    """Benennt eine PDF-Datei im selben Ordner um. Gibt den neuen Pfad
+    zurück. Lehnt Pfadtrennzeichen (Verzeichniswechsel), leere Namen,
+    Nicht-PDF-Ziele und ein bereits existierendes Ziel ab."""
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Datei nicht gefunden: {path}")
+
+    candidate = (new_name or "").strip()
+    if not candidate:
+        raise ValueError("Neuer Dateiname darf nicht leer sein.")
+    if "/" in candidate or "\\" in candidate or candidate in (".", ".."):
+        raise ValueError(f"Ungültiger Dateiname (kein Verzeichniswechsel erlaubt): {candidate!r}")
+    if not candidate.lower().endswith(".pdf"):
+        candidate += ".pdf"
+
+    dest = path.parent / candidate
+    if dest == path:
+        return path
+    if dest.exists():
+        raise ValueError(f"Datei existiert bereits: {dest.name}")
+
+    path.rename(dest)
+    return dest

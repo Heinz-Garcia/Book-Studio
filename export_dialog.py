@@ -24,7 +24,7 @@ class ExportDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
 
-        w, h = 520, 420
+        w, h = 520, 480
         center_on_parent(self, parent, w, h)
 
         self.result = None

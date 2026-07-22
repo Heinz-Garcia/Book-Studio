@@ -902,6 +902,12 @@ class ExportManager:
             self._log(f"{'='*50}", "dim")
             self._log(f"🖨️  EXPORT PIPELINE: {target_fmt.upper()}", "header")
             self._log(f"{'='*50}", "dim")
+            try:
+                from tools.publish_map.store import ensure_active_snapshot_id
+
+                snapshot_id = ensure_active_snapshot_id(self._current_book())
+            except (ImportError, OSError, ValueError):
+                snapshot_id = ""
             self._pending_render_context = {
                 "format": base_fmt,
                 "template": selected_tpl,
@@ -909,6 +915,7 @@ class ExportManager:
                 "profile_name": self._current_profile_name() or "",
                 "layout_profile": layout_profile,
                 "linestretch": linestretch,
+                "snapshot_id": snapshot_id,
             }
             profile = None
             try:
@@ -989,6 +996,16 @@ class ExportManager:
             except Exception:
                 pass
 
+        archive_dir = None
+        snapshot_id = self._pending_render_context.get("snapshot_id")
+        if snapshot_id:
+            try:
+                from tools.publish_map.store import snapshot_render_dir
+
+                archive_dir = snapshot_render_dir(self._current_book(), snapshot_id)
+            except (ImportError, OSError, ValueError):
+                archive_dir = None
+
         return _RenderService().run_safe_render(
             target_fmt=target_fmt,
             profile_name=profile_name,
@@ -1002,6 +1019,7 @@ class ExportManager:
             has_structural_colon_occurrences=self.has_structural_colon_occurrences,
             on_abort_requested=_on_abort_requested,
             on_safe_command_built=_on_safe_command_built,
+            archive_dir=archive_dir,
         )
 
     # =========================================================================
@@ -1017,24 +1035,43 @@ class ExportManager:
             # B1/R3: Nur whitelisted Suffixe öffnen, nicht alle `*{ext}`.
             artifact = self._pick_rendered_artifact(out_dir, fmt)
 
+            # Dauerhafte Archiv-Kopie (pro Publish-Input, siehe
+            # `render_artifact_store.archive_render_artifacts`) für den
+            # publish_record-Hook auflösen — der feste `out_dir`-Pfad
+            # oben wird beim naechsten Render ueberschrieben und darf
+            # deshalb nicht in `publish_map.json` landen.
+            archived_artifact = None
+            snapshot_id = self._pending_render_context.get("snapshot_id")
+            if snapshot_id:
+                try:
+                    from tools.publish_map.store import snapshot_render_dir
+
+                    archive_dir = snapshot_render_dir(self._current_book(), snapshot_id)
+                    archived_artifact = _RenderService.pick_latest_artifact(archive_dir, fmt)
+                except (ImportError, OSError, ValueError):
+                    archived_artifact = None
+
             if artifact is not None:
                 abs_path = str(artifact.resolve())
+                hook_path = str(archived_artifact.resolve()) if archived_artifact is not None else abs_path
 
-                def _on_success(path=abs_path, output_fmt=fmt):
+                def _on_success(path=abs_path, hook_path=hook_path, output_fmt=fmt):
                     self._copy_to_clipboard(path)
                     self._log(f"✅ ERFOLG: {output_fmt.upper()} generiert!", "success")
                     self._log(f"📋 Pfad in Zwischenablage: {path}", "success")
                     self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
                     # Phase 2 / 2.3c voll: OS-spezifischer Open im Service.
                     _RenderService.open_rendered_artifact(path)
-                    self._fire_after_render_hook(output_fmt, path)
+                    self._fire_after_render_hook(output_fmt, hook_path)
 
                 self._after(0, _on_success)
             else:
-                def _on_success_no_artifact(output_fmt=fmt):
+                hook_path = str(archived_artifact.resolve()) if archived_artifact is not None else ""
+
+                def _on_success_no_artifact(output_fmt=fmt, hook_path=hook_path):
                     self._log(f"✅ ERFOLG: {output_fmt.upper()} im export/ Ordner generiert.", "success")
                     self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
-                    self._fire_after_render_hook(output_fmt, "")
+                    self._fire_after_render_hook(output_fmt, hook_path)
 
                 self._after(0, _on_success_no_artifact)
         except (tk.TclError, OSError, subprocess.SubprocessError) as post_err:

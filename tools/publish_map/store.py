@@ -14,6 +14,7 @@ from tools.publish_map.schema import (
     MAP_FILENAME,
     ORIGIN_GRAMMARGRAPH,
     ORIGIN_LOCAL,
+    RENDER_ARCHIVE_DIR,
     SCHEMA_VERSION,
 )
 from tools.publish_record.record import read_record
@@ -108,6 +109,19 @@ def ensure_active_snapshot(book_path: Path, *, origin: str = ORIGIN_LOCAL) -> di
     return snap
 
 
+def ensure_active_snapshot_id(book_path: Path, *, origin: str = ORIGIN_LOCAL) -> str:
+    """Kurzform von `ensure_active_snapshot(...)["id"]` für Aufrufer, die
+    nur die ID brauchen (z. B. `export_manager` beim Render-Dispatch)."""
+    return str(ensure_active_snapshot(book_path, origin=origin).get("id") or "")
+
+
+def snapshot_render_dir(book_path: Path, snapshot_id: str) -> Path:
+    """Dauerhafter Archiv-Ordner für alle Renders eines Snapshots
+    (Publish-Input). Nie überschrieben — siehe `render_artifact_store.
+    archive_render_artifacts` für den Kopiervorgang dorthin."""
+    return Path(book_path) / "export" / RENDER_ARCHIVE_DIR / str(snapshot_id)
+
+
 def create_import_snapshot(
     book_path: Path,
     *,
@@ -169,6 +183,7 @@ def append_render(
         "artifact_path": str(payload.get("artifact_path") or ""),
         "record_event_id": str(payload.get("record_event_id") or ""),
         "metadata": dict(payload.get("metadata") or {}),
+        "notes": str(payload.get("notes") or ""),
     }
     renders = list(snap.get("renders") or [])
     renders.append(render)
@@ -223,6 +238,7 @@ def _append_render_to_snapshot(
         "artifact_path": str(payload.get("artifact_path") or ""),
         "record_event_id": record_event_id,
         "metadata": dict(payload.get("metadata") or {}),
+        "notes": str(payload.get("notes") or ""),
     }
     renders = list(snap.get("renders") or [])
     renders.append(render)
@@ -335,6 +351,41 @@ def remove_render(book_path: Path, snapshot_id: str, render_id: str) -> bool:
     if len(after) == len(before):
         return False
     snap["renders"] = after
+    write_map(book_path, data)
+    return True
+
+
+def update_render_fields(
+    book_path: Path,
+    snapshot_id: str,
+    render_id: str,
+    fields: dict[str, Any],
+) -> bool:
+    """Aktualisiert beliebige Felder eines bestehenden Render-Eintrags.
+
+    Für Mapping-Manager-Aktionen, die den Render-Eintrag selbst nicht
+    ersetzen, sondern nachträglich anpassen — z. B. `notes` (Notizfeld)
+    oder `artifact_path` (nach einem Umbenennen der PDF-Datei; die
+    physische Umbenennung übernimmt `tools.mapping_manager.actions.
+    rename_pdf`, diese Funktion spiegelt nur den neuen Pfad in
+    `publish_map.json`).
+    """
+    data = read_map(book_path)
+    if not data:
+        return False
+    snap = _find_snapshot(data, snapshot_id)
+    if snap is None:
+        return False
+    renders = list(snap.get("renders") or [])
+    updated = False
+    for render in renders:
+        if isinstance(render, dict) and render.get("id") == render_id:
+            render.update(fields)
+            updated = True
+            break
+    if not updated:
+        return False
+    snap["renders"] = renders
     write_map(book_path, data)
     return True
 

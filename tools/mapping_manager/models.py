@@ -33,6 +33,7 @@ class RenderView:
     at: str
     at_display: str
     exists: bool
+    notes: str = ""
 
 
 def format_snapshot_label(snap: dict[str, Any]) -> str:
@@ -60,3 +61,17 @@ def _format_at_display(at: str) -> str:
         return dt.strftime("%Y-%m-%d %H:%M")
     except ValueError:
         return at[:16]
+
+
+def layout_profile_label(layout_profile_id: str) -> str:
+    """Löst eine Layout-Profil-ID (z. B. "paperback") in ihr Anzeige-Label
+    (z. B. "(Pb) Paperback") auf — für die "Layout"-Spalte im Mapping
+    Manager, damit BoD-/Paperback-Renders derselben Produktionslinie auf
+    einen Blick unterscheidbar sind (waren vorher nur über Datum/Reihen-
+    folge zu erkennen, da `profile_name` ein anderes Feld ist: Quartos
+    eigenes `--profile-name`, unabhängig vom Layout-Profil)."""
+    if not layout_profile_id:
+        return "—"
+    from tools.layout_profiles.catalog import get_profile
+
+    return get_profile(layout_profile_id).label

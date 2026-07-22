@@ -112,3 +112,36 @@ def test_open_rendered_artifact_uses_platform_system_when_no_arg(monkeypatch):
     monkeypatch.setattr("platform.system", lambda: "Linux")
     RenderService.open_rendered_artifact("/p.pdf")
     assert called == [(("xdg-open", "/p.pdf"),)]
+
+
+# --- pick_latest_artifact ----------------------------------------------
+
+
+def test_pick_latest_artifact_returns_none_for_missing_dir(tmp_path):
+    assert RenderService.pick_latest_artifact(tmp_path / "nope", "typst") is None
+
+
+def test_pick_latest_artifact_returns_none_for_no_dir_path():
+    assert RenderService.pick_latest_artifact(None, "typst") is None
+
+
+def test_pick_latest_artifact_ignores_non_whitelisted_suffix(tmp_path):
+    (tmp_path / "poc.exe").write_bytes(b"x")
+    assert RenderService.pick_latest_artifact(tmp_path, "typst") is None
+
+
+def test_pick_latest_artifact_picks_most_recently_modified(tmp_path):
+    older = tmp_path / "Buch_20260721_234150.pdf"
+    newer = tmp_path / "Buch_20260722_115607.pdf"
+    older.write_bytes(b"old")
+    newer.write_bytes(b"new")
+    # mtime explizit setzen, damit der Test nicht von Dateisystem-Timing
+    # abhaengt (beide Dateien koennten sonst dieselbe Sekunden-Aufloesung
+    # haben).
+    import os
+
+    now = os.path.getmtime(newer)
+    os.utime(older, (now - 100, now - 100))
+
+    result = RenderService.pick_latest_artifact(tmp_path, "typst")
+    assert result == newer
