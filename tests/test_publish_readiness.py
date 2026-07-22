@@ -35,6 +35,20 @@ def test_enrich_analysis_groups_by_path():
     assert enriched[0]["line_number"] == 5
 
 
+def test_enrich_analysis_includes_warnings_without_path():
+    analysis = {
+        "is_healthy": True,
+        "error_count": 0,
+        "warning_count": 1,
+        "issues_by_path": {},
+        "warnings": ["ℹ️ 3 Dateien liegen im linken Pool und werden nicht gerendert — das ist in Ordnung."],
+    }
+    enriched = enrich_analysis(analysis)
+    assert len(enriched) == 1
+    assert enriched[0]["severity"] == "info"
+    assert enriched[0]["path"] == "—"
+
+
 def test_save_readiness_report(tmp_path):
     book = tmp_path / "book"
     book.mkdir()

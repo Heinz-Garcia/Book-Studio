@@ -693,9 +693,10 @@ Vollständige Matrix (20 Befundtypen): Entwickler-Doku `.doc/quality_contract.md
 | Button | Wirkung |
 |--------|---------|
 | **Erneut prüfen** | Buch-Doktor erneut ausführen, Dialog aktualisieren |
+| **Zur Fundstelle ➜** | Markdown-Editor an der Problemzeile öffnen (auch per Doppelklick oder Enter auf die Zeile) |
 | **Schließen** | Dialog schließen |
 
-Zum Bearbeiten: Dialog schließen, betroffene Datei in der Buchstruktur mit **Enter** öffnen (bei ☠-Markierung springt der Editor zur Problemzeile).
+Die Spalte **Zeile** zeigt die Fundstelle, sofern der Buch-Doktor sie kennt.
 
 ### Automatische Protokollierung
 

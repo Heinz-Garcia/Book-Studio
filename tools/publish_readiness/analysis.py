@@ -31,26 +31,50 @@ def enrich_issue(path: str, message: str, *, line_number: Optional[int] = None) 
     }
 
 
-def enrich_analysis(analysis: dict[str, Any]) -> list[dict[str, Any]]:
+def enrich_analysis(
+    analysis: dict[str, Any],
+    *,
+    studio: Any | None = None,
+) -> list[dict[str, Any]]:
     """Flacht issues_by_path zu angereicherten Einträgen ab."""
-    issues_by_path = analysis.get("issues_by_path") or {}
+    issues_by_path = dict(analysis.get("issues_by_path") or {})
+    if not issues_by_path and studio is not None:
+        registry = getattr(studio, "doctor_issue_registry", None) or {}
+        if isinstance(registry, dict):
+            issues_by_path = dict(registry)
+
     details_by_path = analysis.get("issue_details_by_path") or {}
     enriched: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _append(path: str, message: str, *, line_number: int | None = None) -> None:
+        msg = (message or "").strip()
+        if not msg:
+            return
+        key = (path or "—", msg)
+        if key in seen:
+            return
+        seen.add(key)
+        enriched.append(enrich_issue(path or "—", msg, line_number=line_number))
 
     for path, messages in issues_by_path.items():
         details = details_by_path.get(path) or []
         if details:
             for detail in details:
-                enriched.append(
-                    enrich_issue(
-                        path,
-                        str(detail.get("message", "")),
-                        line_number=detail.get("line_number"),
-                    )
+                _append(
+                    str(path),
+                    str(detail.get("message", "")),
+                    line_number=detail.get("line_number"),
                 )
         else:
             for message in messages:
-                enriched.append(enrich_issue(path, str(message)))
+                _append(str(path), str(message))
+
+    for message in analysis.get("errors") or []:
+        _append(_path_for_message(str(message), issues_by_path), str(message))
+
+    for message in analysis.get("warnings") or []:
+        _append(_path_for_message(str(message), issues_by_path), str(message))
 
     severity_rank = {"blocker": 0, "warning": 1, "info": 2}
     enriched.sort(
@@ -61,6 +85,15 @@ def enrich_analysis(analysis: dict[str, Any]) -> list[dict[str, Any]]:
         )
     )
     return enriched
+
+
+def _path_for_message(message: str, issues_by_path: dict) -> str:
+    """Versucht den Pfad aus issues_by_path anhand der Meldung zu finden."""
+    for path, messages in issues_by_path.items():
+        for entry in messages:
+            if entry == message or (entry and entry in message):
+                return str(path)
+    return "—"
 
 
 def build_readiness_report(
