@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** Juli 2026 · **Version:** 1.1.0 („HTML-Hilfe mit Suche“)
+**Stand:** Juli 2026 · **Version:** 1.2.0 („Publish Readiness & Buchprojekt-Workflow“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -37,6 +37,8 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 13. Typische Situationen
 14. Hilfe und Log
 15. Skeleton-Bibliothek (Vorlagen)
+16. Buchprojekt-Workflow (GrammarGraph → PDF)
+17. Publish Readiness
 
 ---
 
@@ -48,7 +50,7 @@ Oben im Dropdown **AKTIVES PROJEKT** dein Buch auswählen (Ordner mit `_quarto.y
 
 ### Schritt 2 — (Optional) Skeleton-Vorlagen übernehmen
 
-Für ein **neues oder leeres Buch**: **Tools → Plugins → Skeleton ins Buch übernehmen…**
+Für ein **neues oder leeres Buch**: **Plugins → Skeleton ins Buch übernehmen…**
 
 Kopiert Standardseiten (Klappentext, Einleitung, Impressum, …) als **eigene Dateien** ins Projekt. Details: Kapitel 15 (Skeleton-Bibliothek).
 
@@ -239,6 +241,10 @@ Typisch für importierte Dateien ohne Frontmatter (z. B. `book-master.md` aus ei
 | **F4** | Nächster Befund |
 | **Shift+F4** | Vorheriger Befund |
 | **Enter** | Datei an Problemzeile öffnen |
+
+### Publish Readiness (Überblick)
+
+Für eine **sortierte Übersicht mit Verantwortlichkeit** (wer behebt was?) nutze **Plugins → Publish Readiness…** — Details in Kapitel 17.
 
 ---
 
@@ -438,7 +444,7 @@ HTML ist **kein** zweiter Hand-Editierkanal: immer aus Markdown neu bauen (`pyth
 
 Das **Skeleton**-Feature befüllt Buchprojekte mit wiederkehrenden Seiten (Klappentext, Widmung, Einleitung, Impressum, Glossar, …). Die Logik lebt **autonom** unter `tools/skeleton/` und erscheint nur als Plugin im Menü — nicht als fester Bestandteil der Hauptoberfläche.
 
-### Zwei Menüpunkte (Tools → Plugins)
+### Zwei Menüpunkte (Plugins)
 
 | Menüpunkt | Funktion |
 |-----------|----------|
@@ -456,7 +462,7 @@ Das **Skeleton**-Feature befüllt Buchprojekte mit wiederkehrenden Seiten (Klapp
 ### Populate — Ablauf
 
 1. Aktives Buch im Dropdown wählen.
-2. **Tools → Plugins → Skeleton ins Buch übernehmen…**
+2. **Plugins → Skeleton ins Buch übernehmen…**
 3. Bei mehreren Profilen: **Profil wählen** (z. B. `standard`).
 4. Im Dialog siehst du **genau**, was passiert:
    - welche Dateien **neu** kopiert werden (landen links im Pool)
@@ -506,7 +512,7 @@ Mapping orientiert sich am Buch *Band_Stoffwechselgesundheit*. Details zu `order
 
 ### Skeleton-Bibliothek bearbeiten
 
-**Tools → Plugins → Skeleton-Bibliothek bearbeiten…**
+**Plugins → Skeleton-Bibliothek bearbeiten…**
 
 | Aktion | Wirkung |
 |--------|---------|
@@ -542,6 +548,176 @@ Technische Details für Entwickler: `tools/skeleton/README.md`.
 
 ---
 
+## 16) Buchprojekt-Workflow (GrammarGraph → PDF) {#sec-buchprojekt-workflow}
+
+Dieses Kapitel beschreibt den **empfohlenen End-to-End-Ablauf**: Nutzinhalt aus GrammarGraph (El Pitugrafi) ins Book Studio holen, mit Skeleton-Rahmen kombinieren, Struktur festlegen, Qualität prüfen und rendern.
+
+### Rollen im Überblick
+
+| Rolle | Was sie liefert |
+|-------|-----------------|
+| **GrammarGraph** | Variabler Nutzinhalt (Markdown, Bilder unter `img/`) |
+| **Book Studio** | Buchstruktur, Heilen, Render-Pipeline, Qualitätsprüfung |
+| **Skeleton** | Fixe Rahmenseiten (Klappentext, Impressum, Einleitung, …) als **Kopien** ins Projekt |
+
+**Wichtig:** Links = Datei-Pool (noch nicht gerendert). Rechts = Buchstruktur (`_quarto.yml`, wird gerendert). Nur du entscheidest, was nach rechts kommt.
+
+### Phase 1 — Import aus GrammarGraph
+
+GrammarGraph exportiert ein **Publish-Verzeichnis** (Ordner mit `.md`-Dateien, optional `img/`, `_book_studio.toml`, `grammargraph_export.json`).
+
+**Variante A — CLI-Import (typisch nach GrammarGraph-Export):**
+
+```bash
+python book_studio.py import "D:\Pfad\zum\Publish-Ordner"
+```
+
+Das Studio:
+
+1. legt bei Bedarf `_quarto.yml` und `index.md` an (Kapitelliste zunächst **leer**)
+2. lagert Inline-SVG in separate Dateien aus
+3. öffnet das Verzeichnis als aktives Buchprojekt
+4. zeigt **alle** `.md`-Dateien **links** im Pool
+
+**Variante B — bestehendes Projekt:** Ordner liegt schon unter `content_root_path` → im Dropdown **AKTIVES PROJEKT** wählen.
+
+Nach dem Import (automatisch, ohne Menü):
+
+| Datei in `bookconfig/` | Inhalt |
+|------------------------|--------|
+| `grammargraph_export.json` | **Provenance** — Export-Zeitpunkt, Modell, Herkunft |
+| `publish_record.json` | **Projekt-Log** — Import, später Doctor- und Render-Ereignisse |
+
+Fehlt `grammargraph_export.json` im Publish-Ordner, wird ein Minimal-Manifest aus `_book_studio.toml` erzeugt.
+
+### Phase 2 — Skeleton-Rahmen (optional)
+
+Wenn Pflichtseiten noch fehlen (`content/required/*.md`):
+
+- Beim **ersten Import** fragt das Studio einmalig, ob der Skeleton-Rahmen übernommen werden soll.
+- Jederzeit manuell: **Plugins → Skeleton ins Buch übernehmen…**
+
+Skeleton-Dateien landen **links** im Pool — der rechte Buchbaum bleibt unverändert. Details: Kapitel 15.
+
+### Phase 3 — Struktur aufbauen
+
+1. **Links** die gewünschten Dateien markieren (Mehrfachauswahl: **Strg+Klick**, **Umschalt+Klick**, ggf. **Strg+A**).
+2. **Hinzufügen ➡️** (mittlerer Bereich) oder **Doppelklick** → Dateien nach **rechts** in den Buchbaum.
+3. **Rechts** Reihenfolge per Drag-and-Drop oder **Hoch/Runter** anpassen; **Einrücken/Ausrücken** für Unterkapitel.
+4. Dateien mit Frontmatter-`order` (z. B. aus Skeleton) werden beim Hinzufügen **an der richtigen Position** einsortiert.
+
+### Phase 4 — Metadaten und Heilen
+
+| Schritt | Menü / Taste |
+|---------|----------------|
+| Frontmatter ergänzen | **Tools → Frontmatter ergänzen…** |
+| Buch-Metadaten (`book.author`, …) | **Tools → Quarto.yml konfigurieren…** |
+| Struktur speichern | **Strg+S** |
+| Gesundheitscheck | **Tools → Buch-Doktor ausführen** (oder automatisch beim Speichern) |
+| Qualität mit Owner-Matrix | **Plugins → Publish Readiness…** (Kapitel 17) |
+
+Typische GrammarGraph-Themen (Bildpfade `/img/…`, `---` im Text, BOX-Syntax) sind im Quality Contract dokumentiert — Publish Readiness zeigt dir **Owner** und **Fix-Spur** pro Befund.
+
+### Phase 5 — Rendern
+
+1. **F5** oder **Export → Buch rendern…**
+2. Render-Vorabcheck (Buch-Doktor) — bei ☠-Befunden: **F4** durch die Funde
+3. Export-Dialog (Format, Template)
+4. Render läuft auf einer **Temp-Kopie** — dein Original-`_quarto.yml` bleibt unberührt
+
+Nach erfolgreichem Render wird ein Eintrag in `publish_record.json` geschrieben (`render_success`).
+
+### Phase 6 — Fertige PDFs (optional)
+
+**Plugins → Generierte Bücher…** — sortierbare Liste der PDF-Ausgaben unter `export/_book/`, öffnen oder aufräumen.
+
+### Merksätze
+
+| Frage | Antwort |
+|-------|---------|
+| Warum liegt alles links nach Import? | Bewusst — du baust die Struktur selbst |
+| Muss Skeleton den rechten Baum füllen? | **Nein** — nur Kopien links |
+| Wo steht, welches LLM exportiert hat? | `bookconfig/grammargraph_export.json` |
+| Wer behebt welchen Fehler? | **Plugins → Publish Readiness…** |
+
+Kurzreferenz auch in `doc/kickstart-grammargraph-skeleton.md`.
+
+---
+
+## 17) Publish Readiness {#sec-publish-readiness}
+
+**Publish Readiness** beantwortet die Frage: *Ist das Buch bereit — und wer ist für welchen Befund zuständig?*
+
+Im Gegensatz zum Buch-Doktor (Log + ☠-Marker in der Struktur) zeigt Publish Readiness eine **tabellarische Übersicht** mit Schweregrad, Owner und Fix-Spur.
+
+### Aufruf
+
+**Plugins → Publish Readiness…**
+
+Voraussetzung: ein **aktives Buchprojekt** im Dropdown.
+
+### Was passiert beim Öffnen?
+
+1. Der **Buch-Doktor** läuft (Kontext: „Publish Readiness“).
+2. Jeder Befund wird der **Verantwortungs-Matrix** zugeordnet (Quality Contract).
+3. Der Dialog zeigt Status (**Bereit** / **Nicht bereit**) und eine sortierte Tabelle.
+
+### Spalten im Dialog
+
+| Spalte | Bedeutung |
+|--------|-----------|
+| **Schwere** | `blocker` (Render-Risiko), `warning`, `info` |
+| **Owner** | Wer typischerweise behebt — z. B. GrammarGraph, Book Studio, Skeleton, Autor |
+| **Datei** | Betroffene Markdown-Datei im Buch |
+| **Fix-Spur** | Wo du ansetzt — z. B. GrammarGraph-Export, Editor, Auto-Heal, Buchstruktur |
+| **Befund** | Klartext aus dem Buch-Doktor |
+
+Oben im Dialog: **Zusammenfassung nach Owner** (z. B. „GrammarGraph: 12 · Book Studio: 3“).
+
+Wenn Provenance vorhanden ist, siehst du zusätzlich Export-Zeitpunkt und LLM-Modell aus `grammargraph_export.json`.
+
+### Owner-Kurzreferenz
+
+| Owner | Typische Befunde |
+|-------|------------------|
+| **GrammarGraph** | Fragile Bildpfade, fehlender YAML-Titel, `---` im Text, BOX-Syntax |
+| **Book Studio** | Geister-Dateien, Struktur, fehlende `index.md` |
+| **Skeleton** | Leeres Frontmatter, fehlende Pflichtfelder nach Populate |
+| **Autor** | Manuelle Korrekturen im Editor, Pool-Dateien noch nicht eingehängt |
+| **Quarto/Typst** | Renderer-Voraussetzungen (z. B. `book.author`) |
+
+Vollständige Matrix (20 Befundtypen): Entwickler-Doku `.doc/quality_contract.md`.
+
+### Schaltflächen
+
+| Button | Wirkung |
+|--------|---------|
+| **Erneut prüfen** | Buch-Doktor erneut ausführen, Dialog aktualisieren |
+| **Schließen** | Dialog schließen |
+
+Zum Bearbeiten: Dialog schließen, betroffene Datei in der Buchstruktur mit **Enter** öffnen (bei ☠-Markierung springt der Editor zur Problemzeile).
+
+### Automatische Protokollierung
+
+Jeder Buch-Doktor-Lauf, der über Publish Readiness oder die normale Doctor-Integration ausgelöst wird, erzeugt im Hintergrund:
+
+| Artefakt | Ort |
+|----------|-----|
+| Detaillierter Report | `bookconfig/reports/doctor_YYYYMMDD_HHMMSS.json` |
+| Kurz-Eintrag | `bookconfig/publish_record.json` (Ereignis `doctor_check`) |
+
+Du musst dafür **kein Menü** öffnen — es läuft über Plugin-Hooks mit.
+
+### Empfohlener Einsatz
+
+1. Nach **GrammarGraph-Import** — schnell sehen, was upstream noch fehlt
+2. Vor dem **ersten Render** — Blocker vs. Hinweise trennen
+3. Nach **größeren Strukturänderungen** — Regression erkennen
+
+**Publish Readiness ersetzt nicht den Buch-Doktor** — sie klassifiziert und priorisiert dessen Ausgabe für den Veröffentlichungs-Workflow.
+
+---
+
 ## Anhang: Ordnerstruktur eines Buchprojekts {#sec-anhang-ordnerstruktur}
 
 ```
@@ -551,7 +727,11 @@ MeinBuch/
 ├── content/             ← Markdown-Kapitel
 │   ├── kapitel-01.md
 │   └── required/        ← optionale Pflichtdateien (oft per Skeleton befüllt)
-├── bookconfig/          ← GUI-State, Profile
+├── bookconfig/          ← GUI-State, Provenance, Publish Record
+│   ├── gui_state.json
+│   ├── grammargraph_export.json   ← Provenance vom GrammarGraph-Import
+│   ├── publish_record.json        ← Projekt-Log (Import, Doctor, Render)
+│   └── reports/                   ← Doctor-/Readiness-Reports (JSON)
 ├── export/              ← Render-Ausgabe
 └── .backups/            ← Struktur-Backups
 
