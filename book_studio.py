@@ -468,17 +468,23 @@ class BookStudio:
         CLI-Import einmalig ergänzt, statt den Nutzer mit "nicht gefunden"
         abzuweisen.
         """
-        root_path = self.projects_root_path
-        candidate = Path(book_key)
-        resolved = candidate if candidate.is_absolute() else (root_path / candidate)
-        if not (resolved / "_quarto.yml").is_file():
+        resolved = self.session_manager.resolve_book_key(book_key)
+        if resolved is None:
             messagebox.showwarning(
                 "Projekt nicht gefunden",
-                f"Der Projektordner existiert nicht mehr oder enthält keine _quarto.yml:\n{resolved}",
+                "Der Projektordner existiert nicht mehr, liegt außerhalb der "
+                f"konfigurierten content_root_paths oder enthält keine _quarto.yml:\n{book_key}",
             )
             return
 
-        existing_idx = next((i for i, b in enumerate(self.books) if b == resolved), None)
+        existing_idx = next(
+            (
+                i
+                for i, b in enumerate(self.books)
+                if Path(b).resolve() == resolved.resolve()
+            ),
+            None,
+        )
         if existing_idx is None:
             self.books.append(resolved)
             self.book_combo.config(values=[b.name for b in self.books])
@@ -595,6 +601,14 @@ class BookStudio:
     def open_app_config_editor(self):
         templates = list(getattr(self, "available_templates", None) or ["Standard"])
         AppConfigEditor(self.root, self._config_path, on_save=self._on_app_config_saved, templates=templates)
+
+    def open_plugin_config_editor(self):
+        from plugin_config_editor import PluginConfigEditor
+
+        def _on_saved():
+            self.log("🔌 Plugin-Konfiguration gespeichert.", _LogLevel.SUCCESS)
+
+        PluginConfigEditor(self.root, project_root=self.base_path, on_save=_on_saved)
 
     def _on_app_config_saved(self, updates):
         cfg = self._read_config()

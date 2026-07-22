@@ -44,12 +44,73 @@ class SessionManager:
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             return {}
 
+    def _project_roots(self) -> list[Path]:
+        roots = getattr(self.studio, "projects_root_paths", None)
+        if isinstance(roots, list) and roots:
+            return [Path(r) for r in roots]
+        fallback = getattr(self.studio, "projects_root_path", None)
+        if fallback is not None:
+            return [Path(fallback)]
+        return [Path(self.studio.base_path)]
+
     def book_key(self, book_path) -> str:
-        root_path = getattr(self.studio, "projects_root_path", self.studio.base_path)
+        """Stabiler Schlüssel für ein Buchprojekt über alle content_root_paths.
+
+        Versucht zuerst einen relativen Pfad zu einer konfigurierten Wurzel
+        (portabel). Liegt das Buch in keiner Wurzel (oder die Auflösung
+        scheitert), wird der absolute Pfad gespeichert — Bare-Namen allein
+        sind bei Multi-Root mehrdeutig und nicht auflösbar.
+        """
         try:
-            return str(book_path.relative_to(root_path))
-        except ValueError:
-            return book_path.name
+            resolved = Path(book_path).resolve()
+        except OSError:
+            resolved = Path(book_path)
+
+        for root in self._project_roots():
+            try:
+                rel = resolved.relative_to(Path(root).resolve())
+                return str(rel).replace("\\", "/")
+            except (ValueError, OSError):
+                continue
+        return str(resolved)
+
+    def resolve_book_key(self, key: str):
+        """Löst einen recent_books-/active_book_path-Schlüssel zu einem Pfad auf.
+
+        Reihenfolge: absoluter Pfad → jede content_root_path → Treffer in
+        `studio.books` (Name oder Pfadende). Ohne `_quarto.yml` → None.
+        """
+        if not isinstance(key, str) or not key.strip():
+            return None
+        candidate = Path(key.strip())
+
+        def _ok(path: Path):
+            try:
+                return path if (path / "_quarto.yml").is_file() else None
+            except OSError:
+                return None
+
+        if candidate.is_absolute():
+            return _ok(candidate)
+
+        for root in self._project_roots():
+            hit = _ok(Path(root) / candidate)
+            if hit is not None:
+                return hit
+
+        books = getattr(self.studio, "books", None) or []
+        key_norm = key.replace("\\", "/").rstrip("/")
+        key_name = Path(key_norm).name
+        for book in books:
+            try:
+                book_path = Path(book)
+                if book_path.name == key_name or str(book_path).replace("\\", "/").endswith(key_norm):
+                    hit = _ok(book_path)
+                    if hit is not None:
+                        return hit
+            except (TypeError, OSError):
+                continue
+        return None
 
     def _merge_recent_books(self, existing: dict, active_book_path) -> list:
         """Baut die 'Letzte aktive Projekte'-Liste: aktives Buch nach vorne,
@@ -57,7 +118,18 @@ class SessionManager:
         raw = existing.get("recent_books") if isinstance(existing, dict) else None
         recent = [k for k in raw if isinstance(k, str) and k] if isinstance(raw, list) else []
         if active_book_path:
-            recent = [k for k in recent if k != active_book_path]
+            # Auch ältere Bare-Namen/Alias-Keys zum selben Buch entfernen.
+            active_resolved = self.resolve_book_key(active_book_path)
+            cleaned = []
+            for k in recent:
+                if k == active_book_path:
+                    continue
+                if active_resolved is not None:
+                    other = self.resolve_book_key(k)
+                    if other is not None and other.resolve() == active_resolved.resolve():
+                        continue
+                cleaned.append(k)
+            recent = cleaned
             recent.insert(0, active_book_path)
         return recent[:MAX_RECENT_BOOKS]
 
@@ -104,8 +176,9 @@ class SessionManager:
         Liest `recent_books` direkt aus `session_state.json` (nicht aus
         `studio.books`), damit auch Projekte auftauchen, die aktuell nicht
         (mehr) unter `content_root_path` gefunden werden. Einträge, deren
-        Ordner nicht mehr existiert (gelöscht/verschoben) oder die dem
-        gerade aktiven Buch entsprechen, werden ausgeblendet.
+        Ordner nicht mehr existiert (gelöscht/verschoben), werden
+        ausgeblendet. Das gerade aktive Buch bleibt sichtbar, wird aber
+        als `current=True` markiert (Menü zeigt es deaktiviert).
         """
         session_path = getattr(self.studio, "_session_state_path", None)
         if session_path is None:
@@ -119,18 +192,37 @@ class SessionManager:
             return []
 
         studio = self.studio
-        root_path = getattr(studio, "projects_root_path", studio.base_path)
-        active_key = self.book_key(studio.current_book) if studio.current_book else None
+        active_resolved = None
+        if studio.current_book:
+            try:
+                active_resolved = Path(studio.current_book).resolve()
+            except OSError:
+                active_resolved = Path(studio.current_book)
 
         results = []
+        seen_paths = set()
         for key in raw:
-            if not isinstance(key, str) or not key or key == active_key:
+            if not isinstance(key, str) or not key:
                 continue
-            candidate = Path(key)
-            resolved = candidate if candidate.is_absolute() else root_path / candidate
-            if not (resolved / "_quarto.yml").is_file():
+            resolved = self.resolve_book_key(key)
+            if resolved is None:
                 continue
-            results.append({"key": key, "label": resolved.name, "path": resolved})
+            try:
+                resolved_key = resolved.resolve()
+            except OSError:
+                resolved_key = resolved
+            if resolved_key in seen_paths:
+                continue
+            seen_paths.add(resolved_key)
+            is_current = active_resolved is not None and resolved_key == active_resolved
+            results.append(
+                {
+                    "key": self.book_key(resolved),
+                    "label": resolved.name,
+                    "path": resolved,
+                    "current": is_current,
+                }
+            )
             if len(results) >= MAX_RECENT_BOOKS:
                 break
         return results

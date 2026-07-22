@@ -102,6 +102,7 @@ MENU_TOOLS = [
     MenuItem(label="🧩 Studio-Konfiguration...", command="open_app_config_editor"),
     MenuItem(label="⚙️ Sanitizer-Konfiguration...", command="open_sanitizer_config_editor"),
     MenuItem(label="📘 Quarto.yml konfigurieren...", command="open_quarto_config_editor"),
+    MenuItem(label="🔌 Plugin-Konfiguration…", command="open_plugin_config_editor"),
     MenuItem(label="🩺 Buch-Doktor", command="run_doctor"),
     MenuItem(label="✨ Frontmatter ergänzen…", command="heal_frontmatter"),
     MenuItem(label="📦 Backup", command="run_backup"),
@@ -138,17 +139,6 @@ CONTEXT_MENU_TREE = [
 ]
 
 
-# --- Plugins ----------------------------------------------------------------
-#
-# Phase 3: statische Liste bekannter Plugins als Fallback, falls der
-# `PluginLoader` keine Manifeste findet. Die Reihenfolge entspricht
-# der Anzeige-Reihenfolge im Tools-Menue.
-
-PLUGIN_MENU_FALLBACK = [
-    MenuItem(label="📇 Dateien indexieren (CSV)", command="plugin:file_indexer"),
-]
-
-
 __all__ = [
     "MenuCascade",
     "MenuItem",
@@ -161,5 +151,4 @@ __all__ = [
     "MENU_HELP",
     "CONTEXT_MENU_AVAIL",
     "CONTEXT_MENU_TREE",
-    "PLUGIN_MENU_FALLBACK",
 ]

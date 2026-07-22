@@ -1,0 +1,7 @@
+# Maximale Anzahl PDF-Einträge in der Liste
+[display]
+max_entries = 15
+
+# true = nur aktives Buch + recent_books scannen (kein Vollscan aller content_roots)
+[scan]
+recent_only = true

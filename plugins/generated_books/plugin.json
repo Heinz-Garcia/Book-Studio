@@ -1,0 +1,11 @@
+{
+  "name": "generated_books",
+  "label": "Generierte Bücher…",
+  "description": "Fertige PDF-Ausgaben unter export/_book öffnen.",
+  "entrypoint": "plugins.generated_books:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 30,
+  "config": "tools/generated_books/config.toml"
+}

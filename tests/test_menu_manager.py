@@ -94,8 +94,8 @@ def test_refresh_recent_projects_menu_lists_entries_and_wires_open_recent_book()
     opened = []
     studio = SimpleNamespace(
         get_recent_books=lambda: [
-            {"key": "Band_A", "label": "Band_A", "path": "irrelevant"},
-            {"key": "Band_B", "label": "Band_B", "path": "irrelevant"},
+            {"key": "Band_A", "label": "Band_A", "path": "irrelevant", "current": True},
+            {"key": "Band_B", "label": "Band_B", "path": "irrelevant", "current": False},
         ],
         open_recent_book=lambda key: opened.append(key),
     )
@@ -105,13 +105,13 @@ def test_refresh_recent_projects_menu_lists_entries_and_wires_open_recent_book()
     mgr._refresh_recent_projects_menu(menu)
 
     add_calls = [c for c in menu.calls if c[0] == "add_command"]
-    assert [c[1]["label"] for c in add_calls] == ["Band_A", "Band_B"]
+    assert add_calls[0][1]["label"] == "● Band_A (aktuell)"
+    assert add_calls[0][1]["state"] == "disabled"
+    assert add_calls[1][1]["label"] == "Band_B"
 
-    # Jeder Eintrag ruft beim Klick open_recent_book mit seinem eigenen Key auf.
-    add_calls[0][1]["command"]()
+    # Nur nicht-aktuelle Eintraege sind klickbar.
     add_calls[1][1]["command"]()
-    assert opened == ["Band_A", "Band_B"]
-
+    assert opened == ["Band_B"]
 
 def test_refresh_recent_projects_menu_handles_missing_get_recent_books():
     """Falls das Studio (noch) kein get_recent_books hat, kein Crash."""
@@ -123,4 +123,36 @@ def test_refresh_recent_projects_menu_handles_missing_get_recent_books():
 
     add_calls = [c for c in menu.calls if c[0] == "add_command"]
     assert len(add_calls) == 1
+    assert add_calls[0][1]["state"] == "disabled"
+
+
+def test_collect_plugin_items_from_manifests(tmp_path):
+    import json
+
+    plugin_dir = tmp_path / "demo"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "demo",
+                "label": "Demo-Plugin",
+                "entrypoint": "tests.test_plugin_loader:any_str",
+                "menu_section": "Plugins",
+                "order": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+    mgr = MenuManager(SimpleNamespace(), plugins_dir=tmp_path)
+    items = mgr._collect_plugin_items()
+    assert len(items) == 1
+    assert items[0].label == "Demo-Plugin"
+    assert items[0].command == "plugin:demo"
+
+
+def test_populate_plugins_menu_empty_placeholder():
+    mgr = MenuManager(SimpleNamespace())
+    menu = _FakeMenu()
+    mgr._populate_plugins_menu(menu, [])
+    add_calls = [c for c in menu.calls if c[0] == "add_command"]
     assert add_calls[0][1]["state"] == "disabled"

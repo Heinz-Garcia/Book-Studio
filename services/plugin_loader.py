@@ -13,7 +13,9 @@ Plugin-Manifest-Schema (JSON):
         "entrypoint": "plugins.file_indexer:run",
         "version": "1.0.0",
         "author": "...",
-        "menu_section": "Tools"
+        "menu_section": "Plugins",
+        "order": 10,
+        "config": "tools/file_indexer/config.toml"
     }
 
 Discovery:
@@ -60,7 +62,9 @@ class PluginInfo:
     description: str = ""
     version: str = "0.0.0"
     author: str = ""
-    menu_section: str = "Tools"
+    menu_section: str = "Plugins"
+    order: int = 100
+    config: str = ""
     manifest_path: Path = field(default_factory=Path)
     # Das aufgeloeste Entrypoint-Callable (None, wenn noch nicht
     # aufgeloest oder Aufloesung fehlgeschlagen).
@@ -100,7 +104,7 @@ class PluginLoader:
         if reload:
             self._cache.clear()
         if self._cache:
-            return list(self._cache.values())
+            return self._sorted_plugins(self._cache.values())
 
         if not self._plugins_dir.is_dir():
             self._logger.debug(
@@ -112,7 +116,14 @@ class PluginLoader:
             info = self._load_manifest(manifest_path)
             if info is not None:
                 self._cache[info.name] = info
-        return list(self._cache.values())
+        return self._sorted_plugins(self._cache.values())
+
+    @staticmethod
+    def _sorted_plugins(plugins) -> list[PluginInfo]:
+        return sorted(
+            plugins,
+            key=lambda p: (p.order, p.label.casefold(), p.name.casefold()),
+        )
 
     def get(self, name: str) -> Optional[PluginInfo]:
         """Lookup nach Plugin-Name. None wenn nicht gefunden."""
@@ -162,6 +173,11 @@ class PluginLoader:
         name = str(raw["name"])
         entrypoint = str(raw["entrypoint"])
         callable_obj, err = self._resolve_entrypoint(entrypoint)
+        order_raw = raw.get("order", 100)
+        try:
+            order = int(order_raw)
+        except (TypeError, ValueError):
+            order = 100
         return PluginInfo(
             name=name,
             label=str(raw["label"]),
@@ -169,7 +185,9 @@ class PluginLoader:
             description=str(raw.get("description", "")),
             version=str(raw.get("version", "0.0.0")),
             author=str(raw.get("author", "")),
-            menu_section=str(raw.get("menu_section", "Tools")),
+            menu_section=str(raw.get("menu_section", "Plugins")),
+            order=order,
+            config=str(raw.get("config", "") or ""),
             manifest_path=manifest_path,
             callable=callable_obj,
             load_error=err,

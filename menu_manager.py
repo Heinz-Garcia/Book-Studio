@@ -4,6 +4,9 @@ Phase 4: Die Menue-Items sind in `menu_definitions.py` als
 Datenstrukturen definiert. Diese Datei enthaelt nur noch die
 Wandlung Daten -> Tk-Menu-Widgets.
 
+Plugins werden per `PluginLoader` selbstregistriert und erscheinen
+unter dem Top-Level-Menue „Plugins“ (nicht unter Tools).
+
 Verweise:
 - .doc/gui_architektur.md (Modulgrenzen)
 - menu_definitions.py (Datenstrukturen)
@@ -27,7 +30,6 @@ from menu_definitions import (
     MENU_HELP,
     MENU_TOOLS,
     MENU_VIEW,
-    PLUGIN_MENU_FALLBACK,
     MenuCascade,
     MenuItem,
     MenuSeparator,
@@ -36,6 +38,7 @@ from menu_definitions import (
 # Default-Pfad fuer das Plugins-Verzeichnis. Liegt eine Ebene
 # oberhalb von `book_studio.py` (also Projekt-Root).
 DEFAULT_PLUGINS_DIR = Path(__file__).resolve().parent / "plugins"
+DEFAULT_PLUGIN_MENU_SECTION = "Plugins"
 
 
 class MenuManager:
@@ -155,11 +158,15 @@ class MenuManager:
             ("Export", MENU_EXPORT),
             ("Bearbeiten", MENU_EDIT),
             ("Ansicht", MENU_VIEW),
-            ("Tools", self._build_tools_items()),
+            ("Tools", list(MENU_TOOLS)),
+            ("Plugins", self._collect_plugin_items()),
             ("Hilfe", MENU_HELP),
         ]:
             sub = self._create_menu(menu_bar)
-            self._populate(sub, items)
+            if label == "Plugins":
+                self._populate_plugins_menu(sub, items)
+            else:
+                self._populate(sub, items)
             menu_bar.add_cascade(label=label, menu=sub)
 
         # "Datei" wird gesondert gebaut: enthaelt das dynamische
@@ -184,46 +191,48 @@ class MenuManager:
         menu_widget.delete(0, "end")
         entries = self.studio.get_recent_books() if hasattr(self.studio, "get_recent_books") else []
         if not entries:
-            menu_widget.add_command(label="(keine)", state="disabled")
+            menu_widget.add_command(
+                label="(noch keine – Projekt wechseln speichert die Liste)",
+                state="disabled",
+            )
             return
         for entry in entries:
+            if entry.get("current"):
+                menu_widget.add_command(
+                    label=f"● {entry['label']} (aktuell)",
+                    state="disabled",
+                )
+                continue
             menu_widget.add_command(
                 label=entry["label"],
                 command=lambda k=entry["key"]: self.studio.open_recent_book(k),
             )
 
-    def _build_tools_items(self) -> list:
-        """Erzeugt die Tools-Menue-Items inkl. dynamischer Plugin-Eintraege.
-
-        Phase 3: Wenn der PluginLoader Plugins mit `menu_section=Tools`
-        findet, werden sie hinter den Standard-Tools als Cascade
-        'Plugins' einsortiert. Sonst faellt das Menue auf den
-        `PLUGIN_MENU_FALLBACK` zurueck.
-        """
-        items = list(MENU_TOOLS)
-        plugin_items = self._collect_plugin_items()
-        if plugin_items:
-            items.append(MenuSeparator())
-            items.append(MenuCascade(label="Plugins", children=plugin_items))
-        return items
-
     def _collect_plugin_items(self) -> list:
-        """Liest die `plugins/`-Verzeichnis-Manifeste und liefert
-        `MenuItem`-Eintraege fuer `menu_section=Tools`.
-        """
+        """Liest `plugins/*/plugin.json` und liefert MenuItems (Selbstregistrierung)."""
         try:
             from services.plugin_loader import PluginLoader
         except ImportError:
-            return list(PLUGIN_MENU_FALLBACK)
+            return []
         loader = PluginLoader(self._plugins_dir)
-        infos = loader.discover()
-        tool_infos = [i for i in infos if i.menu_section == "Tools" and i.load_error is None]
-        if not tool_infos:
-            return list(PLUGIN_MENU_FALLBACK)
+        infos = [
+            i
+            for i in loader.discover()
+            if i.menu_section == DEFAULT_PLUGIN_MENU_SECTION and i.load_error is None
+        ]
         return [
             MenuItem(label=info.label, command=f"plugin:{info.name}")
-            for info in tool_infos
+            for info in infos
         ]
+
+    def _populate_plugins_menu(self, menu_widget, items: list) -> None:
+        if not items:
+            menu_widget.add_command(
+                label="(keine Plugins gefunden)",
+                state="disabled",
+            )
+            return
+        self._populate(menu_widget, items)
 
     # --- Kontextmenues -------------------------------------------------------
 

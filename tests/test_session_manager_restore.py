@@ -218,11 +218,75 @@ def test_get_recent_books_excludes_current_and_missing_folders(tmp_path: Path):
     entries = mgr.get_recent_books()
 
     keys = [e["key"] for e in entries]
-    assert "Band_A" not in keys  # aktuell aktives Buch wird ausgeblendet
     assert "Band_Deleted" not in keys  # Ordner existiert nicht mehr
-    assert keys == ["Band_B"]
-    assert entries[0]["path"] == book_b
-    assert entries[0]["label"] == "Band_B"
+    assert keys == ["Band_A", "Band_B"]
+    assert entries[0]["current"] is True
+    assert entries[1]["current"] is False
+    assert entries[1]["path"] == book_b
+    assert entries[1]["label"] == "Band_B"
+
+
+def test_book_key_uses_matching_content_root_not_only_first(tmp_path: Path):
+    root_a = tmp_path / "root_a"
+    root_b = tmp_path / "root_b"
+    root_a.mkdir()
+    root_b.mkdir()
+    book = _make_book(root_b, "Publish_Book")
+    studio = _make_recent_studio(tmp_path, current_book=book)
+    studio.projects_root_path = root_a
+    studio.projects_root_paths = [root_a, root_b]
+    mgr = SessionManager(studio)
+
+    assert mgr.book_key(book) == "Publish_Book"
+
+
+def test_get_recent_books_resolves_bare_name_via_second_root(tmp_path: Path):
+    """Regression: Multi-Root speicherte nur den Ordnernamen; Auflösung
+    gegen die erste Wurzel schlug fehl → Menü blieb leer."""
+    root_a = tmp_path / "studio"
+    root_b = tmp_path / "publish"
+    root_a.mkdir()
+    root_b.mkdir()
+    book_publish = _make_book(root_b, "Publish_Book")
+    book_local = _make_book(root_a, "Band_Local")
+
+    studio = _make_recent_studio(tmp_path, current_book=book_local)
+    studio.projects_root_path = root_a
+    studio.projects_root_paths = [root_a, root_b]
+    studio.books = [book_local, book_publish]
+    mgr = SessionManager(studio)
+
+    session_manager._session_state_service.write_session_state(
+        studio._session_state_path,
+        {"recent_books": ["Publish_Book", "Band_Local"]},
+    )
+
+    entries = mgr.get_recent_books()
+    assert [e["label"] for e in entries] == ["Publish_Book", "Band_Local"]
+    assert entries[0]["path"] == book_publish
+    assert entries[0]["current"] is False
+    assert entries[1]["current"] is True
+
+
+def test_get_recent_books_resolves_bare_name_via_studio_books(tmp_path: Path):
+    root = tmp_path / "studio"
+    external = tmp_path / "elsewhere" / "External_Book"
+    root.mkdir()
+    book_ext = _make_book(external.parent, "External_Book")
+    studio = _make_recent_studio(tmp_path, current_book=None)
+    studio.projects_root_path = root
+    studio.projects_root_paths = [root]
+    studio.books = [book_ext]
+    mgr = SessionManager(studio)
+
+    session_manager._session_state_service.write_session_state(
+        studio._session_state_path,
+        {"recent_books": ["External_Book"]},
+    )
+
+    entries = mgr.get_recent_books()
+    assert len(entries) == 1
+    assert entries[0]["path"] == book_ext
 
 
 def test_get_recent_books_returns_empty_without_session_path(tmp_path: Path):

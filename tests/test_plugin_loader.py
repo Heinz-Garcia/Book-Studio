@@ -32,7 +32,7 @@ def _write_plugin(plugins_dir: Path, name: str, **overrides) -> Path:
         "description": "test",
         "version": "1.0.0",
         "author": "tests",
-        "menu_section": "Tools",
+        "menu_section": "Plugins",
     }
     manifest.update(overrides)
     manifest_path = plugin_dir / "plugin.json"
@@ -58,18 +58,18 @@ def test_discover_single_plugin(tmp_path):
     assert plugins[0].name == "alpha"
     assert plugins[0].label == "Label fuer alpha"
     assert plugins[0].entrypoint == "tests.test_plugin_loader:any_str"
-    assert plugins[0].menu_section == "Tools"
+    assert plugins[0].menu_section == "Plugins"
+    assert plugins[0].order == 100
     assert plugins[0].load_error is None
 
 
-def test_discover_multiple_plugins_sorted(tmp_path):
-    _write_plugin(tmp_path, "beta")
-    _write_plugin(tmp_path, "alpha")
-    _write_plugin(tmp_path, "gamma")
+def test_discover_sorts_by_order_then_label(tmp_path):
+    _write_plugin(tmp_path, "zeta", label="Zeta", order=50)
+    _write_plugin(tmp_path, "alpha", label="Alpha", order=10)
+    _write_plugin(tmp_path, "beta", label="Beta", order=10)
     loader = PluginLoader(tmp_path)
     names = [p.name for p in loader.discover()]
-    # sorted() im Loader: alphabetisch.
-    assert names == ["alpha", "beta", "gamma"]
+    assert names == ["alpha", "beta", "zeta"]
 
 
 def test_discover_caches_result(tmp_path):
@@ -162,11 +162,11 @@ def test_get_finds_existing(tmp_path):
 
 
 def test_iter_by_section(tmp_path):
-    _write_plugin(tmp_path, "alpha", menu_section="Tools")
+    _write_plugin(tmp_path, "alpha", menu_section="Plugins")
     _write_plugin(tmp_path, "beta", menu_section="Other")
-    _write_plugin(tmp_path, "gamma", menu_section="Tools")
+    _write_plugin(tmp_path, "gamma", menu_section="Plugins")
     loader = PluginLoader(tmp_path)
-    tools = loader.iter_by_section("Tools")
+    tools = loader.iter_by_section("Plugins")
     assert sorted(p.name for p in tools) == ["alpha", "gamma"]
     other = loader.iter_by_section("Other")
     assert [p.name for p in other] == ["beta"]
