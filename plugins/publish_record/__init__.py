@@ -1,4 +1,4 @@
-"""Publish Record — Plugin-Adapter für tools.publish_record."""
+"""Publish Record — Plugin-Adapter für tools.publish_record + publish_map."""
 
 from __future__ import annotations
 
@@ -8,6 +8,19 @@ from typing import Any, Optional
 from services.plugin_runtime import ensure_repo_on_path
 
 ensure_repo_on_path(__file__)
+
+
+def _render_metadata(book: Path) -> dict[str, str]:
+    from tools.publish_map.metadata import provenance_summary, read_book_metadata
+
+    meta = read_book_metadata(book)
+    prov = provenance_summary(book)
+    return {
+        "book_title": meta.get("title", ""),
+        "book_author": meta.get("author", ""),
+        "provenance_exported_at": prov.get("exported_at", ""),
+        "provenance_llm_model": prov.get("llm_model", ""),
+    }
 
 
 def run(studio: Optional[Any] = None, **kwargs) -> None:
@@ -27,17 +40,24 @@ def run(studio: Optional[Any] = None, **kwargs) -> None:
 def on_after_book_import(studio: Optional[Any] = None, **kwargs) -> None:
     if studio is None or not getattr(studio, "current_book", None):
         return
+    from tools.publish_map.store import create_import_snapshot
     from tools.publish_record.record import append_event
 
     book = Path(studio.current_book)
     import_path = kwargs.get("import_path")
-    append_event(
+    import_str = str(import_path) if import_path else ""
+    event = append_event(
         book,
         "book_import",
         {
-            "import_path": str(import_path) if import_path else "",
+            "import_path": import_str,
             "book_name": book.name,
         },
+    )
+    create_import_snapshot(
+        book,
+        import_path=import_str,
+        import_run_id=str(event.get("id") or ""),
     )
 
 
@@ -71,17 +91,23 @@ def on_after_doctor_check(studio: Optional[Any] = None, **kwargs) -> None:
 def on_after_render(studio: Optional[Any] = None, **kwargs) -> None:
     if studio is None or not getattr(studio, "current_book", None):
         return
+    from tools.publish_map.store import append_render
     from tools.publish_record.record import append_event
 
     book = Path(studio.current_book)
-    append_event(
-        book,
-        "render_success",
-        {
-            "format": kwargs.get("format", ""),
-            "artifact_path": kwargs.get("artifact_path", ""),
-        },
-    )
+    metadata = _render_metadata(book)
+    payload = {
+        "format": str(kwargs.get("format") or ""),
+        "target_format": str(kwargs.get("target_format") or ""),
+        "template": str(kwargs.get("template") or ""),
+        "layout_profile": str(kwargs.get("layout_profile") or ""),
+        "profile_name": str(kwargs.get("profile_name") or ""),
+        "artifact_path": str(kwargs.get("artifact_path") or ""),
+        "metadata": metadata,
+    }
+    event = append_event(book, "render_success", payload)
+    payload["record_event_id"] = str(event.get("id") or "")
+    append_render(book, payload)
 
 
 __all__ = [

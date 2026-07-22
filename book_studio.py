@@ -336,6 +336,8 @@ class BookStudio:
         defaults = {
             "format": "typst",
             "template": "Standard",
+            "layout_profile": "taschenbuch-bod",
+            "linestretch": 1.2,
         }
         try:
             cfg = self._read_config()
@@ -353,6 +355,18 @@ class BookStudio:
         return {
             "format": fmt,
             "template": template,
+            "layout_profile": str(cfg.get("default_layout_profile", defaults["layout_profile"])),
+            "linestretch": float(cfg.get("default_linestretch", defaults["linestretch"])),
+        }
+
+    def get_layout_app_defaults(self):
+        try:
+            cfg = self._read_config()
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return {"layout_profile": "taschenbuch-bod", "linestretch": 1.2}
+        return {
+            "layout_profile": str(cfg.get("default_layout_profile", "taschenbuch-bod")),
+            "linestretch": float(cfg.get("default_linestretch", 1.2)),
         }
 
     def _get_log_preference_defaults(self):
@@ -1148,7 +1162,7 @@ class BookStudio:
             context_label=context_label,
         )
 
-    def _fire_plugin_hooks_after_render(self, *, format="", artifact_path="") -> None:
+    def _fire_plugin_hooks_after_render(self, *, format="", artifact_path="", **kwargs) -> None:
         from pathlib import Path
 
         from services.plugin_runtime import fire_plugin_hooks
@@ -1160,6 +1174,7 @@ class BookStudio:
             plugins_dir=plugins_dir,
             format=format,
             artifact_path=artifact_path,
+            **kwargs,
         )
 
     def run_doctor_preflight(self, context_label, emit_success_log=False):

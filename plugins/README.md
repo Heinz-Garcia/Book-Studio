@@ -47,6 +47,8 @@ Menü-Entrypoint ins Plugin.
 | `provenance` | (Hook only) | `tools/provenance/` — `grammargraph_export.json` |
 | `publish_record` | (Hook only) | `tools/publish_record/` — `publish_record.json` |
 | `publish_readiness` | Publish Readiness… | `tools/publish_readiness/` — Owner-Matrix |
+| `mapping_manager` | Mapping Manager… | `tools/mapping_manager/` — Publish-Input → PDFs |
+| `generated_books` | (versteckt) | `tools/generated_books/` — ersetzt durch Mapping Manager |
 
 Verantwortungs-Matrix: `.doc/quality_contract.md`
 

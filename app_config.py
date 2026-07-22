@@ -42,6 +42,8 @@ DEFAULTS: dict[str, Any] = {
     "abort_on_first_render_colon_warning": False,
     "default_export_format": "typst",
     "default_export_template": "EXT: typstdoc",
+    "default_layout_profile": "taschenbuch-bod",
+    "default_linestretch": 1.2,
     "frontmatter_requirements": {
         "title": "<h1>",
         "description": "<title>",

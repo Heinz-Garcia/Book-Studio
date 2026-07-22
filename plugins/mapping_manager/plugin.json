@@ -1,0 +1,10 @@
+{
+  "name": "mapping_manager",
+  "label": "Mapping Manager…",
+  "description": "Publish-Input und generierte PDFs mit Metadaten verknüpfen.",
+  "entrypoint": "plugins.mapping_manager:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 25
+}

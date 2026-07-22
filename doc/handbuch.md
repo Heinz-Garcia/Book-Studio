@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** Juli 2026 · **Version:** 1.2.0 („Publish Readiness & Buchprojekt-Workflow“)
+**Stand:** Juli 2026 · **Version:** 1.8.0 („Mapping Manager & Publish Map“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -39,6 +39,7 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 15. Skeleton-Bibliothek (Vorlagen)
 16. Buchprojekt-Workflow (GrammarGraph → PDF)
 17. Publish Readiness
+18. Mapping Manager (Publish-Input → PDFs)
 
 ---
 
@@ -586,7 +587,8 @@ Nach dem Import (automatisch, ohne Menü):
 | Datei in `bookconfig/` | Inhalt |
 |------------------------|--------|
 | `grammargraph_export.json` | **Provenance** — Export-Zeitpunkt, Modell, Herkunft |
-| `publish_record.json` | **Projekt-Log** — Import, später Doctor- und Render-Ereignisse |
+| `publish_record.json` | **Projekt-Log** — Import, Doctor- und Render-Ereignisse |
+| `publish_map.json` | **Produktionslinien** — Snapshots (Import) mit zugehörigen PDF-Renders (Kapitel 18) |
 
 Fehlt `grammargraph_export.json` im Publish-Ordner, wird ein Minimal-Manifest aus `_book_studio.toml` erzeugt.
 
@@ -625,11 +627,13 @@ Typische GrammarGraph-Themen (Bildpfade `/img/…`, `---` im Text, BOX-Syntax) s
 3. Export-Dialog (Format, Template)
 4. Render läuft auf einer **Temp-Kopie** — dein Original-`_quarto.yml` bleibt unberührt
 
-Nach erfolgreichem Render wird ein Eintrag in `publish_record.json` geschrieben (`render_success`).
+Nach erfolgreichem Render wird ein Eintrag in `publish_record.json` geschrieben (`render_success`) und die **Publish Map** um den Render-Lauf ergänzt (Kapitel 18).
 
-### Phase 6 — Fertige PDFs (optional)
+### Phase 6 — Fertige PDFs
 
-**Plugins → Generierte Bücher…** — sortierbare Liste der PDF-Ausgaben unter `export/_book/`, öffnen oder aufräumen.
+**Plugins → Mapping Manager…** — zeigt pro **Produktionslinie** (Import-Snapshot) alle zugehörigen PDF-Ausgaben mit Template, Format und Profil. Öffnen, Ordner anzeigen oder aufräumen.
+
+Details: Kapitel 18.
 
 ### Merksätze
 
@@ -639,6 +643,7 @@ Nach erfolgreichem Render wird ein Eintrag in `publish_record.json` geschrieben 
 | Muss Skeleton den rechten Baum füllen? | **Nein** — nur Kopien links |
 | Wo steht, welches LLM exportiert hat? | `bookconfig/grammargraph_export.json` |
 | Wer behebt welchen Fehler? | **Plugins → Publish Readiness…** |
+| Wo sind meine PDFs zum Import? | **Plugins → Mapping Manager…** (Kapitel 18) |
 
 Kurzreferenz auch in `doc/kickstart-grammargraph-skeleton.md`.
 
@@ -719,6 +724,94 @@ Du musst dafür **kein Menü** öffnen — es läuft über Plugin-Hooks mit.
 
 ---
 
+## 18) Mapping Manager (Publish-Input → PDFs) {#sec-mapping-manager}
+
+Der **Mapping Manager** verbindet den **Publish-Input** (GrammarGraph-Import oder lokaler Arbeitsstand) mit den **generierten PDFs**. Jeder Import erzeugt eine **Produktionslinie** (Snapshot); jeder erfolgreiche Render-Lauf wird als Kind-Eintrag mit Metadaten gespeichert.
+
+Im Gegensatz zur flachen PDF-Liste (früher „Generierte Bücher“, jetzt versteckt) siehst du hier die **Herkunft** und kannst mehrere Import-/Render-Zyklen nebeneinander vergleichen.
+
+### Aufruf
+
+**Plugins → Mapping Manager…**
+
+Voraussetzung: ein **aktives Buchprojekt** im Dropdown.
+
+### Produktionslinien (Snapshots)
+
+Oben wählst du die **Produktionslinie** aus einer Dropdown-Liste:
+
+| Herkunft | Wann angelegt |
+|----------|----------------|
+| **GrammarGraph-Import** | Beim CLI-Import (`python book_studio.py import …`) — verknüpft mit `import_path` und `import_run_id` |
+| **Lokal** | Beim ersten Render ohne vorherigen Import-Snapshot |
+
+Jede Linie enthält Buchtitel, Provenance-Zusammenfassung (falls vorhanden) und alle zugehörigen Render-Läufe.
+
+### Tabelle der PDFs
+
+| Spalte | Bedeutung |
+|--------|-----------|
+| **PDF** | Dateiname der Ausgabe unter `export/_book/` |
+| **Template** | Gewähltes Render-Template (z. B. `EXT: typstdoc`) |
+| **Format** | Export-Format (z. B. `typst`, `pdf`, `html`) |
+| **Profil** | Aktives Studio-Profil zum Render-Zeitpunkt |
+| **Datum** | Zeitstempel des Render-Laufs |
+| **Status** | `OK` — Datei vorhanden; `fehlt` — Pfad in der Map, Datei gelöscht oder verschoben |
+
+**Doppelklick** oder **Enter** auf eine Zeile öffnet die PDF (wie der Button **PDF öffnen**).
+
+### Schaltflächen
+
+| Button | Wirkung |
+|--------|---------|
+| **PDF öffnen** | PDF im Standardprogramm öffnen |
+| **Ordner zeigen** | Explorer/Finder am PDF-Pfad (ohne Auswahl: `export/`) |
+| **Löschen** | PDF-Datei entfernen **und** Eintrag aus der Map löschen (mit Sicherheitsabfrage) |
+| **Aktualisieren** | Snapshots und Tabelle neu laden |
+| **Schließen** | Dialog schließen |
+
+### Datenmodell (`publish_map.json`)
+
+Die Map liegt in `bookconfig/publish_map.json` und ergänzt das ereignisbasierte `publish_record.json` um eine **strukturierte Sicht**:
+
+```
+publish_map.json
+├── active_snapshot_id      ← zuletzt aktive Produktionslinie
+└── snapshots[]
+    ├── id, origin, import_path, book_title, provenance
+    └── renders[]           ← Kinder pro erfolgreichem Render
+        ├── format, template, layout_profile, profile_name
+        ├── artifact_path   ← Pfad zur PDF
+        └── metadata        ← Buch-Metadaten zum Render-Zeitpunkt
+```
+
+| Datei | Rolle |
+|-------|--------|
+| `publish_record.json` | Chronologisches **Ereignis-Log** (Import, Doctor, Render) |
+| `publish_map.json` | **Strukturierte Zuordnung** Input-Snapshot → PDF-Ausgaben |
+
+Fehlt `publish_map.json` oder ist sie leer, kann sie aus `publish_record.json` **nachgebaut** werden (beim ersten Öffnen des Mapping Managers).
+
+### Automatische Pflege
+
+Du musst die Map **nicht manuell** pflegen — Plugin-Hooks schreiben bei:
+
+| Ereignis | Aktion |
+|----------|--------|
+| **Buch-Import** | Neuer Snapshot + Eintrag in `publish_record.json` |
+| **Render erfolgreich** | Render-Kind unter aktivem Snapshot |
+| **Löschen im Dialog** | Datei + Map-Eintrag entfernt |
+
+### Empfohlener Einsatz
+
+1. Nach **mehreren GrammarGraph-Importen** — welche PDF gehört zu welchem Export?
+2. Nach **Template-Wechseln** — Format/Template/Profil pro Lauf nachvollziehen
+3. Vor **Übergabe an Lektorat** — fehlende PDFs (`fehlt`) erkennen und neu rendern
+
+**Mapping Manager ersetzt nicht Publish Readiness** — er verwaltet Ausgaben und Herkunft, nicht Qualitätsbefunde.
+
+---
+
 ## Anhang: Ordnerstruktur eines Buchprojekts {#sec-anhang-ordnerstruktur}
 
 ```
@@ -732,6 +825,7 @@ MeinBuch/
 │   ├── gui_state.json
 │   ├── grammargraph_export.json   ← Provenance vom GrammarGraph-Import
 │   ├── publish_record.json        ← Projekt-Log (Import, Doctor, Render)
+│   ├── publish_map.json           ← Produktionslinien (Snapshot → PDFs)
 │   └── reports/                   ← Doctor-/Readiness-Reports (JSON)
 ├── export/              ← Render-Ausgabe
 └── .backups/            ← Struktur-Backups

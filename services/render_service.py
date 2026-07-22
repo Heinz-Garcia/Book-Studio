@@ -212,6 +212,49 @@ class RenderService:
 
         return base_fmt, None
 
+    @staticmethod
+    def merge_extra_format_options(
+        base: Optional[dict[str, dict[str, Any]]],
+        overlay: Optional[dict[str, dict[str, Any]]],
+    ) -> Optional[dict[str, dict[str, Any]]]:
+        """Führt zwei extra_format_options-Dicts zusammen (overlay gewinnt pro Schlüssel)."""
+        if not overlay:
+            return base
+        if not base:
+            return {fmt: dict(opts) for fmt, opts in overlay.items()}
+        merged: dict[str, dict[str, Any]] = {
+            fmt: dict(opts) if isinstance(opts, dict) else opts
+            for fmt, opts in base.items()
+        }
+        for fmt, opts in overlay.items():
+            if not isinstance(opts, dict):
+                merged[fmt] = opts
+                continue
+            bucket = merged.setdefault(fmt, {})
+            if isinstance(bucket, dict):
+                bucket.update(opts)
+            else:
+                merged[fmt] = dict(opts)
+        return merged
+
+    @staticmethod
+    def apply_layout_profile(
+        extra_opts: Optional[dict[str, dict[str, Any]]],
+        *,
+        target_fmt: str,
+        layout_profile: str,
+        linestretch: float,
+    ) -> dict[str, dict[str, Any]]:
+        """Hängt Layout-Profil-Optionen an extra_format_options an."""
+        from tools.layout_profiles.catalog import build_layout_format_options
+
+        layout_opts = build_layout_format_options(
+            layout_profile,
+            target_fmt,
+            linestretch=linestretch,
+        )
+        return RenderService.merge_extra_format_options(extra_opts, layout_opts) or layout_opts
+
     # --- Render-Log-Pfad (Phase 2 / 2.3b) -------------------------------
 
     @staticmethod

@@ -7,5 +7,6 @@
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 30,
+  "show_in_menu": false,
   "config": "tools/generated_books/config.toml"
 }

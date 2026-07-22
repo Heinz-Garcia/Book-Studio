@@ -32,6 +32,7 @@ class ExportManager:
         self._active_render_log_handle = None
         self._active_render_log_path = None
         self._render_running = False
+        self._pending_render_context: dict = {}
 
     def _log(self, message, level="info"):
         self._adapter.log(message, level)
@@ -54,7 +55,8 @@ class ExportManager:
     def _fire_after_render_hook(self, fmt, artifact_path: str) -> None:
         fire_hooks = getattr(self.studio, "_fire_plugin_hooks_after_render", None)
         if callable(fire_hooks):
-            fire_hooks(format=fmt, artifact_path=artifact_path)
+            ctx = dict(getattr(self, "_pending_render_context", None) or {})
+            fire_hooks(format=fmt, artifact_path=artifact_path, **ctx)
 
     def _set_status(self, text, fg):
         self._adapter.update_status(text, fg)
@@ -70,6 +72,15 @@ class ExportManager:
 
     def _set_last_export_options(self, selected):
         self._adapter.set_last_export_options(selected)
+
+    def _layout_app_defaults(self) -> dict:
+        getter = getattr(self.studio, "get_layout_app_defaults", None)
+        if callable(getter):
+            return dict(getter() or {})
+        return {
+            "layout_profile": "taschenbuch-bod",
+            "linestretch": 1.2,
+        }
 
     def _persist_app_state(self):
         self._adapter.persist_app_state()
@@ -779,10 +790,19 @@ class ExportManager:
                 return
 
             templates = self._available_templates()
+            from tools.layout_profiles.book_store import resolve_export_layout_defaults, write_book_layout_override
+
+            layout_defaults = resolve_export_layout_defaults(
+                Path(self._current_book()) if self._current_book() else None,
+                self._last_export_options(),
+                self._layout_app_defaults(),
+            )
+            export_initial = {**self._last_export_options(), **layout_defaults}
             selected = ExportDialog.ask(
                 self._root(),
                 templates,
-                initial=self._last_export_options(),
+                initial=export_initial,
+                book_path=Path(self._current_book()) if self._current_book() else None,
             )
             if not selected:
                 self._set_status("Export abgebrochen", "#95a5a6")
@@ -790,6 +810,13 @@ class ExportManager:
 
             self._set_last_export_options(selected)
             self._persist_app_state()
+
+            if self._current_book():
+                write_book_layout_override(
+                    Path(self._current_book()),
+                    layout_profile=str(selected.get("layout_profile") or "taschenbuch-bod"),
+                    linestretch=float(selected.get("linestretch") or 1.2),
+                )
 
             if not self._save_project(show_msg=False, run_doctor_check=False):
                 self._set_status("Render abgebrochen (Speicherfehler)", _StatusFg.DANGER)
@@ -827,6 +854,25 @@ class ExportManager:
                     }
                 elif selected_tpl != "Standard":
                     extra_opts = {base_fmt: {"template": f"templates/{selected_tpl}"}}
+            # Layout-Profil (Zeilenabstand etc.) — nur Temp-Klon, nicht Original-_quarto.yml
+            layout_profile = str(selected.get("layout_profile") or "taschenbuch-bod")
+            linestretch = float(selected.get("linestretch") or 1.2)
+            if render_service is not None:
+                extra_opts = render_service.apply_layout_profile(
+                    extra_opts,
+                    target_fmt=target_fmt,
+                    layout_profile=layout_profile,
+                    linestretch=linestretch,
+                )
+            else:
+                from services.render_service import RenderService
+
+                extra_opts = RenderService.apply_layout_profile(
+                    extra_opts,
+                    target_fmt=target_fmt,
+                    layout_profile=layout_profile,
+                    linestretch=linestretch,
+                )
             # ----------------------------------
 
             self._set_status(f"Rendere {target_fmt} (Pre-Processing)...", _StatusFg.INFO)
@@ -856,6 +902,25 @@ class ExportManager:
             self._log(f"{'='*50}", "dim")
             self._log(f"🖨️  EXPORT PIPELINE: {target_fmt.upper()}", "header")
             self._log(f"{'='*50}", "dim")
+            self._pending_render_context = {
+                "format": base_fmt,
+                "template": selected_tpl,
+                "target_format": target_fmt,
+                "profile_name": self._current_profile_name() or "",
+                "layout_profile": layout_profile,
+                "linestretch": linestretch,
+            }
+            profile = None
+            try:
+                from tools.layout_profiles.catalog import get_profile
+
+                profile = get_profile(layout_profile)
+                self._log(
+                    f"📐 Layout: {profile.label} · Zeilenabstand {linestretch:g}",
+                    "info",
+                )
+            except (ImportError, KeyError, ValueError):
+                self._log(f"📐 Layout-Profil: {layout_profile} · Zeilenabstand {linestretch:g}", "info")
             self._start_render_log(target_fmt, selected_tpl)
 
             # Phase 2 / Schritt 2.3c-Mini: Render-Orchestrierung im RenderService.
