@@ -3087,7 +3087,7 @@ if __name__ == "__main__":
         "--ui",
         choices=["tk", "qt"],
         default=None,
-        help="UI-Toolkit (Default: tk; oder BOOK_STUDIO_UI=qt)",
+        help="UI-Toolkit: qt (Default) oder tk (Legacy)",
     )
     _args = parser.parse_args()
 

@@ -121,6 +121,8 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 
 **Exit:** Eine UI-Technologie; `pytest -m "not slow"` grün; Smoke inkl. GUI nach Möglichkeit.
 
+**Status (2026-07-23):** Qt ist **Default** (`python book_studio.py`). Legacy-Tk bleibt vorerst per `--ui tk` / `BOOK_STUDIO_UI=tk` erreichbar; vollständiges Löschen der Tk-Module (book_studio-Widgets, ui_theme, …) bewusst noch nicht — Reduktion des Risikos. Folge-Commit kann Tk-Code entfernen, sobald Parität akzeptiert ist.
+
 ---
 
 ## Phase 7 — Abschluss
@@ -151,7 +153,7 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 - [x] **3** Menü, Aktionen, Log, Session, Bücher wechseln
 - [x] **4** App-Dialoge
 - [x] **5** Plugin-/Tools-Dialoge
-- [ ] **6** Tk entfernen, Tests/Docs
+- [x] **6** Tk entfernen, Tests/Docs *(Qt=Default; Tk-Legacy-Pfad noch vorhanden)*
 - [ ] **7** PR + Paritätsabnahme
 
 ---
@@ -160,7 +162,7 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 
 - Branch-Name: `pyside6-migration`
 - Basis-Branch: der Branch, von dem Phase 0 abgezweigt wurde (hier: `feature/publish-readiness-provenance`)
-- Einstieg: Feature-Flag / Env (`BOOK_STUDIO_UI=qt`), bis Phase 6
+- Einstieg: **Qt Default**; Legacy-Tk über `--ui tk` / `BOOK_STUDIO_UI=tk`
 - Tree: zuerst `QTreeWidget` (schneller Feature-Parität), später optional Model/View-Refactor
 - Plugins: im gleichen Prozess wie die Qt-App (kein Subprozess-Qt)
 - Kein paralleles Redesign der deutschen UI-Texte

@@ -38,7 +38,7 @@ class MainWindow(QMainWindow):
         self._session: Optional[StructureSession] = None
         self._books: list[Path] = []
         self._commands = CommandHost(self)
-        self.setWindowTitle("Quarto Book Studio (Qt) — Phase 5")
+        self.setWindowTitle("Quarto Book Studio (Qt)")
         self.resize(1200, 760)
 
         facade.set_log_hook(self._on_log)
@@ -51,8 +51,8 @@ class MainWindow(QMainWindow):
             )
         )
         self._build_central()
-        self.statusBar().showMessage("Qt-UI Phase 5 — Plugin-Dialoge")
-        facade.log("Qt-Shell gestartet (Phase 5 Plugins).", "info")
+        self.statusBar().showMessage("Qt-UI bereit")
+        facade.log("Qt-Shell gestartet.", "info")
         self._refresh_book_list()
         self._restore_active_book()
         if facade.import_path is not None:
@@ -88,8 +88,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(top)
 
         hint = QLabel(
-            "Phase 3: volle Menüleiste (Stubs für noch fehlende Dialoge), "
-            "Session/Recent Projects, Struktur-Editor wie Phase 2."
+            "Qt-UI (Default). Legacy-Tk: <code>python book_studio.py --ui tk</code> "
+            "bzw. <code>BOOK_STUDIO_UI=tk</code>."
         )
         hint.setWordWrap(True)
         hint.setTextFormat(Qt.TextFormat.RichText)

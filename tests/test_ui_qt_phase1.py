@@ -10,13 +10,14 @@ from ui_qt.toolkit import resolve_ui_toolkit, wants_qt_ui
 @pytest.mark.parametrize(
     ("cli", "env", "expected"),
     [
-        (None, None, "tk"),
-        ("tk", "qt", "tk"),  # CLI schlägt Env nicht — resolve nutzt cli wenn gesetzt
+        (None, None, "qt"),  # Phase 6: Qt ist Default
+        ("tk", "qt", "tk"),
         ("qt", None, "qt"),
         (None, "qt", "qt"),
         (None, "PySide6", "qt"),
         (None, "tk", "tk"),
         ("qt", "tk", "qt"),
+        ("legacy", None, "tk"),
     ],
 )
 def test_resolve_ui_toolkit(cli, env, expected, monkeypatch):
@@ -28,10 +29,10 @@ def test_resolve_ui_toolkit(cli, env, expected, monkeypatch):
 
 
 def test_wants_qt_ui(monkeypatch):
-    monkeypatch.setenv("BOOK_STUDIO_UI", "qt")
-    assert wants_qt_ui() is True
-    monkeypatch.delenv("BOOK_STUDIO_UI", raising=False)
+    monkeypatch.setenv("BOOK_STUDIO_UI", "tk")
     assert wants_qt_ui() is False
+    monkeypatch.delenv("BOOK_STUDIO_UI", raising=False)
+    assert wants_qt_ui() is True
 
 
 def test_studio_facade_log_hook():
