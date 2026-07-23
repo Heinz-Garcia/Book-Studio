@@ -8,3 +8,7 @@ order: "30"
 # Impressum
 
 Verlag, ISBN, Rechtliches …
+
+```{=typst}
+#pagebreak()
+```

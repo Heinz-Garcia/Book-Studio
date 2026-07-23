@@ -1,0 +1,10 @@
+{
+  "name": "book_projects",
+  "label": "📚 Buchprojekt-Manager…",
+  "description": "Content-Roots und Quarto-Bücher anlegen, öffnen und verwalten.",
+  "entrypoint": "plugins.book_projects:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 5
+}

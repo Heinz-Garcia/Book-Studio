@@ -64,7 +64,8 @@ def test_regular_chapter_with_subchapters_is_not_treated_as_part(tmp_path):
     book = tmp_path / "Book"
     _write(book / "index.md", "# Book\n\nHi\n")
     _write(book / "main.md", "# Hauptkapitel\n\nHaupttext\n")
-    _write(book / "sub.md", "# Unterkapitel\n\nUntertext\n")
+    # Quelle bereits eingerückt (GUI-Einrücken schreibt ## in die .md)
+    _write(book / "sub.md", "## Unterkapitel\n\nUntertext\n")
 
     tree = [
         {
@@ -87,9 +88,9 @@ def test_regular_chapter_with_subchapters_is_not_treated_as_part(tmp_path):
 
     processed_main = (book / "processed" / "main.md").read_text(encoding="utf-8")
     assert "Haupttext" in processed_main
-    # Der Text des Unterkapitels wurde inline amalgamiert, seine
-    # Ueberschrift wurde dabei um eine Ebene tiefer eingerueckt (H1 -> H2).
+    # Kein zweiter Heading-Shift beim Amalgamieren — Quelle bleibt ##.
     assert "## Unterkapitel" in processed_main
+    assert "### Unterkapitel" not in processed_main
     assert "Untertext" in processed_main
     # Es wird keine separate sub.md unter processed/ angelegt.
     assert not (book / "processed" / "sub.md").exists()

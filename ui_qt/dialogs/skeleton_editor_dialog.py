@@ -7,21 +7,24 @@ from pathlib import Path
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QFormLayout,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
+    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
-    QListWidget,
     QMessageBox,
     QPushButton,
     QSplitter,
     QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -47,6 +50,8 @@ from ui_qt.dialogs.text_dialogs import TextEditorDialog
 
 _LOG = logging.getLogger(__name__)
 
+_ROLE_INDEX = Qt.ItemDataRole.UserRole
+
 
 class SkeletonEditorQtDialog(QDialog):
     """Editor für Skeleton-Profile, Manifest-Einträge und Markdown-Vorlagen."""
@@ -60,8 +65,9 @@ class SkeletonEditorQtDialog(QDialog):
         studio: Any = None,
     ) -> None:
         super().__init__(parent)
+        self.setObjectName("skeletonEditorDialog")
         self.setWindowTitle("Skeleton-Bibliothek bearbeiten")
-        self.resize(980, 720)
+        self.resize(1040, 720)
         self.setModal(True)
 
         self.library_root = Path(library_root).resolve()
@@ -78,139 +84,191 @@ class SkeletonEditorQtDialog(QDialog):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
 
+        title = QLabel("Skeleton-Bibliothek")
+        title_font = QFont(title.font())
+        title_font.setPointSize(16)
+        title_font.setWeight(QFont.Weight.DemiBold)
+        title.setFont(title_font)
+        root.addWidget(title)
+
+        hint = QLabel(
+            "Vorlagen = Pool. Populate kopiert Dateien ins Projekt; "
+            "den Buchbaum füllst du manuell."
+        )
+        hint.setObjectName("skeletonEditorHint")
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
+        # --- Profil-Leiste ---
         top = QHBoxLayout()
         top.addWidget(QLabel("Profil:"))
         self._profile_combo = QComboBox()
+        self._profile_combo.setMinimumWidth(180)
         self._profile_combo.currentIndexChanged.connect(self._on_profile_changed)
         top.addWidget(self._profile_combo)
         for text, slot in (
-            ("Profil duplizieren…", self._duplicate_profile),
+            ("Duplizieren…", self._duplicate_profile),
             ("Als Standard", self._set_default_profile),
-            ("Profil löschen…", self._delete_profile),
+            ("Löschen…", self._delete_profile),
             ("Aktualisieren", lambda: self._reload_profiles(self._current_profile_name())),
         ):
             btn = QPushButton(text)
             btn.clicked.connect(slot)
             top.addWidget(btn)
+        top.addStretch(1)
         root.addLayout(top)
 
-        meta = QGroupBox("Profil-Metadaten")
-        meta_l = QVBoxLayout(meta)
+        # --- Profil-Metadaten ---
+        meta_frame = QFrame()
+        meta_frame.setObjectName("skeletonEditorSection")
+        meta_l = QVBoxLayout(meta_frame)
+        meta_l.setContentsMargins(12, 10, 12, 10)
+        meta_l.setSpacing(8)
+
+        meta_title = QLabel("Profil")
+        meta_title.setObjectName("skeletonEditorSectionTitle")
+        meta_l.addWidget(meta_title)
+
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("Label"))
+        row1.addWidget(QLabel("Label:"))
         self._profile_label = QLineEdit()
         row1.addWidget(self._profile_label, stretch=1)
         save_meta = QPushButton("Speichern")
         save_meta.clicked.connect(self._save_profile_meta)
         row1.addWidget(save_meta)
         meta_l.addLayout(row1)
+
         row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Beschreibung"))
+        row2.addWidget(QLabel("Beschreibung:"))
         self._profile_desc = QLineEdit()
         row2.addWidget(self._profile_desc, stretch=1)
         meta_l.addLayout(row2)
-        root.addWidget(meta)
-
-        root.addWidget(
-            QLabel(
-                "Hier organisierst du den Skeleton-Pool (Vorlagen), unabhängig von jedem Buchprojekt. "
-                "Populate kopiert später aus diesem Pool — Änderungen betreffen nur künftige Übernahmen."
-            )
-        )
 
         path_row = QHBoxLayout()
-        path_row.addWidget(QLabel("Profilordner:"))
-        self._profile_root = QLineEdit()
-        self._profile_root.setReadOnly(True)
-        path_row.addWidget(self._profile_root, stretch=1)
-        reveal_prof = QPushButton("📂 Im Explorer anzeigen")
+        path_row.addWidget(QLabel("Ordner:"))
+        self._profile_folder_label = QLabel("—")
+        self._profile_folder_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        path_row.addWidget(self._profile_folder_label, stretch=1)
+        reveal_prof = QPushButton("📂 Explorer")
         reveal_prof.clicked.connect(self._reveal_profile_folder)
         path_row.addWidget(reveal_prof)
-        root.addLayout(path_row)
+        meta_l.addLayout(path_row)
+        root.addWidget(meta_frame)
 
+        # --- Splitter: Vorlagen | Detail ---
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        left = QWidget()
+        left = QFrame()
+        left.setObjectName("skeletonEditorSection")
         left_l = QVBoxLayout(left)
-        left_l.addWidget(QLabel("Vorlagen im Skeleton-Profil"))
-        left_l.addWidget(
-            QLabel(
-                "Populate legt Dateien nur im Projekt ab (links im Pool). "
-                "Den Buchbaum (rechts) füllst du manuell."
-            )
-        )
-        self._file_list = QListWidget()
-        self._file_list.currentRowChanged.connect(self._on_file_selected)
-        self._file_list.itemDoubleClicked.connect(lambda *_: self._open_in_markdown_editor())
-        left_l.addWidget(self._file_list, stretch=1)
+        left_l.setContentsMargins(12, 10, 12, 10)
+        left_l.setSpacing(8)
+
+        left_title = QLabel("Vorlagen")
+        left_title.setObjectName("skeletonEditorSectionTitle")
+        left_l.addWidget(left_title)
+
+        self._file_tree = QTreeWidget()
+        self._file_tree.setHeaderLabels(["Titel", "order", "Status", "Datei"])
+        self._file_tree.setRootIsDecorated(False)
+        self._file_tree.setUniformRowHeights(True)
+        self._file_tree.setAlternatingRowColors(True)
+        self._file_tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
+        header = self._file_tree.header()
+        header.setStretchLastSection(True)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._file_tree.currentItemChanged.connect(self._on_file_item_changed)
+        self._file_tree.itemDoubleClicked.connect(lambda *_: self._open_in_markdown_editor())
+        left_l.addWidget(self._file_tree, stretch=1)
+
         left_btns = QHBoxLayout()
-        for text, slot in (
-            ("Neue Vorlage…", self._add_file),
-            ("Vorlage löschen…", self._remove_entry),
-            ("Im Markdown-Editor öffnen", self._open_in_markdown_editor),
-        ):
-            btn = QPushButton(text)
-            btn.clicked.connect(slot)
-            left_btns.addWidget(btn)
+        btn_add = QPushButton("Neue Vorlage…")
+        btn_add.clicked.connect(self._add_file)
+        left_btns.addWidget(btn_add)
+        btn_del = QPushButton("Löschen…")
+        btn_del.clicked.connect(self._remove_entry)
+        left_btns.addWidget(btn_del)
+        left_btns.addStretch(1)
         left_l.addLayout(left_btns)
         splitter.addWidget(left)
 
-        right = QWidget()
+        right = QFrame()
+        right.setObjectName("skeletonEditorSection")
         right_l = QVBoxLayout(right)
+        right_l.setContentsMargins(12, 10, 12, 10)
+        right_l.setSpacing(8)
 
-        path_box = QGroupBox("Datei im Skeleton-Pool")
-        pb = QFormLayout(path_box)
+        right_title = QLabel("Vorlage bearbeiten")
+        right_title.setObjectName("skeletonEditorSectionTitle")
+        right_l.addWidget(right_title)
+
+        path_row2 = QHBoxLayout()
+        path_row2.addWidget(QLabel("Datei:"))
         self._rel_path = QLineEdit()
         self._rel_path.setReadOnly(True)
-        self._abs_path = QLineEdit()
-        self._abs_path.setReadOnly(True)
-        pb.addRow("Relativ zum Profil:", self._rel_path)
-        reveal_file = QPushButton("📂 Im Explorer anzeigen")
+        path_row2.addWidget(self._rel_path, stretch=1)
+        reveal_file = QPushButton("📂 Explorer")
         reveal_file.clicked.connect(self._reveal_selected_file)
-        open_md = QPushButton("📝 Im Markdown-Editor öffnen")
-        open_md.clicked.connect(self._open_in_markdown_editor)
-        path_btns = QHBoxLayout()
-        path_btns.addWidget(reveal_file)
-        path_btns.addWidget(open_md)
-        pb.addRow("Vollständiger Pfad:", self._abs_path)
-        pb.addRow(path_btns)
-        right_l.addWidget(path_box)
+        path_row2.addWidget(reveal_file)
+        right_l.addLayout(path_row2)
 
-        entry_meta = QGroupBox("Vorlagen-Metadaten")
-        em = QFormLayout(entry_meta)
+        form = QFormLayout()
+        form.setContentsMargins(0, 4, 0, 4)
         self._title = QLineEdit()
         self._order = QLineEdit()
         self._optional = QCheckBox("optional (Populate nur mit Checkbox)")
         self._title.textChanged.connect(self._mark_meta_dirty)
         self._order.textChanged.connect(self._mark_meta_dirty)
         self._optional.stateChanged.connect(self._mark_meta_dirty)
-        em.addRow("Titel", self._title)
-        em.addRow("order", self._order)
-        em.addRow(self._optional)
-        em.addRow(QLabel("Populate trägt nichts in den Buchbaum ein (rechts = manuell)."))
+        form.addRow("Titel:", self._title)
+        form.addRow("order:", self._order)
+        form.addRow("", self._optional)
+        right_l.addLayout(form)
+
+        meta_btns = QHBoxLayout()
         save_entry = QPushButton("Metadaten speichern")
         save_entry.clicked.connect(self._save_entry_meta)
-        em.addRow(save_entry)
-        right_l.addWidget(entry_meta)
+        meta_btns.addWidget(save_entry)
+        meta_btns.addStretch(1)
+        right_l.addLayout(meta_btns)
 
-        right_l.addWidget(QLabel("Markdown-Vorschau (nur lesen/schnell editieren)"))
+        md_header = QHBoxLayout()
+        md_header.addWidget(QLabel("Markdown"))
+        md_header.addStretch(1)
+        open_md = QPushButton("📝 Im Editor öffnen")
+        open_md.clicked.connect(self._open_in_markdown_editor)
+        md_header.addWidget(open_md)
+        right_l.addLayout(md_header)
+
         self._text = QTextEdit()
+        self._text.setPlaceholderText("Vorlage auswählen…")
         self._text.textChanged.connect(self._on_text_modified)
+        font = self._text.font()
+        font.setFamily("Consolas")
+        font.setStyleHint(font.StyleHint.Monospace)
+        self._text.setFont(font)
         right_l.addWidget(self._text, stretch=1)
         splitter.addWidget(right)
-        splitter.setStretchFactor(0, 1)
+
+        splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
+        splitter.setSizes([420, 580])
         root.addWidget(splitter, stretch=1)
 
         bottom = QHBoxLayout()
-        open_bottom = QPushButton("📝 Im Markdown-Editor öffnen")
-        open_bottom.clicked.connect(self._open_in_markdown_editor)
-        bottom.addWidget(open_bottom)
-        save_preview = QPushButton("Vorschau speichern")
-        save_preview.clicked.connect(self._save_markdown)
-        bottom.addWidget(save_preview)
-        bottom.addStretch()
+        self._btn_save_preview = QPushButton("Vorschau speichern")
+        self._btn_save_preview.setObjectName("skeletonEditorPrimary")
+        self._btn_save_preview.clicked.connect(self._save_markdown)
+        bottom.addWidget(self._btn_save_preview)
+        bottom.addStretch(1)
         close_btn = QPushButton("Schließen")
         close_btn.clicked.connect(self._close)
         bottom.addWidget(close_btn)
@@ -242,7 +300,9 @@ class SkeletonEditorQtDialog(QDialog):
         self._loading = True
         self._profile_label.setText(self._manifest.label)
         self._profile_desc.setText(self._manifest.description)
-        self._profile_root.setText(str(self._manifest.root.resolve()))
+        root_path = self._manifest.root.resolve()
+        self._profile_folder_label.setText(root_path.name)
+        self._profile_folder_label.setToolTip(str(root_path))
         self._loading = False
         self._selected_index = None
         self._populate_file_list()
@@ -262,13 +322,32 @@ class SkeletonEditorQtDialog(QDialog):
             self._load_profile(name)
 
     def _populate_file_list(self) -> None:
-        self._file_list.clear()
-        for entry in self._entries:
-            flags = []
-            if entry.optional:
-                flags.append("opt")
-            suffix = f"  [{', '.join(flags)}]" if flags else ""
-            self._file_list.addItem(f"{entry.title}  —  {entry.path}{suffix}")
+        self._file_tree.clear()
+        for idx, entry in enumerate(self._entries):
+            status = "optional" if entry.optional else "pflicht"
+            filename = Path(entry.path).name
+            item = QTreeWidgetItem(
+                [
+                    f"📄  {entry.title}",
+                    entry.order or "—",
+                    status,
+                    filename,
+                ]
+            )
+            item.setData(0, _ROLE_INDEX, idx)
+            tip = str(entry.path)
+            for col in range(4):
+                item.setToolTip(col, tip)
+            self._file_tree.addTopLevelItem(item)
+
+    def _select_row(self, row: int) -> None:
+        if row < 0 or row >= self._file_tree.topLevelItemCount():
+            self._file_tree.clearSelection()
+            return
+        item = self._file_tree.topLevelItem(row)
+        self._loading = True
+        self._file_tree.setCurrentItem(item)
+        self._loading = False
 
     def _clear_editor(self) -> None:
         self._loading = True
@@ -276,7 +355,7 @@ class SkeletonEditorQtDialog(QDialog):
         self._order.clear()
         self._optional.setChecked(False)
         self._rel_path.clear()
-        self._abs_path.clear()
+        self._rel_path.setToolTip("")
         self._text.clear()
         self._loading = False
         self._editor_dirty = False
@@ -362,16 +441,22 @@ class SkeletonEditorQtDialog(QDialog):
         self._editor_dirty = False
         self._meta_dirty = False
 
-    def _on_file_selected(self, row: int) -> None:
+    def _on_file_item_changed(
+        self,
+        current: Optional[QTreeWidgetItem],
+        _previous: Optional[QTreeWidgetItem],
+    ) -> None:
         if self._loading:
             return
-        if row < 0:
+        if current is None:
             return
+        row = current.data(0, _ROLE_INDEX)
+        if row is None:
+            return
+        row = int(row)
         if not self._confirm_discard():
             if self._selected_index is not None:
-                self._loading = True
-                self._file_list.setCurrentRow(self._selected_index)
-                self._loading = False
+                self._select_row(self._selected_index)
             return
         self._selected_index = row
         entry = self._entries[row]
@@ -381,14 +466,14 @@ class SkeletonEditorQtDialog(QDialog):
         self._optional.setChecked(entry.optional)
         path = self._manifest.root / entry.path  # type: ignore[union-attr]
         self._rel_path.setText(entry.path)
-        self._abs_path.setText(str(path.resolve()))
+        self._rel_path.setToolTip(str(path.resolve()))
         if path.is_file():
             try:
                 content = path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 content = path.read_text(encoding="utf-8", errors="replace")
         else:
-            content = f"---\ntitle: \"{entry.title}\"\n---\n\n# {entry.title}\n"
+            content = f'---\ntitle: "{entry.title}"\n---\n\n# {entry.title}\n'
         self._text.setPlainText(content)
         self._loading = False
         self._editor_dirty = False
@@ -460,8 +545,9 @@ class SkeletonEditorQtDialog(QDialog):
         if sync_markdown_order(md_path, updated.order):
             self._reload_selected_from_disk()
         self._meta_dirty = False
+        keep = self._selected_index
         self._populate_file_list()
-        self._file_list.setCurrentRow(self._selected_index)
+        self._select_row(keep)
         QMessageBox.information(self, "Skeleton", "Vorlagen-Metadaten gespeichert.")
 
     def _add_file(self) -> None:
@@ -474,7 +560,7 @@ class SkeletonEditorQtDialog(QDialog):
         rel, ok = QInputDialog.getText(
             self,
             "Pfad im Skeleton-Profil",
-            f"Relativer Pfad im Profilordner (nicht im Buch):\nProfil: {self._manifest.root}",
+            f"Relativer Pfad im Profilordner:\n{self._manifest.root.name}/",
             text=suggested,
         )
         if not ok or not rel.strip():
@@ -497,7 +583,11 @@ class SkeletonEditorQtDialog(QDialog):
             )
             self._entries = list(self._manifest.files)
             self._populate_file_list()
-            self._file_list.setCurrentRow(len(self._entries) - 1)
+            self._select_row(len(self._entries) - 1)
+            # Auswahl laden (setCurrentItem löst Signal aus, außer bei _loading)
+            last = self._file_tree.topLevelItem(len(self._entries) - 1)
+            if last is not None:
+                self._file_tree.setCurrentItem(last)
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Skeleton", str(exc))
 

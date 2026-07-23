@@ -64,15 +64,17 @@ MENU_EDIT = [
     MenuItem(label="⬆️ Hoch", command="move_up"),
     MenuItem(label="⬇️ Runter", command="move_down"),
     MenuItem(label="➡️ Einrücken", command="indent_item"),
+    MenuItem(label="➡️➡️ Einrücken ×2", command="indent_item_2"),
     MenuItem(label="⬅️ Ausrücken", command="outdent_item"),
+    MenuItem(label="⬅️⬅️ Ausrücken ×2", command="outdent_item_2"),
 ]
 
 
 # --- Ansicht ------------------------------------------------------------------
 
 MENU_VIEW = [
-    MenuItem(label="🔍 Preview öffnen", command="open_preview"),
-    MenuItem(label="🔄 Titel neu laden", command="refresh_ui_titles"),
+    MenuItem(label="📄 _quarto.yml anzeigen", command="open_preview"),
+    MenuItem(label="🔄 Anzeige aktualisieren", command="refresh_ui_titles"),
     MenuItem(label="📁 Projekte neu laden", command="reload_projects"),
     MenuSeparator(),
     MenuItem(label="🧹 Status-Filter zurücksetzen", command="reset_status_filter"),
@@ -83,16 +85,16 @@ MENU_VIEW = [
 
 MENU_TOOLS = [
     MenuItem(label="🧹 Sanitizer", command="run_sanitizer_pipeline"),
-    MenuItem(label="🧩 Studio-Konfiguration...", command="open_app_config_editor"),
-    MenuItem(label="⚙️ Sanitizer-Konfiguration...", command="open_sanitizer_config_editor"),
-    MenuItem(label="📘 Quarto.yml konfigurieren...", command="open_quarto_config_editor"),
+    MenuItem(label="🧩 Studio-Konfiguration…", command="open_app_config_editor"),
+    MenuItem(label="⚙️ Sanitizer-Konfiguration…", command="open_sanitizer_config_editor"),
+    MenuItem(label="📘 Quarto.yml konfigurieren…", command="open_quarto_config_editor"),
     MenuItem(label="🔌 Plugin-Konfiguration…", command="open_plugin_config_editor"),
     MenuItem(label="🩺 Buch-Doktor", command="run_doctor"),
     MenuItem(label="✨ Frontmatter ergänzen…", command="heal_frontmatter"),
     MenuItem(label="📦 Backup", command="run_backup"),
     MenuItem(label="⏪ Time Machine", command="open_time_machine"),
     MenuSeparator(),
-    MenuCascade(label="Wartung", children=[
+    MenuCascade(label="🛠️ Wartung", children=[
         MenuItem(label="⚠️ _quarto.yml hart zurücksetzen (Nuke)", command="reset_quarto_yml"),
     ]),
 ]

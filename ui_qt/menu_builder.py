@@ -103,6 +103,9 @@ def build_menu_bar(
     return bar
 
 
+_SKELETON_PLUGIN_NAMES = ("skeleton_populate", "skeleton_editor")
+
+
 def _populate_plugins(
     menu: QMenu,
     *,
@@ -121,7 +124,15 @@ def _populate_plugins(
         act = menu.addAction("(keine Plugins)")
         act.setEnabled(False)
         return
-    for info in infos:
+
+    skeleton = [i for i in infos if i.name in _SKELETON_PLUGIN_NAMES]
+    rest = [i for i in infos if i.name not in _SKELETON_PLUGIN_NAMES]
+    # Feste Reihenfolge der Skeleton-Familie, Rest nach Manifest-order
+    skeleton_rank = {name: idx for idx, name in enumerate(_SKELETON_PLUGIN_NAMES)}
+    skeleton.sort(key=lambda p: (skeleton_rank.get(p.name, 99), p.order, p.label.casefold()))
+    rest.sort(key=lambda p: (p.order, p.label.casefold(), p.name.casefold()))
+
+    def _add(info) -> None:
         action = QAction(info.label, menu)
         cb = resolve(f"plugin:{info.name}")
         if cb is not None:
@@ -129,3 +140,10 @@ def _populate_plugins(
         else:
             action.setEnabled(False)
         menu.addAction(action)
+
+    for info in skeleton:
+        _add(info)
+    if skeleton and rest:
+        menu.addSeparator()
+    for info in rest:
+        _add(info)

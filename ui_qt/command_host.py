@@ -95,8 +95,14 @@ class CommandHost:
     def indent_item(self) -> None:
         self.w.structure._on_indent()
 
+    def indent_item_2(self) -> None:
+        self.w.structure._on_indent2()
+
     def outdent_item(self) -> None:
         self.w.structure._on_outdent()
+
+    def outdent_item_2(self) -> None:
+        self.w.structure._on_outdent2()
 
     def reload_projects(self) -> None:
         self.w._refresh_book_list()
@@ -105,7 +111,7 @@ class CommandHost:
         if self.w._session:
             self.w._session.load()
             self.w.structure.reload_from_session()
-            self.w._facade.log("Titel neu geladen.", "info")
+            self.w._facade.log("Anzeige aktualisiert.", "info")
 
     def quick_save_json(self) -> None:
         self.export_json()
@@ -115,8 +121,14 @@ class CommandHost:
             return
         from ui_qt.dialogs.text_dialogs import save_json_file
 
+        book = Path(self.w._facade.current_book)
         data = self.w._session.book_nodes if self.w._session else []
-        if save_json_file(self.w, data, suggested_name=f"{self.w._facade.current_book.name}.json"):
+        if save_json_file(
+            self.w,
+            data,
+            suggested_name=f"{book.name}.json",
+            start_dir=book / "bookconfig",
+        ):
             self.w._facade.log("Buchstruktur als JSON gespeichert.", "success")
 
     def import_json(self) -> None:
@@ -125,7 +137,8 @@ class CommandHost:
         from ui_qt.dialogs.text_dialogs import load_json_file
         from ui_qt import structure_ops as ops
 
-        data = load_json_file(self.w)
+        book = Path(self.w._facade.current_book)
+        data = load_json_file(self.w, start_dir=book / "bookconfig")
         if data is None:
             return
         if not isinstance(data, list):
@@ -205,14 +218,39 @@ class CommandHost:
     # --- Ansicht / Hilfe / Config ---
 
     def open_preview(self) -> None:
+        """Zeigt die komplette ``_quarto.yml`` des aktiven Buchs (read-only)."""
         if not self._require_book():
             return
         from ui_qt.dialogs.text_dialogs import PreviewDialog
 
         session = self.w._session
         assert session is not None
-        text = session.engine.generate_yaml_string(session.book_nodes)
-        PreviewDialog(self.w, text, title="Kapitel-Preview (_quarto.yml)").exec()
+        yaml_path = Path(session.book_path) / "_quarto.yml"
+        if not yaml_path.is_file():
+            QMessageBox.warning(
+                self.w,
+                "_quarto.yml",
+                f"Datei nicht gefunden:\n{yaml_path}",
+            )
+            return
+        try:
+            text = yaml_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(self.w, "_quarto.yml", str(exc))
+            return
+        banner = None
+        if session.dirty:
+            banner = (
+                "Die Buchstruktur in der GUI ist ungespeichert — "
+                "unten siehst du den Stand auf der Festplatte. "
+                "Speichern: Datei → In Quarto speichern."
+            )
+        PreviewDialog(
+            self.w,
+            text,
+            title=f"_quarto.yml — {session.book_path.name}",
+            banner=banner,
+        ).exec()
 
     def open_help_manual(self) -> None:
         import app_config as _app_config

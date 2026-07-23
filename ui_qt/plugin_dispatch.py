@@ -22,6 +22,7 @@ def run_plugin_qt(plugin_name: str, window: "MainWindow") -> bool:
     log = window._facade.log
 
     runners: dict[str, PluginRunner] = {
+        "book_projects": _book_projects,
         "mapping_manager": _mapping,
         "generated_books": _generated,
         "publish_readiness": _readiness,
@@ -40,6 +41,13 @@ def run_plugin_qt(plugin_name: str, window: "MainWindow") -> bool:
         log(f"Plugin {plugin_name} fehlgeschlagen: {exc}", "error")
         QMessageBox.critical(parent, "Plugin", str(exc))
     return True
+
+
+def _book_projects(studio, parent, log) -> None:
+    from ui_qt.dialogs.book_projects_dialog import open_book_projects_qt
+
+    open_book_projects_qt(studio, parent)
+    log("Buchprojekt-Manager geschlossen.", "info")
 
 
 def _mapping(studio, parent, log) -> None:

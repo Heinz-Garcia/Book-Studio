@@ -8,3 +8,7 @@ order: "END-30"
 # Über den Autor
 
 Kurzbiografie.
+
+```{=typst}
+#pagebreak()
+```

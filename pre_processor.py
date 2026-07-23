@@ -305,6 +305,8 @@ class PreProcessor:
                     pass
 
     def _amalgamate_children(self, children, host_dest, offset):
+        # offset: Rekursionstiefe (API); Heading-Shift liegt in den Quellen.
+        _ = offset
         for child in children:
             src = self.book_path / child["path"]
             if src.exists():
@@ -317,15 +319,10 @@ class PreProcessor:
                 body = self._sanitize_markdown(body)
 
                 # B4: Footnote-Harvesting-Block entfernt (war 2).
-
-                # 2. Überschriften einrücken
-                def shift_heading(m):
-                    return f"{'#' * (len(m.group(1)) + offset)}{m.group(2)}"
-
-                body = re.sub(r'^(#+)(\s+.*)$', shift_heading, body, flags=re.MULTILINE)
+                # Überschriften-Shift entfernt: Quellen sind bereits eingerückt.
 
                 with open(host_dest, 'a', encoding='utf-8') as f:
                     f.write(f"\n\n\n{body.strip()}\n\n")
 
             if child.get("children"):
-                self._amalgamate_children(child["children"], host_dest, offset + 1)
+                self._amalgamate_children(child["children"], host_dest, 0)

@@ -39,7 +39,7 @@ class MainWindow(QMainWindow):
         self._books: list[Path] = []
         self._commands = CommandHost(self)
         self._ui_scheduler = UiScheduler(self)
-        self.setWindowTitle("Quarto Book Studio (Qt)")
+        self.setWindowTitle(self._window_title_from_version())
         self.resize(1200, 760)
 
         facade.set_log_hook(self._on_log)
@@ -93,10 +93,6 @@ class MainWindow(QMainWindow):
         refresh_btn.clicked.connect(self._refresh_book_list)
         top.addWidget(refresh_btn)
         layout.addLayout(top)
-
-        hint = QLabel("Quarto Book Studio — PySide6-UI")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
 
         self.structure = StructurePanel()
         layout.addWidget(self.structure, stretch=1)
@@ -199,7 +195,7 @@ class MainWindow(QMainWindow):
         self._session = session
         self._facade.current_book = book
         self.structure.set_session(session)
-        self.setWindowTitle(f"Quarto Book Studio (Qt) — {book.name}")
+        self.setWindowTitle(self._window_title_from_version())
         self.statusBar().showMessage(f"Geladen: {book}")
         self._persist_session()
 
@@ -220,18 +216,22 @@ class MainWindow(QMainWindow):
 
         self.schedule_ui(_apply)
 
-    def _show_about(self) -> None:
-        version = "—"
+    def _window_title_from_version(self) -> str:
+        """Fenstertitel = Inhalt von ``version.txt`` (SSOT-Anzeigezeile)."""
         try:
-            version = (repo_root() / "version.txt").read_text(encoding="utf-8").strip()
+            text = (repo_root() / "version.txt").read_text(encoding="utf-8").strip()
         except OSError:
-            pass
+            return "Quarto Book Studio"
+        return text or "Quarto Book Studio"
+
+    def _show_about(self) -> None:
+        version = self._window_title_from_version()
         QMessageBox.about(
             self,
             "Über Book Studio (Qt)",
             f"{version}\n\n"
             "Quarto Book Studio — PySide6-UI.\n"
-            "Siehe .doc/pyside6-migration-plan.md",
+            "Aktives Buch siehe Dropdown und Statuszeile.",
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802

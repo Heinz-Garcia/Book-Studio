@@ -11,7 +11,7 @@ ohne Tk-Abhängigkeit.
 from __future__ import annotations
 
 import copy
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 Node = dict[str, Any]
 Tree = list[Node]
@@ -65,13 +65,17 @@ def collect_paths(nodes: Tree) -> list[str]:
 
 
 def locate(roots: Tree, path: str) -> Optional[Location]:
-    """Findet ``(sibling_list, index, parent_node)``; Parent ist ``None`` auf Root-Ebene."""
+    """Findet ``(sibling_list, index, parent_node)``; Parent ist ``None`` auf Root-Ebene.
+
+    Wichtig: ``sibling_list`` ist die echte Liste am Parent (nicht ``list(...)``),
+    damit Indent/Outdent/Move/Remove per ``pop``/``insert`` den Baum mutieren.
+    """
 
     def _walk(siblings: Tree, parent: Optional[Node]) -> Optional[Location]:
         for idx, node in enumerate(siblings):
             if str(node.get("path") or "") == path:
                 return siblings, idx, parent
-            hit = _walk(list(node.get("children") or []), node)
+            hit = _walk(_ensure_children(node), node)
             if hit is not None:
                 return hit
         return None
@@ -210,6 +214,80 @@ def insert_nodes(
                 siblings.insert(idx + 1 + offset, copy.deepcopy(node))
             return
     roots.extend(copy.deepcopy(n) for n in nodes)
+
+
+def insert_node_by_order(
+    roots: Tree,
+    node: Node,
+    *,
+    order_meta_for_path: Callable[[str], tuple[Any, Any]],
+) -> bool:
+    """Fügt einen Knoten root-level nach Frontmatter-``order`` ein.
+
+    Entspricht Tk ``insert_required_by_order`` / ``populate._insert_node_by_order``:
+    - ``front``: nach ``index.md`` (falls vorhanden), aufsteigend nach sort_key
+    - ``end``: Endblock, höhere END-Zahl weiter vorn (``END-1`` ganz hinten)
+    - sonst: False (Aufrufer soll cursor-basiert einfügen)
+
+    ``order_meta_for_path(path) -> (sort_key, group)`` wie
+    ``yaml_engine.get_required_order``.
+    """
+    path = str(node.get("path") or "").replace("\\", "/")
+    try:
+        sort_key, group = order_meta_for_path(path)
+    except (TypeError, ValueError, OSError, AttributeError):
+        return False
+
+    def meta(item: Node) -> tuple[Any, Any]:
+        p = str(item.get("path") or "").replace("\\", "/")
+        if not p or p.startswith("PART:"):
+            return None, None
+        try:
+            return order_meta_for_path(p)
+        except (TypeError, ValueError, OSError, AttributeError):
+            return None, None
+
+    fresh = copy.deepcopy(node)
+
+    if group == "front" and sort_key is not None:
+        insert_at = 0
+        for idx, item in enumerate(roots):
+            if str(item.get("path") or "").replace("\\", "/") == "index.md":
+                insert_at = idx + 1
+                break
+        idx = insert_at
+        while idx < len(roots):
+            other_key, other_group = meta(roots[idx])
+            if other_group != "front":
+                break
+            if other_key is not None and int(other_key) <= int(sort_key):
+                idx += 1
+                continue
+            break
+        roots.insert(idx, fresh)
+        return True
+
+    if group == "end" and sort_key is not None:
+        first_end = len(roots)
+        for idx, item in enumerate(roots):
+            _other_key, other_group = meta(item)
+            if other_group == "end":
+                first_end = idx
+                break
+        idx = first_end
+        while idx < len(roots):
+            other_key, other_group = meta(roots[idx])
+            if other_group != "end":
+                idx += 1
+                continue
+            if other_key is not None and int(other_key) > int(sort_key):
+                idx += 1
+                continue
+            break
+        roots.insert(idx, fresh)
+        return True
+
+    return False
 
 
 def flatten_nodes_for_avail(nodes: list[Node]) -> list[tuple[str, str]]:

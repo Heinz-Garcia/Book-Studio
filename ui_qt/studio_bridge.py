@@ -184,6 +184,12 @@ class QtStudioBridge:
             healthy = bool(analysis["is_healthy"])
         else:
             healthy = errors == 0
+        if session is not None and isinstance(analysis, dict):
+            session.set_doctor_issues(analysis.get("issues_by_path") or {})
+            # ☠-Marker sofort sichtbar machen
+            structure = getattr(self._window, "structure", None)
+            if structure is not None and hasattr(structure, "reload_from_session"):
+                structure.reload_from_session()
         if healthy and emit_success_log:
             self.log(f"✅ {context_label}: keine Befunde.", "success")
         elif not healthy:

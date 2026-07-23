@@ -1,6 +1,6 @@
 {
   "name": "mapping_manager",
-  "label": "Mapping Manager…",
+  "label": "🗺️ Mapping Manager…",
   "description": "Publish-Input und generierte PDFs mit Metadaten verknüpfen.",
   "entrypoint": "plugins.mapping_manager:run",
   "version": "1.0.0",

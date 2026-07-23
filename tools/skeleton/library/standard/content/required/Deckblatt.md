@@ -19,3 +19,7 @@ ersetzen:
 Das `#past-cover.update(true)` ist Pflicht (siehe `typst-show.typ`): erst
 danach werden Kapitel-Überschriften wieder normal angezeigt, sonst bleiben
 auch spätere Kapitel unsichtbar.
+
+```{=typst}
+#pagebreak()
+```
