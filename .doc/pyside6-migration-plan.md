@@ -65,6 +65,8 @@ Feature-Parität der Desktop-UI von Tkinter auf PySide6, bei möglichst unverän
 
 **Exit:** Typischer Edit-Flow (Kapitel sortieren/einrücken, speichern) funktioniert unter Qt.
 
+**Status (2026-07-23):** Doppel-Tree, Move/Indent/Outdent/DnD, Undo, Speichern via `QuartoYamlEngine` in `ui_qt/` umgesetzt.
+
 ---
 
 ## Phase 3 — Shell: Menü, Aktionen, Log, Session
@@ -139,7 +141,7 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 
 - [x] **0** Branch `pyside6-migration` vom aktuellen Branch
 - [x] **1** PySide6 + `ui_qt` + Start-Flag + leere Shell
-- [ ] **2** Doppel-Tree + Indent/Outdent/Move/DnD + Persistenz
+- [x] **2** Doppel-Tree + Indent/Outdent/Move/DnD + Persistenz
 - [ ] **3** Menü, Aktionen, Log, Session, Bücher wechseln
 - [ ] **4** App-Dialoge
 - [ ] **5** Plugin-/Tools-Dialoge
