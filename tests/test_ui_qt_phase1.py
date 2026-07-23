@@ -1,22 +1,22 @@
-"""Phase-1-Tests für den Qt-Migrationspfad (ohne GUI-Event-Loop)."""
+"""Phase-1/6-Tests für den Qt-Migrationspfad (ohne GUI-Event-Loop)."""
 
 from __future__ import annotations
 
 import pytest
 
-from ui_qt.toolkit import resolve_ui_toolkit, wants_qt_ui
+from ui_qt.toolkit import is_tk_requested, resolve_ui_toolkit, wants_qt_ui
 
 
 @pytest.mark.parametrize(
     ("cli", "env", "expected"),
     [
-        (None, None, "qt"),  # Phase 6: Qt ist Default
-        ("tk", "qt", "tk"),
+        (None, None, "qt"),
         ("qt", None, "qt"),
         (None, "qt", "qt"),
         (None, "PySide6", "qt"),
+        ("qt", "tk", "qt"),  # CLI gewinnt
+        ("tk", "qt", "tk"),  # erkannt, aber Einstieg startet Tk nicht
         (None, "tk", "tk"),
-        ("qt", "tk", "qt"),
         ("legacy", None, "tk"),
     ],
 )
@@ -31,8 +31,10 @@ def test_resolve_ui_toolkit(cli, env, expected, monkeypatch):
 def test_wants_qt_ui(monkeypatch):
     monkeypatch.setenv("BOOK_STUDIO_UI", "tk")
     assert wants_qt_ui() is False
+    assert is_tk_requested() is True
     monkeypatch.delenv("BOOK_STUDIO_UI", raising=False)
     assert wants_qt_ui() is True
+    assert is_tk_requested() is False
 
 
 def test_studio_facade_log_hook():
@@ -58,7 +60,7 @@ def test_main_window_constructs_offscreen(monkeypatch):
     if app is None:
         app = QApplication([])
     apply_theme(app)
-    facade = StudioFacade()
-    win = MainWindow(facade)
-    assert "Qt" in win.windowTitle()
-    win.close()
+    window = MainWindow(StudioFacade())
+    assert window.windowTitle().startswith("Quarto Book Studio")
+    window.close()
+    _ = app

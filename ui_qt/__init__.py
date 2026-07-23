@@ -1,14 +1,13 @@
-"""PySide6-UI-Paket für Book Studio (Migrationspfad).
+"""PySide6-UI-Paket für Book Studio.
 
-Aktivierung: Umgebungsvariable ``BOOK_STUDIO_UI=qt`` oder CLI ``--ui qt``.
-Tk bleibt der Default, bis die Migration abgeschlossen ist.
+Einstieg: ``python book_studio.py`` (nur Qt). Legacy-Tk-UI wurde in Phase 6 entfernt.
 """
 
 from __future__ import annotations
 
-from ui_qt.toolkit import resolve_ui_toolkit, wants_qt_ui
+from ui_qt.toolkit import is_tk_requested, resolve_ui_toolkit, wants_qt_ui
 
-__all__ = ["resolve_ui_toolkit", "run_qt_app", "wants_qt_ui"]
+__all__ = ["is_tk_requested", "resolve_ui_toolkit", "run_qt_app", "wants_qt_ui"]
 
 
 def run_qt_app(*, import_path=None) -> int:

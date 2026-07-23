@@ -3071,6 +3071,7 @@ from import_helpers import (  # noqa: E402,F401  -- re-exported fuer Backward-Co
 
 if __name__ == "__main__":
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(description="Quarto Book Studio")
     parser.add_argument("command", nargs="?", choices=["import"],
@@ -3087,9 +3088,20 @@ if __name__ == "__main__":
         "--ui",
         choices=["tk", "qt"],
         default=None,
-        help="UI-Toolkit: qt (Default) oder tk (Legacy)",
+        help="UI-Toolkit (nur noch qt; tk wurde entfernt)",
     )
     _args = parser.parse_args()
+
+    # Phase 6: Tk-Einstieg entfernt — nur noch Qt.
+    from ui_qt import is_tk_requested, run_qt_app
+
+    if is_tk_requested(_args.ui):
+        print(
+            "Legacy-Tk-UI wurde entfernt (Phase 6).\n"
+            "Bitte ohne --ui / BOOK_STUDIO_UI starten — Qt ist die einzige UI.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
 
     _import_path: Path | None = None
     if _args.command == "import" and _args.path:
@@ -3103,11 +3115,4 @@ if __name__ == "__main__":
             ):
                 _import_path = _candidate
 
-    from ui_qt import resolve_ui_toolkit, run_qt_app
-
-    if resolve_ui_toolkit(_args.ui) == "qt":
-        raise SystemExit(run_qt_app(import_path=_import_path))
-
-    app_root = tk.Tk()
-    app = BookStudio(app_root, import_path=_import_path)
-    app_root.mainloop()
+    raise SystemExit(run_qt_app(import_path=_import_path))

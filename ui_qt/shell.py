@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -95,12 +94,8 @@ class MainWindow(QMainWindow):
         top.addWidget(refresh_btn)
         layout.addLayout(top)
 
-        hint = QLabel(
-            "Qt-UI (Default). Legacy-Tk: <code>python book_studio.py --ui tk</code> "
-            "bzw. <code>BOOK_STUDIO_UI=tk</code>."
-        )
+        hint = QLabel("Quarto Book Studio — PySide6-UI")
         hint.setWordWrap(True)
-        hint.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(hint)
 
         self.structure = StructurePanel()
@@ -235,7 +230,7 @@ class MainWindow(QMainWindow):
             self,
             "Über Book Studio (Qt)",
             f"{version}\n\n"
-            "PySide6-Migrationspfad — Phase 3.\n"
+            "Quarto Book Studio — PySide6-UI.\n"
             "Siehe .doc/pyside6-migration-plan.md",
         )
 

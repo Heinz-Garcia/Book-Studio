@@ -39,7 +39,7 @@ class CommandHost:
             self.w,
             "Noch nicht in Qt",
             f"„{name}“ ist in der Qt-UI noch nicht angebunden.\n"
-            "Bitte melden — Legacy-Tk: python book_studio.py --ui tk",
+            "Bitte im Log melden bzw. Issue öffnen.",
         )
 
     def _run_plugin(self, plugin_name: str) -> None:
