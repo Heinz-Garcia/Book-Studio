@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Optional
 
 from PySide6.QtWidgets import (
@@ -19,7 +18,6 @@ from PySide6.QtWidgets import (
 from tools.skeleton.config import read_skeleton_settings
 from tools.skeleton.manifest import list_profiles, load_manifest, resolve_library_root
 from ui_qt.book_workspace import repo_root
-from ui_qt.dialogs.text_dialogs import TextEditorDialog
 
 
 class SkeletonPopulateQtDialog(QDialog):
@@ -99,28 +97,7 @@ def open_skeleton_populate_qt(studio: Any, parent: Optional[QWidget] = None, **k
 
 
 def open_skeleton_editor_qt(studio: Any, parent: Optional[QWidget] = None, **kwargs) -> int:
-    """Vereinfachter Editor: Profil wählen, Manifest in TextEditor öffnen."""
-    root = repo_root()
-    settings = read_skeleton_settings(root)
-    library_root = resolve_library_root(root, str(settings.get("library_path") or "tools/skeleton/library"))
-    profiles = list_profiles(library_root)
-    if not profiles:
-        QMessageBox.warning(parent, "Skeleton-Editor", "Keine Profile gefunden.")
-        return 1
-    labels = {n: n for n in profiles}
-    for name in profiles:
-        try:
-            labels[name] = load_manifest(library_root / name).label
-        except (OSError, ValueError):
-            pass
-    dlg = SkeletonPopulateQtDialog(parent, profiles, labels)
-    dlg.setWindowTitle("Skeleton-Editor — Profil")
-    if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selected_profile:
-        return 1
-    profile_dir = Path(library_root) / dlg.selected_profile
-    manifest = profile_dir / "manifest.json"
-    if manifest.is_file():
-        TextEditorDialog(parent, manifest, title=f"Skeleton {dlg.selected_profile}").exec()
-    else:
-        QMessageBox.information(parent, "Skeleton-Editor", f"Profilordner:\n{profile_dir}")
-    return 0
+    """Delegiert an den vollständigen Qt-Editor (Feature-Parität zum Tk-Editor)."""
+    from ui_qt.dialogs.skeleton_editor_dialog import open_skeleton_editor_qt as _full
+
+    return _full(studio=studio, parent=parent, **kwargs)

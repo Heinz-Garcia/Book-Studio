@@ -107,7 +107,7 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 
 **Exit:** Menü → Plugins vollständig unter Qt.
 
-**Status (2026-07-23):** Qt-Dialoge für Mapping Manager, Generierte Bücher, Publish Readiness, Skeleton Populate/Editor (vereinfacht); Dispatch in `ui_qt/plugin_dispatch.py`. Skeleton-Editor ist bewusst schlanker als die Tk-Vollversion.
+**Status (2026-07-23):** Qt-Dialoge für Mapping Manager, Generierte Bücher, Publish Readiness, Skeleton Populate; **Skeleton-Editor voll portiert** (`ui_qt/dialogs/skeleton_editor_dialog.py`, Feature-Parität zum Tk-Editor). Dispatch in `ui_qt/plugin_dispatch.py`.
 
 ---
 
