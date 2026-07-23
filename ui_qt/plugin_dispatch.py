@@ -96,10 +96,20 @@ def _provenance(studio, parent, log) -> None:
 
 
 def _file_indexer(studio, parent, log) -> None:
-    QMessageBox.information(
-        parent,
-        "Dateien indexieren",
-        "Der File-Indexer ist in der Qt-UI noch ein Stub "
-        "(wie im Plugin selbst). Bitte CLI/Tk nutzen, falls nötig.",
-    )
-    log("file_indexer: Stub.", "warning")
+    from plugins.file_indexer import run as indexer_run
+
+    code = indexer_run(studio=studio)
+    if code == 0:
+        QMessageBox.information(
+            parent,
+            "Dateien indexieren",
+            "Indexer abgeschlossen (Exit 0).\nDetails siehe Log.",
+        )
+    else:
+        QMessageBox.warning(
+            parent,
+            "Dateien indexieren",
+            f"Indexer beendet mit Exit {code}.\n"
+            "Prüfe indexer_target_folder in der Studio-Konfiguration und das Log.",
+        )
+    log(f"file_indexer beendet (code={code}).", "info" if code == 0 else "warning")

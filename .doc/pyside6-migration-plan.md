@@ -94,7 +94,7 @@ Nacheinander portieren (je Dialog eigener Commit/PR-Slice):
 
 **Exit:** Alle Menüpunkte der Haupt-App öffnen Qt-Dialoge; keine `Toplevel`-Abhängigkeit mehr im Qt-Pfad.
 
-**Status (2026-07-23):** Qt-Export-Dialog + ExportManager-Bridge (messagebox-Shim), Doctor-, Hilfe-, App-Config-, Preview-/Text-Editor-Dialoge; JSON Import/Export; verbleibende Spezialfälle (Sanitizer-Pipeline, Time Machine, Handbuch-PDF) noch Stub.
+**Status (2026-07-23):** Qt-Export-Dialog + ExportManager-Bridge, Doctor-, Hilfe-, App-Config-, Preview-/Text-Editor-Dialoge; JSON Import/Export; **Sanitizer-Pipeline, Backup, Time Machine, Handbuch-PDF, `_quarto.yml`-Reset, Explorer-/Missing-Images-Kontextmenüs** angebunden (kein Stub mehr).
 
 ---
 

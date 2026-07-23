@@ -1,50 +1,88 @@
 """file_indexer - Plugin-Wrapper fuer tools/Files_Indexer.py.
 
-Phase 3 (Beispiel-Plugin): Die Discovery-Schicht ruft `run(...)` auf.
-Hier adaptieren wir die CLI-Signatur des Tools auf eine Plugin-
-Signatur, die (spaeter) vom MenuManager an die Hauptapp weitergereicht
-wird.
-
-Heute fuehrt das Plugin noch nichts aus - die echte Ausfuehrung ist
-ein Phase-3.1-Schritt. Diese Datei validiert nur, dass das Plugin-
-Manifest korrekt aufloest.
+Führt den Indexer als Subprozess aus und schreibt ``buch_struktur_final.csv``
+in den konfigurierten Zielordner (``indexer_target_folder`` in app_config).
 """
 
 from __future__ import annotations
 
 import logging
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
 
 _logger = logging.getLogger(__name__)
 
+_TOOL = Path(__file__).resolve().parent.parent.parent / "tools" / "Files_Indexer.py"
+
 
 def run(studio: Optional[Any] = None, **kwargs) -> int:
-    """Plugin-Entrypoint.
+    """Plugin-Entrypoint: startet Files_Indexer.py."""
+    if not _TOOL.is_file():
+        msg = f"Indexer-Tool fehlt: {_TOOL}"
+        _logger.error(msg)
+        if studio is not None and hasattr(studio, "log"):
+            studio.log(msg, "error")
+        return 2
 
-    Args:
-        studio: Optional - BookStudio-Instanz. Wird hier noch nicht
-                genutzt; die echte Anbindung ist Phase 3.1.
-        **kwargs: zusaetzliche Parameter (z. B. config_path, output_path).
+    repo = _TOOL.parent.parent
+    config = kwargs.get("config")
+    if config is None:
+        config = repo / "app_config.json"
+    config_path = Path(config)
 
-    Returns:
-        Exit-Code (0 = OK). Heute immer 0, weil die Ausfuehrung
-        entfaellt.
-    """
-    _logger.info(
-        "Plugin file_indexer aufgerufen (studio=%s, kwargs=%s). "
-        "Echte Ausfuehrung folgt in Phase 3.1.",
-        getattr(studio, "__class__", type(studio)).__name__ if studio else None,
-        kwargs,
-    )
-    return 0
+    cmd = [sys.executable, str(_TOOL), "--config", str(config_path)]
+    target = kwargs.get("target")
+    if target:
+        cmd.extend(["--target", str(target)])
+    elif studio is not None and getattr(studio, "current_book", None):
+        # Optional: wenn Config leer ist, aktuelles Buch als Ziel
+        pass
+
+    log = getattr(studio, "log", None)
+    if callable(log):
+        log(f"📂 File-Indexer startet: {' '.join(cmd)}", "header")
+
+    try:
+        import os
+
+        env = os.environ.copy()
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUTF8", "1")
+        completed = subprocess.run(  # noqa: S603
+            cmd,
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            env=env,
+        )
+    except OSError as exc:
+        if callable(log):
+            log(f"File-Indexer fehlgeschlagen: {exc}", "error")
+        return 1
+
+    out = (completed.stdout or "").strip()
+    err = (completed.stderr or "").strip()
+    if callable(log):
+        for line in out.splitlines():
+            log(line, "info")
+        for line in err.splitlines():
+            log(line, "warning" if completed.returncode == 0 else "error")
+        if completed.returncode == 0:
+            log("File-Indexer fertig.", "success")
+        else:
+            log(f"File-Indexer Exit {completed.returncode}", "error")
+    return int(completed.returncode)
 
 
 def is_available() -> bool:
     """Prueft, ob das zugrundeliegende Tool vorhanden ist."""
-    tool_path = Path(__file__).resolve().parent.parent.parent / "tools" / "Files_Indexer.py"
-    return tool_path.is_file()
+    return _TOOL.is_file()
 
 
 __all__ = ["run", "is_available"]

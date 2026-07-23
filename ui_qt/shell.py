@@ -200,10 +200,12 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Geladen: {book}")
         self._persist_session()
 
-    def _save(self) -> None:
+    def _save(self) -> bool:
         if self._session and self._session.save():
             self.statusBar().showMessage("Gespeichert.", 4000)
             self._persist_session()
+            return True
+        return False
 
     def _on_log(self, message: str, level: str) -> None:
         self._log.appendPlainText(f"[{level}] {message}")

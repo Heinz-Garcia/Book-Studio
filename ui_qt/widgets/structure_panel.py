@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -121,7 +122,11 @@ class StructurePanel(QWidget):
         self.btn_save.clicked.connect(self._on_save)
         self.btn_undo.clicked.connect(self._on_undo)
         self.book_tree.structure_reordered.connect(self._on_reorder)
-        # Doppelklick öffnet in der Tk-UI den Editor — hier (Phase 3) kein Auto-Add.
+
+        self.avail_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.avail_tree.customContextMenuRequested.connect(self._avail_context_menu)
+        self.book_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.book_tree.customContextMenuRequested.connect(self._book_context_menu)
 
         undo_shortcut = QAction(self)
         undo_shortcut.setShortcut(QKeySequence.StandardKey.Undo)
@@ -223,3 +228,47 @@ class StructurePanel(QWidget):
             self.reload_from_session()
         else:
             self.reload_from_session()
+
+    def _avail_context_menu(self, pos) -> None:
+        item = self.avail_tree.itemAt(pos)
+        if item is None:
+            return
+        self.avail_tree.setCurrentItem(item)
+        path = item.data(0, Qt.ItemDataRole.UserRole)
+        if not path or not self._session:
+            return
+        menu = QMenu(self)
+        act_explorer = menu.addAction("📂 Im Explorer anzeigen")
+        act_images = menu.addAction("🖼 Fehlende Bilder anzeigen")
+        chosen = menu.exec(self.avail_tree.viewport().mapToGlobal(pos))
+        from ui_qt.dialogs.missing_images_dialog import (
+            open_book_file_in_explorer,
+            show_missing_images_for_path,
+        )
+
+        if chosen is act_explorer:
+            open_book_file_in_explorer(self, self._session.book_path, str(path))
+        elif chosen is act_images:
+            show_missing_images_for_path(self, self._session.book_path, str(path))
+
+    def _book_context_menu(self, pos) -> None:
+        item = self.book_tree.itemAt(pos)
+        if item is None:
+            return
+        self.book_tree.setCurrentItem(item)
+        path = item.data(0, Qt.ItemDataRole.UserRole)
+        if not path or not self._session:
+            return
+        menu = QMenu(self)
+        act_explorer = menu.addAction("📂 Im Explorer anzeigen")
+        act_images = menu.addAction("🖼 Fehlende Bilder anzeigen")
+        chosen = menu.exec(self.book_tree.viewport().mapToGlobal(pos))
+        from ui_qt.dialogs.missing_images_dialog import (
+            open_book_file_in_explorer,
+            show_missing_images_for_path,
+        )
+
+        if chosen is act_explorer:
+            open_book_file_in_explorer(self, self._session.book_path, str(path))
+        elif chosen is act_images:
+            show_missing_images_for_path(self, self._session.book_path, str(path))

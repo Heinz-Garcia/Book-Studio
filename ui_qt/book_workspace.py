@@ -175,7 +175,20 @@ class StructureSession:
             self.engine.save_chapters(self.book_nodes, profile_name=None)
             self.dirty = False
             self._log("Struktur in _quarto.yml gespeichert.", "success")
+            self._create_structure_backup()
             return True
         except (OSError, ValueError, TypeError, RuntimeError) as exc:
             self._log(f"Speichern fehlgeschlagen: {exc}", "error")
             return False
+
+    def _create_structure_backup(self) -> None:
+        """Time-Machine-Snapshot unter ``.backups/struct_*.json`` (wie Tk)."""
+        try:
+            from book_doctor import BackupManager
+
+            mgr = BackupManager(None, self.book_path)
+            name = mgr.create_structure_backup(list(self.book_nodes))
+            if name:
+                self._log(f"Time-Machine-Snapshot: {name}", "dim")
+        except (OSError, TypeError, ValueError, RuntimeError) as exc:
+            self._log(f"Struktur-Backup fehlgeschlagen: {exc}", "warning")
