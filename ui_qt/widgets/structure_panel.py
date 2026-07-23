@@ -121,7 +121,7 @@ class StructurePanel(QWidget):
         self.btn_save.clicked.connect(self._on_save)
         self.btn_undo.clicked.connect(self._on_undo)
         self.book_tree.structure_reordered.connect(self._on_reorder)
-        self.avail_tree.itemDoubleClicked.connect(lambda *_: self._on_add())
+        # Doppelklick öffnet in der Tk-UI den Editor — hier (Phase 3) kein Auto-Add.
 
         undo_shortcut = QAction(self)
         undo_shortcut.setShortcut(QKeySequence.StandardKey.Undo)

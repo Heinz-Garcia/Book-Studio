@@ -1,24 +1,30 @@
-"""Qt-Hauptfenster — Phase 2: Buchstruktur-Trees."""
+"""Qt-Hauptfenster — Phase 3: Menü, Session, Recent Projects."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from ui_qt.book_workspace import StructureSession, discover_books
+from ui_qt.book_workspace import StructureSession, discover_books, repo_root
+from ui_qt.command_host import CommandHost
+from ui_qt.menu_builder import build_menu_bar
+from ui_qt import qt_session
 from ui_qt.widgets.structure_panel import StructurePanel
 
 if TYPE_CHECKING:
@@ -31,43 +37,36 @@ class MainWindow(QMainWindow):
         self._facade = facade
         self._session: Optional[StructureSession] = None
         self._books: list[Path] = []
-        self.setWindowTitle("Quarto Book Studio (Qt) — Phase 2")
+        self._commands = CommandHost(self)
+        self.setWindowTitle("Quarto Book Studio (Qt) — Phase 3")
         self.resize(1200, 760)
 
         facade.set_log_hook(self._on_log)
-        self._build_menu()
+        self._apply_saved_geometry()
+        self.setMenuBar(
+            build_menu_bar(
+                self,
+                resolve=self._commands.resolve,
+                recent_builder=self._populate_recent_menu,
+            )
+        )
         self._build_central()
-        self.statusBar().showMessage("Qt-UI Phase 2 — Buchstruktur")
+        self.statusBar().showMessage("Qt-UI Phase 3 — Menü & Session")
 
-        facade.log("Qt-Shell gestartet (Phase 2 Buchstruktur).", "info")
+        facade.log("Qt-Shell gestartet (Phase 3 Menü/Session).", "info")
         self._refresh_book_list()
+        self._restore_active_book()
         if facade.import_path is not None:
             facade.log(f"Import-Pfad übergeben: {facade.import_path}", "info")
             self._try_select_book(Path(facade.import_path))
 
-    def _build_menu(self) -> None:
-        menu_bar = self.menuBar()
-        file_menu = menu_bar.addMenu("&Datei")
-
-        reload_action = QAction("Bücher neu laden", self)
-        reload_action.triggered.connect(self._refresh_book_list)
-        file_menu.addAction(reload_action)
-
-        save_action = QAction("Struktur speichern", self)
-        save_action.setShortcut("Ctrl+S")
-        save_action.triggered.connect(self._save)
-        file_menu.addAction(save_action)
-        file_menu.addSeparator()
-
-        quit_action = QAction("Beenden", self)
-        quit_action.setShortcut("Ctrl+Q")
-        quit_action.triggered.connect(self.close)
-        file_menu.addAction(quit_action)
-
-        help_menu = menu_bar.addMenu("&Hilfe")
-        about_action = QAction("Über Qt-Migration…", self)
-        about_action.triggered.connect(self._show_about)
-        help_menu.addAction(about_action)
+    def as_plugin_studio(self) -> SimpleNamespace:
+        """Minimales studio-ähnliches Objekt für PluginExecutor."""
+        return SimpleNamespace(
+            current_book=self._facade.current_book,
+            log=self._facade.log,
+            root=self,
+        )
 
     def _build_central(self) -> None:
         central = QWidget(self)
@@ -85,8 +84,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(top)
 
         hint = QLabel(
-            "Phase 2: Einrücken / Ausrücken / Hoch / Runter, Drag&Drop in der Buchstruktur, "
-            "Speichern → <code>_quarto.yml</code>. Undo: Strg+Z."
+            "Phase 3: volle Menüleiste (Stubs für noch fehlende Dialoge), "
+            "Session/Recent Projects, Struktur-Editor wie Phase 2."
         )
         hint.setWordWrap(True)
         hint.setTextFormat(Qt.TextFormat.RichText)
@@ -98,10 +97,26 @@ class MainWindow(QMainWindow):
         self._log = QPlainTextEdit()
         self._log.setObjectName("qtLog")
         self._log.setReadOnly(True)
-        self._log.setMaximumHeight(140)
+        self._log.setMaximumHeight(160)
         layout.addWidget(self._log)
 
         self.setCentralWidget(central)
+
+    def _populate_recent_menu(self, menu: QMenu) -> None:
+        menu.clear()
+        entries = qt_session.list_recent_books(current_book=self._facade.current_book)
+        if not entries:
+            act = menu.addAction("(noch keine – Buch wechseln speichert die Liste)")
+            act.setEnabled(False)
+            return
+        for entry in entries:
+            if entry.get("current"):
+                act = menu.addAction(f"● {entry['label']} (aktuell)")
+                act.setEnabled(False)
+                continue
+            path = entry["path"]
+            act = menu.addAction(entry["label"])
+            act.triggered.connect(lambda _checked=False, p=path: self._try_select_book(p))
 
     def _refresh_book_list(self) -> None:
         current = self.book_combo.currentData()
@@ -116,6 +131,38 @@ class MainWindow(QMainWindow):
         if current is not None:
             self._try_select_book(Path(current))
 
+    def _restore_active_book(self) -> None:
+        state = qt_session.load_session()
+        key = state.get("active_book_path")
+        if not key:
+            return
+        book = qt_session.resolve_book_key(str(key))
+        if book is not None:
+            self._try_select_book(book)
+
+    def _apply_saved_geometry(self) -> None:
+        state = qt_session.load_session()
+        ui = state.get("ui_state") if isinstance(state, dict) else None
+        geom = ui.get("window_geometry") if isinstance(ui, dict) else None
+        parsed = qt_session.parse_geometry(str(geom)) if geom else None
+        if parsed:
+            w, h, x, y = parsed
+            self.resize(w, h)
+            self.move(x, y)
+
+    def _current_geometry_string(self) -> str:
+        geo = self.geometry()
+        return qt_session.geometry_string(geo.width(), geo.height(), geo.x(), geo.y())
+
+    def _persist_session(self) -> None:
+        try:
+            qt_session.save_session(
+                current_book=self._facade.current_book,
+                geometry=self._current_geometry_string(),
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            self._facade.log(f"Session konnte nicht gespeichert werden: {exc}", "warning")
+
     def _try_select_book(self, book: Path) -> None:
         book = book.resolve()
         for i in range(self.book_combo.count()):
@@ -123,7 +170,6 @@ class MainWindow(QMainWindow):
             if data is not None and Path(data).resolve() == book:
                 self.book_combo.setCurrentIndex(i)
                 return
-        # Nicht in der Liste → trotzdem laden
         self._load_book(book)
 
     def _on_book_chosen(self, index: int) -> None:
@@ -132,6 +178,7 @@ class MainWindow(QMainWindow):
             self._session = None
             self._facade.current_book = None
             self.structure.set_session(None)
+            self._persist_session()
             return
         self._load_book(Path(data))
 
@@ -147,21 +194,32 @@ class MainWindow(QMainWindow):
         self.structure.set_session(session)
         self.setWindowTitle(f"Quarto Book Studio (Qt) — {book.name}")
         self.statusBar().showMessage(f"Geladen: {book}")
+        self._persist_session()
 
     def _save(self) -> None:
         if self._session and self._session.save():
             self.statusBar().showMessage("Gespeichert.", 4000)
+            self._persist_session()
 
     def _on_log(self, message: str, level: str) -> None:
         self._log.appendPlainText(f"[{level}] {message}")
         self.statusBar().showMessage(message, 5000)
 
     def _show_about(self) -> None:
-        self._facade.log(
-            "PySide6-Migration Phase 2 — siehe .doc/pyside6-migration-plan.md",
-            "info",
+        version = "—"
+        try:
+            version = (repo_root() / "version.txt").read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+        QMessageBox.about(
+            self,
+            "Über Book Studio (Qt)",
+            f"{version}\n\n"
+            "PySide6-Migrationspfad — Phase 3.\n"
+            "Siehe .doc/pyside6-migration-plan.md",
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        self._persist_session()
         self._facade.set_log_hook(None)
         super().closeEvent(event)

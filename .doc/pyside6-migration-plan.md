@@ -79,6 +79,8 @@ Feature-Parität der Desktop-UI von Tkinter auf PySide6, bei möglichst unverän
 
 **Exit:** Tägliche Navigation und Logging ohne Tk-Hauptfenster.
 
+**Status (2026-07-23):** Menüleiste aus `menu_definitions` + Plugins, Session/`recent_books`/Geometrie, CommandHost mit Stubs für Phase-4-Dialoge.
+
 ---
 
 ## Phase 4 — Kern-Dialoge der App
@@ -142,7 +144,7 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 - [x] **0** Branch `pyside6-migration` vom aktuellen Branch
 - [x] **1** PySide6 + `ui_qt` + Start-Flag + leere Shell
 - [x] **2** Doppel-Tree + Indent/Outdent/Move/DnD + Persistenz
-- [ ] **3** Menü, Aktionen, Log, Session, Bücher wechseln
+- [x] **3** Menü, Aktionen, Log, Session, Bücher wechseln
 - [ ] **4** App-Dialoge
 - [ ] **5** Plugin-/Tools-Dialoge
 - [ ] **6** Tk entfernen, Tests/Docs
