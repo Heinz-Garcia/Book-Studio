@@ -32,6 +32,15 @@ def _accel_to_shortcut(accel: Optional[str]) -> Optional[QKeySequence]:
     return QKeySequence(accel.replace("Ctrl+", "Ctrl+"))
 
 
+def _bind_action(action: QAction, callback: Callable[[], Any]) -> None:
+    """triggered liefert ``checked: bool`` — darf den Command-Callback nicht füttern."""
+
+    def _slot(_checked: bool = False) -> None:
+        callback()
+
+    action.triggered.connect(_slot)
+
+
 def populate_menu(
     menu: QMenu,
     entries: list,
@@ -50,7 +59,7 @@ def populate_menu(
                 action.setShortcut(_accel_to_shortcut(entry.accelerator))
             cb = resolve(entry.command)
             if cb is not None:
-                action.triggered.connect(cb)
+                _bind_action(action, cb)
             else:
                 action.setEnabled(False)
             menu.addAction(action)
@@ -116,7 +125,7 @@ def _populate_plugins(
         action = QAction(info.label, menu)
         cb = resolve(f"plugin:{info.name}")
         if cb is not None:
-            action.triggered.connect(cb)
+            _bind_action(action, cb)
         else:
             action.setEnabled(False)
         menu.addAction(action)

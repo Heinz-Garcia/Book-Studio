@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import app_config as _app_config
 from book_doctor import BookDoctor
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 from services.render_service import RenderService
 from template_manager import TemplateManager
@@ -18,6 +18,29 @@ from yaml_engine import QuartoYamlEngine
 
 if TYPE_CHECKING:
     from ui_qt.shell import MainWindow
+
+
+class _UiScheduler(QObject):
+    """Thread-sicher UI-Callbacks auf den GUI-Thread legen (QueuedConnection)."""
+
+    _invoke = Signal(object)
+
+    def __init__(self, parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self._invoke.connect(self._run)
+
+    def _run(self, callback: Callable) -> None:
+        callback()
+
+    def post(self, callback: Callable, delay_ms: int = 0) -> None:
+        if delay_ms <= 0:
+            self._invoke.emit(callback)
+            return
+
+        def _delayed() -> None:
+            QTimer.singleShot(delay_ms, callback)
+
+        self._invoke.emit(_delayed)
 
 
 class QtStudioBridge:
@@ -34,6 +57,7 @@ class QtStudioBridge:
         self.yaml_engine: Optional[QuartoYamlEngine] = None
         self.doctor: Optional[BookDoctor] = None
         self._services = SimpleNamespace(render=RenderService())
+        self._ui = _UiScheduler(window)
         self._sync_from_window()
 
     def _sync_from_window(self) -> None:
@@ -87,7 +111,7 @@ class QtStudioBridge:
         self._window._facade.log(message, level)
 
     def schedule_ui(self, callback: Callable, delay: int = 0) -> None:
-        QTimer.singleShot(max(0, int(delay)), callback)
+        self._ui.post(callback, delay_ms=max(0, int(delay)))
 
     def update_status(self, text: str, fg: str = "") -> None:
         self._window.statusBar().showMessage(str(text))

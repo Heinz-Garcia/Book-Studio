@@ -24,11 +24,11 @@ class CommandHost:
     def resolve(self, name: str) -> Optional[Callable[[], Any]]:
         if name.startswith("plugin:"):
             plugin_name = name[len("plugin:") :]
-            return lambda n=plugin_name: self._run_plugin(n)
+            return lambda: self._run_plugin(plugin_name)
         method = getattr(self, name, None)
         if callable(method):
             return method
-        return lambda n=name: self._stub(n)
+        return lambda: self._stub(name)
 
     def _stub(self, name: str) -> None:
         self.w._facade.log(
@@ -43,6 +43,9 @@ class CommandHost:
         )
 
     def _run_plugin(self, plugin_name: str) -> None:
+        if not isinstance(plugin_name, str) or not plugin_name:
+            self.w._facade.log(f"Ungültiger Plugin-Name: {plugin_name!r}", "error")
+            return
         from ui_qt.plugin_dispatch import run_plugin_qt
 
         if run_plugin_qt(plugin_name, self.w):
