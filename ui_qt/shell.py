@@ -38,7 +38,7 @@ class MainWindow(QMainWindow):
         self._session: Optional[StructureSession] = None
         self._books: list[Path] = []
         self._commands = CommandHost(self)
-        self.setWindowTitle("Quarto Book Studio (Qt) — Phase 3")
+        self.setWindowTitle("Quarto Book Studio (Qt) — Phase 4")
         self.resize(1200, 760)
 
         facade.set_log_hook(self._on_log)
@@ -51,9 +51,8 @@ class MainWindow(QMainWindow):
             )
         )
         self._build_central()
-        self.statusBar().showMessage("Qt-UI Phase 3 — Menü & Session")
-
-        facade.log("Qt-Shell gestartet (Phase 3 Menü/Session).", "info")
+        self.statusBar().showMessage("Qt-UI Phase 4 — Dialoge & Export")
+        facade.log("Qt-Shell gestartet (Phase 4 Dialoge/Export).", "info")
         self._refresh_book_list()
         self._restore_active_book()
         if facade.import_path is not None:
@@ -67,6 +66,11 @@ class MainWindow(QMainWindow):
             log=self._facade.log,
             root=self,
         )
+
+    def as_export_studio(self):
+        from ui_qt.studio_bridge import QtStudioBridge
+
+        return QtStudioBridge(self)
 
     def _build_central(self) -> None:
         central = QWidget(self)

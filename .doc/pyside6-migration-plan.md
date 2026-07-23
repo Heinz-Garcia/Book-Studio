@@ -94,6 +94,8 @@ Nacheinander portieren (je Dialog eigener Commit/PR-Slice):
 
 **Exit:** Alle Menüpunkte der Haupt-App öffnen Qt-Dialoge; keine `Toplevel`-Abhängigkeit mehr im Qt-Pfad.
 
+**Status (2026-07-23):** Qt-Export-Dialog + ExportManager-Bridge (messagebox-Shim), Doctor-, Hilfe-, App-Config-, Preview-/Text-Editor-Dialoge; JSON Import/Export; verbleibende Spezialfälle (Sanitizer-Pipeline, Time Machine, Handbuch-PDF) noch Stub.
+
 ---
 
 ## Phase 5 — Plugin-Tool-UIs
@@ -145,7 +147,7 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 - [x] **1** PySide6 + `ui_qt` + Start-Flag + leere Shell
 - [x] **2** Doppel-Tree + Indent/Outdent/Move/DnD + Persistenz
 - [x] **3** Menü, Aktionen, Log, Session, Bücher wechseln
-- [ ] **4** App-Dialoge
+- [x] **4** App-Dialoge
 - [ ] **5** Plugin-/Tools-Dialoge
 - [ ] **6** Tk entfernen, Tests/Docs
 - [ ] **7** PR + Paritätsabnahme
