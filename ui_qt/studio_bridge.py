@@ -153,6 +153,17 @@ class QtStudioBridge:
     def get_title_for_path(self, source_path: str) -> str:
         return self.title_registry.get(source_path, Path(source_path).name)
 
+    def get_recent_books(self) -> list:
+        from ui_qt import qt_session
+
+        return qt_session.list_recent_books(current_book=self.current_book)
+
+    @property
+    def books(self) -> list:
+        from ui_qt.book_workspace import discover_books
+
+        return discover_books()
+
     def refresh_ui_titles(self) -> None:
         session = self._window._session
         if session is None:

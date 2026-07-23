@@ -43,7 +43,11 @@ class CommandHost:
         )
 
     def _run_plugin(self, plugin_name: str) -> None:
-        studio = self.w.as_plugin_studio()
+        from ui_qt.plugin_dispatch import run_plugin_qt
+
+        if run_plugin_qt(plugin_name, self.w):
+            return
+        studio = self.w.as_export_studio()
         PluginExecutor(PLUGINS_DIR).run(plugin_name, studio)
 
     def _require_book(self) -> bool:

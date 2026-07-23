@@ -107,6 +107,8 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 
 **Exit:** Menü → Plugins vollständig unter Qt.
 
+**Status (2026-07-23):** Qt-Dialoge für Mapping Manager, Generierte Bücher, Publish Readiness, Skeleton Populate/Editor (vereinfacht); Dispatch in `ui_qt/plugin_dispatch.py`. Skeleton-Editor ist bewusst schlanker als die Tk-Vollversion.
+
 ---
 
 ## Phase 6 — Tk entfernen & Aufräumen
@@ -148,7 +150,7 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 - [x] **2** Doppel-Tree + Indent/Outdent/Move/DnD + Persistenz
 - [x] **3** Menü, Aktionen, Log, Session, Bücher wechseln
 - [x] **4** App-Dialoge
-- [ ] **5** Plugin-/Tools-Dialoge
+- [x] **5** Plugin-/Tools-Dialoge
 - [ ] **6** Tk entfernen, Tests/Docs
 - [ ] **7** PR + Paritätsabnahme
 

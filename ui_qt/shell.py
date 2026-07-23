@@ -38,7 +38,7 @@ class MainWindow(QMainWindow):
         self._session: Optional[StructureSession] = None
         self._books: list[Path] = []
         self._commands = CommandHost(self)
-        self.setWindowTitle("Quarto Book Studio (Qt) — Phase 4")
+        self.setWindowTitle("Quarto Book Studio (Qt) — Phase 5")
         self.resize(1200, 760)
 
         facade.set_log_hook(self._on_log)
@@ -51,8 +51,8 @@ class MainWindow(QMainWindow):
             )
         )
         self._build_central()
-        self.statusBar().showMessage("Qt-UI Phase 4 — Dialoge & Export")
-        facade.log("Qt-Shell gestartet (Phase 4 Dialoge/Export).", "info")
+        self.statusBar().showMessage("Qt-UI Phase 5 — Plugin-Dialoge")
+        facade.log("Qt-Shell gestartet (Phase 5 Plugins).", "info")
         self._refresh_book_list()
         self._restore_active_book()
         if facade.import_path is not None:
