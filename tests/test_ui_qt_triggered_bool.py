@@ -7,8 +7,8 @@ import pytest
 
 def test_bind_action_ignores_triggered_checked():
     pytest.importorskip("PySide6")
-    from PySide6.QtWidgets import QApplication, QWidget
     from PySide6.QtGui import QAction
+    from PySide6.QtWidgets import QApplication, QWidget
 
     from ui_qt.menu_builder import _bind_action
 
@@ -21,7 +21,7 @@ def test_bind_action_ignores_triggered_checked():
         seen.append("ok")
 
     _bind_action(action, cb)
-    action.triggered.emit(True)
+    action.trigger()
     assert seen == ["ok"]
     _ = app
 
@@ -31,9 +31,6 @@ def test_command_host_plugin_resolve_zero_arg():
     from ui_qt.command_host import CommandHost
 
     class FakeWin:
-        def __init__(self):
-            self.calls = []
-
         class _F:
             def log(self, *a, **k):
                 pass
@@ -43,14 +40,9 @@ def test_command_host_plugin_resolve_zero_arg():
         def as_export_studio(self):
             return self
 
-    w = FakeWin()
-    host = CommandHost(w)  # type: ignore[arg-type]
+    host = CommandHost(FakeWin())  # type: ignore[arg-type]
     called: list[str] = []
-
-    def fake_run(name: str) -> None:
-        called.append(name)
-
-    host._run_plugin = fake_run  # type: ignore[method-assign]
+    host._run_plugin = lambda name: called.append(name)  # type: ignore[method-assign]
     cb = host.resolve("plugin:mapping_manager")
     assert cb is not None
     cb()
