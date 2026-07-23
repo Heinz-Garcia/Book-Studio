@@ -56,7 +56,10 @@ class ExportManager:
         fire_hooks = getattr(self.studio, "_fire_plugin_hooks_after_render", None)
         if callable(fire_hooks):
             ctx = dict(getattr(self, "_pending_render_context", None) or {})
-            fire_hooks(format=fmt, artifact_path=artifact_path, **ctx)
+            # format/artifact_path explizit setzen (ctx enthält ebenfalls "format")
+            ctx["format"] = fmt
+            ctx["artifact_path"] = artifact_path
+            fire_hooks(**ctx)
 
     def _set_status(self, text, fg):
         self._adapter.update_status(text, fg)

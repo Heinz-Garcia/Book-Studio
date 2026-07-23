@@ -97,3 +97,24 @@ def test_file_indexer_plugin_runs_tool(tmp_path: Path):
     code = file_indexer.run(studio=studio, config=cfg)
     assert code == 0
     assert (target / "buch_struktur_final.csv").is_file()
+
+
+def test_file_indexer_falls_back_to_book_content(tmp_path: Path):
+    from plugins import file_indexer
+
+    book = tmp_path / "Band"
+    content = book / "content"
+    content.mkdir(parents=True)
+    (content / "x.md").write_text("---\ntitle: X\n---\n", encoding="utf-8")
+    cfg = tmp_path / "empty.json"
+    cfg.write_text("{}", encoding="utf-8")
+
+    class Studio:
+        current_book = book
+
+        def log(self, *a, **k):
+            pass
+
+    code = file_indexer.run(studio=Studio(), config=cfg)
+    assert code == 0
+    assert (content / "buch_struktur_final.csv").is_file()
