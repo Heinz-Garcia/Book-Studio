@@ -58,6 +58,12 @@ class MainWindow(QMainWindow):
         if facade.import_path is not None:
             facade.log(f"Import-Pfad übergeben: {facade.import_path}", "info")
             self._try_select_book(Path(facade.import_path))
+            try:
+                self.as_export_studio()._fire_plugin_hooks_after_book_import(
+                    import_path=facade.import_path
+                )
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                facade.log(f"after_book_import Hook: {exc}", "warning")
 
     def as_plugin_studio(self) -> SimpleNamespace:
         """Minimales studio-ähnliches Objekt für PluginExecutor."""

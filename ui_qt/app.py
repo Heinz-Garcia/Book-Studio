@@ -23,5 +23,12 @@ def run_qt_app(*, import_path: Optional[Union[Path, str]] = None) -> int:
     path = Path(import_path) if import_path else None
     facade = StudioFacade(import_path=path)
     window = MainWindow(facade)
+
+    from ui_qt.dialogs.messagebox_shim import install_export_manager_ui, uninstall_export_manager_ui
+
+    install_export_manager_ui(window)
     window.show()
-    return int(app.exec())
+    try:
+        return int(app.exec())
+    finally:
+        uninstall_export_manager_ui()

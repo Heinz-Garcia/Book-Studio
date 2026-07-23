@@ -101,6 +101,9 @@ class QtStudioBridge:
         except (OSError, TypeError, ValueError):
             cfg = {}
         return {
+            # Keys wie von resolve_export_layout_defaults erwartet
+            "layout_profile": cfg.get("default_layout_profile", "taschenbuch-bod"),
+            "linestretch": cfg.get("default_linestretch", 1.2),
             "default_layout_profile": cfg.get("default_layout_profile", "taschenbuch-bod"),
             "default_linestretch": cfg.get("default_linestretch", 1.2),
             "default_export_format": cfg.get("default_export_format", "typst"),
@@ -195,3 +198,42 @@ class QtStudioBridge:
         session.load()
         self._window.structure.reload_from_session()
         self._sync_from_window()
+
+    def _plugins_dir(self) -> Path:
+        return Path(__file__).resolve().parent.parent / "plugins"
+
+    def _fire_plugin_hooks_after_render(self, *, format: str = "", artifact_path: str = "", **kwargs) -> None:
+        from services.plugin_runtime import fire_plugin_hooks
+
+        self._sync_from_window()
+        fire_plugin_hooks(
+            "after_render",
+            self,
+            plugins_dir=self._plugins_dir(),
+            format=format,
+            artifact_path=artifact_path,
+            **kwargs,
+        )
+
+    def _fire_plugin_hooks_after_book_import(self, *, import_path=None) -> None:
+        from services.plugin_runtime import fire_plugin_hooks
+
+        self._sync_from_window()
+        fire_plugin_hooks(
+            "after_book_import",
+            self,
+            plugins_dir=self._plugins_dir(),
+            import_path=import_path,
+        )
+
+    def _fire_plugin_hooks_after_doctor_check(self, *, analysis, context_label) -> None:
+        from services.plugin_runtime import fire_plugin_hooks
+
+        self._sync_from_window()
+        fire_plugin_hooks(
+            "after_doctor_check",
+            self,
+            plugins_dir=self._plugins_dir(),
+            analysis=analysis,
+            context_label=context_label,
+        )

@@ -171,6 +171,7 @@ class CommandHost:
         healthy, analysis = bridge.run_doctor_preflight("Buch-Doktor", emit_success_log=True)
         if analysis is None:
             return
+        bridge._fire_plugin_hooks_after_doctor_check(analysis=analysis, context_label="Buch-Doktor")
         DoctorDialog(self.w, context_label="Buch-Doktor", analysis=analysis).exec()
         if healthy:
             self.w.statusBar().showMessage("Buch-Doktor: OK", 4000)

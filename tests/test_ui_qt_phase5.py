@@ -41,7 +41,7 @@ def test_mapping_manager_qt_constructs(tmp_path: Path, monkeypatch):
     app = QApplication.instance() or QApplication([])
     studio = SimpleNamespace(current_book=book, log=lambda *_a, **_k: None)
     dlg = MappingManagerQtDialog(None, studio)
-    assert dlg.windowTitle() == "Mapping Manager"
+    assert "Mapping Manager" in dlg.windowTitle()
     dlg.close()
     _ = app
 

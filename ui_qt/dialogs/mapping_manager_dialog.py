@@ -23,20 +23,26 @@ from PySide6.QtWidgets import (
 from tools.mapping_manager.actions import delete_pdf, open_path, rename_pdf, reveal_in_explorer
 from tools.mapping_manager.loader import load_renders, load_snapshots
 from tools.mapping_manager.models import RenderView, SnapshotView, layout_profile_label
-from tools.publish_map.store import remove_render, update_render_fields
+from tools.publish_map.store import read_map, remove_render, update_render_fields
 
 
 class MappingManagerQtDialog(QDialog):
     def __init__(self, parent: Optional[QWidget], studio: Any) -> None:
         super().__init__(parent)
         self.studio = studio
-        self.setWindowTitle("Mapping Manager")
-        self.resize(1100, 520)
+        self.setWindowTitle("Mapping Manager — Produktionslinien")
+        self.resize(1100, 560)
         self._snapshots: list[SnapshotView] = []
         self._renders: list[RenderView] = []
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Publish-Input → generierte PDFs"))
+        layout.addWidget(
+            QLabel(
+                "Produktionslinie = Publish-Input (Snapshot). "
+                "Darunter: generierte PDFs mit Format/Layout/Template. "
+                "Quelle: bookconfig/publish_map.json"
+            )
+        )
 
         row = QHBoxLayout()
         row.addWidget(QLabel("Produktionslinie:"))
@@ -48,12 +54,17 @@ class MappingManagerQtDialog(QDialog):
         row.addWidget(refresh)
         layout.addLayout(row)
 
+        self.empty_label = QLabel("")
+        self.empty_label.setStyleSheet("color: #666;")
+        layout.addWidget(self.empty_label)
+
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
             ["PDF", "Layout", "Template", "Format", "Profil", "Datum", "Status", "Notiz"]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.SelectedClicked)
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         layout.addWidget(self.table)
 
         actions = QHBoxLayout()
@@ -75,26 +86,74 @@ class MappingManagerQtDialog(QDialog):
     def _book(self) -> Path:
         return Path(self.studio.current_book)
 
+    def _preferred_snapshot_index(self) -> int:
+        """Aktive Produktionslinie, sonst die neueste (wie Tk: labels[-1])."""
+        if not self._snapshots:
+            return 0
+        try:
+            data = read_map(self._book()) or {}
+            active = str(data.get("active_snapshot_id") or "")
+        except (OSError, TypeError, ValueError):
+            active = ""
+        if active:
+            for idx, snap in enumerate(self._snapshots):
+                if snap.id == active:
+                    return idx
+        return len(self._snapshots) - 1
+
     def _reload_snapshots(self) -> None:
+        previous_id = self.snapshot_combo.currentData()
         self._snapshots = load_snapshots(self._book())
         self.snapshot_combo.blockSignals(True)
         self.snapshot_combo.clear()
         for snap in self._snapshots:
-            self.snapshot_combo.addItem(snap.label, snap.id)
+            mark = ""
+            self.snapshot_combo.addItem(f"{snap.label}{mark}", snap.id)
+        # aktive Linie kennzeichnen
+        try:
+            data = read_map(self._book()) or {}
+            active = str(data.get("active_snapshot_id") or "")
+        except (OSError, TypeError, ValueError):
+            active = ""
+        if active:
+            for i in range(self.snapshot_combo.count()):
+                if self.snapshot_combo.itemData(i) == active:
+                    text = self.snapshot_combo.itemText(i)
+                    if not text.startswith("★ "):
+                        self.snapshot_combo.setItemText(i, f"★ {text}")
+                    break
         self.snapshot_combo.blockSignals(False)
-        if self._snapshots:
-            self._on_snapshot_changed(0)
-        else:
+        if not self._snapshots:
             self.table.setRowCount(0)
+            self.empty_label.setText("Keine Produktionslinie vorhanden.")
+            return
+        # Auswahl: bisherige behalten, sonst aktiv/neueste
+        target = 0
+        if previous_id:
+            for i, snap in enumerate(self._snapshots):
+                if snap.id == previous_id:
+                    target = i
+                    break
+            else:
+                target = self._preferred_snapshot_index()
+        else:
+            target = self._preferred_snapshot_index()
+        self.snapshot_combo.setCurrentIndex(target)
+        self._on_snapshot_changed(target)
 
-    def _on_snapshot_changed(self, _index: int) -> None:
+    def _on_snapshot_changed(self, _index: int = -1) -> None:
         snap_id = self.snapshot_combo.currentData()
         if not snap_id:
             self._renders = []
             self.table.setRowCount(0)
+            self.empty_label.setText("")
             return
         self._renders = load_renders(self._book(), str(snap_id))
         self.table.setRowCount(len(self._renders))
+        if not self._renders:
+            self.empty_label.setText("Noch keine Renders für diese Produktionslinie.")
+        else:
+            self.empty_label.setText(f"{len(self._renders)} Render(s) in dieser Produktionslinie.")
         for row, render in enumerate(self._renders):
             vals = [
                 render.pdf_name,
@@ -109,7 +168,19 @@ class MappingManagerQtDialog(QDialog):
             for col, text in enumerate(vals):
                 item = QTableWidgetItem(str(text))
                 item.setData(Qt.ItemDataRole.UserRole, render.id)
+                if col == 0:
+                    item.setToolTip(str(render.pdf_path))
+                # Nur Notiz editierbar
+                if col != 7:
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row, col, item)
+
+    def _on_cell_double_clicked(self, row: int, col: int) -> None:
+        if col == 7:
+            return  # Notiz editieren
+        if 0 <= row < len(self._renders):
+            self.table.selectRow(row)
+            self._open_selected()
 
     def _selected_render(self) -> Optional[RenderView]:
         rows = self.table.selectionModel().selectedRows()
@@ -132,10 +203,14 @@ class MappingManagerQtDialog(QDialog):
 
     def _reveal_selected(self) -> None:
         render = self._selected_render()
-        if not render:
-            return
+        book = self._book()
         try:
-            reveal_in_explorer(render.pdf_path if render.exists else render.pdf_path.parent)
+            if render and render.exists:
+                reveal_in_explorer(render.pdf_path)
+            elif render:
+                reveal_in_explorer(render.pdf_path.parent)
+            else:
+                reveal_in_explorer(book / "export")
         except OSError as exc:
             QMessageBox.critical(self, "Mapping Manager", str(exc))
 
