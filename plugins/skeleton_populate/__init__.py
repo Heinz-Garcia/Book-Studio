@@ -14,12 +14,14 @@ def run(studio: Optional[Any] = None, **kwargs) -> int:
     """Menü-Entrypoint: delegiert an tools.skeleton.populate.run."""
     from tools.skeleton.populate import run as populate_run
 
+    kwargs.setdefault("skip_dialog", True)
+    kwargs.setdefault("yes", True)
     return populate_run(studio=studio, **kwargs)
 
 
 def on_after_book_import(studio: Optional[Any] = None, **kwargs) -> None:
     """Hook: nach Import ohne Pflichtseiten einmalig Populate anbieten."""
-    from tkinter import messagebox
+    import ui_hooks
 
     if studio is None or not getattr(studio, "current_book", None):
         return
@@ -27,13 +29,11 @@ def on_after_book_import(studio: Optional[Any] = None, **kwargs) -> None:
     required_dir = book / "content" / "required"
     if required_dir.is_dir() and any(required_dir.glob("*.md")):
         return
-    parent = getattr(studio, "root", None)
-    if not messagebox.askyesno(
+    if not ui_hooks.messagebox.askyesno(
         "Skeleton-Rahmen übernehmen?",
         "Für dieses Buch wurden noch keine Pflichtseiten (Titel, Klappentext, "
         "Impressum, Einleitung, …) gefunden.\n\n"
         "Rahmen aus der Skeleton-Bibliothek jetzt ins Buch übernehmen?",
-        parent=parent,
     ):
         return
     run(studio=studio, **kwargs)

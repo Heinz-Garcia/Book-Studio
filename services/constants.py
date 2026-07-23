@@ -1,17 +1,4 @@
-"""Magic-String-Konsolidierung (B9).
-
-Dieses Modul definiert semantische Konstanten und Enums, die früher als
-Magic Strings im Code verstreut waren. Sie kapseln:
-
-- Log-Level
-- Status-Tags für Datei-Marker (Pagebreak etc.)
-- Farb-Aliase auf `ui_theme.COLORS`
-
-Verwendung:
-    from services.constants import LogLevel, StatusTag, StatusFg
-    self.log("...", LogLevel.SUCCESS)
-    self.status.config(text=..., fg=StatusFg.SUCCESS)
-"""
+"""Magic-String-Konsolidierung (B9) — ohne Tk/ui_theme."""
 
 from __future__ import annotations
 
@@ -19,11 +6,7 @@ from enum import Enum
 
 
 class LogLevel(str, Enum):
-    """Log-Levels für ``self.log(msg, level)``.
-
-    String-Werte sind die Legacy-Bezeichner, die der LogManager heute
-    akzeptiert – dadurch ist der Enum drop-in kompatibel.
-    """
+    """Log-Levels für ``studio.log(msg, level)``."""
 
     INFO = "info"
     SUCCESS = "success"
@@ -35,7 +18,7 @@ class LogLevel(str, Enum):
 
 
 class MarkerState(str, Enum):
-    """Status-Tags für Datei-Marker, die der Tree-View anzeigt."""
+    """Status-Tags für Datei-Marker."""
 
     PDF_PAGEBREAK_END = "pdf_pagebreak_end"
 
@@ -52,68 +35,23 @@ class FilterValue(str, Enum):
 
 
 class StatusFg:
-    """Semantische Farb-Aliase. Delegiert an `ui_theme.COLORS`.
+    """Semantische Farb-Aliase als Hex-SSOT (ehemals ui_theme.COLORS)."""
 
-    Verwendung:
-        self.status.config(text=..., fg=StatusFg.SUCCESS)
-
-    Die Werte werden zur Modul-Import-Zeit einmalig aus `ui_theme.COLORS`
-    aufgelöst, damit Aufrufer einen reinen `str` bekommen (Property-
-    Objekte wären nicht direkt an Tk weitergebbar).
-    """
-
-    @staticmethod
-    def _color(name: str) -> str:
-        from ui_theme import COLORS
-        return COLORS.get(name, "#000000")
-
-    # Klassen-Attribute (Uppercase, str-Typ). Werden unten aufgelöst.
-    SUCCESS: str = ""
-    DANGER: str = ""
-    INFO: str = ""
-    WARNING: str = ""
-    PRIMARY: str = ""
-    WARNING_ALT: str = ""
-    NEUTRAL: str = ""
-    NEUTRAL_MUTED: str = ""
-    DANGER_STRONG: str = ""
+    SUCCESS = "#16a34a"
+    DANGER = "#b91c1c"
+    INFO = "#1d4ed8"
+    WARNING = "#d97706"
+    PRIMARY = "#2563eb"
+    WARNING_ALT = "#f59e0b"
+    NEUTRAL = "#64748b"
+    NEUTRAL_MUTED = "#95a5a6"
+    DANGER_STRONG = "#b91c1c"
 
 
-# Werte einmalig materialisieren (Modul-Import-Zeit).
-StatusFg.SUCCESS = StatusFg._color("success")
-StatusFg.DANGER = StatusFg._color("danger_text")
-StatusFg.INFO = StatusFg._color("accent_text")
-StatusFg.WARNING = StatusFg._color("warning")
-StatusFg.PRIMARY = StatusFg._color("accent")
-StatusFg.WARNING_ALT = StatusFg._color("warning_alt")
-StatusFg.NEUTRAL = StatusFg._color("neutral")
-StatusFg.NEUTRAL_MUTED = StatusFg._color("neutral_muted")
-StatusFg.DANGER_STRONG = StatusFg._color("danger_strong")
-
-
-# Hex-Werte, die aktuell in `ui_theme.COLORS` fehlen, aber hartkodiert
-# in `book_studio.py` und `export_manager.py` vorkommen. Wir registrieren
-# sie hier, damit `StatusFg` darauf zugreifen kann.
 EXTRA_HEX_ALIASES = {
-    # Veraltete Hex-Werte aus dem Vor-Theme-Code. Wir bilden sie auf
-    # semantische Namen ab.
     "success_legacy": "#27ae60",
     "danger_legacy": "#e74c3c",
     "info_legacy": "#3498db",
     "success_alt": "#2ecc71",
     "warning_legacy": "#f39c12",
 }
-
-
-# Wird beim Modul-Import einmalig in `ui_theme.COLORS` injiziert, damit
-# `StatusFg` darauf zugreifen kann. Idempotent.
-def _register_extra_colors() -> None:
-    try:
-        from ui_theme import COLORS
-    except ImportError:
-        return
-    for key, value in EXTRA_HEX_ALIASES.items():
-        COLORS.setdefault(key, value)
-
-
-_register_extra_colors()

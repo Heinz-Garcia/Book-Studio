@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from tools.skeleton.config import set_default_profile
-from tools.skeleton.editor import reveal_skeleton_path
+from tools.skeleton.reveal import reveal_skeleton_path
 from tools.skeleton.manifest import (
     SkeletonFileEntry,
     SkeletonManifest,

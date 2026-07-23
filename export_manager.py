@@ -1,5 +1,3 @@
-import tkinter as tk
-from tkinter import messagebox, filedialog
 import subprocess
 import threading
 import re
@@ -11,12 +9,15 @@ from datetime import datetime
 from pathlib import Path
 
 from pre_processor import PreProcessor
-from export_dialog import ExportDialog
+import ui_hooks
 from frontmatter_parser import parse as fm_parse
 from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues
 from services.studio_adapter import StudioAdapter
 from services.constants import StatusFg as _StatusFg
 from services.render_service import RenderService as _RenderService
+
+messagebox = ui_hooks.messagebox
+filedialog = ui_hooks.filedialog
 
 
 class ExportManager:
@@ -801,7 +802,7 @@ class ExportManager:
                 self._layout_app_defaults(),
             )
             export_initial = {**self._last_export_options(), **layout_defaults}
-            selected = ExportDialog.ask(
+            selected = ui_hooks.ask_export_options(
                 self._root(),
                 templates,
                 initial=export_initial,
@@ -1077,7 +1078,7 @@ class ExportManager:
                     self._fire_after_render_hook(output_fmt, hook_path)
 
                 self._after(0, _on_success_no_artifact)
-        except (tk.TclError, OSError, subprocess.SubprocessError) as post_err:
+        except (OSError, RuntimeError, AttributeError, TypeError, ValueError, subprocess.SubprocessError) as post_err:
             self._after(0, lambda err=post_err: self._log(f"⚠️  Post-Render-Fehler: {err}", "warning"))
 
     def _open_folder_and_select(self, filepath):

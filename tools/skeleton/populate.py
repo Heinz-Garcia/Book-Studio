@@ -10,15 +10,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from tools.skeleton.dialog import (
+from tools.skeleton.populate_types import (
     PopulateDialogResult,
     PopulatePlanLine,
     PopulateMode,
     RunConflictChoice,
-    _apply_plan_rules,
-    ask_populate_confirmation,
-    ask_profile_selection,
-    show_result_message,
+    apply_plan_rules,
 )
 from tools.skeleton.diff import build_diff_map
 from tools.skeleton.config import read_skeleton_settings, write_skeleton_settings
@@ -207,7 +204,7 @@ def resolve_populate_plan(
     include_optional: bool = False,
     file_overrides: Optional[dict] = None,
 ) -> list[PopulatePlanLine]:
-    return _apply_plan_rules(
+    return apply_plan_rules(
         base_lines,
         conflict_choice=conflict_choice,
         missing_only=missing_only,
@@ -316,32 +313,9 @@ def populate_book(
     has_conflicts = any(line.exists for line in base_plan)
     plan: list[PopulatePlanLine]
     if conflict_mode == "ask" and not skip_dialog:
-        default_conflict: RunConflictChoice = run_conflict_choice or "skip"
-        if interactive_parent is None:
-            raise ValueError("interaktiver Modus benötigt ein Tk-parent-Fenster (interactive_parent).")
-        dialog_result: PopulateDialogResult = ask_populate_confirmation(
-            interactive_parent,
-            manifest_label=manifest.label,
-            profile_name=profile_name or manifest.name,
-            book_name=book_path.name,
-            lines=base_plan,
-            has_conflicts=has_conflicts,
-            default_conflict=default_conflict,
-            populate_mode=populate_mode,
-            diff_map=diff_map,
-            on_remember=on_remember_conflict,
-            on_remember_mode=on_remember_mode,
-            include_optional=include_optional,
-        )
-        if not dialog_result.confirmed:
-            result.cancelled = True
-            return result
-        plan = resolve_populate_plan(
-            base_plan,
-            conflict_choice=dialog_result.conflict_choice or "skip",
-            missing_only=dialog_result.missing_only,
-            include_optional=dialog_result.include_optional,
-            file_overrides=dialog_result.file_overrides,
+        raise ValueError(
+            "Interaktive Populate-Dialoge (Tk) wurden entfernt. "
+            "Bitte skip_dialog=True / --yes und conflict_mode skip|replace nutzen."
         )
     else:
         plan = build_populate_plan(
@@ -465,27 +439,10 @@ def run(studio: Any = None, **kwargs: Any) -> int:
     profiles = list_profiles(library_root)
 
     skip_dialog = bool(kwargs.get("yes") or kwargs.get("skip_dialog"))
-    if (
-        parent is not None
-        and not skip_dialog
-        and not kwargs.get("profile")
-        and len(profiles) > 1
-    ):
-        labels = {}
-        for name in profiles:
-            try:
-                labels[name] = load_manifest(library_root / name).label
-            except (OSError, ValueError):
-                labels[name] = name
-        selected = ask_profile_selection(
-            parent,
-            profiles,
-            default_profile=profile if profile in profiles else None,
-            labels=labels,
-        )
-        if not selected:
-            return 0
-        profile = selected
+    if not skip_dialog and not kwargs.get("profile") and len(profiles) > 1:
+        # Ohne GUI-Profilwahl: Settings-Default bzw. erstes Profil
+        if profile not in profiles:
+            profile = profiles[0]
 
     profile_dir = resolve_profile_dir(library_root, str(profile))
 
@@ -504,19 +461,19 @@ def run(studio: Any = None, **kwargs: Any) -> int:
     else:
         book_path = kwargs.get("book_path")
         if not book_path:
-            show_result_message(
-                None,
-                "Skeleton",
-                "Kein aktives Buch. Bitte zuerst ein Buchprojekt öffnen.",
-                is_error=True,
-            )
+            msg = "Kein aktives Buch. Bitte zuerst ein Buchprojekt öffnen."
+            if studio is not None and hasattr(studio, "log"):
+                studio.log(msg, "error")
+            else:
+                print(msg)
             return 1
         book_path = Path(book_path)
         parent = None
 
     skip_dialog = bool(kwargs.get("yes") or kwargs.get("skip_dialog"))
-    if parent is None and conflict_mode == "ask" and not skip_dialog:
+    if conflict_mode == "ask" and not skip_dialog:
         conflict_mode = "skip"
+        skip_dialog = True
 
     def remember(choice: RunConflictChoice) -> None:
         _write_conflict_preference(repo_root, choice)
@@ -533,17 +490,20 @@ def run(studio: Any = None, **kwargs: Any) -> int:
             conflict_mode=conflict_mode,
             profile_name=str(profile),
             populate_mode=populate_mode,
-            interactive_parent=parent,
+            interactive_parent=None,
             on_remember_conflict=remember,
             on_remember_mode=remember_mode,
-            skip_dialog=skip_dialog,
+            skip_dialog=True,
             run_conflict_choice=(
                 "skip" if conflict_mode == "skip" else "replace" if conflict_mode == "replace" else None
             ),
             include_optional=include_optional,
         )
     except (OSError, ValueError, FileNotFoundError) as exc:
-        show_result_message(parent, "Skeleton", str(exc), is_error=True)
+        if studio is not None and hasattr(studio, "log"):
+            studio.log(str(exc), "error")
+        else:
+            print(exc)
         _LOG.exception("Skeleton populate failed")
         return 1
 
@@ -559,12 +519,11 @@ def run(studio: Any = None, **kwargs: Any) -> int:
         "Die Dateien liegen im Projekt-Pool (linke Liste).\n"
         "Den Buchbaum (rechts) füllst du manuell."
     )
-    if parent is not None:
-        show_result_message(parent, "Skeleton übernommen", summary)
+    if studio is not None and hasattr(studio, "log"):
+        studio.log(summary.replace("\n", " | "), "success")
     else:
         print(summary)
 
-    # Nach Bestätigung: GUI neu laden, damit die Dateien links erscheinen.
     refresh_studio_after_populate(studio, result)
     return 0
 

@@ -1,4 +1,4 @@
-"""Mapping Manager — Plugin-Adapter."""
+"""Mapping Manager — Plugin-Adapter (Qt)."""
 
 from __future__ import annotations
 
@@ -10,13 +10,14 @@ _REPO_ROOT = ensure_repo_on_path(__file__)
 
 
 def run(studio: Optional[Any] = None, **kwargs) -> None:
-    from tools.mapping_manager.dialog import open_mapping_manager_dialog
+    from ui_qt.dialogs.mapping_manager_dialog import open_mapping_manager_qt
 
-    open_mapping_manager_dialog(studio, **kwargs)
+    parent = kwargs.get("parent") or getattr(studio, "root", None)
+    open_mapping_manager_qt(studio, parent)
 
 
 def is_available() -> bool:
-    return tool_exists(_REPO_ROOT, "tools", "mapping_manager", "dialog.py")
+    return tool_exists(_REPO_ROOT, "ui_qt", "dialogs", "mapping_manager_dialog.py")
 
 
 __all__ = ["run", "is_available"]

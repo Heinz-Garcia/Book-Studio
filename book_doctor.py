@@ -1,13 +1,9 @@
-import tkinter as tk
-from tkinter import messagebox
 from pathlib import Path
 import re
 import zipfile
 from datetime import datetime
 import json
 import yaml
-from tkinter import ttk
-from ui_theme import COLORS, FONTS, center_on_parent, style_dialog
 
 from yaml_engine import MISSING_TITLE_LABEL
 from frontmatter_parser import parse as fm_parse
@@ -289,100 +285,3 @@ class BackupManager:
             
         return f_name.name
 
-    def show_restore_manager(self, preview_callback, apply_callback, cancel_callback):
-        """Öffnet das modale Fenster für die Time Machine (Live-Preview aus JSON)."""
-        if not self.current_book:
-            return
-        
-        if not self.backup_dir.exists():
-            messagebox.showinfo("Time Machine", "Keine Backups gefunden.")
-            return
-            
-        # NEU: Wir suchen nach den neuen .json Backups!
-        backups = sorted(list(self.backup_dir.glob("struct_*.json")), reverse=True)
-        if not backups:
-            messagebox.showinfo("Time Machine", "Keine Struktur-Backups gefunden.\n\nSpeichere das Buch einmal, um den ersten Snapshot anzulegen!")
-            return
-            
-        win = tk.Toplevel(self.root)
-        win.title("⏪ Time Machine: Live-Preview")
-        center_on_parent(win, self.root, 560, 430)
-        
-        win.transient(self.root)
-        win.grab_set()
-        style_dialog(win)
-        
-        tk.Label(win, text="Klicke auf ein Backup, um es im Hintergrund live anzusehen:", bg=COLORS["app_bg"], fg=COLORS["heading"], font=FONTS["ui_semibold"]).pack(pady=12)
-        
-        listbox = tk.Listbox(
-            win,
-            font=("Consolas", 10),
-            selectbackground=COLORS["accent"],
-            bg=COLORS["surface"],
-            fg=COLORS["text"],
-            bd=0,
-            highlightthickness=1,
-            highlightbackground=COLORS["border"],
-            relief="flat",
-        )
-        listbox.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
-        
-        for b in backups:
-            # Wir formatieren den Namen hübsch (struct_20260307_120000.json -> 2026-03-07 12:00:00)
-            try:
-                raw_time = b.stem.replace("struct_", "")
-                dt = datetime.strptime(raw_time, '%Y%m%d_%H%M%S')
-                nice_name = dt.strftime('%d.%m.%Y - %H:%M:%S Uhr')
-                listbox.insert(tk.END, f"{nice_name} ({b.name})")
-            except ValueError:
-                listbox.insert(tk.END, b.name)
-        
-        # --- Events ---
-        def on_select_preview(_event):
-            sel = listbox.curselection()
-            if not sel:
-                return
-            
-            # Wir holen uns den echten Dateinamen (steht in den Klammern)
-            item_text = listbox.get(sel[0])
-            real_filename = item_text.split("(")[-1].replace(")", "")
-            
-            target_json = self.backup_dir / real_filename
-            
-            # Lese die JSON und schicke sie an die GUI
-            if target_json.exists():
-                with open(target_json, 'r', encoding='utf-8') as f:
-                    tree_data = json.load(f)
-                preview_callback(tree_data) # NEU: Wir übergeben direkt das fertige Dictionary!
-        
-        def on_apply():
-            # B-Fix (Code-Review 2026-07-03): vorher wurde die
-            # Erfolgsmeldung unabhaengig vom tatsaechlichen Ergebnis von
-            # `apply_callback()` (→ `save_project()`) angezeigt. Schlug
-            # das Speichern fehl (z. B. Buch-Doktor-Abbruch), wurde
-            # trotzdem "dauerhaft wiederhergestellt!" gemeldet, obwohl
-            # NICHTS gespeichert wurde.
-            success = apply_callback()
-            if success:
-                messagebox.showinfo("Erfolg", "Struktur wurde dauerhaft wiederhergestellt!")
-                win.destroy()
-            else:
-                messagebox.showwarning(
-                    "Nicht gespeichert",
-                    "Die Struktur wurde NICHT dauerhaft übernommen.\n\n"
-                    "Das Speichern ist fehlgeschlagen oder wurde durch einen "
-                    "Buch-Doktor-Befund abgebrochen. Bitte prüfe das Log.",
-                )
-
-        def on_cancel():
-            cancel_callback()
-            win.destroy()
-            
-        listbox.bind("<<ListboxSelect>>", on_select_preview)
-        win.protocol("WM_DELETE_WINDOW", on_cancel)
-        
-        # --- Buttons ---
-        btn_frame = ttk.Frame(win, padding=(0, 12))
-        btn_frame.pack(pady=15)
-        ttk.Button(btn_frame, text="✅ DIESE STRUKTUR ÜBERNEHMEN", style="Accent.TButton", command=on_apply).pack(side=tk.LEFT, padx=10)
-        ttk.Button(btn_frame, text="Abbrechen", style="Tool.TButton", command=on_cancel).pack(side=tk.LEFT)

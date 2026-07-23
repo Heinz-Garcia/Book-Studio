@@ -1,9 +1,7 @@
-"""Qt-Ersatz für tkinter.messagebox / filedialog (ExportManager & Co.).
+"""Qt-Ersatz für ui_hooks (ExportManager & Co.).
 
-Wichtig: Shims müssen für die gesamte Qt-Session installiert bleiben.
-``ExportManager.run_quarto_render`` startet einen Worker-Thread und kehrt
-sofort zurück — ein Context-Manager, der danach Tk wiederherstellt, lässt
-den Thread mit ``tkinter.messagebox`` + Qt-Parent abstürzen.
+Shims bleiben für die ganze Qt-Session installiert — der Render-Thread
+darf nicht wieder auf Headless-NoOps zurückfallen.
 """
 
 from __future__ import annotations
@@ -86,9 +84,9 @@ class QtFileDialogShim:
 
 
 def install_export_manager_ui(parent: Optional[QWidget]) -> None:
-    """Installiert Qt-Shims dauerhaft (idempotent)."""
-    import export_dialog as export_dialog_mod
+    """Installiert Qt-Shims dauerhaft auf ``ui_hooks`` (idempotent)."""
     import export_manager as export_manager_mod
+    import ui_hooks
 
     from ui_qt.dialogs.export_dialog import ask_export_options
 
@@ -119,42 +117,40 @@ def install_export_manager_ui(parent: Optional[QWidget]) -> None:
             "parent": parent,
             "shim_mb": shim_mb,
             "shim_fd": shim_fd,
-            "old_mb": export_manager_mod.messagebox,
-            "old_fd": getattr(export_manager_mod, "filedialog", None),
-            "old_ask": export_dialog_mod.ExportDialog.ask,
+            "old_mb": ui_hooks.messagebox,
+            "old_fd": ui_hooks.filedialog,
+            "old_ask": ui_hooks.ask_export_options,
         }
     )
+    ui_hooks.messagebox = shim_mb
+    ui_hooks.filedialog = shim_fd
+    ui_hooks.ask_export_options = _ask
     export_manager_mod.messagebox = shim_mb
     export_manager_mod.filedialog = shim_fd
-    export_dialog_mod.ExportDialog.ask = staticmethod(_ask)
 
 
 def uninstall_export_manager_ui() -> None:
-    """Stellt Tk-Originale wieder her (z. B. App-Ende)."""
     if not _STATE.get("installed"):
         return
-    import export_dialog as export_dialog_mod
     import export_manager as export_manager_mod
+    import ui_hooks
 
     old_mb = _STATE.get("old_mb")
     old_fd = _STATE.get("old_fd")
     old_ask = _STATE.get("old_ask")
     if old_mb is not None:
+        ui_hooks.messagebox = old_mb
         export_manager_mod.messagebox = old_mb
     if old_fd is not None:
+        ui_hooks.filedialog = old_fd
         export_manager_mod.filedialog = old_fd
     if old_ask is not None:
-        export_dialog_mod.ExportDialog.ask = old_ask
+        ui_hooks.ask_export_options = old_ask
     _STATE.clear()
     _STATE["installed"] = False
 
 
 @contextmanager
 def patch_export_manager_ui(parent: Optional[QWidget]) -> Iterator[None]:
-    """Kompatibilität: installiert Shims, entfernt sie aber nicht mehr vorzeitig.
-
-    Früher: Context-Manager stellte Tk wieder her, sobald ``run_quarto_render``
-    zurückkehrte — der Render-Thread lief dann mit Tk-messagebox und crashte.
-    """
     install_export_manager_ui(parent)
     yield

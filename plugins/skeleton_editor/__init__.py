@@ -1,4 +1,4 @@
-"""Skeleton-Editor — Plugin-Adapter für tools.skeleton.editor."""
+"""Skeleton-Editor — Plugin-Adapter (Qt)."""
 
 from __future__ import annotations
 
@@ -10,13 +10,14 @@ _REPO_ROOT = ensure_repo_on_path(__file__)
 
 
 def run(studio: Optional[Any] = None, **kwargs) -> int:
-    from tools.skeleton.editor import run as editor_run
+    from ui_qt.dialogs.skeleton_editor_dialog import open_skeleton_editor_qt
 
-    return editor_run(studio=studio, **kwargs)
+    parent = kwargs.get("parent") or getattr(studio, "root", None)
+    return open_skeleton_editor_qt(studio=studio, parent=parent, **kwargs)
 
 
 def is_available() -> bool:
-    return tool_exists(_REPO_ROOT, "tools", "skeleton", "editor.py")
+    return tool_exists(_REPO_ROOT, "ui_qt", "dialogs", "skeleton_editor_dialog.py")
 
 
 __all__ = ["run", "is_available"]
