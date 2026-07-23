@@ -6,6 +6,11 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 
 - Vollständiges Benutzerhandbuch (aus Hilfe-Menü): [handbuch.md](handbuch.md)
 
+## Git / Branches
+
+- Branch-Rollen nach PySide6-Migration (main, tkinter, Archiv): [branches.md](branches.md)
+- Migrationsplan PySide6: [pyside6-migration-plan.md](pyside6-migration-plan.md)
+
 ## GUI & Struktur
 
 - GUI-Architektur und Modulgrenzen: [gui_architektur.md](gui_architektur.md)
