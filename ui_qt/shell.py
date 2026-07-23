@@ -25,6 +25,7 @@ from ui_qt.book_workspace import StructureSession, discover_books, repo_root
 from ui_qt.command_host import CommandHost
 from ui_qt.menu_builder import build_menu_bar
 from ui_qt import qt_session
+from ui_qt.studio_bridge import UiScheduler
 from ui_qt.widgets.structure_panel import StructurePanel
 
 if TYPE_CHECKING:
@@ -38,6 +39,7 @@ class MainWindow(QMainWindow):
         self._session: Optional[StructureSession] = None
         self._books: list[Path] = []
         self._commands = CommandHost(self)
+        self._ui_scheduler = UiScheduler(self)
         self.setWindowTitle("Quarto Book Studio (Qt)")
         self.resize(1200, 760)
 
@@ -213,9 +215,15 @@ class MainWindow(QMainWindow):
             return True
         return False
 
+    def schedule_ui(self, callback, delay: int = 0) -> None:
+        self._ui_scheduler.post(callback, delay_ms=max(0, int(delay)))
+
     def _on_log(self, message: str, level: str) -> None:
-        self._log.appendPlainText(f"[{level}] {message}")
-        self.statusBar().showMessage(message, 5000)
+        def _apply() -> None:
+            self._log.appendPlainText(f"[{level}] {message}")
+            self.statusBar().showMessage(message, 5000)
+
+        self.schedule_ui(_apply)
 
     def _show_about(self) -> None:
         version = "—"

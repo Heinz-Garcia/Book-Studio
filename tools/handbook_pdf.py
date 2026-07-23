@@ -111,6 +111,7 @@ def run_quarto_render(
                 cwd=str(base_path),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
                 text=True,
                 encoding="utf-8",
                 errors="replace",

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import app_config as _app_config
 from book_doctor import BookDoctor
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 from services.render_service import RenderService
 from template_manager import TemplateManager
@@ -20,17 +20,24 @@ if TYPE_CHECKING:
     from ui_qt.shell import MainWindow
 
 
-class _UiScheduler(QObject):
+class UiScheduler(QObject):
     """Thread-sicher UI-Callbacks auf den GUI-Thread legen (QueuedConnection)."""
 
     _invoke = Signal(object)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self._invoke.connect(self._run)
+        # Explizit Queued: auch wenn emit vom Worker kommt, läuft _run auf dem
+        # Thread der Parent-Affinität (GUI), nicht synchron im Worker.
+        self._invoke.connect(self._run, Qt.ConnectionType.QueuedConnection)
 
     def _run(self, callback: Callable) -> None:
-        callback()
+        try:
+            callback()
+        except Exception:  # noqa: BLE001 — UI-Callbacks dürfen den Event-Loop nicht killen
+            import logging
+
+            logging.getLogger(__name__).exception("UI-Callback fehlgeschlagen")
 
     def post(self, callback: Callable, delay_ms: int = 0) -> None:
         if delay_ms <= 0:
@@ -41,6 +48,10 @@ class _UiScheduler(QObject):
             QTimer.singleShot(delay_ms, callback)
 
         self._invoke.emit(_delayed)
+
+
+# Rückwärtskompatibler Alias
+_UiScheduler = UiScheduler
 
 
 class QtStudioBridge:
@@ -57,7 +68,9 @@ class QtStudioBridge:
         self.yaml_engine: Optional[QuartoYamlEngine] = None
         self.doctor: Optional[BookDoctor] = None
         self._services = SimpleNamespace(render=RenderService())
-        self._ui = _UiScheduler(window)
+        # Scheduler MUSS auf dem GUI-Thread leben (MainWindow), nie im Worker.
+        existing = getattr(window, "_ui_scheduler", None)
+        self._ui = existing if isinstance(existing, UiScheduler) else UiScheduler(window)
         self._sync_from_window()
 
     def _sync_from_window(self) -> None:

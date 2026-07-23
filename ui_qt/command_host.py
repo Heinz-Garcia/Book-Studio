@@ -282,30 +282,32 @@ class CommandHost:
         ):
             return
 
+        # Bridge/Scheduler auf dem GUI-Thread erzeugen — nicht im Worker.
+        bridge = self._bridge()
         self.w._handbook_pdf_rendering = True
         self.w.statusBar().showMessage("Rendere Handbuch (PDF)…")
         self.w._facade.log("📄 Handbuch-PDF: Start…", "header")
 
         def worker() -> None:
             def log_line(line: str) -> None:
-                self.w._facade.log(line, "dim")
+                # Nur über GUI-Thread loggen (sonst hängt/crash die Qt-UI).
+                bridge.schedule_ui(lambda ln=line: self.w._facade.log(ln, "dim"))
 
+            result = None
+            err_msg = None
             try:
                 result = render_from_config(base, cfg, on_log_line=log_line)
             except (OSError, ValueError) as exc:
                 err_msg = str(exc)
 
-                def on_exc() -> None:
+            def on_done() -> None:
+                self.w._handbook_pdf_rendering = False
+                if err_msg is not None:
                     self.w._facade.log(f"❌ Handbuch-PDF: {err_msg}", "error")
                     self.w.statusBar().showMessage("Handbuch-PDF fehlgeschlagen")
                     QMessageBox.critical(self.w, "Handbuch-PDF", err_msg)
-                    self.w._handbook_pdf_rendering = False
-
-                self._bridge().schedule_ui(on_exc)
-                return
-
-            def on_done() -> None:
-                self.w._handbook_pdf_rendering = False
+                    return
+                assert result is not None
                 if result.ok and result.output_path:
                     pdf = result.output_path
                     self.w._facade.log(f"✅ Handbuch-PDF fertig: {pdf}", "success")
@@ -325,7 +327,7 @@ class CommandHost:
                     self.w.statusBar().showMessage("Handbuch-PDF fehlgeschlagen")
                     QMessageBox.critical(self.w, "Handbuch-PDF", msg)
 
-            self._bridge().schedule_ui(on_done)
+            bridge.schedule_ui(on_done)
 
         threading.Thread(target=worker, daemon=True).start()
 
