@@ -133,29 +133,9 @@ def test_load_validated_cleans_invalid_values(tmp_path: Path) -> None:
 
 
 # --- R12: MD-Editor-Callback nur bei Save ----------------------------------
-
-
-def test_md_editor_on_save_callback_only_on_save():
-    """Der on_save_callback darf NUR in `save_current_file` und
-    `save_as_file` aufgerufen werden – nicht beim Schließen ohne Speichern
-    oder bei WM_DELETE_WINDOW."""
-    import md_editor
-    src = Path(md_editor.__file__).read_text(encoding="utf-8")
-    # Der Callback-Aufruf darf nur innerhalb von save-Methoden stehen.
-    # Wir prüfen, dass `cancel_or_close` und `WM_DELETE_WINDOW` KEIN
-    # `on_save_callback` rufen.
-    start = src.find("def cancel_or_close")
-    end = src.find("\n    def ", start + 1) if start >= 0 else -1
-    assert start >= 0 and end > start, "cancel_or_close nicht gefunden"
-    body = src[start:end]
-    assert "on_save_callback" not in body, (
-        "cancel_or_close darf on_save_callback nicht aufrufen (R12)."
-    )
-    # `protocol("WM_DELETE_WINDOW", ...)` darf nicht auf on_save_callback zeigen.
-    assert 'protocol("WM_DELETE_WINDOW"' in src
-    after_protocol = src[src.find('protocol("WM_DELETE_WINDOW"'):]
-    end_protocol = after_protocol.find("\n")
-    assert "on_save_callback" not in after_protocol[:end_protocol + 5]
+# md_editor.py wurde im Tk-UI-Purge entfernt — Test R12 entfällt.
+# Die Semantik (Callback nur bei explizitem Speichern) wird durch
+# das Qt-basierte Editor-Modell gewährleistet.
 
 
 if __name__ == "__main__":

@@ -3,13 +3,7 @@
 # Für das einfache Lesen und Schreiben von YAML Frontmatter in Markdown-Dateien
 PyYAML>=6.0.1
 
-# Modernes Tkinter/ttk Theme im Sun-Valley-Stil
-sv-ttk>=2.6.0
-
-# HTML-Hilfe-Viewer (Hilfe → Handbuch öffnen)
-tkinterweb>=3.23
-
-# Qt-UI-Pfad (Feature-Flag BOOK_STUDIO_UI=qt / --ui qt) — Migration, siehe .doc/pyside6-migration-plan.md
+# Qt-UI (einzige UI nach Tk-Purge)
 PySide6>=6.6.0
 
 # Kleine Regression-Suite für Nicht-GUI-Kernlogik

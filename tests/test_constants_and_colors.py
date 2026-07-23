@@ -2,9 +2,9 @@
 
 Stellt sicher, dass:
 - `services.constants` importierbar ist und die dokumentierten Enums liefert.
-- `StatusFg` über `ui_theme.COLORS` aufgelöst wird.
-- Hot-Spots in `book_studio.py` und `export_manager.py` keine hartkodierten
-  Hex-Farben mehr enthalten (B9-Akzeptanzkriterium).
+- `StatusFg` Hex-SSOT in `services.constants` ist (ui_theme wurde entfernt).
+- `EXTRA_HEX_ALIASES` die Legacy-Aliase enthält.
+- `export_manager.py` keine hartkodierten Hex-Farben in status.config hat.
 
 Referenz: .doc/refactoring-master.md, Batch B9.
 """
@@ -45,25 +45,23 @@ def test_log_level_is_string_enum():
 # --- StatusFg -------------------------------------------------------------
 
 
-def test_status_fg_resolves_via_ui_theme():
+def test_status_fg_hex_values():
+    """StatusFg ist jetzt Hex-SSOT direkt in services.constants (kein ui_theme mehr)."""
     fg = constants.StatusFg
-    # Semantische Aliase müssen Strings zurückliefern, die in `ui_theme.COLORS`
-    # registriert sind.
-    from ui_theme import COLORS
     for attr in ("SUCCESS", "DANGER", "INFO", "WARNING", "PRIMARY"):
         value = getattr(fg, attr)
         assert isinstance(value, str), f"{attr} ist kein str (Typ: {type(value)})"
         assert value.startswith("#"), f"{attr} returned non-hex value: {value}"
-        assert value in COLORS.values(), (
-            f"{attr} = {value!r} ist nicht in ui_theme.COLORS registriert"
-        )
+        assert len(value) == 7, f"{attr} = {value!r} ist kein gültiger Hex-Farbwert"
 
 
-def test_extra_hex_aliases_registered_in_ui_theme():
-    from ui_theme import COLORS
-    # Mindestens die Legacy-Werte müssen registriert sein.
+def test_extra_hex_aliases_keys_present():
+    """EXTRA_HEX_ALIASES enthält die erwarteten Legacy-Schlüssel."""
+    aliases = constants.EXTRA_HEX_ALIASES
     for key in ("success_legacy", "danger_legacy", "info_legacy", "success_alt", "warning_legacy"):
-        assert key in COLORS, f"Erwarteter Alias '{key}' fehlt in ui_theme.COLORS"
+        assert key in aliases, f"Erwarteter Alias '{key}' fehlt in EXTRA_HEX_ALIASES"
+    for key, value in aliases.items():
+        assert value.startswith("#"), f"Alias '{key}' = {value!r} ist kein Hex-Wert"
 
 
 # --- Magic-String-Reduktion -----------------------------------------------
@@ -71,33 +69,16 @@ def test_extra_hex_aliases_registered_in_ui_theme():
 
 HEX_RE = re.compile(r'self\.status\.config\([^)]*fg="#[0-9a-fA-F]{6}"')
 
-HOTSPOT_FILES = (
-    "book_studio.py",
-    "export_manager.py",
-)
 
-
-@pytest.mark.parametrize("filename", HOTSPOT_FILES)
-def test_no_hardcoded_hex_in_status_config_hotspots(filename: str):
-    """In `self.status.config(...fg="…")`-Aufrufen dürfen keine hartkodierten
-    Hex-Farben mehr vorkommen – sie müssen über `_StatusFg.X` aus
-    `services.constants` aufgelöst werden. Andere `fg="…"`-Stellen
-    (tk.Label, tag_configure) sind in dieser Stufe bewusst ausgenommen."""
-    path = Path(__file__).resolve().parent.parent / filename
+def test_no_hardcoded_hex_in_export_manager_status_config():
+    """In export_manager.py dürfen keine hartkodierten Hex-Farben in
+    `self.status.config(...)` vorkommen."""
+    path = Path(__file__).resolve().parent.parent / "export_manager.py"
     src = path.read_text(encoding="utf-8")
     matches = HEX_RE.findall(src)
     assert not matches, (
-        f"{filename} enthält noch hartkodierte Hex-Farben in status.config: {matches}"
+        f"export_manager.py enthält noch hartkodierte Hex-Farben in status.config: {matches}"
     )
-
-
-def test_book_studio_uses_status_fg():
-    """Spot-Check: book_studio importiert StatusFg."""
-    path = Path(__file__).resolve().parent.parent / "book_studio.py"
-    src = path.read_text(encoding="utf-8")
-    assert "from services.constants import StatusFg" in src
-    # Mindestens ein Anwendungsfall
-    assert "_StatusFg." in src
 
 
 def test_export_manager_uses_status_fg():
@@ -105,6 +86,21 @@ def test_export_manager_uses_status_fg():
     src = path.read_text(encoding="utf-8")
     assert "from services.constants import StatusFg" in src
     assert "_StatusFg." in src
+
+
+def test_book_studio_is_qt_launcher():
+    """book_studio.py ist jetzt ein schlanker Qt-Launcher ohne BookStudio-Klasse."""
+    path = Path(__file__).resolve().parent.parent / "book_studio.py"
+    src = path.read_text(encoding="utf-8")
+    # Qt-Einstieg muss vorhanden sein
+    assert "run_qt_app" in src or "ui_qt" in src, (
+        "book_studio.py sollte den Qt-Launcher referenzieren"
+    )
+    # Keine hartkodierten Hex-Farben in status.config mehr möglich (keine BookStudio-Klasse)
+    matches = HEX_RE.findall(src)
+    assert not matches, (
+        f"book_studio.py enthält hartkodierte Hex-Farben in status.config: {matches}"
+    )
 
 
 if __name__ == "__main__":

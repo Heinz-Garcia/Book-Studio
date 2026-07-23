@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
@@ -386,123 +385,6 @@ class TestCreateMarkdownTemplate:
         assert (profile_dir / "sub" / "dir" / "file.md").exists()
 
 
-@pytest.fixture(scope="function")
-def headless_tk_root():
-    """Erstellt eine headless Tk-Root für Tests (mit Cleanup)."""
-    try:
-        import tkinter as tk
-        root = tk.Tk()
-        root.withdraw()
-        yield root
-    except Exception as e:
-        pytest.skip(f"Tk konnte nicht initialisiert werden: {e}")
-    finally:
-        try:
-            root.destroy()
-        except Exception:
-            pass
 
-
-class TestEditorAddFilePathTraversal:
-    """End-to-End-Tests für `editor._add_file()` mit Path-Validierung."""
-
-    @pytest.fixture
-    def minimal_editor(self, tmp_path, headless_tk_root):
-        """Erstellt ein minimales SkeletonEditorWindow für Tests."""
-        from tools.skeleton.editor import SkeletonEditorWindow
-        import yaml
-
-        library_root = tmp_path / "library"
-        library_root.mkdir()
-        profile_dir = library_root / "test_profile"
-        profile_dir.mkdir()
-
-        # Minimales manifest.yaml
-        manifest_data = {
-            "name": "test",
-            "label": "Test Profile",
-            "description": "Test",
-            "files": [{"path": "placeholder.md", "title": "Placeholder"}],
-        }
-        (profile_dir / "manifest.yaml").write_text(
-            yaml.dump(manifest_data),
-            encoding="utf-8",
-        )
-
-        editor = SkeletonEditorWindow(
-            parent=headless_tk_root,
-            library_root=library_root,
-            initial_profile="test_profile",
-        )
-
-        yield editor
-
-        try:
-            editor.destroy()
-        except Exception:
-            pass
-
-    def test_add_file_rejects_traversal_attempt(self, minimal_editor, monkeypatch):
-        """_add_file() lehnt Traversal-Pfad ab und zeigt Fehler an."""
-        from tools.skeleton import editor as editor_module
-
-        # Mock simpledialog.askstring mit Sequenz:
-        # 1. title = "Evil"
-        # 2. rel_path = "../../evil.md"
-        # 3. order = None
-        call_sequence = ["Evil", "../../evil.md", None]
-        mock_askstring = mock.Mock(side_effect=call_sequence)
-        monkeypatch.setattr(editor_module.simpledialog, "askstring", mock_askstring)
-
-        # Mock messagebox.showerror um Aufrufe zu prüfen
-        mock_showerror = mock.Mock()
-        monkeypatch.setattr(editor_module.messagebox, "showerror", mock_showerror)
-
-        entries_before = len(minimal_editor._manifest.files)
-
-        # Aufruf von _add_file (sollte fehlschlagen)
-        minimal_editor._add_file()
-
-        # Fehler sollte angezeigt worden sein
-        assert mock_showerror.called, "messagebox.showerror sollte aufgerufen sein"
-        error_msg = str(mock_showerror.call_args)
-        assert any(
-            keyword in error_msg.lower()
-            for keyword in ["traversal", "invalid", "path"]
-        ), f"Fehler sollte Path-Traversal erwähnen, erhielt: {error_msg}"
-
-        # Manifest sollte unverändert sein
-        assert len(minimal_editor._manifest.files) == entries_before
-
-    def test_add_file_accepts_valid_path(self, minimal_editor, monkeypatch):
-        """_add_file() akzeptiert und verarbeitet einen gültigen Pfad."""
-        from tools.skeleton import editor as editor_module
-
-        # Mock simpledialog mit gültigem Pfad
-        # Sequenz: title, rel_path, order
-        call_sequence = ["Chapter 1", "content/chapter.md", None]
-        mock_askstring = mock.Mock(side_effect=call_sequence)
-        monkeypatch.setattr(
-            editor_module.simpledialog,
-            "askstring",
-            mock_askstring,
-        )
-
-        # Mock messagebox.showerror um zu prüfen, dass KEIN Fehler auftritt
-        mock_showerror = mock.Mock()
-        monkeypatch.setattr(editor_module.messagebox, "showerror", mock_showerror)
-
-        entries_before = len(minimal_editor._manifest.files)
-
-        # Aufruf von _add_file (sollte erfolgreich sein)
-        minimal_editor._add_file()
-
-        # Kein Fehler sollte angezeigt worden sein
-        assert not mock_showerror.called, "Kein Fehler für gültigen Pfad"
-
-        # Datei sollte angelegt worden sein
-        expected_file = minimal_editor._manifest.root / "content" / "chapter.md"
-        assert expected_file.exists(), f"Datei sollte erstellt sein: {expected_file}"
-
-        # Manifest sollte einen neuen Eintrag haben
-        assert len(minimal_editor._manifest.files) > entries_before
+# TestEditorAddFilePathTraversal und headless_tk_root wurden entfernt:
+# SkeletonEditorWindow (Tk) ist nicht mehr vorhanden (Tk-UI-Purge).

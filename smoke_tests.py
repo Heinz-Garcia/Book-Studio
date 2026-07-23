@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import tkinter as tk
 from pathlib import Path
 
 
@@ -45,7 +44,6 @@ def run_non_gui_smoke(project_root: Path) -> list[tuple[str, bool, str]]:
         "yaml_engine",
         "search_filter",
         "markdown_asset_scanner",
-        "dialog_dirty_utils",
         "unmanned_trigger",
     ]
     import_errors = []
@@ -86,37 +84,6 @@ def run_non_gui_smoke(project_root: Path) -> list[tuple[str, bool, str]]:
         record("Book-Doctor Basislauf", True)
     except (OSError, RuntimeError, TypeError, ValueError, ImportError, AttributeError) as exc:
         record("Book-Doctor Basislauf", False, str(exc))
-
-    try:
-        from dialog_dirty_utils import DirtyStateController
-
-        class FakeWindow:
-            def __init__(self):
-                self.current_title = ""
-
-            def title(self, text: str):
-                self.current_title = text
-
-            def after(self, *_args, **_kwargs):
-                return 1
-
-            def after_cancel(self, *_args, **_kwargs):
-                return None
-
-        fake = FakeWindow()
-        controller = DirtyStateController(fake, "Test")
-        controller.capture_initial({"a": 1})
-        controller.refresh({"a": 1})
-        if controller.is_dirty:
-            raise AssertionError("Controller sollte clean sein")
-        controller.refresh({"a": 2})
-        if not controller.is_dirty:
-            raise AssertionError("Controller sollte dirty sein")
-        if fake.current_title != "Test *":
-            raise AssertionError("Titel-Marker fehlt")
-        record("DirtyStateController Kernlogik", True)
-    except (RuntimeError, TypeError, ValueError, ImportError, AttributeError) as exc:
-        record("DirtyStateController Kernlogik", False, str(exc))
 
     try:
         from yaml_engine import QuartoYamlEngine
@@ -170,61 +137,30 @@ def run_non_gui_smoke(project_root: Path) -> list[tuple[str, bool, str]]:
 
 
 def run_gui_smoke(project_root: Path) -> list[tuple[str, bool, str]]:
+    """Minimaler Qt-Import-Smoke (Tk-UI wurde entfernt)."""
     results: list[tuple[str, bool, str]] = []
 
     def record(name: str, passed: bool, detail: str = ""):
         results.append((name, passed, detail))
 
     try:
-        root = tk.Tk()
-        root.withdraw()
-    except (RuntimeError, TypeError, OSError, tk.TclError) as exc:
-        return [("GUI-Initialisierung", False, str(exc))]
+        import PySide6.QtWidgets  # noqa: F401
+        record("PySide6 importierbar", True)
+    except ImportError as exc:
+        record("PySide6 importierbar", False, str(exc))
 
     try:
-        from export_dialog import ExportDialog
-
-        dialog = ExportDialog(root, templates=["Standard"], initial={"format": "typst", "template": "Standard"})
-        dialog.update_idletasks()
-        dialog.destroy()
-        record("ExportDialog öffnet", True)
-    except (RuntimeError, TypeError, OSError, ImportError, AttributeError, tk.TclError) as exc:
-        record("ExportDialog öffnet", False, str(exc))
+        import ui_qt  # noqa: F401
+        record("ui_qt importierbar", True)
+    except (ImportError, RuntimeError) as exc:
+        record("ui_qt importierbar", False, str(exc))
 
     try:
-        from quarto_config_editor import QuartoConfigEditor
+        import ui_hooks  # noqa: F401
+        record("ui_hooks importierbar", True)
+    except ImportError as exc:
+        record("ui_hooks importierbar", False, str(exc))
 
-        yaml_path = project_root / "Band_Dummy" / "_quarto.yml"
-        dialog = QuartoConfigEditor(root, yaml_path=yaml_path)
-        dialog.update_idletasks()
-        dialog.destroy()
-        record("QuartoConfigEditor öffnet", True)
-    except (RuntimeError, TypeError, OSError, ImportError, AttributeError, tk.TclError) as exc:
-        record("QuartoConfigEditor öffnet", False, str(exc))
-
-    try:
-        from sanitizer_config_editor import SanitizerConfigEditor
-
-        config_path = project_root / "sanitizer_config.toml"
-        dialog = SanitizerConfigEditor(root, config_path=config_path)
-        dialog.update_idletasks()
-        dialog.destroy()
-        record("SanitizerConfigEditor öffnet", True)
-    except (RuntimeError, TypeError, OSError, ImportError, AttributeError, tk.TclError) as exc:
-        record("SanitizerConfigEditor öffnet", False, str(exc))
-
-    try:
-        from app_config_editor import AppConfigEditor
-
-        config_path = project_root / "studio_config.json"
-        dialog = AppConfigEditor(root, config_path=config_path)
-        dialog.update_idletasks()
-        dialog.destroy()
-        record("AppConfigEditor öffnet", True)
-    except (RuntimeError, TypeError, OSError, ImportError, AttributeError, tk.TclError) as exc:
-        record("AppConfigEditor öffnet", False, str(exc))
-
-    root.destroy()
     return results
 
 

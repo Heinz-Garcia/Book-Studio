@@ -121,7 +121,7 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 
 **Exit:** Eine UI-Technologie; `pytest -m "not slow"` grün; Smoke inkl. GUI nach Möglichkeit.
 
-**Status (2026-07-23):** **Tk-Einstieg entfernt.** `python book_studio.py` startet nur noch Qt; `--ui tk` / `BOOK_STUDIO_UI=tk` → Exit 2. Die Klasse `BookStudio` und Tk-Hilfsmodule bleiben vorerst im Tree (ExportManager-Shims, Slow-Tests, Plugin-Fallbacks) — vollständiges Löschen ist Folgearbeit.
+**Status (2026-07-23):** **Tk-Purge abgeschlossen.** `python book_studio.py` startet nur Qt; `--ui tk` / `BOOK_STUDIO_UI=tk` → Exit 2. Tk-UI-Module (`ui_theme`, `menu_manager`, Editor-/Config-Dialoge, `tools/*/dialog.py`, `tools/skeleton/editor.py`, Klasse `BookStudio`) entfernt. UI lebt in `ui_qt/`; Toolkit-Hooks in `ui_hooks.py`; Menüdaten bleiben in `menu_definitions.py`. Deps `sv-ttk`/`tkinterweb` entfernt. `pytest -m "not slow"` grün.
 
 ---
 
@@ -153,7 +153,7 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 - [x] **3** Menü, Aktionen, Log, Session, Bücher wechseln
 - [x] **4** App-Dialoge
 - [x] **5** Plugin-/Tools-Dialoge
-- [x] **6** Tk-Einstieg entfernen *(Qt only; Tk-Module noch im Tree für Shims/Tests)*
+- [x] **6** Tk entfernen & Aufräumen *(Module gelöscht; nur noch Qt)*
 - [ ] **7** PR + Paritätsabnahme
 
 ---

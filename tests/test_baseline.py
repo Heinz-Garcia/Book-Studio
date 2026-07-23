@@ -27,12 +27,12 @@ SMOKE_INVOCATION = [sys.executable, "smoke_tests.py"]
 
 # Module mit bekannter fehlender Test-Coverage (siehe Bewertung im Chat).
 # Diese Dateien sind im Refactoring explizit zu adressieren.
+# Hinweis: session_manager.py und md_editor.py wurden im Tk-UI-Purge entfernt.
+# book_studio.py ist jetzt ein schlanker Qt-Launcher.
 COVERAGE_GAPS = [
-    "book_studio.py",          # God-Class; refactored in B8
+    "book_studio.py",          # Qt-Launcher; Tk-BookStudio-Klasse entfernt (Purge)
     "export_manager.py",       # Render-Orchestrierung; refactored in B1, B8
     "pre_processor.py",        # Pre-Processing-Pfad; refactored in B1, B4
-    "session_manager.py",      # Session-IO; refactored in B5, B6
-    "md_editor.py",            # Markdown-Editor; refactored in B7
 ]
 
 

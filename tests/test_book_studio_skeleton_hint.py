@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import ui_hooks
 from plugins.skeleton_populate import on_after_book_import
 
 
@@ -23,7 +24,8 @@ def _make_studio(book: Path | None) -> SimpleNamespace:
 def test_no_hint_without_current_book(monkeypatch: pytest.MonkeyPatch) -> None:
     asked: list = []
     monkeypatch.setattr(
-        "tkinter.messagebox.askyesno",
+        ui_hooks.messagebox,
+        "askyesno",
         lambda *a, **k: asked.append(1) or True,
     )
 
@@ -41,7 +43,8 @@ def test_no_hint_when_required_pages_already_exist(tmp_path: Path, monkeypatch: 
 
     asked: list = []
     monkeypatch.setattr(
-        "tkinter.messagebox.askyesno",
+        ui_hooks.messagebox,
+        "askyesno",
         lambda *a, **k: asked.append(1) or True,
     )
 
@@ -56,7 +59,8 @@ def test_hint_shown_and_populate_skipped_on_no(tmp_path: Path, monkeypatch: pyte
 
     asked: list = []
     monkeypatch.setattr(
-        "tkinter.messagebox.askyesno",
+        ui_hooks.messagebox,
+        "askyesno",
         lambda *a, **k: asked.append((a, k)) or False,
     )
 
@@ -76,7 +80,7 @@ def test_hint_shown_and_populate_triggered_on_yes(tmp_path: Path, monkeypatch: p
     book = tmp_path / "Band_Test"
     book.mkdir()
 
-    monkeypatch.setattr("tkinter.messagebox.askyesno", lambda *a, **k: True)
+    monkeypatch.setattr(ui_hooks.messagebox, "askyesno", lambda *a, **k: True)
 
     populate_calls: list = []
 
@@ -97,7 +101,7 @@ def test_populate_failure_is_logged_not_raised(tmp_path: Path, monkeypatch: pyte
     book = tmp_path / "Band_Test"
     book.mkdir()
 
-    monkeypatch.setattr("tkinter.messagebox.askyesno", lambda *a, **k: True)
+    monkeypatch.setattr(ui_hooks.messagebox, "askyesno", lambda *a, **k: True)
 
     def failing_run(**kwargs):
         raise ValueError("boom")

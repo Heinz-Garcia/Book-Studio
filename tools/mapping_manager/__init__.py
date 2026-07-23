@@ -1,5 +1,18 @@
-"""Mapping Manager — Publish-Input zu PDF-Zuordnung."""
+"""Mapping Manager — Publish-Input zu PDF-Zuordnung (Logik; UI in ui_qt).
 
-from tools.mapping_manager.dialog import open_mapping_manager_dialog
+SSOT für Publish-Map-Helpers liegt in tools.publish_map.store.
+"""
 
-__all__ = ["open_mapping_manager_dialog"]
+from tools.publish_map.store import (
+    ensure_active_snapshot_id,
+    read_map,
+    snapshot_render_dir,
+    write_map,
+)
+
+__all__ = [
+    "ensure_active_snapshot_id",
+    "read_map",
+    "snapshot_render_dir",
+    "write_map",
+]

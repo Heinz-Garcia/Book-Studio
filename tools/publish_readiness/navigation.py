@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-from tkinter import messagebox
+import ui_hooks
 
 
 def resolve_issue_line(studio: Any, issue: dict[str, Any]) -> Optional[int]:
@@ -30,13 +30,13 @@ def jump_to_issue(
     parent: Any = None,
 ) -> bool:
     """Öffnet die betroffene Datei im Editor und springt zur Zeile."""
+    del parent  # Qt-Parent wird über ui_hooks/studio gehandhabt
     path = (issue.get("path") or "").strip()
     if not path or path == "—":
-        messagebox.showinfo(
+        ui_hooks.messagebox.showinfo(
             "Publish Readiness",
             "Dieser Befund ist keiner Datei zugeordnet (z. B. Pool-Hinweis).\n"
             "Details stehen im Buch-Doktor-Log.",
-            parent=parent,
         )
         return False
 
@@ -45,10 +45,9 @@ def jump_to_issue(
 
     target_file = Path(studio.current_book) / path
     if not target_file.is_file():
-        messagebox.showwarning(
+        ui_hooks.messagebox.showwarning(
             "Publish Readiness",
             f"Datei nicht gefunden:\n{path}",
-            parent=parent,
         )
         return False
 

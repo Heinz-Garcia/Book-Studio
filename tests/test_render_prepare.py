@@ -16,30 +16,38 @@ def _write(path: Path, content: str) -> None:
 
 
 def test_diagnostics_status_callback_maps_semantic_fg_keys() -> None:
-    """Regression: falscher status.config(*args)-Callback crashte nach
-    erfolgreichem Vorabcheck und blockierte den Export-Dialog."""
-    import tkinter as tk
-
+    """Regression: Der Status-Callback muss semantische Farb-Schlüssel korrekt
+    auf StatusFg-Hex-Werte abbilden (kein Tk mehr notwendig)."""
     from services.constants import StatusFg
 
-    root = tk.Tk()
-    root.withdraw()
-    label = tk.Label(root)
+    fg_map = {
+        "success": StatusFg.SUCCESS,
+        "danger": StatusFg.DANGER,
+        "warning": StatusFg.WARNING,
+        "info": StatusFg.INFO,
+    }
+
+    # Alle gemappten Schlüssel müssen gültige Hex-Farben liefern
+    for key, color in fg_map.items():
+        assert isinstance(color, str), f"StatusFg für '{key}' ist kein str"
+        assert color.startswith("#"), f"StatusFg für '{key}' = {color!r} ist kein Hex"
+
+    # Fallback auf NEUTRAL für unbekannte Schlüssel
+    fallback = fg_map.get("unknown_key", StatusFg.NEUTRAL)
+    assert fallback == StatusFg.NEUTRAL
+
+    # Simulations-Check: callback speichert Text und fg-Key korrekt
     seen = []
 
-    def on_status(text, fg_key):
-        fg_map = {
-            "success": StatusFg.SUCCESS,
-            "danger": StatusFg.DANGER,
-        }
-        label.config(text=text, fg=fg_map.get(fg_key, StatusFg.NEUTRAL))
-        seen.append((text, fg_key))
+    def on_status(text: str, fg_key: str) -> None:
+        color = fg_map.get(fg_key, StatusFg.NEUTRAL)
+        seen.append((text, fg_key, color))
 
     on_status("Render-Vorabcheck: keine kritischen Befunde", "success")
-
-    assert seen == [("Render-Vorabcheck: keine kritischen Befunde", "success")]
-    assert "keine kritischen" in label.cget("text")
-    root.destroy()
+    assert len(seen) == 1
+    assert seen[0][0] == "Render-Vorabcheck: keine kritischen Befunde"
+    assert seen[0][1] == "success"
+    assert seen[0][2] == StatusFg.SUCCESS
 
 
 def test_run_quarto_render_auto_heals_before_preflight(tmp_path: Path) -> None:
@@ -95,7 +103,7 @@ def test_run_quarto_render_auto_heals_before_preflight(tmp_path: Path) -> None:
 
     studio = Studio()
     manager = ExportManager(studio)
-    with patch("export_manager.ExportDialog.ask", return_value=None):
+    with patch("ui_hooks.ask_export_options", return_value=None):
         manager.run_quarto_render()
 
     index_content = (book / "index.md").read_text(encoding="utf-8")

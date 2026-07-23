@@ -169,7 +169,7 @@ def test_skeleton_editor_plugin_discoverable() -> None:
 
 
 def test_reveal_skeleton_path_windows(monkeypatch, tmp_path: Path) -> None:
-    from tools.skeleton.editor import reveal_skeleton_path
+    from tools.skeleton.reveal import reveal_skeleton_path
 
     target = tmp_path / "Vorlage.md"
     target.write_text("# x\n", encoding="utf-8")
@@ -179,87 +179,9 @@ def test_reveal_skeleton_path_windows(monkeypatch, tmp_path: Path) -> None:
         calls.append(list(cmd))
         return None
 
-    monkeypatch.setattr("tools.skeleton.editor.sys.platform", "win32")
-    monkeypatch.setattr("tools.skeleton.editor.subprocess.Popen", _fake_popen)
+    monkeypatch.setattr("tools.skeleton.reveal.sys.platform", "win32")
+    monkeypatch.setattr("tools.skeleton.reveal.subprocess.Popen", _fake_popen)
     reveal_skeleton_path(target)
     assert calls
     assert calls[0][0] == "explorer"
     assert "/select," in calls[0][1]
-
-
-def test_editor_shows_skeleton_paths_on_select(tmp_path: Path) -> None:
-    import shutil
-    import tkinter as tk
-
-    from tools.skeleton.editor import SkeletonEditorWindow
-
-    library = tmp_path / "library"
-    library.mkdir()
-    src = _repo_root() / "tools" / "skeleton" / "library" / "standard"
-    shutil.copytree(src, library / "standard")
-
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        editor = SkeletonEditorWindow(root, library_root=library, initial_profile="standard")
-        assert "standard" in editor._profile_root_var.get().replace("\\", "/")
-        editor._file_list.selection_set(0)
-        editor._on_file_selected()
-        assert editor._rel_path_var.get().startswith("content/")
-        assert editor._abs_path_var.get()
-        assert Path(editor._abs_path_var.get()).is_file()
-        first = editor._file_list.get(0)
-        assert "—" in first
-        editor.destroy()
-    finally:
-        root.destroy()
-
-
-def test_open_in_markdown_editor_uses_standard_editor(tmp_path: Path, monkeypatch) -> None:
-    import shutil
-    import tkinter as tk
-
-    from tools.skeleton import editor as editor_module
-
-    library = tmp_path / "library"
-    library.mkdir()
-    src = _repo_root() / "tools" / "skeleton" / "library" / "standard"
-    shutil.copytree(src, library / "standard")
-
-    opened: list[Path] = []
-
-    class FakeMarkdownEditor:
-        def __init__(self, parent, file_path, on_save_callback=None, end_commands=None, initial_line=None):
-            opened.append(Path(file_path))
-            self.parent = parent
-
-        def destroy(self):
-            pass
-
-    monkeypatch.setattr(editor_module, "MarkdownEditor", FakeMarkdownEditor, raising=False)
-
-    # Patch the import inside the method
-    import types
-    import sys
-
-    fake_md = types.ModuleType("md_editor")
-    fake_md.MarkdownEditor = FakeMarkdownEditor
-    monkeypatch.setitem(sys.modules, "md_editor", fake_md)
-
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        editor = editor_module.SkeletonEditorWindow(
-            root, library_root=library, initial_profile="standard"
-        )
-        editor._file_list.selection_set(0)
-        editor._on_file_selected()
-        # wait_window would block; FakeMarkdownEditor is not a real widget —
-        # stub wait_window to no-op after "creating" the editor.
-        monkeypatch.setattr(editor, "wait_window", lambda _w: None)
-        editor._open_in_markdown_editor()
-        assert opened
-        assert opened[0].name.endswith(".md")
-        editor.destroy()
-    finally:
-        root.destroy()

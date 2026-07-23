@@ -1,24 +1,8 @@
-"""Deklarative Menue-Definitionen (Phase 4).
+"""Deklarative Menü-Definitionen (toolkit-agnostisch).
 
-`MenuManager` (siehe `menu_manager.py`) liest diese Datenstrukturen
-und baut daraus die Menueleiste. Dadurch kann die `build()`-Methode
-rein iterativ bleiben, ohne dass die langen add_command-Listen im
-`book_studio.py` wachsen.
-
-Format:
-
-    MENU_FILE = [
-        MenuCascade(label="Buchstruktur (JSON)", children=[
-            MenuItem(label="...", command="import_json"),
-            MenuSeparator(),
-            ...
-        ]),
-        MenuSeparator(),
-        ...
-    ]
-
-Die `command`-Strings sind Namen von Studio-Attributen. Der Manager
-loest sie zur Laufzeit ueber `getattr(self.studio, name)` auf.
+Definiert die Datenstrukturen (MenuCascade, MenuItem, MenuSeparator)
+und die konkreten Menü-Listen (MENU_FILE, MENU_EXPORT, …). Wird von
+``ui_qt.menu_builder`` gelesen, um die Qt-Menüleiste aufzubauen.
 """
 
 from __future__ import annotations
@@ -30,7 +14,7 @@ from typing import List, Optional, Union
 @dataclass
 class MenuItem:
     label: str
-    command: str  # Studio-Attributname (Callable)
+    command: str  # Name der CommandHost-Methode
     accelerator: Optional[str] = None
 
 
@@ -45,7 +29,7 @@ class MenuCascade:
     children: List[Union["MenuCascade", MenuItem, MenuSeparator]] = field(default_factory=list)
 
 
-# --- Buchstruktur (Datei) ----------------------------------------------------
+# --- Datei --------------------------------------------------------------------
 
 MENU_FILE = [
     MenuCascade(label="Buchstruktur (JSON)", children=[
@@ -60,7 +44,7 @@ MENU_FILE = [
 ]
 
 
-# --- Export ------------------------------------------------------------------
+# --- Export -------------------------------------------------------------------
 
 MENU_EXPORT = [
     MenuItem(label="🖨️ Buch rendern...", command="run_quarto_render", accelerator="F5"),
@@ -68,7 +52,7 @@ MENU_EXPORT = [
 ]
 
 
-# --- Bearbeiten --------------------------------------------------------------
+# --- Bearbeiten ---------------------------------------------------------------
 
 MENU_EDIT = [
     MenuItem(label="↩️ Undo", command="undo", accelerator="Ctrl+Z"),
@@ -84,7 +68,7 @@ MENU_EDIT = [
 ]
 
 
-# --- Ansicht -----------------------------------------------------------------
+# --- Ansicht ------------------------------------------------------------------
 
 MENU_VIEW = [
     MenuItem(label="🔍 Preview öffnen", command="open_preview"),
@@ -95,7 +79,7 @@ MENU_VIEW = [
 ]
 
 
-# --- Tools -------------------------------------------------------------------
+# --- Tools --------------------------------------------------------------------
 
 MENU_TOOLS = [
     MenuItem(label="🧹 Sanitizer", command="run_sanitizer_pipeline"),
@@ -114,7 +98,7 @@ MENU_TOOLS = [
 ]
 
 
-# --- Hilfe -------------------------------------------------------------------
+# --- Hilfe --------------------------------------------------------------------
 
 MENU_HELP = [
     MenuItem(label="📘 Handbuch öffnen", command="open_help_manual"),
@@ -125,13 +109,12 @@ MENU_HELP = [
 ]
 
 
-# --- Kontextmenues (Tree + Liste) -------------------------------------------
+# --- Kontextmenüs (Baum + Liste) ----------------------------------------------
 
 CONTEXT_MENU_AVAIL = [
     MenuItem(label="📂 Im Explorer anzeigen", command="open_avail_in_explorer"),
     MenuItem(label="🖼 Fehlende Bilder anzeigen", command="show_avail_missing_images"),
 ]
-
 
 CONTEXT_MENU_TREE = [
     MenuItem(label="📂 Im Explorer anzeigen", command="open_tree_in_explorer"),

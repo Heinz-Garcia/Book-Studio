@@ -71,9 +71,16 @@ def main(argv: list[str] | None = None) -> int:
             kwargs["include_optional"] = True
         return run(studio=None, **kwargs)
     if args.command == "edit":
-        from tools.skeleton.editor import run
-
-        return run(studio=None, profile=args.profile)
+        try:
+            from ui_qt.dialogs.skeleton_editor_dialog import open_skeleton_editor_qt
+        except ImportError as exc:
+            print(
+                "Skeleton-Editor benötigt PySide6 (Qt-UI).\n"
+                f"Details: {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        return int(open_skeleton_editor_qt(studio=None, profile=args.profile) or 0)
 
     parser.print_help()
     return 1

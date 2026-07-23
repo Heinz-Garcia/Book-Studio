@@ -43,9 +43,7 @@ def test_jump_to_issue_calls_open_log_target(tmp_path):
 
 
 def test_jump_to_issue_without_path_returns_false(monkeypatch):
-    monkeypatch.setattr(
-        "tools.publish_readiness.navigation.messagebox.showinfo",
-        lambda *a, **k: None,
-    )
+    import ui_hooks
+    monkeypatch.setattr(ui_hooks.messagebox, "showinfo", lambda *a, **k: None)
     studio = SimpleNamespace(current_book=Path("."), open_log_target=lambda *a, **k: None)
     assert jump_to_issue(studio, {"path": "—", "message": "Pool"}) is False

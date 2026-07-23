@@ -91,14 +91,20 @@ def test_undo_stack_unlimited_when_max_depth_is_zero():
 
 
 def test_load_book_clears_redo_stack():
-    # Wir testen die Semantik: nach `load_book` muss `redo_stack` leer sein.
-    # Da `load_book` an `book_studio` hängt, prüfen wir die Verantwortlichkeit
-    # über das Vorkommen der Anweisung im Modul.
-    import book_studio
-    src = Path(book_studio.__file__).read_text(encoding="utf-8")
-    # Suche im `load_book`-Block nach `redo_stack.clear()`.
-    assert "redo_stack.clear()" in src, (
-        "book_studio.load_book muss redo_stack.clear() enthalten (R9)."
+    """Nach `StructureSession.load()` müssen beide Stacks leer sein (R9).
+
+    book_studio.py ist jetzt ein Qt-Launcher. Die Undo/Redo-Logik
+    lebt in `ui_qt.book_workspace.StructureSession`.
+    """
+    import ui_qt.book_workspace as _mod
+    src = Path(_mod.__file__).read_text(encoding="utf-8")
+    # Suche im `load`-Block nach `redo_stack.clear()`.
+    start = src.find("def load(self)")
+    assert start >= 0, "StructureSession.load nicht gefunden"
+    end = src.find("\n    def ", start + 1)
+    body = src[start:end]
+    assert "redo_stack.clear()" in body, (
+        "StructureSession.load muss redo_stack.clear() enthalten (R9)."
     )
 
 
@@ -106,30 +112,38 @@ def test_load_book_clears_redo_stack():
 
 
 def test_invalidate_content_search_cache_helper_exists():
-    import book_studio
-    assert hasattr(book_studio.BookStudio, "invalidate_content_search_cache")
+    """invalidate_content_search_cache lebt in UiStateService (Qt-Purge)."""
+    from services.ui_state_service import UiStateService
+    assert hasattr(UiStateService, "invalidate_content_search_cache")
+    assert callable(getattr(UiStateService, "invalidate_content_search_cache"))
 
 
-def test_cache_invalidated_in_on_markdown_saved():
-    """on_markdown_saved MUSS den Cache leeren, sonst sind Suchergebnisse stale."""
-    import book_studio
-    src = Path(book_studio.__file__).read_text(encoding="utf-8")
-    # Sehr grob: die Methode enthält den Aufruf.
-    start = src.find("def on_markdown_saved")
+def test_cache_invalidated_in_push_undo():
+    """_push_undo muss redo_stack leeren (Mutation-Konsistenz, R10-Äquivalent).
+
+    on_markdown_saved existiert in der Qt-UI nicht mehr; die Mutation-
+    Invalidierung erfolgt über StructureSession._push_undo.
+    """
+    import ui_qt.book_workspace as _mod
+    src = Path(_mod.__file__).read_text(encoding="utf-8")
+    start = src.find("def _push_undo(self")
+    assert start >= 0, "_push_undo nicht in book_workspace gefunden"
     end = src.find("\n    def ", start + 1)
     body = src[start:end]
-    assert "invalidate_content_search_cache" in body, (
-        "on_markdown_saved muss den Content-Search-Cache invalidieren (R10)."
+    assert "redo_stack.clear()" in body, (
+        "_push_undo muss redo_stack.clear() enthalten (Mutation-Konsistenz R10)."
     )
 
 
-def test_cache_invalidated_after_save_project():
-    import book_studio
-    src = Path(book_studio.__file__).read_text(encoding="utf-8")
-    start = src.find("def save_project")
-    end = src.find("\n    def ", start + 1)
-    body = src[start:end]
-    assert "invalidate_content_search_cache" in body
+def test_ui_state_service_invalidate_cache_is_callable():
+    """UiStateService.invalidate_content_search_cache ist aufrufbar (R10)."""
+    from types import SimpleNamespace
+    from services.ui_state_service import UiStateService
+
+    called = []
+    studio = SimpleNamespace(invalidate_content_search_cache=lambda: called.append(True))
+    UiStateService(studio).invalidate_content_search_cache()
+    assert called == [True]
 
 
 if __name__ == "__main__":

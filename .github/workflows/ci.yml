@@ -52,8 +52,7 @@ jobs:
             --extend-ignore=E,W,D \
             --exclude=.venv,build,dist,.git,__pycache__,htmlcov,\
 export_manager.py,book_doctor.py,yaml_engine.py,pre_processor.py,\
-quarto_render_safe.py,quarto_config_editor.py,app_config_editor.py,\
-sanitizer_config_editor.py,sanitizer.py,Sanitizer.py,tests,tools
+quarto_render_safe.py,sanitizer.py,Sanitizer.py,tests,tools
 
       - name: Compile-Check (alle Module)
         env:

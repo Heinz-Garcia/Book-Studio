@@ -166,10 +166,10 @@ def test_run_quarto_render_logs_affected_title_for_error_line(tmp_path: Path, mo
         def start(self):
             self.target()
 
-    monkeypatch.setattr(export_manager.ExportDialog, "ask", staticmethod(lambda *_args, **_kwargs: {
-        "format": "typst",
-        "template": "Standard",
-    }))
+    monkeypatch.setattr(
+        "ui_hooks.ask_export_options",
+        lambda *_a, **_k: {"format": "typst", "template": "Standard"},
+    )
     monkeypatch.setattr(export_manager, "PreProcessor", FakePreProcessor)
     monkeypatch.setattr(export_manager.subprocess, "Popen", FakePopen)
     monkeypatch.setattr(export_manager.threading, "Thread", ImmediateThread)
@@ -328,10 +328,10 @@ def test_run_quarto_render_aborts_on_first_processed_preflight_error(tmp_path: P
         def __init__(self, *_args, **_kwargs):
             raise AssertionError("quarto must not start when preflight error exists")
 
-    monkeypatch.setattr(export_manager.ExportDialog, "ask", staticmethod(lambda *_args, **_kwargs: {
-        "format": "typst",
-        "template": "Standard",
-    }))
+    monkeypatch.setattr(
+        "ui_hooks.ask_export_options",
+        lambda *_a, **_k: {"format": "typst", "template": "Standard"},
+    )
     monkeypatch.setattr(export_manager, "PreProcessor", FakePreProcessor)
     monkeypatch.setattr(export_manager.subprocess, "Popen", GuardPopen)
 
@@ -557,10 +557,10 @@ def test_run_quarto_render_writes_detailed_render_log_file(tmp_path: Path, monke
         def start(self):
             self.target()
 
-    monkeypatch.setattr(export_manager.ExportDialog, "ask", staticmethod(lambda *_args, **_kwargs: {
-        "format": "typst",
-        "template": "Standard",
-    }))
+    monkeypatch.setattr(
+        "ui_hooks.ask_export_options",
+        lambda *_a, **_k: {"format": "typst", "template": "Standard"},
+    )
     monkeypatch.setattr(export_manager, "PreProcessor", FakePreProcessor)
     monkeypatch.setattr(export_manager.subprocess, "Popen", FakePopen)
     monkeypatch.setattr(export_manager.threading, "Thread", ImmediateThread)

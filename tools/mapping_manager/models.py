@@ -75,3 +75,31 @@ def layout_profile_label(layout_profile_id: str) -> str:
     from tools.layout_profiles.catalog import get_profile
 
     return get_profile(layout_profile_id).label
+
+
+# Max display length for PDF filenames in the mapping manager table.
+# Keeps row height constant regardless of filename length.
+_PDF_NAME_MAX_LEN = 40
+
+
+def _truncate_filename(name: str, max_len: int = _PDF_NAME_MAX_LEN) -> str:
+    """Shortens long filenames in the middle (extension stays visible).
+
+    Used in the mapping-manager table so that timestamped PDF names
+    (e.g. ``Book_20260722_214007.pdf``) never wrap and push the row
+    beyond its fixed height.  The full name remains accessible via
+    tooltip.
+    """
+    if len(name) <= max_len:
+        return name
+    stem, dot, suffix = name.rpartition(".")
+    if not dot:
+        stem, suffix = name, ""
+    suffix_display = f".{suffix}" if suffix else ""
+    budget = max_len - len(suffix_display) - 1  # -1 for the ellipsis character
+    if budget <= 0:
+        return name[: max_len - 1] + "…"
+    head = (budget + 1) // 2
+    tail = budget - head
+    tail_part = stem[-tail:] if tail > 0 else ""
+    return f"{stem[:head]}…{tail_part}{suffix_display}"

@@ -436,20 +436,18 @@ def test_backup_service_sanitizer_dir():
 
 
 def test_ui_state_service_search_text():
-    from tkinter import StringVar
-    import tkinter as tk
-    try:
-        root = tk.Tk()
-    except tk.TclError:
-        pytest.skip("Kein Display für Tk")
-    try:
-        var = StringVar(value="hello")
-        studio = SimpleNamespace(search_var=var)
-        svc = UiStateService(studio)
-        assert svc.search_text == "hello"
-        svc.invalidate_content_search_cache()  # smoke-call
-    finally:
-        root.destroy()
+    class FakeVar:
+        def __init__(self, value=""):
+            self._value = value
+
+        def get(self):
+            return self._value
+
+    var = FakeVar("hello")
+    studio = SimpleNamespace(search_var=var)
+    svc = UiStateService(studio)
+    assert svc.search_text == "hello"
+    svc.invalidate_content_search_cache()  # smoke-call
 
 
 # --- Phase 2: Coverage-Lücken für UiStateService ---------------------------
@@ -475,33 +473,29 @@ def test_ui_state_service_search_text_handles_missing_var():
 
 
 def test_ui_state_service_file_state_filter_default():
-    from tkinter import StringVar
-    import tkinter as tk
-    try:
-        root = tk.Tk()
-    except tk.TclError:
-        pytest.skip("Kein Display für Tk")
-    try:
-        var = StringVar(value="Alle")
-        studio = SimpleNamespace(file_state_filter_var=var)
-        assert UiStateService(studio).file_state_filter == "Alle"
-    finally:
-        root.destroy()
+    class FakeVar:
+        def __init__(self, value=""):
+            self._value = value
+
+        def get(self):
+            return self._value
+
+    var = FakeVar("Alle")
+    studio = SimpleNamespace(file_state_filter_var=var)
+    assert UiStateService(studio).file_state_filter == "Alle"
 
 
 def test_ui_state_service_file_state_filter_custom_value():
-    from tkinter import StringVar
-    import tkinter as tk
-    try:
-        root = tk.Tk()
-    except tk.TclError:
-        pytest.skip("Kein Display für Tk")
-    try:
-        var = StringVar(value="Fehlende Bilder")
-        studio = SimpleNamespace(file_state_filter_var=var)
-        assert UiStateService(studio).file_state_filter == "Fehlende Bilder"
-    finally:
-        root.destroy()
+    class FakeVar:
+        def __init__(self, value=""):
+            self._value = value
+
+        def get(self):
+            return self._value
+
+    var = FakeVar("Fehlende Bilder")
+    studio = SimpleNamespace(file_state_filter_var=var)
+    assert UiStateService(studio).file_state_filter == "Fehlende Bilder"
 
 
 def test_ui_state_service_file_state_filter_returns_alle_on_exception():

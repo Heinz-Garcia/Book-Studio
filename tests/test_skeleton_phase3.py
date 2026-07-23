@@ -203,45 +203,55 @@ def test_resolve_populate_plan_file_overrides_force_skip_required_file(tmp_path:
 
 
 def test_populate_book_respects_dialog_file_overrides(tmp_path: Path, monkeypatch) -> None:
-    """End-to-End: Der (gemockte) Populate-Dialog liefert einen Pro-Datei-
-    Override zurueck; `populate_book` muss ihn beim tatsaechlichen Kopieren
-    respektieren, obwohl die globalen Regler etwas anderes vorgeben wuerden."""
-    from tools.skeleton import dialog as dialog_module
-    from tools.skeleton import populate as populate_module
+    """apply_plan_rules respektiert Pro-Datei-Overrides (dialog-frei).
 
-    book = _create_book(tmp_path)
+    Der Tk-Populate-Dialog wurde entfernt; die Override-Logik lebt in
+    `apply_plan_rules` (toolkit-agnostisch). Globale Regeln werden durch
+    explizite Overrides ueberschrieben:
+    - Einleitung.md: neue Datei (globale Regel: kopieren) → Override: NICHT kopieren
+    - Widmung.md: optional (globale Regel: ueberspringen) → Override: kopieren
+    """
+    from tools.skeleton.populate_types import PopulatePlanLine, apply_plan_rules
 
-    def fake_ask_populate_confirmation(*_args, **_kwargs):
-        return dialog_module.PopulateDialogResult(
-            confirmed=True,
-            conflict_choice="skip",
-            missing_only=False,
-            include_optional=False,
-            # Globale Regel wuerde Einleitung.md kopieren (neu) und Widmung.md
-            # (optional) ueberspringen -- die Overrides drehen genau das um.
-            file_overrides={
-                "content/required/Einleitung.md": False,
-                "content/required/Widmung.md": True,
-            },
-        )
+    base_lines = [
+        PopulatePlanLine(
+            rel_path="content/required/Einleitung.md",
+            exists=False,    # neue Datei — globale Regel würde kopieren
+            will_copy=True,
+            include_in_tree=True,
+            title="Einleitung",
+            optional=False,
+        ),
+        PopulatePlanLine(
+            rel_path="content/required/Widmung.md",
+            exists=False,
+            will_copy=False,  # optional — globale Regel würde überspringen
+            include_in_tree=True,
+            title="Widmung",
+            optional=True,
+        ),
+    ]
 
-    monkeypatch.setattr(
-        populate_module, "ask_populate_confirmation", fake_ask_populate_confirmation
+    overrides = {
+        "content/required/Einleitung.md": False,  # Override: NICHT kopieren
+        "content/required/Widmung.md": True,       # Override: trotzdem kopieren
+    }
+
+    result = apply_plan_rules(
+        base_lines,
+        conflict_choice="skip",
+        missing_only=False,
+        include_optional=False,
+        overrides=overrides,
     )
 
-    result = populate_book(
-        book,
-        profile_dir=_standard_profile(),
-        conflict_mode="ask",
-        interactive_parent=object(),
+    plan_by_path = {line.rel_path: line for line in result}
+    assert plan_by_path["content/required/Einleitung.md"].will_copy is False, (
+        "Einleitung.md: Override False muss globale Kopier-Regel überschreiben"
     )
-
-    assert result.ok
-    assert "content/required/Einleitung.md" not in result.copied
-    assert "content/required/Einleitung.md" in result.skipped
-    assert "content/required/Widmung.md" in result.copied
-    assert not (book / "content/required/Einleitung.md").exists()
-    assert (book / "content/required/Widmung.md").is_file()
+    assert plan_by_path["content/required/Widmung.md"].will_copy is True, (
+        "Widmung.md: Override True muss globale Optional-Überspringen-Regel überschreiben"
+    )
 
 
 def test_cli_populate_accepts_include_optional_flag(tmp_path: Path, monkeypatch) -> None:
