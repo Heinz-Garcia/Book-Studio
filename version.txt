@@ -1,1 +1,1 @@
-Quarto Book Studio v. 1.23.1 ("Skeleton Unleashed")
+Quarto Book Studio v. 1.23.2 ("Skeleton Unleashed")

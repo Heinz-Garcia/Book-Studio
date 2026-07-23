@@ -32,7 +32,7 @@ Historische Linearität:
 | **`main`** | **Produktlinie / Default** | Aktueller Stand: PySide6-UI only, Tk-Module entfernt. Einstieg: `python book_studio.py`. |
 | **`tkinter`** | **Archiv-Snapshot** | Letzter Stand **vor** der PySide6-Migration (Tip von `feature/publish-readiness-provenance`). Tk-Welt + Publish-Readiness/Provenance, ohne Qt-Purge. Nur Referenz / Vergleich / Rollback-Archäologie — **kein** aktiver Entwicklungszweig. |
 | **`feature/publish-readiness-provenance`** | Feature-Branch (historisch) | Quelle des Archivs; Tip identisch mit `tkinter` nach der Soft-Restructure. Weiterarbeit an der Produktlinie erfolgt auf `main`. |
-| **`pyside6-migration`** | Migrations-Branch (historisch) | Tip nach Landung identisch mit `main`. Kann belassen oder später gelöscht werden; neue Arbeit auf `main`. |
+| **`pyside6-migration`** | **gelöscht** (historisch, 2026-07-23) | Migrations-Branch; Inhalt ist auf `main` gelandet. Remote + lokal entfernt; neue Arbeit auf `main`. |
 
 ## Soft-Restructure (was getan wurde)
 
