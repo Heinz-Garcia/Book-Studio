@@ -51,6 +51,8 @@ Feature-Parität der Desktop-UI von Tkinter auf PySide6, bei möglichst unverän
 
 **Exit:** `python book_studio.py` (Qt-Pfad) öffnet ein Fenster; Tk-Pfad unverändert grün.
 
+**Status (2026-07-23):** Fundament umgesetzt — Paket `ui_qt/`, Flag `BOOK_STUDIO_UI=qt` / `--ui qt`, Tests in `tests/test_ui_qt_phase1.py`.
+
 ---
 
 ## Phase 2 — Hauptfenster & Buchstruktur (Kernnutzen)
@@ -136,7 +138,7 @@ Dieselben Dialoge unter `tools/…`, die Plugins aufrufen:
 ## Reihenfolge der Arbeitspakete (Checkliste)
 
 - [x] **0** Branch `pyside6-migration` vom aktuellen Branch
-- [ ] **1** PySide6 + `ui_qt` + Start-Flag + leere Shell
+- [x] **1** PySide6 + `ui_qt` + Start-Flag + leere Shell
 - [ ] **2** Doppel-Tree + Indent/Outdent/Move/DnD + Persistenz
 - [ ] **3** Menü, Aktionen, Log, Session, Bücher wechseln
 - [ ] **4** App-Dialoge

@@ -9,6 +9,9 @@ sv-ttk>=2.6.0
 # HTML-Hilfe-Viewer (Hilfe → Handbuch öffnen)
 tkinterweb>=3.23
 
+# Qt-UI-Pfad (Feature-Flag BOOK_STUDIO_UI=qt / --ui qt) — Migration, siehe .doc/pyside6-migration-plan.md
+PySide6>=6.6.0
+
 # Kleine Regression-Suite für Nicht-GUI-Kernlogik
 pytest>=8.3.0
 

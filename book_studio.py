@@ -3083,6 +3083,12 @@ if __name__ == "__main__":
                         help="Autor fuer index.md (ueberschreibt _book_studio.toml)")
     parser.add_argument("--index-description", type=str, default="",
                         help="Description fuer index.md (ueberschreibt _book_studio.toml)")
+    parser.add_argument(
+        "--ui",
+        choices=["tk", "qt"],
+        default=None,
+        help="UI-Toolkit (Default: tk; oder BOOK_STUDIO_UI=qt)",
+    )
     _args = parser.parse_args()
 
     _import_path: Path | None = None
@@ -3096,6 +3102,11 @@ if __name__ == "__main__":
                 index_description=_args.index_description,
             ):
                 _import_path = _candidate
+
+    from ui_qt import resolve_ui_toolkit, run_qt_app
+
+    if resolve_ui_toolkit(_args.ui) == "qt":
+        raise SystemExit(run_qt_app(import_path=_import_path))
 
     app_root = tk.Tk()
     app = BookStudio(app_root, import_path=_import_path)
