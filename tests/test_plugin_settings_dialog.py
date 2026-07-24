@@ -134,8 +134,8 @@ def test_dialog_save_writes_edited_help_text_and_tooltip(tmp_path: Path, monkeyp
     monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
     dlg = PluginSettingsQtDialog(None, plugins_dir=tmp_path / "plugins")
     page = dlg._stack.widget(0)
-    page._help_edit.setText("neue Kurzhilfe")
-    page._tooltip_edits["display.max_entries"].setText("neuer Tooltip")
+    page._help_edit.setPlainText("neue Kurzhilfe")
+    page._tooltip_edits["display.max_entries"].setPlainText("neuer Tooltip")
 
     dlg._save_current()
 
@@ -160,9 +160,9 @@ def test_help_preview_updates_live_with_edit(tmp_path: Path, monkeypatch):
     app = _qapp()
     dlg = PluginSettingsQtDialog(None, plugins_dir=tmp_path / "plugins")
     page = dlg._stack.widget(0)
-    page._help_edit.setText("Live-Vorschau-Text")
+    page._help_edit.setPlainText("Live-Vorschau-Text")
     assert not page._help_preview.isHidden()
-    page._help_edit.setText("")
+    page._help_edit.setPlainText("")
     assert page._help_preview.isHidden()
     dlg.close()
     _ = app

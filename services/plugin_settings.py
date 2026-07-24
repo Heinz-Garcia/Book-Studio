@@ -21,6 +21,11 @@
 ``key`` ist ein punktnotierter Pfad in die (JSON-)Config-Datei des Plugins
 (``"section.field"`` -> ``{"section": {"field": ...}}``).
 
+Ein Plugin taucht im Settings-Dialog auch **ohne** ``settings``-Objekt auf,
+wenn es nur ``help_text`` (Kurzhilfe-Banner, siehe ``ui_qt.widgets.help_bar``)
+gesetzt hat - dann eben nur mit dem editierbaren Kurzhilfe-Feld, ohne
+Feldliste darunter.
+
 Ersetzt das fruehere ``services/plugin_config_registry`` (Kommentar-Zeilen
 ueber TOML-Keys als Tooltip-Quelle, mit optionaler zweiter Datei
 ``config.schema.toml`` fuer Typ-Overrides - portiert aus GrammarGraphs
@@ -59,12 +64,18 @@ class SettingField:
 
 @dataclass(frozen=True)
 class PluginSettingsSchema:
-    """Alle einstellbaren Felder eines Plugins + Pfade zu Config und Manifest."""
+    """Ein Plugin-Eintrag im generischen Settings-Dialog.
+
+    ``config_path``/``fields`` sind leer, wenn das Plugin nur eine
+    Kurzhilfe (``help_text``) hat, aber kein ``settings``-Objekt mit
+    Config-Feldern - so ein Plugin taucht trotzdem im Dialog auf, nur
+    ohne Feldliste darunter.
+    """
 
     plugin_name: str
     display_name: str
-    config_path: Path
     manifest_path: Path
+    config_path: Optional[Path] = None
     fields: tuple[SettingField, ...] = field(default_factory=tuple)
 
 
@@ -92,12 +103,13 @@ def _parse_field(raw: dict) -> Optional[SettingField]:
 
 
 def discover_plugin_settings(plugins_dir: Path) -> list[PluginSettingsSchema]:
-    """Scannt ``plugins_dir/*/plugin.json`` nach einem ``settings``-Objekt.
+    """Scannt ``plugins_dir/*/plugin.json`` nach editierbaren Texten.
 
+    Ein Plugin taucht auf, wenn es entweder eine Kurzhilfe (``help_text``)
+    oder ein ``settings``-Objekt mit verwertbaren Feldern hat (oder beides).
     ``config``-Pfade im Manifest sind relativ zum Repo-Root (Elternordner
     von ``plugins_dir``) gemeint, z.B. ``tools/<feature>/config.json``.
-    Manifeste ohne ``settings`` oder ohne verwertbare Felder werden
-    uebersprungen (kein Fehler).
+    Manifeste ganz ohne Kurzhilfe/Felder werden uebersprungen (kein Fehler).
     """
     plugins_dir = Path(plugins_dir)
     root = plugins_dir.parent
@@ -111,28 +123,39 @@ def discover_plugin_settings(plugins_dir: Path) -> list[PluginSettingsSchema]:
             continue
         if not isinstance(raw, dict):
             continue
+
+        help_text = raw.get("help_text", "")
+        has_help_text = isinstance(help_text, str) and bool(help_text.strip())
+
+        config_path: Optional[Path] = None
+        fields: tuple[SettingField, ...] = ()
         settings_raw = raw.get("settings")
-        if not isinstance(settings_raw, dict):
+        if isinstance(settings_raw, dict):
+            config_rel = str(settings_raw.get("config") or "").strip()
+            fields_raw = settings_raw.get("fields")
+            if config_rel and isinstance(fields_raw, list):
+                fields = tuple(
+                    f
+                    for f in (_parse_field(r) for r in fields_raw if isinstance(r, dict))
+                    if f is not None
+                )
+                if fields:
+                    config_path = root / config_rel
+            elif not config_rel or not isinstance(fields_raw, list):
+                logger.warning(
+                    "Plugin %s: 'settings' ohne 'config'/'fields', ignoriert.",
+                    manifest_path.parent.name,
+                )
+
+        if not has_help_text and not fields:
             continue
-        config_rel = str(settings_raw.get("config") or "").strip()
-        fields_raw = settings_raw.get("fields")
-        if not config_rel or not isinstance(fields_raw, list):
-            logger.warning(
-                "Plugin %s: 'settings' ohne 'config'/'fields', uebersprungen.",
-                manifest_path.parent.name,
-            )
-            continue
-        fields = tuple(
-            f for f in (_parse_field(r) for r in fields_raw if isinstance(r, dict)) if f is not None
-        )
-        if not fields:
-            continue
+
         schemas.append(
             PluginSettingsSchema(
                 plugin_name=str(raw.get("name") or manifest_path.parent.name),
                 display_name=str(raw.get("label") or raw.get("name") or manifest_path.parent.name),
-                config_path=root / config_rel,
                 manifest_path=manifest_path,
+                config_path=config_path,
                 fields=fields,
             )
         )
@@ -171,7 +194,13 @@ def _read_raw(config_path: Path) -> dict[str, Any]:
 
 
 def load_values(schema: PluginSettingsSchema) -> dict[str, Any]:
-    """Aktueller Wert je Feld - Manifest-``default``, falls Datei/Key fehlt."""
+    """Aktueller Wert je Feld - Manifest-``default``, falls Datei/Key fehlt.
+
+    Leeres Dict, wenn das Plugin keine Config-Felder deklariert (nur
+    Kurzhilfe ohne ``settings``).
+    """
+    if not schema.fields or schema.config_path is None:
+        return {}
     raw = _read_raw(schema.config_path)
     values: dict[str, Any] = {}
     for f in schema.fields:
@@ -181,7 +210,12 @@ def load_values(schema: PluginSettingsSchema) -> dict[str, Any]:
 
 
 def save_values(schema: PluginSettingsSchema, values: dict[str, Any]) -> None:
-    """Schreibt Werte zurueck; Keys ausserhalb des Schemas bleiben erhalten."""
+    """Schreibt Werte zurueck; Keys ausserhalb des Schemas bleiben erhalten.
+
+    Kein Effekt, wenn das Plugin keine Config-Felder deklariert.
+    """
+    if not schema.fields or schema.config_path is None:
+        return
     raw = _read_raw(schema.config_path)
     for f in schema.fields:
         if f.key in values:

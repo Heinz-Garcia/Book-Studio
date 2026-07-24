@@ -232,9 +232,55 @@ def test_save_manifest_texts_noop_without_manifest(tmp_path: Path):
     schema = PluginSettingsSchema(
         plugin_name="ghost",
         display_name="Ghost",
-        config_path=tmp_path / "tools" / "ghost" / "config.json",
         manifest_path=tmp_path / "plugins" / "ghost" / "plugin.json",
+        config_path=tmp_path / "tools" / "ghost" / "config.json",
         fields=(),
     )
     save_manifest_texts(schema, help_text="wird nie geschrieben")
     assert not schema.manifest_path.exists()
+
+
+def _write_help_text_only_plugin(plugins_dir: Path, name: str, *, help_text: str) -> None:
+    plugin_dir = plugins_dir / name
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "name": name,
+        "label": f"Label {name}",
+        "entrypoint": "x:y",
+        "help_text": help_text,
+    }
+    (plugin_dir / "plugin.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_discover_includes_plugin_with_only_help_text(tmp_path: Path):
+    """Regression: Plugins ohne 'settings' (nur Kurzhilfe) muessen im
+    generischen Settings-Dialog trotzdem auftauchen - sonst kann man ihre
+    Kurzhilfe nirgendwo im Dialog bearbeiten."""
+    _write_help_text_only_plugin(tmp_path / "plugins", "book_projects", help_text="Kurzhilfe ohne Felder.")
+    schemas = discover_plugin_settings(tmp_path / "plugins")
+    assert len(schemas) == 1
+    assert schemas[0].plugin_name == "book_projects"
+    assert schemas[0].fields == ()
+    assert schemas[0].config_path is None
+
+
+def test_discover_skips_plugin_without_help_text_and_without_settings(tmp_path: Path):
+    plugin_dir = tmp_path / "plugins" / "hook_only"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "hook_only", "label": "hook_only", "entrypoint": "x:y"}),
+        encoding="utf-8",
+    )
+    assert discover_plugin_settings(tmp_path / "plugins") == []
+
+
+def test_load_values_empty_when_plugin_has_no_fields(tmp_path: Path):
+    _write_help_text_only_plugin(tmp_path / "plugins", "demo", help_text="Kurzhilfe.")
+    schema = discover_plugin_settings(tmp_path / "plugins")[0]
+    assert load_values(schema) == {}
+
+
+def test_save_values_noop_when_plugin_has_no_fields(tmp_path: Path):
+    _write_help_text_only_plugin(tmp_path / "plugins", "demo", help_text="Kurzhilfe.")
+    schema = discover_plugin_settings(tmp_path / "plugins")[0]
+    save_values(schema, {"anything": 1})  # darf nicht crashen, config_path ist None

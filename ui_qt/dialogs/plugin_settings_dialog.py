@@ -21,15 +21,16 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QDoubleSpinBox,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSizePolicy,
     QSpinBox,
     QStackedWidget,
     QVBoxLayout,
@@ -52,6 +53,19 @@ _INT_FALLBACK_RANGE = (-1_000_000, 1_000_000)
 _FLOAT_FALLBACK_RANGE = (-1e9, 1e9)
 
 
+def _wrapped_text_edit(text: str, *, height: int) -> QPlainTextEdit:
+    """Mehrzeiliges, umbrechendes Textfeld fuer Kurzhilfe/Tooltip-Texte.
+
+    Ein einzeiliges QLineEdit scrollt bei langem Text zum Cursor (Textende)
+    und zeigt dann nur das Ende an - unbrauchbar fuer ganze Saetze.
+    """
+    edit = QPlainTextEdit(text)
+    edit.setMaximumHeight(height)
+    edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+    edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    return edit
+
+
 class _SchemaPage(QWidget):
     """Ein Formular fuer genau ein Plugin-Settings-Schema."""
 
@@ -59,7 +73,7 @@ class _SchemaPage(QWidget):
         super().__init__()
         self.schema = schema
         self._widgets: dict[str, Any] = {}
-        self._tooltip_edits: dict[str, QLineEdit] = {}
+        self._tooltip_edits: dict[str, QPlainTextEdit] = {}
         values = load_values(schema)
         current_help_text = load_help_text(schema)
 
@@ -68,30 +82,32 @@ class _SchemaPage(QWidget):
         layout.addWidget(QLabel("🛈 Kurzhilfe (Banner oben im Plugin-Dialog):"))
         self._help_preview = HelpBar(self, current_help_text)
         layout.addWidget(self._help_preview)
-        self._help_edit = QLineEdit(current_help_text)
-        self._help_edit.textChanged.connect(self._help_preview.set_text)
+        self._help_edit = _wrapped_text_edit(current_help_text, height=70)
+        self._help_edit.textChanged.connect(
+            lambda: self._help_preview.set_text(self._help_edit.toPlainText())
+        )
         layout.addWidget(self._help_edit)
 
-        form = QFormLayout()
         for f in schema.fields:
+            field_label = QLabel(f"{f.label}:")
+            field_label.setStyleSheet("font-weight: 600;")
+            layout.addWidget(field_label)
+
             widget = self._build_widget(f, values.get(f.key))
             self._widgets[f.key] = widget
-            tooltip_edit = QLineEdit(f.tooltip)
+            layout.addWidget(widget)
+
+            tooltip_edit = _wrapped_text_edit(f.tooltip, height=50)
             tooltip_edit.setPlaceholderText("Tooltip (? -Icon im Plugin-Dialog)")
             self._tooltip_edits[f.key] = tooltip_edit
-            field_box = QVBoxLayout()
-            field_box.addWidget(widget)
-            field_box.addWidget(tooltip_edit)
-            container = QWidget()
-            container.setLayout(field_box)
-            form.addRow(f"{f.label}:", container)
-        layout.addLayout(form)
+            layout.addWidget(tooltip_edit)
+            layout.addSpacing(8)
         layout.addStretch(1)
 
     def texts(self) -> tuple[str, dict[str, str]]:
         """(Kurzhilfe-Banner-Text, {Feld-Key: Tooltip-Text})."""
-        tooltips = {key: edit.text() for key, edit in self._tooltip_edits.items()}
-        return self._help_edit.text(), tooltips
+        tooltips = {key: edit.toPlainText() for key, edit in self._tooltip_edits.items()}
+        return self._help_edit.toPlainText(), tooltips
 
     def _build_widget(self, f: SettingField, current: Any) -> QWidget:
         if f.type == "bool":
@@ -149,7 +165,7 @@ class PluginSettingsQtDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None, *, plugins_dir: Optional[Path] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Plugin-Konfiguration")
-        self.resize(720, 460)
+        self.resize(820, 540)
 
         base = Path(plugins_dir) if plugins_dir is not None else repo_root() / "plugins"
         self._schemas = discover_plugin_settings(base)
@@ -159,13 +175,16 @@ class PluginSettingsQtDialog(QDialog):
         if not self._schemas:
             layout.addWidget(
                 QLabel(
-                    "Kein Plugin deklariert einstellbare Felder "
-                    '(plugin.json → "settings").'
+                    "Kein Plugin hat Kurzhilfe (\"help_text\") oder "
+                    'einstellbare Felder ("settings") im Manifest.'
                 )
             )
-            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-            buttons.rejected.connect(self.reject)
-            layout.addWidget(buttons)
+            close_row = QHBoxLayout()
+            close_row.addStretch(1)
+            close_btn = QPushButton("Schließen")
+            close_btn.clicked.connect(self.reject)
+            close_row.addWidget(close_btn)
+            layout.addLayout(close_row)
             return
 
         body = QHBoxLayout()
@@ -181,12 +200,15 @@ class PluginSettingsQtDialog(QDialog):
         body.addWidget(self._stack, 1)
         layout.addLayout(body)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Close
-        )
-        buttons.accepted.connect(self._save_current)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        save_btn = QPushButton("Speichern")
+        save_btn.clicked.connect(self._save_current)
+        button_row.addWidget(save_btn)
+        close_btn = QPushButton("Schließen")
+        close_btn.clicked.connect(self.reject)
+        button_row.addWidget(close_btn)
+        layout.addLayout(button_row)
 
     def _save_current(self) -> None:
         page = self._stack.currentWidget()
