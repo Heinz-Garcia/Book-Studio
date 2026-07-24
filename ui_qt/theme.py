@@ -179,6 +179,21 @@ QPushButton#skeletonEditorPrimary {
 QPushButton#skeletonEditorPrimary:hover {
     background-color: #264a80;
 }
+QFrame#HelpBar {
+    background-color: #eaf1fb;
+    border: 1px solid #b9d3ef;
+    border-left: 4px solid #2f5d9f;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+QLabel#HelpBarIcon {
+    font-size: 16pt;
+    color: #2f5d9f;
+}
+QLabel#HelpBarText {
+    color: #1a1d23;
+    font-size: 13px;
+}
 QPlainTextEdit#qtLog {
     background-color: #1e2229;
     color: #d7dde8;

@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from ui_qt.book_workspace import repo_root
@@ -45,16 +46,15 @@ class HelpBar(QFrame):
         super().__init__(parent)
         self.setObjectName("HelpBar")
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setStyleSheet(
-            "#HelpBar { background-color: rgba(100, 149, 237, 0.15);"
-            " border-radius: 4px; }"
-        )
         row = QHBoxLayout(self)
-        row.setContentsMargins(8, 6, 8, 6)
+        row.setContentsMargins(14, 10, 14, 10)
+        row.setSpacing(10)
         icon = QLabel("\U0001f6c8")  # 🛈
-        icon.setStyleSheet("font-size: 13pt;")
+        icon.setObjectName("HelpBarIcon")
+        icon.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         row.addWidget(icon, 0)
         label = QLabel(text)
+        label.setObjectName("HelpBarText")
         label.setWordWrap(True)
         row.addWidget(label, 1)
 
