@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -165,7 +166,7 @@ class PluginSettingsQtDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None, *, plugins_dir: Optional[Path] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Plugin-Konfiguration")
-        self.resize(820, 540)
+        self.resize(940, 560)
 
         base = Path(plugins_dir) if plugins_dir is not None else repo_root() / "plugins"
         self._schemas = discover_plugin_settings(base)
@@ -189,7 +190,11 @@ class PluginSettingsQtDialog(QDialog):
 
         body = QHBoxLayout()
         self._list = QListWidget()
-        self._list.setMaximumWidth(220)
+        self._list.setMinimumWidth(260)
+        self._list.setMaximumWidth(340)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self._list.setSpacing(3)
         self._stack = QStackedWidget()
         for schema in self._schemas:
             self._list.addItem(QListWidgetItem(schema.display_name))
