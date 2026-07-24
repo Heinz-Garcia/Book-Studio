@@ -24,6 +24,7 @@ from tools.mapping_manager.actions import delete_pdf, open_path, rename_pdf, rev
 from tools.mapping_manager.loader import load_renders, load_snapshots
 from tools.mapping_manager.models import RenderView, SnapshotView, layout_profile_label
 from tools.publish_map.store import read_map, remove_render, update_render_fields
+from ui_qt.widgets.help_bar import HelpBar
 
 
 class MappingManagerQtDialog(QDialog):
@@ -36,13 +37,7 @@ class MappingManagerQtDialog(QDialog):
         self._renders: list[RenderView] = []
 
         layout = QVBoxLayout(self)
-        layout.addWidget(
-            QLabel(
-                "Produktionslinie = Publish-Input (Snapshot). "
-                "Darunter: generierte PDFs mit Format/Layout/Template. "
-                "Quelle: bookconfig/publish_map.json"
-            )
-        )
+        HelpBar.create_and_prepend_for_plugin(layout, "mapping_manager")
 
         row = QHBoxLayout()
         row.addWidget(QLabel("Produktionslinie:"))

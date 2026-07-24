@@ -24,6 +24,7 @@ from tools.generated_books.discovery import (
     sort_generated_pdfs,
 )
 from tools.mapping_manager.actions import open_path, reveal_in_explorer
+from ui_qt.widgets.help_bar import HelpBar
 
 
 class GeneratedBooksQtDialog(QDialog):
@@ -37,6 +38,7 @@ class GeneratedBooksQtDialog(QDialog):
         self._sort_reverse = True
 
         layout = QVBoxLayout(self)
+        HelpBar.create_and_prepend_for_plugin(layout, "generated_books")
         layout.addWidget(QLabel("Gefundene Render-PDFs"))
 
         self.table = QTableWidget(0, 3)

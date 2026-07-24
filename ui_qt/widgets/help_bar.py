@@ -59,8 +59,13 @@ class HelpBar(QFrame):
         row.addWidget(label, 1)
 
     @staticmethod
-    def create_and_prepend(parent_layout: QVBoxLayout, text: str) -> Optional["HelpBar"]:
-        """Fuegt eine HelpBar am Anfang von `parent_layout` ein.
+    def create_and_prepend(
+        parent_layout: QVBoxLayout, text: str, *, index: int = 0
+    ) -> Optional["HelpBar"]:
+        """Fuegt eine HelpBar an Position `index` von `parent_layout` ein.
+
+        `index=0` (Default) setzt sie ganz an den Anfang; bei Dialogen mit
+        eigenem Titel-Label direkt darunter meist `index=1`.
 
         Gibt `None` zurueck (und fuegt nichts ein), wenn `text` leer ist -
         Plugins ohne `help_text` bleiben unveraendert ohne leere Leiste.
@@ -68,15 +73,17 @@ class HelpBar(QFrame):
         if not text.strip():
             return None
         bar = HelpBar(parent_layout.parentWidget(), text)
-        parent_layout.insertWidget(0, bar)
+        parent_layout.insertWidget(index, bar)
         return bar
 
     @staticmethod
     def create_and_prepend_for_plugin(
-        parent_layout: QVBoxLayout, plugin_name: str
+        parent_layout: QVBoxLayout, plugin_name: str, *, index: int = 0
     ) -> Optional["HelpBar"]:
         """Kurzform: laedt `help_text` aus `plugins/<plugin_name>/plugin.json`."""
-        return HelpBar.create_and_prepend(parent_layout, load_plugin_help_text(plugin_name))
+        return HelpBar.create_and_prepend(
+            parent_layout, load_plugin_help_text(plugin_name), index=index
+        )
 
 
 __all__ = ["HelpBar", "load_plugin_help_text"]

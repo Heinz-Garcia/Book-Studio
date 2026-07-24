@@ -6,5 +6,6 @@
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 2
+  "order": 2,
+  "help_text": "Vorlagen = Pool. Populate kopiert Dateien ins Projekt; den Buchbaum füllst du manuell."
 }

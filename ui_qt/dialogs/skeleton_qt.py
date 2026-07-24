@@ -18,16 +18,18 @@ from PySide6.QtWidgets import (
 from tools.skeleton.config import read_skeleton_settings
 from tools.skeleton.manifest import list_profiles, load_manifest, resolve_library_root
 from ui_qt.book_workspace import repo_root
+from ui_qt.widgets.help_bar import HelpBar
 
 
 class SkeletonPopulateQtDialog(QDialog):
     def __init__(self, parent: Optional[QWidget], profiles: list[str], labels: dict[str, str]) -> None:
         super().__init__(parent)
         self.setWindowTitle("Skeleton-Rahmen übernehmen")
-        self.resize(420, 180)
+        self.resize(460, 240)
         self.selected_profile: Optional[str] = None
 
         layout = QVBoxLayout(self)
+        HelpBar.create_and_prepend_for_plugin(layout, "skeleton_populate")
         layout.addWidget(QLabel("Profil aus der Skeleton-Bibliothek wählen:"))
         form = QFormLayout()
         self.combo = QComboBox()

@@ -8,5 +8,6 @@
   "menu_section": "Plugins",
   "order": 30,
   "show_in_menu": false,
-  "config": "tools/generated_books/config.toml"
+  "config": "tools/generated_books/config.toml",
+  "help_text": "Findet automatisch generierte PDF-Renderings unter export/_book/ der zuletzt geöffneten Bücher. Öffnen/Explorer/Löschen wirkt auf die PDF-Datei, nicht auf das Buchprojekt."
 }

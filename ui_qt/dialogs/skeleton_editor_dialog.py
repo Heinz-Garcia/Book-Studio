@@ -48,6 +48,7 @@ from tools.skeleton.manifest import (
 )
 from ui_qt.book_workspace import repo_root
 from ui_qt.dialogs.text_dialogs import TextEditorDialog
+from ui_qt.widgets.help_bar import HelpBar
 
 _LOG = logging.getLogger(__name__)
 
@@ -94,14 +95,7 @@ class SkeletonEditorQtDialog(QDialog):
         title_font.setWeight(QFont.Weight.DemiBold)
         title.setFont(title_font)
         root.addWidget(title)
-
-        hint = QLabel(
-            "Vorlagen = Pool. Populate kopiert Dateien ins Projekt; "
-            "den Buchbaum füllst du manuell."
-        )
-        hint.setObjectName("skeletonEditorHint")
-        hint.setWordWrap(True)
-        root.addWidget(hint)
+        HelpBar.create_and_prepend_for_plugin(root, "skeleton_editor", index=1)
 
         # --- Profil-Leiste ---
         top = QHBoxLayout()

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from tools.publish_readiness.analysis import enrich_analysis
+from ui_qt.widgets.help_bar import HelpBar
 
 
 class PublishReadinessQtDialog(QDialog):
@@ -37,6 +38,7 @@ class PublishReadinessQtDialog(QDialog):
         healthy = bool(analysis.get("is_healthy"))
         status = "Bereit" if healthy else "Nicht bereit"
         layout = QVBoxLayout(self)
+        HelpBar.create_and_prepend_for_plugin(layout, "publish_readiness")
         layout.addWidget(QLabel(f"Status: {status}"))
 
         blockers = sum(1 for i in issues if i.get("severity") == "blocker")

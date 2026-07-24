@@ -164,10 +164,6 @@ QLabel#skeletonEditorSectionTitle {
     font-weight: 600;
     color: #1a1d23;
 }
-QLabel#skeletonEditorHint {
-    color: #5b6573;
-    font-size: 12px;
-}
 QPushButton#skeletonEditorPrimary {
     background-color: #2f5d9f;
     color: #ffffff;

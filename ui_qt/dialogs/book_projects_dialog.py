@@ -36,6 +36,7 @@ from tools.book_projects.catalog import (
 from tools.book_projects.scaffold import is_quarto_book
 from tools.mapping_manager.actions import reveal_in_explorer
 from ui_qt.book_workspace import repo_root
+from ui_qt.widgets.help_bar import HelpBar
 
 _ROLE_KIND = Qt.ItemDataRole.UserRole
 _ROLE_PAYLOAD = Qt.ItemDataRole.UserRole + 1
@@ -64,14 +65,7 @@ class BookProjectsQtDialog(QDialog):
         title_font.setWeight(QFont.Weight.DemiBold)
         title.setFont(title_font)
         layout.addWidget(title)
-
-        intro = QLabel(
-            "Suchpfade festlegen, Bücher öffnen oder neu anlegen. "
-            "Kapitelstruktur bearbeitest du danach im Hauptfenster."
-        )
-        intro.setObjectName("bookProjectsHint")
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
+        HelpBar.create_and_prepend_for_plugin(layout, "book_projects", index=1)
 
         # --- Roots ---
         roots_frame = QFrame()

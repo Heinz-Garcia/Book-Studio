@@ -6,5 +6,6 @@
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 25
+  "order": 25,
+  "help_text": "Produktionslinie = Publish-Input (Snapshot). Darunter: generierte PDFs mit Format/Layout/Template. Quelle: bookconfig/publish_map.json"
 }
