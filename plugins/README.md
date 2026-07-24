@@ -7,7 +7,7 @@ kennt **keine** Plugin-Fachlogik — nur Discovery, Menü und generische Hooks.
 
 | Schicht | Pfad | Aufgabe |
 |---------|------|---------|
-| Manifest | `plugins/<name>/plugin.json` | Name, Label, Entrypoint, optional `hooks`, `config` |
+| Manifest | `plugins/<name>/plugin.json` | Name, Label, Entrypoint, optional `hooks`, `config`, `help_text` |
 | Adapter | `plugins/<name>/__init__.py` | Dünner `run()` → delegiert an `tools/...` |
 | Implementierung | `tools/<feature>/` | Dialoge, CLI, Tests, `config.toml` |
 
@@ -60,3 +60,22 @@ Verantwortungs-Matrix: `.doc/quality_contract.md`
 2. `plugins/mein_feature/plugin.json` — `entrypoint: "plugins.mein_feature:run"`
 3. `plugins/mein_feature/__init__.py` — `ensure_repo_on_path(__file__)` + Delegation
 4. Optional: `config` → `tools/mein_feature/config.toml` (Plugin-Konfiguration GUI)
+5. Optional: `help_text` im Manifest — Kurzhilfe fürs eigene Dialog-Layout, siehe unten
+
+## Kurzhilfe (`help_text`)
+
+Analog zum Schwesterprogramm GrammarGraph (dort `config.toml` → `[help].text` +
+`src/gui/help_bar.py`) kann jedes Plugin-Manifest ein optionales `help_text`
+tragen. Der Dialog des Plugins hängt sich die Leiste selbst oben ins Layout —
+kein Autowiring über eine Basisklasse:
+
+```python
+from ui_qt.widgets.help_bar import HelpBar
+
+layout = QVBoxLayout(self)
+HelpBar.create_and_prepend_for_plugin(layout, "mein_feature")
+```
+
+Ohne `help_text` im Manifest fügt `create_and_prepend_for_plugin` nichts ein
+(keine leere Leiste). Beispiel: `plugins/gg_content_swap/plugin.json` +
+`ui_qt/dialogs/gg_content_swap_dialog.py`.

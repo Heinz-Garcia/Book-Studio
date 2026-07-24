@@ -65,6 +65,22 @@ def test_show_in_menu_false(tmp_path):
     assert info.show_in_menu is False
 
 
+def test_manifest_without_help_text_defaults_to_empty(tmp_path):
+    _write_plugin(tmp_path, "alpha")
+    loader = PluginLoader(tmp_path)
+    info = loader.get("alpha")
+    assert info is not None
+    assert info.help_text == ""
+
+
+def test_manifest_with_help_text(tmp_path):
+    _write_plugin(tmp_path, "helped", help_text="Kurzhilfe fuer das Dialogfeld.")
+    loader = PluginLoader(tmp_path)
+    info = loader.get("helped")
+    assert info is not None
+    assert info.help_text == "Kurzhilfe fuer das Dialogfeld."
+
+
 def test_discover_nonexistent_dir(tmp_path):
     loader = PluginLoader(tmp_path / "does_not_exist")
     assert loader.discover() == []

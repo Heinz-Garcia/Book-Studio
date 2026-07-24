@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from tools.gg_content_swap.swap import enrich_plan_with_diffs, run_swap
 from tools.gg_content_swap.match import build_match_plan
 from tools.gg_content_swap.types import SwapPlanLine
+from ui_qt.widgets.help_bar import HelpBar
 
 
 def _default_source_dir(studio: Any) -> Path:
@@ -58,13 +59,7 @@ class GgContentSwapQtDialog(QDialog):
         self.resize(920, 560)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(
-            QLabel(
-                "Ersetzt den Markdown-Body der GrammarGraph-Nutzinhalte "
-                "(automatisch: alle .md außer Required/Skeleton, index.md, Outline).\n"
-                "Frontmatter und Buchstruktur bleiben unverändert."
-            )
-        )
+        HelpBar.create_and_prepend_for_plugin(layout, "gg_content_swap")
 
         path_row = QHBoxLayout()
         path_row.addWidget(QLabel("GG-Export:"))

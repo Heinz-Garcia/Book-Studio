@@ -15,7 +15,8 @@ Plugin-Manifest-Schema (JSON):
         "author": "...",
         "menu_section": "Plugins",
         "order": 10,
-        "config": "tools/<feature>/config.toml"
+        "config": "tools/<feature>/config.toml",
+        "help_text": "Kurzhilfe, die ui_qt.widgets.help_bar.HelpBar im Plugin-Dialog anzeigt."
     }
 
 Optionale Hooks (Lifecycle, ohne Core-Kopplung):
@@ -71,6 +72,7 @@ class PluginInfo:
     menu_section: str = "Plugins"
     order: int = 100
     config: str = ""
+    help_text: str = ""
     hooks: dict[str, str] = field(default_factory=dict)
     show_in_menu: bool = True
     manifest_path: Path = field(default_factory=Path)
@@ -203,6 +205,7 @@ class PluginLoader:
             menu_section=str(raw.get("menu_section", "Plugins")),
             order=order,
             config=str(raw.get("config", "") or ""),
+            help_text=str(raw.get("help_text", "") or ""),
             hooks=hooks,
             show_in_menu=show_in_menu,
             manifest_path=manifest_path,
