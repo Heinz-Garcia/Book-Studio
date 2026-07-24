@@ -191,7 +191,12 @@ def test_build_title_registry_includes_root_level_md_files(tmp_path: Path) -> No
     """Regression: externe Zulieferer (z.B. GrammarGraph) legen ihren
     Nutzinhalt oft als lose .md-Datei direkt im Buchordner ab, nicht unter
     content/. Ohne diesen Scan taucht die Datei nie im Pool der nicht
-    zugeordneten Kapitel auf, unabhängig vom Skeleton-Populate-Schritt."""
+    zugeordneten Kapitel auf, unabhängig vom Skeleton-Populate-Schritt.
+
+    Eine solche lose Root-Datei ist per Definition ein GG-Nutzinhalt-
+    Kandidat (nicht required, nicht index.md, nicht outline) und bekommt
+    daher das 🧬-Prefix-Icon, genau wie ein aequivalentes File unter
+    content/ (siehe is_gg_nutzinhalt_candidate)."""
     book = _create_book(tmp_path)
     _write(
         book / "buch_master.md",
@@ -201,7 +206,7 @@ def test_build_title_registry_includes_root_level_md_files(tmp_path: Path) -> No
     engine = QuartoYamlEngine(book)
     registry = engine.build_title_registry()
 
-    assert registry["buch_master.md"] == "Payload"
+    assert registry["buch_master.md"] == "🧬 Payload"
 
 
 def test_build_title_registry_root_scan_is_not_recursive(tmp_path: Path) -> None:
@@ -222,7 +227,8 @@ def test_build_title_registry_root_scan_is_not_recursive(tmp_path: Path) -> None
 
 def test_build_title_registry_root_scan_works_without_content_dir(tmp_path: Path) -> None:
     """Root-.md-Dateien muessen auch gefunden werden, wenn content/ (noch)
-    gar nicht existiert."""
+    gar nicht existiert. Icon-Prefix siehe
+    test_build_title_registry_includes_root_level_md_files."""
     book = tmp_path / "RawPublish"
     book.mkdir()
     _write(book / "buch_master.md", "---\ntitle: \"Payload\"\n---\n\n# Payload\n")
@@ -230,7 +236,7 @@ def test_build_title_registry_root_scan_works_without_content_dir(tmp_path: Path
     engine = QuartoYamlEngine(book)
     registry = engine.build_title_registry()
 
-    assert registry == {"buch_master.md": "Payload"}
+    assert registry == {"buch_master.md": "🧬 Payload"}
 
 
 def test_build_title_registry_labels_missing_title_without_implying_missing_file(
