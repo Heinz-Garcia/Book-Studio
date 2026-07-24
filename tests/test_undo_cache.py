@@ -126,7 +126,7 @@ def test_cache_invalidated_in_push_undo():
     """
     import ui_qt.book_workspace as _mod
     src = Path(_mod.__file__).read_text(encoding="utf-8")
-    start = src.find("def _push_undo(self")
+    start = src.find("def _push_undo(")
     assert start >= 0, "_push_undo nicht in book_workspace gefunden"
     end = src.find("\n    def ", start + 1)
     body = src[start:end]

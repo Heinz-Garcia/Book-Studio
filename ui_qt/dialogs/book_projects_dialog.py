@@ -425,14 +425,14 @@ class BookProjectsQtDialog(QDialog):
         if info is None:
             QMessageBox.information(self, "Löschen", "Bitte ein Buch wählen.")
             return
-        typed, ok = QInputDialog.getText(
+        reply = QMessageBox.question(
             self,
             "Buchordner löschen",
-            f"UNWIDERRUFLICH löschen:\n{info.path}\n\n"
-            f"Zur Bestätigung den Ordnernamen tippen:\n{info.name}",
+            f"Buchordner unwiderruflich löschen?\n\n{info.path}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if not ok or typed.strip() != info.name:
-            QMessageBox.information(self, "Löschen", "Abgebrochen (Name stimmt nicht).")
+        if reply != QMessageBox.StandardButton.Yes:
             return
         try:
             shutil.rmtree(info.path)
