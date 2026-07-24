@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import tomllib
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -56,14 +56,16 @@ def delete_generated_pdf(path: Path) -> None:
 
 
 def load_settings(config_path: Optional[Path] = None) -> dict:
-    """Liest tools/generated_books/config.toml (Defaults bei Fehlern)."""
+    """Liest tools/generated_books/config.json (Defaults bei Fehlern)."""
     defaults = {"max_entries": 15, "recent_only": True}
-    path = config_path or (Path(__file__).resolve().parent / "config.toml")
+    path = config_path or (Path(__file__).resolve().parent / "config.json")
     if not path.is_file():
         return defaults
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return defaults
+    if not isinstance(data, dict):
         return defaults
     display = data.get("display") if isinstance(data.get("display"), dict) else {}
     scan = data.get("scan") if isinstance(data.get("scan"), dict) else {}

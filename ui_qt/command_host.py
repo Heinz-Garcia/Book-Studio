@@ -395,17 +395,9 @@ class CommandHost:
         TextEditorDialog(self.w, path, title="Quarto.yml").exec()
 
     def open_plugin_config_editor(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
-        from ui_qt.dialogs.text_dialogs import TextEditorDialog
+        from ui_qt.dialogs.plugin_settings_dialog import open_plugin_settings_qt
 
-        path, _ = QFileDialog.getOpenFileName(
-            self.w,
-            "Plugin-Konfiguration öffnen",
-            str(repo_root() / "tools"),
-            "TOML (*.toml);;Alle (*.*)",
-        )
-        if path:
-            TextEditorDialog(self.w, Path(path), title="Plugin-Konfiguration").exec()
+        open_plugin_settings_qt(self.w)
 
     def run_sanitizer_pipeline(self) -> None:
         import threading

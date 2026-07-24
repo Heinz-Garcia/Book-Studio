@@ -8,6 +8,27 @@
   "menu_section": "Plugins",
   "order": 30,
   "show_in_menu": false,
-  "config": "tools/generated_books/config.toml",
-  "help_text": "Findet automatisch generierte PDF-Renderings unter export/_book/ der zuletzt geöffneten Bücher. Öffnen/Explorer/Löschen wirkt auf die PDF-Datei, nicht auf das Buchprojekt."
+  "config": "tools/generated_books/config.json",
+  "help_text": "Findet automatisch generierte PDF-Renderings unter export/_book/ der zuletzt geöffneten Bücher. Öffnen/Explorer/Löschen wirkt auf die PDF-Datei, nicht auf das Buchprojekt.",
+  "settings": {
+    "config": "tools/generated_books/config.json",
+    "fields": [
+      {
+        "key": "display.max_entries",
+        "label": "Maximale Einträge",
+        "type": "int",
+        "default": 15,
+        "min": 1,
+        "max": 200,
+        "tooltip": "Wie viele PDFs maximal in der Liste angezeigt werden."
+      },
+      {
+        "key": "scan.recent_only",
+        "label": "Nur zuletzt genutzte Bücher durchsuchen",
+        "type": "bool",
+        "default": true,
+        "tooltip": "Aktiv: nur aktives Buch + zuletzt geöffnete Bücher scannen (schneller). Aus: alle Content-Roots vollständig durchsuchen."
+      }
+    ]
+  }
 }

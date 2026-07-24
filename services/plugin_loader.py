@@ -16,8 +16,26 @@ Plugin-Manifest-Schema (JSON):
         "menu_section": "Plugins",
         "order": 10,
         "config": "tools/<feature>/config.toml",
-        "help_text": "Kurzhilfe, die ui_qt.widgets.help_bar.HelpBar im Plugin-Dialog anzeigt."
+        "help_text": "Kurzhilfe, die ui_qt.widgets.help_bar.HelpBar im Plugin-Dialog anzeigt.",
+        "settings": {
+            "config": "tools/<feature>/config.json",
+            "fields": [
+                {
+                    "key": "section.field",
+                    "label": "Anzeigename",
+                    "type": "int",
+                    "default": 15,
+                    "tooltip": "Kurzhilfe fuer dieses Feld."
+                }
+            ]
+        }
     }
+
+`settings` wird von `services.plugin_settings.discover_plugin_settings()`
+gelesen und im generischen Plugin-Einstellungen-Dialog
+(`ui_qt/dialogs/plugin_settings_dialog.py`, Menü Tools → Plugin-Konfiguration…)
+gerendert - Typ, Tooltip und Default stehen explizit im Manifest, kein
+Kommentar-Scraping aus einer Config-Datei.
 
 Optionale Hooks (Lifecycle, ohne Core-Kopplung):
 

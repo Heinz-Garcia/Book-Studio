@@ -1,0 +1,8 @@
+{
+  "display": {
+    "max_entries": 15
+  },
+  "scan": {
+    "recent_only": true
+  }
+}

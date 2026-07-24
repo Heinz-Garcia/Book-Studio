@@ -7,7 +7,7 @@ kennt **keine** Plugin-Fachlogik — nur Discovery, Menü und generische Hooks.
 
 | Schicht | Pfad | Aufgabe |
 |---------|------|---------|
-| Manifest | `plugins/<name>/plugin.json` | Name, Label, Entrypoint, optional `hooks`, `config`, `help_text` |
+| Manifest | `plugins/<name>/plugin.json` | Name, Label, Entrypoint, optional `hooks`, `config`, `help_text`, `settings` |
 | Adapter | `plugins/<name>/__init__.py` | Dünner `run()` → delegiert an `tools/...` |
 | Implementierung | `tools/<feature>/` | Dialoge, CLI, Tests, `config.toml` |
 
@@ -59,8 +59,10 @@ Verantwortungs-Matrix: `.doc/quality_contract.md`
 1. `tools/mein_feature/` — Logik + Tests
 2. `plugins/mein_feature/plugin.json` — `entrypoint: "plugins.mein_feature:run"`
 3. `plugins/mein_feature/__init__.py` — `ensure_repo_on_path(__file__)` + Delegation
-4. Optional: `config` → `tools/mein_feature/config.toml` (Plugin-Konfiguration GUI)
+4. Optional: `config` → `tools/mein_feature/config.json` für eigene Laufzeit-Defaults
 5. Optional: `help_text` im Manifest — Kurzhilfe fürs eigene Dialog-Layout, siehe unten
+6. Optional: `settings` im Manifest — macht `config` im generischen
+   Plugin-Konfiguration-Dialog editierbar, siehe unten
 
 ## Kurzhilfe (`help_text`)
 
@@ -79,3 +81,41 @@ HelpBar.create_and_prepend_for_plugin(layout, "mein_feature")
 Ohne `help_text` im Manifest fügt `create_and_prepend_for_plugin` nichts ein
 (keine leere Leiste). Beispiel: `plugins/gg_content_swap/plugin.json` +
 `ui_qt/dialogs/gg_content_swap_dialog.py`.
+
+## Plugin-Einstellungen (`settings`)
+
+Ein Plugin mit einer eigenen Config-Datei (`tools/<feature>/config.json`)
+kann diese über ein explizites `settings`-Objekt im Manifest fürs generische
+Menü **Tools → 🔌 Plugin-Konfiguration…** editierbar machen — ohne eigenen
+Dialog schreiben zu müssen:
+
+```json
+"settings": {
+  "config": "tools/mein_feature/config.json",
+  "fields": [
+    {
+      "key": "section.field",
+      "label": "Anzeigename",
+      "type": "int",
+      "default": 15,
+      "min": 1,
+      "max": 200,
+      "tooltip": "Kurzhilfe fuer dieses Feld (? -Icon im Dialog)."
+    }
+  ]
+}
+```
+
+- `key`: punktnotierter Pfad in die (JSON-)Config-Datei des Plugins.
+- `type`: `bool` | `int` | `float` | `string` | `enum` (mit `options: [...]`).
+- Typ, Tooltip und Default stehen **explizit im Manifest** — kein
+  Kommentar-Scraping aus der Config-Datei und keine zweite Schema-Datei
+  (siehe `services/plugin_settings.py`-Docstring für die Abgrenzung zum
+  verworfenen GrammarGraph-Port `services/plugin_config_registry`, der genau
+  das tat und deshalb ersetzt wurde).
+- `services.plugin_settings.discover_plugin_settings()` findet alle
+  Plugins mit `settings`; `ui_qt/dialogs/plugin_settings_dialog.py` baut
+  daraus ein Formular pro Plugin (Liste links, Formular rechts, "Speichern"
+  schreibt zurück, unbekannte Keys in der Config-Datei bleiben erhalten).
+- Beispiel: `plugins/generated_books/plugin.json` +
+  `tools/generated_books/config.json`.
