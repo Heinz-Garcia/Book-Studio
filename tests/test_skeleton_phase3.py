@@ -124,13 +124,13 @@ def test_delete_profile_removes_directory(tmp_path: Path) -> None:
 
 
 def test_build_populate_plan_skips_optional_by_default(tmp_path: Path) -> None:
-    """Batch 2: `build_populate_plan` markiert `optional: true`-Einträge als
+    """Batch 2: `build_populate_plan` markiert nicht-required Einträge als
     `will_copy=False`, solange `include_optional` nicht gesetzt ist."""
     book = _create_book(tmp_path)
     manifest = load_manifest(_standard_profile())
     plan = build_populate_plan(manifest, book, include_diff=False)
     widmung = next(line for line in plan if line.rel_path.endswith("Widmung.md"))
-    assert widmung.optional is True
+    assert widmung.required is False
     assert widmung.will_copy is False
 
 
@@ -220,15 +220,15 @@ def test_populate_book_respects_dialog_file_overrides(tmp_path: Path, monkeypatc
             will_copy=True,
             include_in_tree=True,
             title="Einleitung",
-            optional=False,
+            required=True,
         ),
         PopulatePlanLine(
             rel_path="content/required/Widmung.md",
             exists=False,
-            will_copy=False,  # optional — globale Regel würde überspringen
+            will_copy=False,  # nicht-required — globale Regel würde überspringen
             include_in_tree=True,
             title="Widmung",
-            optional=True,
+            required=False,
         ),
     ]
 

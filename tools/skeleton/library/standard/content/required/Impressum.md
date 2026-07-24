@@ -2,6 +2,7 @@
 title: "Impressum"
 description: "Impressum"
 status: bookstudio
+required: true
 order: "30"
 ---
 

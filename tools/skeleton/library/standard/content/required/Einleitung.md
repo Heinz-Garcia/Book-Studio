@@ -2,6 +2,7 @@
 title: "Einleitung"
 description: "Einleitung"
 status: bookstudio
+required: true
 order: "60"
 ---
 

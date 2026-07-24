@@ -2,6 +2,7 @@
 title: "Rückseite"
 description: "Rückseite"
 status: bookstudio
+required: true
 order: "END-10"
 ---
 

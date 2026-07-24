@@ -2,6 +2,7 @@
 title: "Klappentext (hinten)"
 description: "Klappentext (hinten)"
 status: bookstudio
+required: true
 order: "END-20"
 ---
 

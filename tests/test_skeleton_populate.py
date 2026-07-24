@@ -51,9 +51,9 @@ def test_load_standard_manifest_has_expected_files():
     assert "content/required/Deckblatt.md" in paths
     assert "typst-show.typ" in paths
     assert "page.typ" in paths
-    optional = [e for e in manifest.files if e.optional]
+    optional = [e for e in manifest.files if not e.required]
     assert len(optional) == 2
-    required_non_optional = [e for e in manifest.files if not e.optional]
+    required_non_optional = [e for e in manifest.files if e.required]
     assert len(required_non_optional) == 14
     template = next(e for e in manifest.files if e.path.endswith("Template.md"))
     assert template.include_in_tree is False
@@ -71,8 +71,8 @@ def test_populate_copies_files_and_updates_yaml(tmp_path: Path) -> None:
         skip_dialog=True,
     )
 
-    # Batch 2: optionale Slots (Widmung, Template) werden standardmäßig
-    # NICHT kopiert -> 14 der 16 Manifest-Einträge sind "optional: false".
+    # Batch 2: nicht-required Slots (Widmung, Template) werden standardmäßig
+    # NICHT kopiert -> 14 der 16 Manifest-Einträge sind required: true.
     assert result.ok
     assert len(result.copied) == 14
     assert len(result.skipped) == 2
@@ -94,7 +94,7 @@ def test_populate_copies_files_and_updates_yaml(tmp_path: Path) -> None:
 
 
 def test_populate_skips_optional_by_default(tmp_path: Path) -> None:
-    """Batch 2: `optional: true`-Slots werden ohne explizites Opt-in nicht kopiert."""
+    """Batch 2: nicht-required Slots werden ohne explizites Opt-in nicht kopiert."""
     book = _create_empty_book(tmp_path)
     result = populate_book(
         book,
@@ -274,7 +274,7 @@ def test_plugin_manifest_discoverable(tmp_path: Path) -> None:
     info = loader.get("skeleton_populate")
     assert info is not None
     assert info.load_error is None
-    assert info.label.startswith("Skeleton")
+    assert "Skeleton" in info.label
 
 
 def test_refresh_studio_after_populate_calls_load_book() -> None:

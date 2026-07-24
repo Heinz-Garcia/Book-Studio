@@ -1,7 +1,7 @@
 # Skeleton-Bibliothek
 
 > **Architektur/Konzept:** `.doc/skeleton-pool.md` (Pool+Kopie, GrammarGraph-
-> Trennung, `order`-Sandwich, `optional`-Slots, Soft-UX-Hinweis).
+> Trennung, `order`-Sandwich, nicht-required Slots, Soft-UX-Hinweis).
 > **Batch-Fortschritt:** `.doc/skeleton.md`.
 
 Autonomes Modul unter `tools/skeleton/` — Menü-Einträge über Plugins:
@@ -36,7 +36,7 @@ python -m tools.skeleton edit --profile standard
 Funktionen:
 
 - Markdown-Vorlagen bearbeiten und speichern
-- Manifest-Einträge (Titel, `order`, optional, Buchbaum-Flag)
+- Manifest-Einträge (Titel, `order`, `required`, Buchbaum-Flag)
 - Profil-Metadaten (Label, Beschreibung), Als Standard setzen, Profil löschen
 - Neue Datei anlegen, Eintrag entfernen (Datei bleibt auf Platte)
 - Profil duplizieren als Ausgangspunkt für Varianten
@@ -50,16 +50,16 @@ Im Populate-Dialog:
 - Spalte **Diff** (`neu`, `identisch`, `+N / -M`)
 - **Diff Skeleton-Vorlage <-> File in place** / Doppelklick → Unified-Diff (Buch vs. Skeleton)
 
-### Modus „Nur fehlende Dateien“
+### Modus „Nur fehlende Dateien"
 
 - Checkbox im Dialog oder `skeleton_populate_mode: missing_only` in `app_config.json`
 - CLI: `--missing-only` bzw. `python -m tools.skeleton populate --missing-only --yes`
 
-### Optionale Slots (`optional: true`)
+### Nicht-required Slots (`required: false` / fehlendes `required`)
 
-Manifest-Einträge mit `optional: true` (z. B. `Widmung.md`, `Template.md` im
+Manifest-Einträge ohne `required: true` (z. B. `Widmung.md`, `Template.md` im
 Profil `standard`) werden **standardmäßig nicht** kopiert. Checkbox im Dialog
-„Optionale Slots mitnehmen“ (Default aus) bzw. CLI-Flag `--include-optional`:
+„Optionale Slots mitnehmen" (Default aus) bzw. CLI-Flag `--include-optional`:
 
 ```bash
 python -m tools.skeleton populate --book-path /pfad/zum/Buch --yes --include-optional
@@ -82,7 +82,7 @@ python -m tools.skeleton edit
 | `skeleton_on_conflict` | `ask` \| `skip` \| `replace` |
 | `skeleton_populate_mode` | `all` \| `missing_only` |
 
-Im Dialog kann „Entscheidung merken“ gesetzt werden — speichert `skip` oder `replace` in `app_config.json`.
+Im Dialog kann „Entscheidung merken" gesetzt werden — speichert `skip` oder `replace` in `app_config.json`.
 
 ### Profil `standard`
 

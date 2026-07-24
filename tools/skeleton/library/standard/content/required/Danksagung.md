@@ -2,6 +2,7 @@
 title: "Danksagung"
 description: "Danksagung"
 status: bookstudio
+required: true
 order: "50"
 ---
 

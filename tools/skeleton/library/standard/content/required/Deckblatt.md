@@ -2,6 +2,7 @@
 title: "Deckblatt"
 description: "Deckblatt"
 status: bookstudio
+required: true
 order: "5"
 comment: "Platzhalter für das Deckblatt: ein separates, seitenfüllendes Cover-Bild ohne Ränder. Titel.md bleibt der reine Schmutztitel (nur Text, kein Bild)."
 ---

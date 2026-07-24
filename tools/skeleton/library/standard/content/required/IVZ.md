@@ -2,6 +2,7 @@
 title: "Inhaltsverzeichnis"
 description: "Inhaltsverzeichnis"
 status: bookstudio
+required: true
 order: "40"
 comment: "Manuelle Platzierung des Inhaltsverzeichnisses. Setzt voraus, dass
   format.typst.toc in der _quarto.yml auf false steht (Tools -> Quarto.yml

@@ -42,6 +42,7 @@ from tools.skeleton.manifest import (
     replace_manifest_entries,
     resolve_library_root,
     sync_markdown_order,
+    sync_markdown_required,
     update_manifest_meta,
     validate_profile_name,
 )
@@ -224,13 +225,13 @@ class SkeletonEditorQtDialog(QDialog):
         form.setContentsMargins(0, 4, 0, 4)
         self._title = QLineEdit()
         self._order = QLineEdit()
-        self._optional = QCheckBox("optional (Populate nur mit Checkbox)")
+        self._required = QCheckBox("required (Populate standardmäßig mitkopieren)")
         self._title.textChanged.connect(self._mark_meta_dirty)
         self._order.textChanged.connect(self._mark_meta_dirty)
-        self._optional.stateChanged.connect(self._mark_meta_dirty)
+        self._required.stateChanged.connect(self._mark_meta_dirty)
         form.addRow("Titel:", self._title)
         form.addRow("order:", self._order)
-        form.addRow("", self._optional)
+        form.addRow("", self._required)
         right_l.addLayout(form)
 
         meta_btns = QHBoxLayout()
@@ -324,7 +325,7 @@ class SkeletonEditorQtDialog(QDialog):
     def _populate_file_list(self) -> None:
         self._file_tree.clear()
         for idx, entry in enumerate(self._entries):
-            status = "optional" if entry.optional else "pflicht"
+            status = "required" if entry.required else "optional"
             filename = Path(entry.path).name
             item = QTreeWidgetItem(
                 [
@@ -353,7 +354,7 @@ class SkeletonEditorQtDialog(QDialog):
         self._loading = True
         self._title.clear()
         self._order.clear()
-        self._optional.setChecked(False)
+        self._required.setChecked(False)
         self._rel_path.clear()
         self._rel_path.setToolTip("")
         self._text.clear()
@@ -463,7 +464,7 @@ class SkeletonEditorQtDialog(QDialog):
         self._loading = True
         self._title.setText(entry.title)
         self._order.setText(entry.order or "")
-        self._optional.setChecked(entry.optional)
+        self._required.setChecked(entry.required)
         path = self._manifest.root / entry.path  # type: ignore[union-attr]
         self._rel_path.setText(entry.path)
         self._rel_path.setToolTip(str(path.resolve()))
@@ -528,7 +529,7 @@ class SkeletonEditorQtDialog(QDialog):
             path=entry.path,
             title=self._title.text().strip() or Path(entry.path).stem,
             order=order,
-            optional=bool(self._optional.isChecked()),
+            required=bool(self._required.isChecked()),
             include_in_tree=entry.include_in_tree,
             description=entry.description,
         )
@@ -542,7 +543,10 @@ class SkeletonEditorQtDialog(QDialog):
         )
         self._entries = list(self._manifest.files)
         md_path = self._manifest.root / updated.path
-        if sync_markdown_order(md_path, updated.order):
+        changed = sync_markdown_order(md_path, updated.order)
+        if sync_markdown_required(md_path, updated.required):
+            changed = True
+        if changed:
             self._reload_selected_from_disk()
         self._meta_dirty = False
         keep = self._selected_index
@@ -569,10 +573,19 @@ class SkeletonEditorQtDialog(QDialog):
         order = order_raw.strip() if ok and order_raw else None
         try:
             target = create_markdown_template(
-                self._manifest.root, rel.strip(), title=title.strip(), order=order
+                self._manifest.root,
+                rel.strip(),
+                title=title.strip(),
+                order=order,
+                required=True,
             )
             norm_path = str(target.relative_to(self._manifest.root)).replace("\\", "/")
-            new_entry = SkeletonFileEntry(path=norm_path, title=title.strip(), order=order)
+            new_entry = SkeletonFileEntry(
+                path=norm_path,
+                title=title.strip(),
+                order=order,
+                required=True,
+            )
             self._entries.append(new_entry)
             self._manifest = replace_manifest_entries(
                 self._manifest.root,
@@ -583,8 +596,8 @@ class SkeletonEditorQtDialog(QDialog):
             )
             self._entries = list(self._manifest.files)
             self._populate_file_list()
-            self._select_row(len(self._entries) - 1)
-            # Auswahl laden (setCurrentItem löst Signal aus, außer bei _loading)
+            # Nach _populate_file_list (ruft clear() auf) ist current=None →
+            # setCurrentItem löst currentItemChanged aus und lädt den Eintrag.
             last = self._file_tree.topLevelItem(len(self._entries) - 1)
             if last is not None:
                 self._file_tree.setCurrentItem(last)

@@ -145,9 +145,9 @@ def build_populate_plan(
 ) -> list[PopulatePlanLine]:
     """Baut den Populate-Plan (eine Zeile je Manifest-Eintrag).
 
-    Batch 2 (Order-SSOT-Doku: `.doc/skeleton-pool.md` Abschnitt 5): Einträge
-    mit `optional: true` werden standardmäßig NICHT kopiert
-    (``will_copy=False``), es sei denn `include_optional=True`.
+    Einträge ohne ``required: true`` werden standardmäßig NICHT kopiert
+    (``will_copy=False``), es sei denn `include_optional=True`
+    (CLI ``--include-optional``: auch nicht-required Slots).
     """
     book_path = Path(book_path).resolve()
     effective_choice: RunConflictChoice = run_conflict_choice or (
@@ -168,7 +168,7 @@ def build_populate_plan(
         rel = _normalize_rel(entry.path)
         target = book_path / rel
         exists = target.is_file()
-        if entry.optional and not include_optional:
+        if not entry.required and not include_optional:
             will_copy = False
         elif exists:
             if populate_mode == "missing_only":
@@ -190,7 +190,7 @@ def build_populate_plan(
                 include_in_tree=entry.include_in_tree,
                 title=entry.title,
                 diff_summary=diff_summary,
-                optional=entry.optional,
+                required=entry.required,
             )
         )
     return lines
@@ -284,8 +284,8 @@ def populate_book(
     hängt der Nutzer manuell ein. ``include_in_tree`` im Manifest wird
     beim Populate ignoriert.
 
-    `include_optional` (Batch 2): Manifest-Einträge mit `optional: true`
-    (z. B. `Widmung.md`, `Template.md`) werden standardmäßig NICHT kopiert.
+    `include_optional`: Einträge ohne ``required: true`` (nicht-Pflicht-Slots
+    wie `Widmung.md`, `Template.md`) werden standardmäßig NICHT kopiert.
     """
     from yaml_engine import QuartoYamlEngine
 

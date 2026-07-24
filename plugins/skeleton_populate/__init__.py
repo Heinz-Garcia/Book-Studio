@@ -22,12 +22,12 @@ def run(studio: Optional[Any] = None, **kwargs) -> int:
 def on_after_book_import(studio: Optional[Any] = None, **kwargs) -> None:
     """Hook: nach Import ohne Pflichtseiten einmalig Populate anbieten."""
     import ui_hooks
+    from page_required import book_has_required_pages
 
     if studio is None or not getattr(studio, "current_book", None):
         return
     book = Path(studio.current_book)
-    required_dir = book / "content" / "required"
-    if required_dir.is_dir() and any(required_dir.glob("*.md")):
+    if book_has_required_pages(book):
         return
     if not ui_hooks.messagebox.askyesno(
         "Skeleton-Rahmen übernehmen?",

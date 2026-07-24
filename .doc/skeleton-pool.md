@@ -12,13 +12,13 @@
   und die Populate-/Editor-Logik unter `tools/skeleton/`.
 - Der Betreiber ist **User+Admin in Personalunion**: es gibt keine
   Rollen-Trennung in der UI. Beide Menüpunkte
-  (*„Skeleton ins Buch übernehmen…“* und *„Skeleton-Bibliothek
-  bearbeiten…“*) sind für jeden Nutzer sichtbar; keiner wird versteckt.
+  (*„Skeleton ins Buch übernehmen…"* und *„Skeleton-Bibliothek
+  bearbeiten…"*) sind für jeden Nutzer sichtbar; keiner wird versteckt.
 
 ## 2. Pool + Kopie (kein Live-Bezug)
 
 - Vorlagen leben unter `tools/skeleton/library/<profil>/`, deklariert über
-  `manifest.yaml` (Titel, `order`, `optional`, `include_in_tree`) plus die
+  `manifest.yaml` (Titel, `order`, `required`, `include_in_tree`) plus die
   eigentlichen Markdown-Dateien unter `<profil>/content/...`.
 - **Populate kopiert** — es referenziert nicht. Nach dem Kopieren gibt es
   keine Verbindung mehr zwischen Buch-Datei und Pool-Vorlage (kein Symlink,
@@ -33,13 +33,13 @@
 
 ## 3. Workflow: Populate
 
-1. Nutzer wählt Menü *„Skeleton ins Buch übernehmen…“* (`plugins/skeleton_populate`).
+1. Nutzer wählt Menü *„Skeleton ins Buch übernehmen…"* (`plugins/skeleton_populate`).
 2. Bei mehreren Profilen: Profil-Auswahl-Dialog.
 3. Bestätigungsdialog zeigt je Datei Status (`neu` / `ersetzen` /
    `überspringen`), Diff-Vorschau und zwei unabhängige Schalter:
    - **Konflikt-Modus** (`skip` / `replace`) für bereits vorhandene Dateien.
-   - **„Nur fehlende Dateien übernehmen“** (`missing_only`).
-   - **„Optionale Slots mitnehmen“** (Default **aus** — siehe Abschnitt 5).
+   - **„Nur fehlende Dateien übernehmen"** (`missing_only`).
+   - **„Optionale Slots mitnehmen"** (Default **aus** — siehe Abschnitt 5).
 4. Nach Bestätigung: Dateien werden kopiert, Pflicht-Frontmatter ergänzt,
    neue Kapitel in den Buchbaum einsortiert (siehe Abschnitt 4), `_quarto.yml`
    und `bookconfig/gui_state.json` werden gespeichert.
@@ -51,7 +51,7 @@
 
 Required-Dateien mit `order`-Frontmatter werden nicht an der GUI-Position
 einsortiert, sondern nach einem festen Schema um die freien Kapitel herum
-„sandwiched“ (siehe `yaml_engine.parse_required_order` /
+„sandwiched" (siehe `yaml_engine.parse_required_order` /
 `_apply_required_ordering`):
 
 - Numerische `order`-Werte (`"10"`, `"20"`, …) sortieren **vor** den freien
@@ -60,7 +60,7 @@ einsortiert, sondern nach einem festen Schema um die freien Kapitel herum
   **nach** den freien Kapiteln (Back-Matter: Literaturverzeichnis, Glossar,
   Über den Autor, Klappentext hinten, Rückseite), aufsteigend nach der
   Zahl hinter `END-`.
-- Dateien ohne `order` (z. B. optionale Slots wie `Widmung.md`,
+- Dateien ohne `order` (z. B. nicht-required Slots wie `Widmung.md`,
   `Template.md`) bleiben an ihrer GUI-Position bzw. werden — falls neu via
   Populate eingefügt — anhand der Nachbar-`order`-Werte eingeordnet
   (`populate._insert_node_by_order`).
@@ -73,15 +73,20 @@ Skeleton-Editor hält beide Seiten beim Speichern eines Manifest-Eintrags
 synchron (`tools/skeleton/manifest.py::sync_markdown_order`) — es gibt
 **keine** zweite, konkurrierende Order-Semantik.
 
-## 5. `optional`-Slots
+## 5. Nicht-required Slots
 
-Manifest-Einträge mit `optional: true` (aktuell `Widmung.md`, `Template.md`)
+Manifest-Einträge ohne `required: true` (aktuell `Widmung.md`, `Template.md`)
 werden bei Populate standardmäßig **nicht** kopiert. Sie erscheinen im
-Bestätigungsdialog als „überspringen (optional)“. Erst wenn der Nutzer die
-Checkbox „Optionale Slots mitnehmen“ aktiviert (GUI) oder `--include-optional`
+Bestätigungsdialog als „überspringen (optional)". Erst wenn der Nutzer die
+Checkbox „Optionale Slots mitnehmen" aktiviert (GUI) oder `--include-optional`
 übergibt (CLI), werden sie mitkopiert. `Template.md` bleibt zusätzlich
 `include_in_tree: false` — es landet nie automatisch im Buchbaum, auch wenn
 es mitkopiert wird.
+
+Requiredness wird geprüft via `page_required.py` (SSOT):
+- Explizites `required: true` im Manifest-Eintrag → required.
+- Explizites `required: false` (oder fehlendes Feld) → nicht required.
+- Legacy-Fallback: Datei liegt unter `content/required/` ohne explizites Flag → required.
 
 ## 6. Abgrenzung — was der Skeleton-Pool NICHT ist
 
@@ -97,8 +102,8 @@ es mitkopiert wird.
 Nach einem CLI-Import eines Publish-Verzeichnisses (`BookStudio._process_import`)
 prüft `BookStudio._maybe_offer_skeleton_populate`, ob das Buch bereits
 Pflichtseiten unter `content/required/*.md` besitzt. Fehlen sie, erscheint
-**einmalig** ein Ja/Nein-Hinweis „Rahmen aus Skeleton-Pool übernehmen?“. Bei
-„Ja“ öffnet sich der reguläre Populate-Dialog (Abschnitt 3); bei „Nein“
+**einmalig** ein Ja/Nein-Hinweis „Rahmen aus Skeleton-Pool übernehmen?". Bei
+„Ja" öffnet sich der reguläre Populate-Dialog (Abschnitt 3); bei „Nein"
 passiert nichts weiter — kein erneutes Nachfragen in derselben Sitzung, kein
 Auto-Populate.
 
@@ -106,15 +111,15 @@ Auto-Populate.
 
 1. Buch per `python book_studio.py import --path <ordner-ohne-required>`
    importieren (oder `--command import --path ...`, siehe CLI-Hilfe).
-2. Erwartet: Hinweisdialog „Rahmen aus Skeleton-Pool übernehmen?“ erscheint.
-3. „Ja“ wählen → Populate-Bestätigungsdialog öffnet sich mit den 12
-   Pflicht-Slots (ohne die 2 optionalen) vorausgewählt.
+2. Erwartet: Hinweisdialog „Rahmen aus Skeleton-Pool übernehmen?" erscheint.
+3. „Ja" wählen → Populate-Bestätigungsdialog öffnet sich mit den 12
+   Pflicht-Slots (ohne die 2 nicht-required) vorausgewählt.
 4. Dialog abbrechen, Import erneut mit demselben Pfad ausführen (Buch bereits
    in der Liste) → kein erneuter Hinweis, weil `content/required/` inzwischen
-   nicht mehr leer ist bzw. der Import bereits als „schon vorhanden“ erkannt
+   nicht mehr leer ist bzw. der Import bereits als „schon vorhanden" erkannt
    wurde.
-5. Tools-Menü prüfen: *„Skeleton ins Buch übernehmen…“* und
-   *„Skeleton-Bibliothek bearbeiten…“* sind beide sichtbar, unabhängig vom
+5. Tools-Menü prüfen: *„Skeleton ins Buch übernehmen…"* und
+   *„Skeleton-Bibliothek bearbeiten…"* sind beide sichtbar, unabhängig vom
    Hinweisdialog.
 
 ## Siehe auch

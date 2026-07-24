@@ -6,54 +6,68 @@ files:
 - path: content/required/Deckblatt.md
   title: Deckblatt
   order: '5'
+  required: true
 - path: content/required/Titel.md
   title: Titel
   order: '10'
+  required: true
 - path: content/required/Klappentext_vorne.md
   title: Klappentext (vorne)
   order: '20'
+  required: true
 - path: content/required/Widmung.md
   title: Widmung
-  optional: true
+  required: false
 - path: content/required/Impressum.md
   title: Impressum
   order: '30'
+  required: true
 - path: content/required/IVZ.md
   title: Inhaltsverzeichnis
   order: '40'
+  required: true
 - path: content/required/Danksagung.md
   title: Danksagung
   order: '50'
+  required: true
 - path: content/required/Einleitung.md
   title: Einleitung
   order: '60'
+  required: true
 - path: content/required/These.md
   title: These
   order: '70'
+  required: true
 - path: content/required/Glossar.md
   title: Glossar
   order: END-40
+  required: true
 - path: content/required/UeberAutor.md
   title: Über den Autor
   order: END-30
+  required: true
 - path: content/required/Klappentext_hinten.md
   title: Klappentext (hinten)
   order: END-20
+  required: true
 - path: content/required/Rueckseite.md
   title: Rückseite
   order: END-10
+  required: true
 - path: content/required/Template.md
   title: Vorlagen-Referenz
-  optional: true
+  required: false
   include_in_tree: false
 - path: typst-show.typ
   title: Typst-Titelblock unterdrücken
   include_in_tree: false
+  required: true
   description: Ueberschreibt Quartos automatisches Titelblock-Partial (Titel/Autor/Datum
     vor dem ersten Kapitel), damit das Deckblatt wirklich die erste Seite ist.
 - path: page.typ
   title: Typst-Seitenformat (Custom-Trimm)
   include_in_tree: false
+  required: true
   description: Ueberschreibt Quartos Standard-Seiteneinrichtung um optionale
     page-width/page-height-Metadaten (z. B. fuer das Paperback-Layout-Profil) -
     faellt auf das normale papersize-Preset zurueck, wenn nicht gesetzt.

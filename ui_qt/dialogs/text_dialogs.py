@@ -113,6 +113,20 @@ class TextEditorDialog(QDialog):
             self._mode_group.idClicked.connect(self._on_mode_changed)
             toolbar.addSeparator()
 
+            self._btn_required = QPushButton("📌")
+            self._btn_required.setCheckable(True)
+            self._btn_required.setFlat(False)
+            self._btn_required.setFixedWidth(36)
+            self._btn_required.setToolTip(
+                "Required umschalten (Frontmatter required: true).\n"
+                "Aktiv = Pflichtseite."
+            )
+            self._btn_required.clicked.connect(self._toggle_required)
+            toolbar.addWidget(self._btn_required)
+            toolbar.addSeparator()
+        else:
+            self._btn_required = None
+
         commands = list(end_commands) if end_commands is not None else []
         if not commands and self._is_markdown:
             commands = self._load_end_commands_from_config()
@@ -141,6 +155,9 @@ class TextEditorDialog(QDialog):
         self._preview.setOpenExternalLinks(True)
         self._stack.addWidget(self._preview)
         layout.addWidget(self._stack)
+
+        if self._btn_required is not None:
+            self._sync_required_button()
 
         if initial_line and initial_line > 0:
             block = self.editor.document().findBlockByNumber(initial_line - 1)
@@ -192,6 +209,43 @@ class TextEditorDialog(QDialog):
 
     def _on_text_changed(self) -> None:
         self._preview_dirty = True
+        if self._btn_required is not None:
+            self._sync_required_button()
+
+    def _sync_required_button(self) -> None:
+        if self._btn_required is None:
+            return
+        from page_required import content_explicitly_required
+
+        is_req = content_explicitly_required(self.editor.toPlainText())
+        blocked = self._btn_required.blockSignals(True)
+        self._btn_required.setChecked(is_req)
+        self._btn_required.blockSignals(blocked)
+
+    def _toggle_required(self) -> None:
+        if self._btn_required is None:
+            return
+        if self._stack.currentWidget() is not self.editor:
+            if hasattr(self, "_btn_code"):
+                self._btn_code.setChecked(True)
+            self._show_code()
+        from page_required import toggle_required_in_content
+
+        new_text, new_state = toggle_required_in_content(self.editor.toPlainText())
+        cursor = self.editor.textCursor()
+        pos = cursor.position()
+        self.editor.blockSignals(True)
+        self.editor.setPlainText(new_text)
+        self.editor.blockSignals(False)
+        cursor = self.editor.textCursor()
+        cursor.setPosition(min(pos, len(new_text)))
+        self.editor.setTextCursor(cursor)
+        self._preview_dirty = True
+        self._sync_required_button()
+        if new_state:
+            self._set_status("Required aktiv (required: true) — noch nicht gespeichert.", "ok")
+        else:
+            self._set_status("Required aus — noch nicht gespeichert.", "dim")
 
     def _on_mode_changed(self, mode_id: int) -> None:
         if mode_id == 1:

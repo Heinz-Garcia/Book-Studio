@@ -12,6 +12,7 @@ import yaml
 
 import frontmatter_parser
 import json_io
+from page_required import entry_required_from_manifest_item
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,7 @@ class SkeletonFileEntry:
     path: str
     title: str = ""
     order: Optional[str] = None
-    optional: bool = False
+    required: bool = False
     include_in_tree: bool = True
     description: str = ""
 
@@ -119,7 +120,7 @@ def load_manifest(profile_dir: Path) -> SkeletonManifest:
                 path=rel,
                 title=title,
                 order=order,
-                optional=bool(item.get("optional", False)),
+                required=entry_required_from_manifest_item(item),
                 include_in_tree=bool(item.get("include_in_tree", True)),
                 description=str(item.get("description") or title).strip(),
             )
@@ -168,8 +169,8 @@ def manifest_to_dict(manifest: SkeletonManifest) -> dict:
         }
         if entry.order:
             item["order"] = entry.order
-        if entry.optional:
-            item["optional"] = True
+        if entry.required:
+            item["required"] = True
         if not entry.include_in_tree:
             item["include_in_tree"] = False
         if entry.description and entry.description != entry.title:
@@ -281,6 +282,7 @@ def create_markdown_template(
     *,
     title: str,
     order: Optional[str] = None,
+    required: bool = False,
     body: str = "",
 ) -> Path:
     """Legt eine neue Markdown-Vorlage im Profil an."""
@@ -294,7 +296,9 @@ def create_markdown_template(
     target.parent.mkdir(parents=True, exist_ok=True)
     # YAML-konform serialisieren, damit Anführungszeichen im Titel/Beschreibung
     # das Frontmatter nicht corrupt machen (statt manueller String-Interpolation).
-    meta = {"title": title, "description": title, "status": "bookstudio"}
+    meta: dict = {"title": title, "description": title, "status": "bookstudio"}
+    if required:
+        meta["required"] = True
     if order:
         meta["order"] = order
     front = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False).rstrip("\n")
@@ -303,6 +307,60 @@ def create_markdown_template(
         encoding="utf-8",
     )
     return target
+
+
+def _sync_markdown_frontmatter_field(
+    target: Path,
+    key: str,
+    new_value: Optional[str | bool],
+    *,
+    omit_if_false: bool = False,
+) -> bool:
+    """Schreibt ein Frontmatter-Feld zurück; ``True`` bei Änderung."""
+    target = Path(target)
+    if not target.is_file():
+        return False
+
+    content = target.read_text(encoding="utf-8")
+    parts = frontmatter_parser.parse(content)
+    if not parts.has_frontmatter:
+        return False
+
+    data = parts.parsed()
+    if not isinstance(data, dict):
+        return False
+
+    if isinstance(new_value, bool):
+        if omit_if_false and not new_value:
+            if key not in data:
+                return False
+            data.pop(key, None)
+        elif data.get(key) is new_value:
+            return False
+        else:
+            data[key] = new_value
+    else:
+        current = data.get(key)
+        current_str = str(current).strip() if current not in (None, "") else None
+        new_str = new_value.strip() if isinstance(new_value, str) and new_value else None
+        if current_str == new_str:
+            return False
+        if new_str:
+            data[key] = new_str
+        else:
+            data.pop(key, None)
+
+    newline = "\r\n" if "\r\n" in content else "\n"
+    header_text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip("\r\n")
+    new_content = (
+        parts.bom
+        + "---" + newline
+        + header_text + newline
+        + "---" + newline
+        + parts.body
+    )
+    target.write_text(new_content, encoding="utf-8")
+    return True
 
 
 def sync_markdown_order(target: Path, order: Optional[str]) -> bool:
@@ -320,41 +378,14 @@ def sync_markdown_order(target: Path, order: Optional[str]) -> bool:
     (z. B. weil der Manifest-Eintrag noch keine physische Vorlage hat),
     wird nichts geschrieben und ``False`` geliefert.
     """
-    target = Path(target)
-    if not target.is_file():
-        return False
+    return _sync_markdown_frontmatter_field(target, "order", order)
 
-    content = target.read_text(encoding="utf-8")
-    parts = frontmatter_parser.parse(content)
-    if not parts.has_frontmatter:
-        return False
 
-    data = parts.parsed()
-    if not isinstance(data, dict):
-        return False
-
-    current = data.get("order")
-    current_str = str(current).strip() if current not in (None, "") else None
-    new_order = order.strip() if order else None
-    if current_str == new_order:
-        return False
-
-    if new_order:
-        data["order"] = new_order
-    else:
-        data.pop("order", None)
-
-    newline = "\r\n" if "\r\n" in content else "\n"
-    header_text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip("\r\n")
-    new_content = (
-        parts.bom
-        + "---" + newline
-        + header_text + newline
-        + "---" + newline
-        + parts.body
+def sync_markdown_required(target: Path, required: bool) -> bool:
+    """Hält Frontmatter ``required`` synchron zum Manifest-Eintrag."""
+    return _sync_markdown_frontmatter_field(
+        target, "required", bool(required), omit_if_false=True
     )
-    target.write_text(new_content, encoding="utf-8")
-    return True
 
 
 def resolve_library_root(repo_root: Path, configured_path: str) -> Path:

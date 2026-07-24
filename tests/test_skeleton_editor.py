@@ -50,7 +50,7 @@ def test_replace_manifest_entries_updates_order(tmp_path: Path) -> None:
         path=first.path,
         title="Neuer Titel",
         order=first.order,
-        optional=first.optional,
+        required=first.required,
         include_in_tree=first.include_in_tree,
     )
     replace_manifest_entries(profile, entries)

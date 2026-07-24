@@ -16,7 +16,7 @@ from services.constants import MarkerState
 # Vollständige Legende — Anzeige im mittleren Aktionsbereich
 ICON_LEGEND_TITLE = "Icon-Legende"
 ICON_LEGEND_LINES: tuple[str, ...] = (
-    "📌 required (content/required/)",
+    "📌 required (Frontmatter required: true)",
     "🧭 Nur Gliederungspunkt",
     "↵ Seitenumbruch am Dateiende",
     "🖼 Fehlende Bildreferenz",

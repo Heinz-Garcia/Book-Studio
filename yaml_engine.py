@@ -20,6 +20,7 @@ from quarto_block_parser import (
 from markdown_asset_scanner import (
     repair_fragile_relative_image_refs as mas_repair_fragile_relative_image_refs,
 )
+from page_required import is_page_required
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,11 @@ class QuartoYamlEngine:
                     if title:
                         content_role = self.extract_content_role_from_md(p)
                         icons = []
-                        if "required" in p.parts:
+                        try:
+                            md_text = p.read_text(encoding="utf-8")
+                        except OSError:
+                            md_text = None
+                        if is_page_required(rel_path=rel_path, content=md_text):
                             icons.append("📌")
                         if content_role == "outline":
                             icons.append("🧭")
@@ -568,19 +573,27 @@ class QuartoYamlEngine:
           "1", "2", "3" …       → Anfang des Buchs (nach index.md), aufsteigend sortiert
           "END-1", "END-2" …  → Ende des Buchs, aufsteigend sortiert
 
+        Eligibility: Frontmatter ``required: true`` (SSOT). Legacy-Fallback:
+        Datei unter ``content/required/`` ohne explizites ``required: false``.
+
         Rückgabe: (sort_key: int, group: 'front'|'end'|None)
         """
-        normalized_parts = [p.lower() for p in str(rel_path).replace("\\", "/").split("/") if p]
-        if "required" not in normalized_parts:
-            return None, None
-
         full_path = self.book_path / rel_path
-        if not full_path.exists():
+        content = None
+        if full_path.exists():
+            try:
+                with open(full_path, "r", encoding="utf-8") as f:
+                    content = f.read(12000)
+            except OSError as error:
+                logger.warning("ORDER-Frontmatter konnte nicht gelesen werden (%s): %s", rel_path, error)
+                return None, None
+
+        if not is_page_required(rel_path=str(rel_path), content=content):
+            return None, None
+        if not content:
             return None, None
 
         try:
-            with open(full_path, "r", encoding="utf-8") as f:
-                content = f.read(12000)
             match = re.search(r'^\s*\uFEFF?---\s*[\r\n]+(.*?)[\r\n]+---', content, re.DOTALL | re.MULTILINE)
             if not match:
                 return None, None

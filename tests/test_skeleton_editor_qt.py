@@ -60,7 +60,7 @@ def test_skeleton_editor_qt_constructs(tmp_path: Path, monkeypatch):
     assert dlg._profile_combo.count() == 1
     assert dlg._manifest is not None
     assert dlg._manifest.name == "standard"
-    assert dlg._file_list.count() == 1
+    assert dlg._file_tree.topLevelItemCount() == 1
     for name in (
         "_duplicate_profile",
         "_delete_profile",
@@ -136,11 +136,13 @@ def test_skeleton_editor_add_and_save_meta(tmp_path: Path, monkeypatch):
     assert dlg._entries[-1].title == "NeueSeite"
     assert (profile / "content/required/NeueSeite.md").is_file()
 
-    dlg._file_list.setCurrentRow(1)
+    # _add_file selects the new entry; just update the title and save.
     dlg._title.setText("Neue Seite")
     dlg._save_entry_meta()
     assert dlg._entries[1].title == "Neue Seite"
 
+    # Force-load entry 1 into the editor (simulate selection) before editing markdown.
+    dlg._on_file_item_changed(dlg._file_tree.topLevelItem(1), None)
     dlg._text.setPlainText("# Hello\n")
     dlg._save_markdown()
     assert "Hello" in (profile / "content/required/NeueSeite.md").read_text(encoding="utf-8")

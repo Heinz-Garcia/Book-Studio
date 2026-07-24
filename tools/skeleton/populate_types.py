@@ -18,7 +18,12 @@ class PopulatePlanLine:
     include_in_tree: bool
     title: str
     diff_summary: str = ""
-    optional: bool = False
+    required: bool = False
+
+    @property
+    def optional(self) -> bool:
+        """Alias: nicht-required = optionaler Slot (CLI/UI „include_optional“)."""
+        return not self.required
 
 
 @dataclass(frozen=True)
@@ -41,13 +46,17 @@ def apply_plan_rules(
     include_optional: bool = False,
     overrides: Optional[dict] = None,
 ) -> list[PopulatePlanLine]:
-    """Berechnet ``will_copy`` je Zeile aus Konflikt-/Missing-/Optional-Regeln."""
+    """Berechnet ``will_copy`` je Zeile aus Konflikt-/Missing-/Required-Regeln.
+
+    Nicht-required Slots werden nur mitkopiert, wenn ``include_optional``
+    gesetzt ist (CLI ``--include-optional``).
+    """
     overrides = overrides or {}
     updated: list[PopulatePlanLine] = []
     for line in base_lines:
         if line.rel_path in overrides:
             will_copy = bool(overrides[line.rel_path])
-        elif line.optional and not include_optional:
+        elif not line.required and not include_optional:
             will_copy = False
         elif line.exists:
             will_copy = False if missing_only else conflict_choice == "replace"
@@ -61,7 +70,7 @@ def apply_plan_rules(
                 include_in_tree=line.include_in_tree,
                 title=line.title,
                 diff_summary=line.diff_summary,
-                optional=line.optional,
+                required=line.required,
             )
         )
     return updated
