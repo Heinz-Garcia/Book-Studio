@@ -1,9 +1,13 @@
 """Qt-Dialog: generische Plugin-Einstellungen (explizites Manifest-Schema).
 
 Liest ``settings`` aus jedem ``plugins/*/plugin.json`` (siehe
-``services.plugin_settings``) und baut je Plugin ein Formular: ein Feld
-pro deklariertem Setting, Typ-Widget nach ``type`` + ein "?"-Tooltip-Icon
-mit dem Manifest-Text ``tooltip``. Ersetzt den bisherigen Menüpunkt
+``services.plugin_settings``) und baut je Plugin ein Formular: oben eine
+editierbare Kurzhilfe (``help_text``, mit Live-Vorschau als HelpBar-Banner
+- derselbe Text, der auch oben im eigentlichen Plugin-Dialog erscheint),
+darunter ein Feld pro deklariertem Setting mit Typ-Widget nach ``type``
+plus einem editierbaren Tooltip-Textfeld. "Speichern" schreibt sowohl die
+Config-Werte (``config.json`` des Plugins) als auch Kurzhilfe/Tooltips
+(``plugin.json`` des Plugins) zurueck. Ersetzt den bisherigen Menüpunkt
 "Plugin-Konfiguration…", der nur einen Roh-Text-Editor auf eine beliebige
 ``.toml``-Datei öffnete.
 """
@@ -28,7 +32,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSpinBox,
     QStackedWidget,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -37,24 +40,16 @@ from services.plugin_settings import (
     PluginSettingsSchema,
     SettingField,
     discover_plugin_settings,
+    load_help_text,
     load_values,
+    save_manifest_texts,
     save_values,
 )
 from ui_qt.book_workspace import repo_root
+from ui_qt.widgets.help_bar import HelpBar
 
 _INT_FALLBACK_RANGE = (-1_000_000, 1_000_000)
 _FLOAT_FALLBACK_RANGE = (-1e9, 1e9)
-
-
-def _info_icon(tooltip: str) -> QToolButton:
-    """Kleiner '?'-Button mit Tooltip (leer/deaktiviert ohne Text)."""
-    btn = QToolButton()
-    btn.setText("?")
-    btn.setAutoRaise(True)
-    btn.setFixedWidth(20)
-    btn.setToolTip(tooltip)
-    btn.setEnabled(bool(tooltip.strip()))
-    return btn
 
 
 class _SchemaPage(QWidget):
@@ -64,19 +59,39 @@ class _SchemaPage(QWidget):
         super().__init__()
         self.schema = schema
         self._widgets: dict[str, Any] = {}
+        self._tooltip_edits: dict[str, QLineEdit] = {}
         values = load_values(schema)
+        current_help_text = load_help_text(schema)
 
         layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("🛈 Kurzhilfe (Banner oben im Plugin-Dialog):"))
+        self._help_preview = HelpBar(self, current_help_text)
+        layout.addWidget(self._help_preview)
+        self._help_edit = QLineEdit(current_help_text)
+        self._help_edit.textChanged.connect(self._help_preview.set_text)
+        layout.addWidget(self._help_edit)
+
         form = QFormLayout()
         for f in schema.fields:
             widget = self._build_widget(f, values.get(f.key))
             self._widgets[f.key] = widget
-            row = QHBoxLayout()
-            row.addWidget(widget, 1)
-            row.addWidget(_info_icon(f.tooltip))
-            form.addRow(f"{f.label}:", row)
+            tooltip_edit = QLineEdit(f.tooltip)
+            tooltip_edit.setPlaceholderText("Tooltip (? -Icon im Plugin-Dialog)")
+            self._tooltip_edits[f.key] = tooltip_edit
+            field_box = QVBoxLayout()
+            field_box.addWidget(widget)
+            field_box.addWidget(tooltip_edit)
+            container = QWidget()
+            container.setLayout(field_box)
+            form.addRow(f"{f.label}:", container)
         layout.addLayout(form)
         layout.addStretch(1)
+
+    def texts(self) -> tuple[str, dict[str, str]]:
+        """(Kurzhilfe-Banner-Text, {Feld-Key: Tooltip-Text})."""
+        tooltips = {key: edit.text() for key, edit in self._tooltip_edits.items()}
+        return self._help_edit.text(), tooltips
 
     def _build_widget(self, f: SettingField, current: Any) -> QWidget:
         if f.type == "bool":
@@ -177,8 +192,10 @@ class PluginSettingsQtDialog(QDialog):
         page = self._stack.currentWidget()
         if page is None:
             return
+        help_text, tooltips = page.texts()
         try:
             save_values(page.schema, page.values())
+            save_manifest_texts(page.schema, help_text=help_text, field_tooltips=tooltips)
         except (OSError, TypeError, ValueError) as exc:
             QMessageBox.critical(self, "Speichern fehlgeschlagen", str(exc))
             return

@@ -59,11 +59,12 @@ class SettingField:
 
 @dataclass(frozen=True)
 class PluginSettingsSchema:
-    """Alle einstellbaren Felder eines Plugins + Pfad zu dessen Config-Datei."""
+    """Alle einstellbaren Felder eines Plugins + Pfade zu Config und Manifest."""
 
     plugin_name: str
     display_name: str
     config_path: Path
+    manifest_path: Path
     fields: tuple[SettingField, ...] = field(default_factory=tuple)
 
 
@@ -131,6 +132,7 @@ def discover_plugin_settings(plugins_dir: Path) -> list[PluginSettingsSchema]:
                 plugin_name=str(raw.get("name") or manifest_path.parent.name),
                 display_name=str(raw.get("label") or raw.get("name") or manifest_path.parent.name),
                 config_path=root / config_rel,
+                manifest_path=manifest_path,
                 fields=fields,
             )
         )
@@ -191,10 +193,49 @@ def save_values(schema: PluginSettingsSchema, values: dict[str, Any]) -> None:
     )
 
 
+def load_help_text(schema: PluginSettingsSchema) -> str:
+    """Aktueller Kurzhilfe-Banner-Text (``help_text``) aus dem Manifest."""
+    raw = _read_raw(schema.manifest_path)
+    text = raw.get("help_text", "")
+    return text.strip() if isinstance(text, str) else ""
+
+
+def save_manifest_texts(
+    schema: PluginSettingsSchema,
+    *,
+    help_text: Optional[str] = None,
+    field_tooltips: Optional[dict[str, str]] = None,
+) -> None:
+    """Schreibt Kurzhilfe-Banner-Text und/oder Feld-Tooltips ins Manifest.
+
+    Aendert nur die uebergebenen Texte; alle anderen Manifest-Keys
+    (``entrypoint``, ``order``, ``config``, Feld-``type``/``default``/...)
+    bleiben unveraendert. Kein Effekt, wenn das Manifest fehlt/kaputt ist.
+    """
+    raw = _read_raw(schema.manifest_path)
+    if not raw:
+        return
+    if help_text is not None:
+        raw["help_text"] = help_text.strip()
+    if field_tooltips:
+        settings_raw = raw.get("settings")
+        fields_raw = settings_raw.get("fields") if isinstance(settings_raw, dict) else None
+        if isinstance(fields_raw, list):
+            for entry in fields_raw:
+                if isinstance(entry, dict) and entry.get("key") in field_tooltips:
+                    entry["tooltip"] = field_tooltips[entry["key"]].strip()
+    schema.manifest_path.write_text(
+        json.dumps(raw, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
 __all__ = [
     "PluginSettingsSchema",
     "SettingField",
     "discover_plugin_settings",
+    "load_help_text",
+    "save_manifest_texts",
     "load_values",
     "save_values",
 ]

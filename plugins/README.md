@@ -117,5 +117,11 @@ Dialog schreiben zu müssen:
   Plugins mit `settings`; `ui_qt/dialogs/plugin_settings_dialog.py` baut
   daraus ein Formular pro Plugin (Liste links, Formular rechts, "Speichern"
   schreibt zurück, unbekannte Keys in der Config-Datei bleiben erhalten).
+- Der Dialog macht auch die Texte selbst editierbar, nicht nur die Werte:
+  oben eine editierbare Kurzhilfe (`help_text`, mit Live-Vorschau als
+  HelpBar-Banner) und je Feld ein editierbares Tooltip-Textfeld. "Speichern"
+  schreibt beides zurück ins Manifest (`services.plugin_settings.save_manifest_texts`) —
+  Kurzhilfe und Feld-Tooltips lassen sich also direkt im Dialog pflegen,
+  ohne `plugin.json` von Hand zu editieren.
 - Beispiel: `plugins/generated_books/plugin.json` +
   `tools/generated_books/config.json`.

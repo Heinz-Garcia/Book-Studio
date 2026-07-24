@@ -53,10 +53,17 @@ class HelpBar(QFrame):
         icon.setObjectName("HelpBarIcon")
         icon.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         row.addWidget(icon, 0)
-        label = QLabel(text)
-        label.setObjectName("HelpBarText")
-        label.setWordWrap(True)
-        row.addWidget(label, 1)
+        self._label = QLabel(text)
+        self._label.setObjectName("HelpBarText")
+        self._label.setWordWrap(True)
+        row.addWidget(self._label, 1)
+
+    def set_text(self, text: str) -> None:
+        """Aktualisiert den angezeigten Text (z.B. fuer eine Live-Vorschau
+        beim Bearbeiten). Blendet die Leiste aus, wenn `text` leer ist."""
+        text = text.strip()
+        self._label.setText(text)
+        self.setVisible(bool(text))
 
     @staticmethod
     def create_and_prepend(

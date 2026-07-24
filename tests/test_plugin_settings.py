@@ -5,7 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from services.plugin_settings import discover_plugin_settings, load_values, save_values
+from services.plugin_settings import (
+    discover_plugin_settings,
+    load_help_text,
+    load_values,
+    save_manifest_texts,
+    save_values,
+)
 
 
 def _write_plugin(
@@ -14,6 +20,7 @@ def _write_plugin(
     *,
     config_rel: str,
     fields: list[dict],
+    help_text: str = "",
 ) -> None:
     plugin_dir = plugins_dir / name
     plugin_dir.mkdir(parents=True, exist_ok=True)
@@ -23,6 +30,8 @@ def _write_plugin(
         "entrypoint": "x:y",
         "settings": {"config": config_rel, "fields": fields},
     }
+    if help_text:
+        manifest["help_text"] = help_text
     (plugin_dir / "plugin.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
@@ -152,3 +161,80 @@ def test_save_values_preserves_unrelated_existing_keys(tmp_path: Path):
 
 def test_discover_returns_empty_for_missing_dir(tmp_path: Path):
     assert discover_plugin_settings(tmp_path / "does_not_exist") == []
+
+
+def test_load_help_text_reads_manifest_field(tmp_path: Path):
+    _write_plugin(
+        tmp_path / "plugins",
+        "demo",
+        config_rel="tools/demo/config.json",
+        fields=[{"key": "k", "label": "K", "type": "string", "default": ""}],
+        help_text=" Kurzhilfe fuer demo. ",
+    )
+    schema = discover_plugin_settings(tmp_path / "plugins")[0]
+    assert load_help_text(schema) == "Kurzhilfe fuer demo."
+
+
+def test_load_help_text_empty_when_not_set(tmp_path: Path):
+    _write_plugin(
+        tmp_path / "plugins",
+        "demo",
+        config_rel="tools/demo/config.json",
+        fields=[{"key": "k", "label": "K", "type": "string", "default": ""}],
+    )
+    schema = discover_plugin_settings(tmp_path / "plugins")[0]
+    assert load_help_text(schema) == ""
+
+
+def test_save_manifest_texts_writes_help_text_and_tooltips(tmp_path: Path):
+    _write_plugin(
+        tmp_path / "plugins",
+        "demo",
+        config_rel="tools/demo/config.json",
+        fields=[
+            {"key": "display.max_entries", "label": "Max.", "type": "int", "default": 15, "tooltip": "alt"},
+        ],
+        help_text="alter Text",
+    )
+    schema = discover_plugin_settings(tmp_path / "plugins")[0]
+
+    save_manifest_texts(
+        schema,
+        help_text="neuer Kurzhilfe-Text",
+        field_tooltips={"display.max_entries": "neuer Tooltip"},
+    )
+
+    assert load_help_text(schema) == "neuer Kurzhilfe-Text"
+    reloaded = discover_plugin_settings(tmp_path / "plugins")[0]
+    assert reloaded.fields[0].tooltip == "neuer Tooltip"
+
+
+def test_save_manifest_texts_preserves_other_manifest_fields(tmp_path: Path):
+    _write_plugin(
+        tmp_path / "plugins",
+        "demo",
+        config_rel="tools/demo/config.json",
+        fields=[{"key": "k", "label": "K", "type": "string", "default": "", "tooltip": "x"}],
+    )
+    schema = discover_plugin_settings(tmp_path / "plugins")[0]
+
+    save_manifest_texts(schema, help_text="hallo")
+
+    raw = json.loads(schema.manifest_path.read_text(encoding="utf-8"))
+    assert raw["name"] == "demo"
+    assert raw["entrypoint"] == "x:y"
+    assert raw["settings"]["fields"][0]["type"] == "string"
+
+
+def test_save_manifest_texts_noop_without_manifest(tmp_path: Path):
+    from services.plugin_settings import PluginSettingsSchema
+
+    schema = PluginSettingsSchema(
+        plugin_name="ghost",
+        display_name="Ghost",
+        config_path=tmp_path / "tools" / "ghost" / "config.json",
+        manifest_path=tmp_path / "plugins" / "ghost" / "plugin.json",
+        fields=(),
+    )
+    save_manifest_texts(schema, help_text="wird nie geschrieben")
+    assert not schema.manifest_path.exists()
