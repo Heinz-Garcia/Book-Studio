@@ -31,6 +31,7 @@ def run_plugin_qt(plugin_name: str, window: "MainWindow") -> bool:
         "publish_record": _publish_record,
         "provenance": _provenance,
         "file_indexer": _file_indexer,
+        "gg_content_swap": _gg_content_swap,
     }
     runner = runners.get(plugin_name)
     if runner is None:
@@ -121,3 +122,10 @@ def _file_indexer(studio, parent, log) -> None:
             "Prüfe indexer_target_folder in der Studio-Konfiguration und das Log.",
         )
     log(f"file_indexer beendet (code={code}).", "info" if code == 0 else "warning")
+
+
+def _gg_content_swap(studio, parent, log) -> None:
+    from ui_qt.dialogs.gg_content_swap_dialog import open_gg_content_swap_qt
+
+    open_gg_content_swap_qt(studio, parent)
+    log("GG-Content-Swap geschlossen.", "info")

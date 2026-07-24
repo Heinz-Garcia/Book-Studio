@@ -1,0 +1,10 @@
+{
+  "name": "gg_content_swap",
+  "label": "🧬 GrammarGraph-Inhalt aktualisieren…",
+  "description": "Nutzinhalt (Body) aus neuem GG-Export tauschen; Frontmatter und Struktur bleiben.",
+  "entrypoint": "plugins.gg_content_swap:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 28
+}

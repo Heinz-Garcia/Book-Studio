@@ -18,6 +18,7 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 ## Bedienung
 
 - Required-File-Ordering (Front/END-Slots): [required-file-ordering.md](required-file-ordering.md)
+- GrammarGraph-Nutzinhalt tauschen (Body-Swap): [gg-content-swap.md](gg-content-swap.md)
 - Suche & Bildprüfung (Volltext, Marker, Dialog): [search-und-bildpruefung.md](search-und-bildpruefung.md)
 
 ## CLI-Beispiele

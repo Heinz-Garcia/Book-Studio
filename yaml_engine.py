@@ -21,6 +21,7 @@ from markdown_asset_scanner import (
     repair_fragile_relative_image_refs as mas_repair_fragile_relative_image_refs,
 )
 from page_required import is_page_required
+from content_source import is_gg_nutzinhalt_candidate
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,8 @@ class QuartoYamlEngine:
                             icons.append("📌")
                         if content_role == "outline":
                             icons.append("🧭")
+                        elif is_gg_nutzinhalt_candidate(rel_path=rel_path, content=md_text):
+                            icons.append("🧬")
                         if icons:
                             title = f"{' '.join(icons)} {title}"
                         registry[rel_path] = title
@@ -105,7 +108,19 @@ class QuartoYamlEngine:
             if rel_path in registry:
                 continue
             title = self.extract_title_from_md(p)
-            registry[rel_path] = title if title else f"{MISSING_TITLE_LABEL} {p.stem}"
+            if title:
+                icons = []
+                try:
+                    md_text = p.read_text(encoding="utf-8")
+                except OSError:
+                    md_text = None
+                if is_gg_nutzinhalt_candidate(rel_path=rel_path, content=md_text):
+                    icons.append("🧬")
+                if icons:
+                    title = f"{' '.join(icons)} {title}"
+                registry[rel_path] = title
+            else:
+                registry[rel_path] = f"{MISSING_TITLE_LABEL} {p.stem}"
 
         return registry
 

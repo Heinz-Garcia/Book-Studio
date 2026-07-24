@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** Juli 2026 · **Version:** 1.13.0 („Skeleton Unleashed“)
+**Stand:** Juli 2026 · **Version:** 1.24.0 („Skeleton Unleashed“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -150,7 +150,8 @@ Die **Icon-Legende** im mittleren Bereich erklärt die Symbole.
 
 | Symbol | Bedeutung |
 |--------|-----------|
-| 📌 | Datei in `required/` |
+| 📌 | Required-/Skeleton-Seite (`required: true` oder Legacy unter `content/required/`) |
+| 🧬 | GrammarGraph-Nutzinhalt (automatisch: alles außer Required, Root-`index.md`, Outline) |
 | 🧭 | Nur Gliederungspunkt (`content_role: outline`) |
 
 ### Hinter dem Titel
@@ -322,6 +323,13 @@ Im Dialog: Doppelklick oder **Enter** auf eine Zeile → Editor springt zur Stel
 - **Strg+S** speichern
 - End-Befehle (z. B. PDF-Seitenumbruch) über Editor-Menü
 
+Toolbar-Buttons (Auswahl):
+
+| Button | Aktion |
+|--------|--------|
+| 📌 | Required-Flag für die geöffnete Datei umschalten |
+| 🧬 | GrammarGraph-Inhalt aktualisieren… (Body-Swap-Dialog; Kapitel 16) |
+
 Beim Öffnen aus der Bildprüfung oder vom Buch-Doktor: Sprung zur gemeldeten Zeile.
 
 ---
@@ -399,6 +407,15 @@ Beim Speichern legt das Studio bei Bedarf eine minimale `index.md` an.
 ### Skeleton: Dateien im Git-Panel
 
 Ordner `_Sanitizer_Backups_*` und `sanitizer_backup_*` sind **Sicherungskopien** — nicht committen. Sie stehen in `.gitignore`.
+
+### Neuer GrammarGraph-Export, Buchstruktur soll bleiben
+
+Nicht den ganzen Ordner neu importieren, wenn nur der **Nutzinhalt** (Markdown-Body) neu ist:
+
+1. **Plugins → GrammarGraph-Inhalt aktualisieren…** (oder im Editor **🧬**)
+2. Neuen Export-Ordner wählen, Zuordnung prüfen, übernehmen
+
+Frontmatter und `_quarto.yml` bleiben. Details: Kapitel 16.
 
 ---
 
@@ -628,6 +645,36 @@ Skeleton-Dateien landen **links** im Pool — der rechte Buchbaum bleibt unverä
 3. **Rechts** Reihenfolge per Drag-and-Drop oder **Hoch/Runter** anpassen; **Einrücken/Ausrücken** für Unterkapitel.
 4. Dateien mit Frontmatter-`order` (z. B. aus Skeleton) werden beim Hinzufügen **an der richtigen Position** einsortiert.
 
+### Phase 3b — GrammarGraph-Nutzinhalt aktualisieren
+
+Wenn GrammarGraph einen **neuen Export** liefert und das Buch schon Struktur, Frontmatter und Skeleton hat: nur den **Body** der Nutzinhalt-Dateien tauschen — nicht neu importieren.
+
+**Besitzmodell**
+
+| Teil | Bleibt bei … |
+|------|----------------|
+| `_quarto.yml` / Buchbaum | Book Studio |
+| Frontmatter der `.md` | Book Studio |
+| Skeleton-/Required-Seiten | Book Studio |
+| Übrige Markdown-Bodies (oft eine aggregierte Datei) | GrammarGraph |
+
+Vorspann und Nachspann sind **eigene** Required-/Skeleton-`.md`-Dateien, nicht im GG-Body eingebettet.
+
+**Erkennung (automatisch):** Alles mit 🧬 im Baum — also alle `.md` außer Required/Skeleton, Root-`index.md` und Outline. Kein manuelles Markieren nötig.
+
+**Bedienung**
+
+1. **Plugins → GrammarGraph-Inhalt aktualisieren…** oder im Editor den Button **🧬**
+2. Ordner mit dem neuen GG-Export wählen
+3. Zuordnung prüfen (gleicher relativer Pfad, sonst eindeutiger Frontmatter-`title`)
+4. Übernehmen — Backup unter `bookconfig/.backups/gg-content-swap/`
+
+CLI (optional):
+
+```powershell
+python -m tools.gg_content_swap --book Pfad\Zum\Buch --source Pfad\Zum\Export --yes
+```
+
 ### Phase 4 — Metadaten und Heilen
 
 | Schritt | Menü / Taste |
@@ -661,6 +708,8 @@ Details: Kapitel 18.
 |-------|---------|
 | Warum liegt alles links nach Import? | Bewusst — du baust die Struktur selbst |
 | Muss Skeleton den rechten Baum füllen? | **Nein** — nur Kopien links |
+| Neuer GG-Export, Struktur behalten? | **Plugins → GrammarGraph-Inhalt aktualisieren…** (Phase 3b) |
+| Was ist 🧬 im Baum? | Automatisch erkannte GG-Nutzinhalt-Datei |
 | Wo steht, welches LLM exportiert hat? | `bookconfig/grammargraph_export.json` |
 | Wer behebt welchen Fehler? | **Plugins → Publish Readiness…** |
 | Wo sind meine PDFs zum Import? | **Plugins → Mapping Manager…** (Kapitel 18) |

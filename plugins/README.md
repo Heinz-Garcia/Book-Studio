@@ -50,6 +50,7 @@ Menü-Entrypoint ins Plugin.
 | `book_projects` | Buchprojekt-Manager… | `tools/book_projects/` — Content-Roots & Bücher |
 | `mapping_manager` | Mapping Manager… | `tools/mapping_manager/` — Publish-Input → PDFs |
 | `generated_books` | (versteckt) | `tools/generated_books/` — ersetzt durch Mapping Manager |
+| `gg_content_swap` | GrammarGraph-Inhalt aktualisieren… | `tools/gg_content_swap/` — Body-Swap |
 
 Verantwortungs-Matrix: `.doc/quality_contract.md`
 

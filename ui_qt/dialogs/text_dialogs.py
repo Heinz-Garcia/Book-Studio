@@ -123,9 +123,21 @@ class TextEditorDialog(QDialog):
             )
             self._btn_required.clicked.connect(self._toggle_required)
             toolbar.addWidget(self._btn_required)
+
+            self._btn_gg = QPushButton("🧬")
+            self._btn_gg.setCheckable(False)
+            self._btn_gg.setFlat(False)
+            self._btn_gg.setFixedWidth(36)
+            self._btn_gg.setToolTip(
+                "GrammarGraph-Inhalt aktualisieren…\n"
+                "Anderen GG-Export wählen und Nutzinhalt (Body) tauschen."
+            )
+            self._btn_gg.clicked.connect(self._open_gg_swap)
+            toolbar.addWidget(self._btn_gg)
             toolbar.addSeparator()
         else:
             self._btn_required = None
+            self._btn_gg = None
 
         commands = list(end_commands) if end_commands is not None else []
         if not commands and self._is_markdown:
@@ -232,6 +244,60 @@ class TextEditorDialog(QDialog):
         from page_required import toggle_required_in_content
 
         new_text, new_state = toggle_required_in_content(self.editor.toPlainText())
+        self._apply_editor_text(new_text)
+        self._sync_required_button()
+        if new_state:
+            self._set_status("Required aktiv (required: true) — noch nicht gespeichert.", "ok")
+        else:
+            self._set_status("Required aus — noch nicht gespeichert.", "dim")
+
+    def _open_gg_swap(self) -> None:
+        from types import SimpleNamespace
+
+        from ui_qt.dialogs.gg_content_swap_dialog import open_gg_content_swap_qt
+
+        book = self.book_path
+        if book is None:
+            # Datei liegt oft unter <book>/content/...
+            candidate = self.path.resolve().parent
+            if candidate.name.lower() == "content":
+                book = candidate.parent
+            else:
+                book = candidate
+        if book is None or not (Path(book) / "_quarto.yml").is_file():
+            # weiter hoch suchen
+            cur = self.path.resolve().parent
+            book = None
+            for _ in range(6):
+                if (cur / "_quarto.yml").is_file():
+                    book = cur
+                    break
+                if cur.parent == cur:
+                    break
+                cur = cur.parent
+        if book is None:
+            QMessageBox.information(
+                self,
+                "GrammarGraph",
+                "Kein Buchprojekt (_quarto.yml) zur Datei gefunden.",
+            )
+            return
+
+        parent_studio = self.parent()
+        log = getattr(parent_studio, "log", None) if parent_studio is not None else None
+        if not callable(log):
+            # MainWindow-Facade oft über window()
+            win = self.window()
+            facade = getattr(win, "_facade", None)
+            log = getattr(facade, "log", None) if facade is not None else None
+        studio = SimpleNamespace(
+            current_book=Path(book),
+            log=log if callable(log) else (lambda *a, **k: None),
+            root=self,
+        )
+        open_gg_content_swap_qt(studio, self)
+
+    def _apply_editor_text(self, new_text: str) -> None:
         cursor = self.editor.textCursor()
         pos = cursor.position()
         self.editor.blockSignals(True)
@@ -241,11 +307,6 @@ class TextEditorDialog(QDialog):
         cursor.setPosition(min(pos, len(new_text)))
         self.editor.setTextCursor(cursor)
         self._preview_dirty = True
-        self._sync_required_button()
-        if new_state:
-            self._set_status("Required aktiv (required: true) — noch nicht gespeichert.", "ok")
-        else:
-            self._set_status("Required aus — noch nicht gespeichert.", "dim")
 
     def _on_mode_changed(self, mode_id: int) -> None:
         if mode_id == 1:

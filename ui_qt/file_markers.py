@@ -1,6 +1,6 @@
 """Datei-Statusmarker und Icon-Legende (Tk-Parität für Qt).
 
-Prefix-Icons (📌 required, 🧭 outline) kommen aus ``yaml_engine.build_title_registry``.
+Prefix-Icons (📌 required, 🧬 GrammarGraph, 🧭 outline) kommen aus ``yaml_engine.build_title_registry``.
 Suffix-Icons (↵ Seitenumbruch, 🖼 fehlende Bilder, ☠ Doktor) werden hier ergänzt.
 """
 
@@ -17,11 +17,12 @@ from services.constants import MarkerState
 ICON_LEGEND_TITLE = "Icon-Legende"
 ICON_LEGEND_LINES: tuple[str, ...] = (
     "📌 required (Frontmatter required: true)",
+    "🧬 GrammarGraph-Nutzinhalt (automatisch: nicht Required/Skeleton)",
     "🧭 Nur Gliederungspunkt",
     "↵ Seitenumbruch am Dateiende",
     "🖼 Fehlende Bildreferenz",
     "☠ Buch-Doktor-Befund",
-    "📌/🧭 vor Titel · ↵/🖼/☠ dahinter",
+    "📌/🧬/🧭 vor Titel · ↵/🖼/☠ dahinter",
 )
 
 _DEFAULT_PAGEBREAK = re.compile(
