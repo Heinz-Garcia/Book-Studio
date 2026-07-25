@@ -8,6 +8,7 @@ SCHEMA_VERSION = 1
 
 MANIFEST_CANDIDATES = (
     "grammargraph_export.json",
+    "bookconfig/grammargraph_export.json",
     ".grammargraph/export.json",
     "grammargraph/export.json",
 )

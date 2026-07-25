@@ -130,6 +130,35 @@ QPushButton#bookProjectsPrimary:hover {
 QPushButton#bookProjectsDanger {
     color: #8b1e1e;
 }
+QDialog#finishedPdfsDialog {
+    background-color: #f5f6f8;
+}
+QDialog#finishedPdfsDialog QTableWidget {
+    background-color: #ffffff;
+    alternate-background-color: #f0f4f8;
+    color: #1a1d23;
+    border: 1px solid #c5cad3;
+    border-radius: 4px;
+    gridline-color: #d8dde5;
+}
+QDialog#finishedPdfsDialog QTableWidget::item:selected {
+    background-color: #d6e6f5;
+    color: #1a1d23;
+}
+QPushButton#finishedPdfsPrimary {
+    background-color: #2f5d9f;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-weight: 600;
+}
+QPushButton#finishedPdfsPrimary:hover {
+    background-color: #264a80;
+}
+QPushButton#finishedPdfsDanger {
+    color: #8b1e1e;
+}
 QDialog#skeletonEditorDialog {
     background-color: #f5f6f8;
 }
@@ -174,6 +203,31 @@ QPushButton#skeletonEditorPrimary {
 }
 QPushButton#skeletonEditorPrimary:hover {
     background-color: #264a80;
+}
+QDialog#ggContentSwapDialog QTableWidget#ggSwapTable,
+QDialog#ggContentSwapDialog QListWidget#ggSwapExportList {
+    background-color: #ffffff;
+    alternate-background-color: #f0f4f8;
+    color: #1a1d23;
+    border: 1px solid #c5cad3;
+    border-radius: 4px;
+    outline: none;
+}
+QDialog#ggContentSwapDialog QTableWidget#ggSwapTable::item,
+QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item {
+    color: #1a1d23;
+}
+QDialog#ggContentSwapDialog QTableWidget#ggSwapTable::item:selected,
+QDialog#ggContentSwapDialog QTableWidget#ggSwapTable::item:selected:active,
+QDialog#ggContentSwapDialog QTableWidget#ggSwapTable::item:selected:!active,
+QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item:selected,
+QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item:selected:active,
+QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item:selected:!active {
+    background-color: #d6e6f5;
+    color: #1a1d23;
+}
+QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item:hover {
+    background-color: #e8f0f8;
 }
 QFrame#HelpBar {
     background-color: #eaf1fb;

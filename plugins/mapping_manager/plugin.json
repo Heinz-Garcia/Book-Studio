@@ -1,11 +1,11 @@
 {
   "name": "mapping_manager",
-  "label": "🗺️ Mapping Manager…",
-  "description": "Publish-Input und generierte PDFs mit Metadaten verknüpfen.",
+  "label": "🗺️ Fertige PDFs…",
+  "description": "Generierte PDFs des aktiven Buchs — Anzeigename, Datum, Layout.",
   "entrypoint": "plugins.mapping_manager:run",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 25,
-  "help_text": "Produktionslinie = Publish-Input (Snapshot). Darunter: generierte PDFs mit Format/Layout/Template. Quelle: bookconfig/publish_map.json"
+  "help_text": ""
 }

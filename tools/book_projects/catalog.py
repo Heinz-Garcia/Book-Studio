@@ -12,6 +12,7 @@ from services.workspace_service import WorkspaceService, normalize_content_root_
 
 from tools.book_projects.scaffold import create_empty_book as _create_empty_book
 from tools.book_projects.scaffold import is_quarto_book, sanitize_book_folder_name
+from tools.book_projects.label import read_display_name
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class BookInfo:
     path: Path
     name: str
     root: Path
+    display_name: str = ""
 
 
 def _repo_root(base: Path | None = None) -> Path:
@@ -85,7 +87,14 @@ def list_books(repo: Path | None = None) -> list[BookInfo]:
     books: list[BookInfo] = []
     for book in ws.discover_projects():
         owning = _owning_root(book, roots or [root])
-        books.append(BookInfo(path=book, name=book.name, root=owning))
+        books.append(
+            BookInfo(
+                path=book,
+                name=book.name,
+                root=owning,
+                display_name=read_display_name(book),
+            )
+        )
     return books
 
 

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QLabel,
+    QLineEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -76,6 +77,14 @@ class ExportDialog(QDialog):
         self.linestretch_combo.setCurrentText(linestretch_label(initial_linestretch))
         form.addRow("Zeilenabstand:", self.linestretch_combo)
 
+        self.notes_edit = QLineEdit()
+        self.notes_edit.setText(str(initial.get("notes") or "").strip())
+        self.notes_edit.setPlaceholderText(
+            "Anzeigename: z. B. rev.5 Probe — erscheint unter Fertige PDFs (nicht Layout/BoD)"
+        )
+        self.notes_edit.setClearButtonEnabled(True)
+        form.addRow("Anzeigename:", self.notes_edit)
+
         layout.addLayout(form)
 
         self.hint = QLabel(initial_profile.description)
@@ -83,7 +92,14 @@ class ExportDialog(QDialog):
         layout.addWidget(self.hint)
         layout.addWidget(
             QLabel(
-                "Wird nur in die Temp-Kopie für den Render geschrieben — _quarto.yml bleibt unverändert."
+                "Anzeigename = optionaler Merknamen zum Wiederfinden. "
+                "Layout wählst du darüber im Layout-Profil."
+            )
+        )
+        layout.addWidget(
+            QLabel(
+                "Layout wird nur in die Temp-Kopie für den Render geschrieben — "
+                "_quarto.yml bleibt unverändert."
             )
         )
 
@@ -116,6 +132,7 @@ class ExportDialog(QDialog):
             "template": self.template_combo.currentText(),
             "layout_profile": profile_id_from_label(self.profile_combo.currentText()),
             "linestretch": self._selected_linestretch(),
+            "notes": self.notes_edit.text().strip(),
         }
         self.accept()
 

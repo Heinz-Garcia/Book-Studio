@@ -462,12 +462,34 @@ def load_json_file(
         except OSError:
             initial = ""
     path, _ = QFileDialog.getOpenFileName(
-        parent, "Buchstruktur laden", initial, "JSON (*.json)"
+        parent, "Buchstruktur laden (JSON)", initial, "JSON (*.json);;Alle Dateien (*.*)"
     )
     if not path:
         return None
+    chosen = Path(path)
+    name = chosen.name.casefold()
+    if name in ("_quarto.yml", "_quarto.yaml") or chosen.suffix.lower() in (".yml", ".yaml"):
+        QMessageBox.warning(
+            parent,
+            "Falsche Dateiart",
+            "Das Menü lädt nur eine JSON-Buchstruktur-Sicherung — nicht _quarto.yml.\n\n"
+            "• Projekt wechseln: Dropdown „Buchprojekt“ oben\n"
+            "• Struktur aus Quarto laden: Projekt wählen (liest _quarto.yml automatisch)\n"
+            "• In Quarto schreiben: Datei → In Quarto speichern\n\n"
+            f"Gewählt: {chosen.name}",
+        )
+        return None
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        return json.loads(chosen.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        QMessageBox.critical(
+            parent,
+            "Laden fehlgeschlagen",
+            "Die Datei ist kein gültiges JSON.\n\n"
+            "Hinweis: _quarto.yml ist YAML und gehört nicht in dieses Menü.\n\n"
+            f"{exc}",
+        )
+        return None
+    except OSError as exc:
         QMessageBox.critical(parent, "Laden fehlgeschlagen", str(exc))
         return None

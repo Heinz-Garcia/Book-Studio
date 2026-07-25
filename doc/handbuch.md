@@ -39,7 +39,7 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 15. Skeleton-Bibliothek (Vorlagen)
 16. Buchprojekt-Workflow (GrammarGraph → PDF)
 17. Publish Readiness
-18. Mapping Manager (Publish-Input → PDFs)
+18. Fertige PDFs (Publish-Input → Ausgaben)
 
 ---
 
@@ -202,6 +202,8 @@ Im Export-Dialog wählst du neben Format und Template auch ein **Layout-Profil**
 
 Der **Zeilenabstand** lässt sich unabhängig vom gewählten Profil per eigenem Dropdown feinjustieren.
 
+**Anzeigename (optional):** Im gleichen Dialog kannst du einen kurzen Namen vergeben (z. B. `Paperback Probe rev.5`). Er landet unter **Fertige PDFs** und macht den Render wiederfindbar — auch später dort editierbar.
+
 **„(Pb) Paperback“ — funktioniert ohne Zusatzschritt.** Anders als die übrigen Profile setzt Paperback ein **exaktes** Seitenformat statt nur ein Papierformat-Preset. Das Studio richtet die dafür nötigen Vorlagendateien beim Rendern **automatisch** ein:
 
 - Fehlen sie im Buchprojekt, kopiert das Studio sie in die temporäre Render-Kopie — dein Original bleibt beim Render selbst unberührt.
@@ -342,7 +344,10 @@ GUI: **Tools → Studio-Konfiguration...**
 
 | Eintrag | Bedeutung |
 |---------|-----------|
-| `content_root_path` | Wo Buchprojekte gesucht werden (`.` = Studio-Ordner) |
+| `content_root_path` | Wo Buchprojekte gesucht werden (`.` = Studio-Ordner); Pflege auch im **Buchprojekt-Manager** |
+
+**Bücher verwalten** (**Plugins → Bücher verwalten…**): große Liste der gefundenen Bücher mit Spalten **Anzeigename**, Ordnername, Pfad. Anzeigename per **Anzeigename…** setzen (`bookconfig/project_label.json`); ohne Vergabe bleibt die Spalte leer. Fertige Ausgaben: Button **Fertige PDFs…** oder **Plugins → Fertige PDFs…** (nicht „Buchordner“).
+
 | `help_manual_path` | Handbuch-Quelle Markdown (`doc/handbuch.md`) — PDF + Pflege |
 | `help_html_path` | Angezeigte Hilfe HTML (`doc/handbuch.html`) — Hilfe-Fenster |
 | `sanitizer_backup_path` | Optional; leer = Backup neben dem Projekt |
@@ -410,12 +415,13 @@ Ordner `_Sanitizer_Backups_*` und `sanitizer_backup_*` sind **Sicherungskopien**
 
 ### Neuer GrammarGraph-Export, Buchstruktur soll bleiben
 
-Nicht den ganzen Ordner neu importieren, wenn nur der **Nutzinhalt** (Markdown-Body) neu ist:
+Nicht den ganzen Ordner neu importieren, wenn nur der **Nutzinhalt** neu ist:
 
 1. **Plugins → GrammarGraph-Inhalt aktualisieren…** (oder im Editor **🧬**)
-2. Neuen Export-Ordner wählen, Zuordnung prüfen, übernehmen
+2. **Export übernehmen…** → einen einzelnen `Publish_*`-Laufordner wählen  
+   (nicht die Publish-Sammelmappe)
 
-Frontmatter und `_quarto.yml` bleiben. Details: Kapitel 16.
+Übernimmt automatisch: Payload-Body, Anzeigetitel, Erstellungsprotokoll, `publish_meta`, Provenance und Bilder. Frontmatter und `_quarto.yml` bleiben. Details: Kapitel 16 / [.doc/gg-content-swap.md](../.doc/gg-content-swap.md).
 
 ---
 
@@ -647,7 +653,7 @@ Skeleton-Dateien landen **links** im Pool — der rechte Buchbaum bleibt unverä
 
 ### Phase 3b — GrammarGraph-Nutzinhalt aktualisieren
 
-Wenn GrammarGraph einen **neuen Export** liefert und das Buch schon Struktur, Frontmatter und Skeleton hat: nur den **Body** der Nutzinhalt-Dateien tauschen — nicht neu importieren.
+Wenn GrammarGraph einen **neuen Export** liefert und das Buch schon Struktur, Frontmatter und Skeleton hat: **nicht neu importieren**. Stattdessen den Export-Lauf in einem Schritt übernehmen.
 
 **Besitzmodell**
 
@@ -662,18 +668,23 @@ Vorspann und Nachspann sind **eigene** Required-/Skeleton-`.md`-Dateien, nicht i
 
 **Erkennung (automatisch):** Alles mit 🧬 im Baum — also alle `.md` außer Required/Skeleton, Root-`index.md` und Outline. Kein manuelles Markieren nötig.
 
-**Bedienung**
+**Bedienung (empfohlen — ein Klick)**
 
-1. **Plugins → GrammarGraph-Inhalt aktualisieren…** oder im Editor den Button **🧬**
-2. Ordner mit dem neuen GG-Export wählen
-3. Zuordnung prüfen (gleicher relativer Pfad, sonst eindeutiger Frontmatter-`title`)
-4. Übernehmen — Backup unter `bookconfig/.backups/gg-content-swap/`
+1. Zielbuch öffnen (Arbeitsbuch mit Skeleton/Struktur).
+2. **Plugins → GrammarGraph-Inhalt aktualisieren…** oder Editor-Button **🧬**
+3. **Export übernehmen…** → **einen** `Publish_*`-Laufordner wählen  
+   (nie die übergeordnete Publish-Sammelmappe / den Hub)
+4. Zusammenfassung lesen — Backup unter `bookconfig/.backups/gg-content-swap/`
 
-CLI (optional):
+Automatisch dabei: Haupt-Payload (bevorzugt `*rev*`), Body-Swap, Anzeigetitel, `Erstellungsprotokoll.md`, `publish_meta.json`, Provenance (`bookconfig/grammargraph_export.json`), Bilder.
+
+**CLI (Bundle):**
 
 ```powershell
-python -m tools.gg_content_swap --book Pfad\Zum\Buch --source Pfad\Zum\Export --yes
+python -m tools.gg_content_swap --bundle --book Pfad\Zum\Buch --source Pfad\Zum\Publish_Lauf --yes
 ```
+
+Technische Details und Matching: [.doc/gg-content-swap.md](../.doc/gg-content-swap.md).
 
 ### Phase 4 — Metadaten und Heilen
 
@@ -698,7 +709,7 @@ Nach erfolgreichem Render wird ein Eintrag in `publish_record.json` geschrieben 
 
 ### Phase 6 — Fertige PDFs
 
-**Plugins → Mapping Manager…** — zeigt pro **Produktionslinie** (Import-Snapshot) alle zugehörigen PDF-Ausgaben mit Template, Format und Profil. Öffnen, Ordner anzeigen oder aufräumen.
+**Plugins → Fertige PDFs…** — zeigt pro **Produktionslinie** (Import-Snapshot) alle zugehörigen PDF-Ausgaben mit Template, Format und Profil. Öffnen, Ordner anzeigen oder aufräumen. In der Shell auch über **🗺️** neben dem Buch-Dropdown.
 
 Details: Kapitel 18.
 
@@ -708,11 +719,11 @@ Details: Kapitel 18.
 |-------|---------|
 | Warum liegt alles links nach Import? | Bewusst — du baust die Struktur selbst |
 | Muss Skeleton den rechten Baum füllen? | **Nein** — nur Kopien links |
-| Neuer GG-Export, Struktur behalten? | **Plugins → GrammarGraph-Inhalt aktualisieren…** (Phase 3b) |
+| Neuer GG-Export, Struktur behalten? | **Export übernehmen…** im Dialog (Phase 3b) — ein `Publish_*`-Lauf |
 | Was ist 🧬 im Baum? | Automatisch erkannte GG-Nutzinhalt-Datei |
 | Wo steht, welches LLM exportiert hat? | `bookconfig/grammargraph_export.json` |
 | Wer behebt welchen Fehler? | **Plugins → Publish Readiness…** |
-| Wo sind meine PDFs zum Import? | **Plugins → Mapping Manager…** (Kapitel 18) |
+| Wo sind meine PDFs zum Import? | **Plugins → Fertige PDFs…** oder 🗺️ (Kapitel 18) |
 
 Kurzreferenz auch in `doc/kickstart-grammargraph-skeleton.md`.
 
@@ -793,17 +804,19 @@ Du musst dafür **kein Menü** öffnen — es läuft über Plugin-Hooks mit.
 
 ---
 
-## 18) Mapping Manager (Publish-Input → PDFs) {#sec-mapping-manager}
+## 18) Fertige PDFs (Publish-Input → Ausgaben) {#sec-mapping-manager}
 
-Der **Mapping Manager** verbindet den **Publish-Input** (GrammarGraph-Import oder lokaler Arbeitsstand) mit den **generierten PDFs**. Jeder Import erzeugt eine **Produktionslinie** (Snapshot); jeder erfolgreiche Render-Lauf wird als Kind-Eintrag mit Metadaten gespeichert.
+Unter **Plugins → Fertige PDFs…** (früher „Mapping Manager“) siehst du die **generierten PDFs** des aktiven Buchs, verknüpft mit dem Publish-Input. Oben steht der Kontext des aktiven Buches (Anzeigename, falls vergeben).
 
 Im Gegensatz zur flachen PDF-Liste (früher „Generierte Bücher“, jetzt versteckt) siehst du hier die **Herkunft** und kannst mehrere Import-/Render-Zyklen nebeneinander vergleichen.
 
 **Jeder Render bekommt eine eigene, dauerhafte Datei.** Renderst du dieselbe Produktionslinie mehrfach — auch mit unterschiedlichem Format oder Layout-Profil (z. B. erst BoD, dann Paperback) —, überschreibt der neue Render **nicht** den vorherigen. Alle Renders derselben Produktionslinie bleiben nebeneinander bestehen und erscheinen hier als eigene Zeilen.
 
+Nach **Export → Buch rendern… (F5)** erscheint ein kurzer Dialog: **PDF öffnen**, **In Fertige PDFs zeigen…** oder **Schließen**.
+
 ### Aufruf
 
-**Plugins → Mapping Manager…**
+**Plugins → Fertige PDFs…** oder Shell-Button **🗺️** neben dem Buchprojekt-Dropdown.
 
 Voraussetzung: ein **aktives Buchprojekt** im Dropdown.
 
@@ -822,22 +835,21 @@ Jede Linie enthält Buchtitel, Provenance-Zusammenfassung (falls vorhanden) und 
 
 | Spalte | Bedeutung |
 |--------|-----------|
-| **PDF** | Dateiname der Ausgabe — zeitstempel-eindeutig, liegt dauerhaft unter `export/publish_renders/<Snapshot-ID>/` (siehe unten) |
-| **Layout-Profil** | Verwendetes Layout-Profil (z. B. „(Pb) Paperback“, „Taschenbuch / Book on Demand“) |
-| **Template** | Gewähltes Render-Template (z. B. `EXT: typstdoc`) |
-| **Format** | Export-Format (z. B. `typst`, `pdf`, `html`) |
-| **Profil** | Aktives Quarto-`--profile-name` zum Render-Zeitpunkt — **nicht** dasselbe wie Layout-Profil |
-| **Datum** | Zeitstempel des Render-Laufs |
-| **Status** | `OK` — Datei vorhanden; `fehlt` — Pfad in der Map, Datei gelöscht oder verschoben |
+| **Datum** | Zeitpunkt des Render-Laufs (neueste zuerst) — primär zum Finden |
+| **Layout** | Layout-Profil aus dem Export-Dialog (BoD, Paperback, …) |
+| **Datei** | PDF-Dateiname unter `export/publish_renders/…` |
+| **Anzeigename** | Optionaler Merknamen (z. B. „rev.5 Probe“) — **nicht** das Layout |
+| **Format** | Export-Format (z. B. `typst`) |
+| **Status** | `OK` oder `fehlt` |
 
-**Doppelklick** oder **Enter** auf eine Zeile öffnet die PDF (wie der Button **PDF öffnen**).
+Volle Pfade: Zeile unter der Tabelle. **Doppelklick** oder **Öffnen** zeigt die PDF.
 
 ### Zwei Speicherorte, zwei Zwecke
 
 | Ort | Zweck | Verhalten |
 |-----|-------|-----------|
-| `export/_book/…pdf` | Komfort-Kopie für „direkt nach dem Render öffnen“ und Zwischenablage | Wird bei **jedem** Render überschrieben — nicht die Quelle des Mapping Managers |
-| `export/publish_renders/<Snapshot-ID>/…pdf` | Dauerhaftes Archiv, eine Datei pro Render | **Nie** überschrieben — das ist, was der Mapping Manager anzeigt |
+| `export/_book/…pdf` | Komfort-Kopie für „direkt nach dem Render öffnen“ und Zwischenablage | Wird bei **jedem** Render überschrieben — nicht die Quelle von Fertige PDFs |
+| `export/publish_renders/<Snapshot-ID>/…pdf` | Dauerhaftes Archiv, eine Datei pro Render | **Nie** überschrieben — das ist, was unter Fertige PDFs erscheint |
 
 Falls dein Buchprojekt beide Vorlagendateien für „(Pb) Paperback“ noch nicht hatte, legt das Studio sie beim ersten Paperback-Render automatisch an (siehe [Kapitel 6, Layout-Profile](#sec-speichern-rendern)) — kein manueller Schritt nötig.
 
@@ -845,10 +857,11 @@ Falls dein Buchprojekt beide Vorlagendateien für „(Pb) Paperback“ noch nich
 
 | Button | Wirkung |
 |--------|---------|
-| **PDF öffnen** | PDF im Standardprogramm öffnen |
-| **Ordner zeigen** | Explorer/Finder am PDF-Pfad (ohne Auswahl: `export/`) |
-| **Löschen** | PDF-Datei entfernen **und** Eintrag aus der Map löschen (mit Sicherheitsabfrage) |
-| **Aktualisieren** | Snapshots und Tabelle neu laden |
+| **Öffnen** | PDF im Standardprogramm öffnen |
+| **Anzeigename…** | Merknamen setzen/ändern |
+| **PDF im Explorer** | Explorer mit markierter PDF-Datei |
+| **Dateiname…** | PDF-Datei umbenennen (Map wird mitgezogen) |
+| **Löschen…** | PDF + Listeneintrag entfernen |
 | **Schließen** | Dialog schließen |
 
 ### Datenmodell (`publish_map.json`)
@@ -862,6 +875,7 @@ publish_map.json
     ├── id, origin, import_path, book_title, provenance
     └── renders[]           ← Kinder pro erfolgreichem Render
         ├── format, template, layout_profile, profile_name
+        ├── notes           ← Anzeigename (Export-Dialog / Fertige PDFs)
         ├── artifact_path   ← Pfad zur dauerhaften PDF-Kopie (export/publish_renders/…)
         └── metadata        ← Buch-Metadaten zum Render-Zeitpunkt
 ```
@@ -871,7 +885,7 @@ publish_map.json
 | `publish_record.json` | Chronologisches **Ereignis-Log** (Import, Doctor, Render) |
 | `publish_map.json` | **Strukturierte Zuordnung** Input-Snapshot → PDF-Ausgaben |
 
-Fehlt `publish_map.json` oder ist sie leer, kann sie aus `publish_record.json` **nachgebaut** werden (beim ersten Öffnen des Mapping Managers).
+Fehlt `publish_map.json` oder ist sie leer, kann sie aus `publish_record.json` **nachgebaut** werden (beim ersten Öffnen von Fertige PDFs).
 
 ### Automatische Pflege
 
@@ -889,7 +903,7 @@ Du musst die Map **nicht manuell** pflegen — Plugin-Hooks schreiben bei:
 2. Nach **Template-/Layout-Profil-Wechseln** — z. B. BoD- und Paperback-Render derselben Produktionslinie direkt nebeneinander vergleichen
 3. Vor **Übergabe an Lektorat/Druckerei** — fehlende PDFs (`fehlt`) erkennen und neu rendern
 
-**Mapping Manager ersetzt nicht Publish Readiness** — er verwaltet Ausgaben und Herkunft, nicht Qualitätsbefunde.
+**Fertige PDFs ersetzt nicht Publish Readiness** — verwaltet Ausgaben und Herkunft, nicht Qualitätsbefunde.
 
 ---
 
@@ -912,7 +926,7 @@ MeinBuch/
 │   └── reports/                   ← Doctor-/Readiness-Reports (JSON)
 ├── export/              ← Render-Ausgabe
 │   ├── _book/                     ← Komfort-Kopie, wird bei jedem Render überschrieben
-│   └── publish_renders/<Snapshot-ID>/   ← dauerhaftes Archiv, eine Datei pro Render (Mapping Manager)
+│   └── publish_renders/<Snapshot-ID>/   ← dauerhaftes Archiv, eine Datei pro Render (Fertige PDFs)
 └── .backups/            ← Struktur-Backups
 
 Book-Studio-Installation (Auszug):

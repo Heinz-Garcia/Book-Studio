@@ -17,6 +17,32 @@ MAX_RECENT_BOOKS = 10
 _GEOM_RE = re.compile(r"^(\d+)x(\d+)\+(\-?\d+)\+(\-?\d+)$")
 
 
+def is_ephemeral_book_path(path: Path | str) -> bool:
+    """True für absolute Pytest-/Temp-Buchpfade (Session-Müll).
+
+    Relative Keys wie ``Publish_IFJN_…`` sind nie ephemer — auch wenn das
+    aufgelöste Verzeichnis zufällig unter einem Temp-Root liegt.
+    """
+    try:
+        raw = str(path).strip()
+        p = Path(raw)
+        text = raw.replace("\\", "/").casefold()
+    except (TypeError, ValueError):
+        return True
+    # Relative Session-Keys (kein Laufwerk, kein UNC)
+    if not p.is_absolute() and not re.match(r"^[a-z]:/", text) and not text.startswith("//"):
+        return False
+    tempish = (
+        "/temp/" in text
+        or "/tmp/" in text
+        or "appdata/local/temp" in text
+        or "/pytest-of-" in text
+    )
+    if not tempish:
+        return False
+    return "/pytest-of-" in text or "/pytest-" in text
+
+
 def session_path(root: Optional[Path] = None) -> Path:
     return (root or repo_root()) / "session_state.json"
 
@@ -58,6 +84,9 @@ def book_key(book_path: Path, *, root: Optional[Path] = None) -> str:
 def resolve_book_key(key: str, *, root: Optional[Path] = None) -> Optional[Path]:
     if not isinstance(key, str) or not key.strip():
         return None
+    # Absolute Pytest-Temp-Keys nie auflösen
+    if is_ephemeral_book_path(key):
+        return None
     base = root or repo_root()
     candidate = Path(key.strip())
 
@@ -90,6 +119,9 @@ def resolve_book_key(key: str, *, root: Optional[Path] = None) -> Optional[Path]
 def merge_recent(existing: dict[str, Any], active_key: Optional[str]) -> list[str]:
     raw = existing.get("recent_books") if isinstance(existing, dict) else None
     recent = [k for k in raw if isinstance(k, str) and k] if isinstance(raw, list) else []
+    recent = [k for k in recent if not is_ephemeral_book_path(k)]
+    if active_key and is_ephemeral_book_path(active_key):
+        active_key = None
     if not active_key:
         return recent[:MAX_RECENT_BOOKS]
     active_resolved = resolve_book_key(active_key)
@@ -110,6 +142,26 @@ def merge_recent(existing: dict[str, Any], active_key: Optional[str]) -> list[st
     return cleaned[:MAX_RECENT_BOOKS]
 
 
+def pick_restorable_book(*, root: Optional[Path] = None) -> Optional[Path]:
+    """Aktives Buch aus Session, sonst erstes gültiges Recent — nie Pytest-Temp."""
+    state = load_session(root)
+    key = state.get("active_book_path")
+    if isinstance(key, str) and key.strip():
+        hit = resolve_book_key(key, root=root)
+        if hit is not None:
+            return hit
+    raw = state.get("recent_books") if isinstance(state, dict) else None
+    if not isinstance(raw, list):
+        return None
+    for entry in raw:
+        if not isinstance(entry, str) or not entry:
+            continue
+        hit = resolve_book_key(entry, root=root)
+        if hit is not None:
+            return hit
+    return None
+
+
 def load_session(root: Optional[Path] = None) -> dict[str, Any]:
     return _session_state_service.read_session_state(session_path(root))
 
@@ -125,6 +177,16 @@ def save_session(
     existing = load_session(base)
     active_key = book_key(current_book, root=base) if current_book else None
     active_name = current_book.name if current_book else None
+    if current_book is not None and is_ephemeral_book_path(current_book):
+        # Pytest-/Temp: echte Session nicht überschreiben
+        prev = existing.get("active_book_path")
+        if isinstance(prev, str) and prev.strip() and not is_ephemeral_book_path(prev):
+            active_key = prev
+            hit = resolve_book_key(prev, root=base)
+            active_name = hit.name if hit is not None else existing.get("active_book_name")
+        else:
+            active_key = None
+            active_name = None
     ui_state = dict(existing.get("ui_state") or {}) if isinstance(existing.get("ui_state"), dict) else {}
     if geometry:
         ui_state["window_geometry"] = geometry
@@ -203,9 +265,11 @@ __all__ = [
     "MAX_RECENT_BOOKS",
     "book_key",
     "geometry_string",
+    "is_ephemeral_book_path",
     "list_recent_books",
     "load_session",
     "parse_geometry",
+    "pick_restorable_book",
     "resolve_book_key",
     "save_session",
     "session_path",

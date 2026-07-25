@@ -1,4 +1,4 @@
-"""Qt-Dialog: Buchprojekt-Manager (gruppierte, filterbare Übersicht)."""
+"""Qt-Dialog: Buchprojekt-Manager (Bücher prominent, Anzeigename, Suchpfade sekundär)."""
 
 from __future__ import annotations
 
@@ -13,11 +13,13 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -33,6 +35,7 @@ from tools.book_projects.catalog import (
     list_content_roots,
     remove_content_root,
 )
+from tools.book_projects.label import read_display_name, write_display_name
 from tools.book_projects.scaffold import is_quarto_book
 from tools.mapping_manager.actions import reveal_in_explorer
 from ui_qt.book_workspace import repo_root
@@ -42,6 +45,11 @@ _ROLE_KIND = Qt.ItemDataRole.UserRole
 _ROLE_PAYLOAD = Qt.ItemDataRole.UserRole + 1
 _KIND_ROOT = "root"
 _KIND_BOOK = "book"
+_KIND_GROUP = "group"
+
+_COL_DISPLAY = 0
+_COL_FOLDER = 1
+_COL_PATH = 2
 
 
 class BookProjectsQtDialog(QDialog):
@@ -52,14 +60,15 @@ class BookProjectsQtDialog(QDialog):
         self._repo = repo_root()
         self._books: list[BookInfo] = []
         self.setObjectName("bookProjectsDialog")
-        self.setWindowTitle("Buchprojekt-Manager")
-        self.resize(860, 580)
+        self.setWindowTitle("Buchprojekte verwalten")
+        self.setMinimumSize(1180, 640)
+        self.resize(1280, 720)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("Buchprojekte")
+        title = QLabel("Bücher verwalten")
         title_font = QFont(title.font())
         title_font.setPointSize(16)
         title_font.setWeight(QFont.Weight.DemiBold)
@@ -67,17 +76,65 @@ class BookProjectsQtDialog(QDialog):
         layout.addWidget(title)
         HelpBar.create_and_prepend_for_plugin(layout, "book_projects", index=1)
 
-        # --- Roots ---
+        # --- Bücher zuerst (Hauptfläche) ---
+        books_frame = QFrame()
+        books_frame.setObjectName("bookProjectsSection")
+        books_l = QVBoxLayout(books_frame)
+        books_l.setContentsMargins(12, 10, 12, 10)
+        books_l.setSpacing(8)
+
+        books_header = QHBoxLayout()
+        books_title = QLabel("Gefundene Bücher")
+        books_title.setObjectName("bookProjectsSectionTitle")
+        books_header.addWidget(books_title)
+        self.books_count = QLabel("")
+        self.books_count.setObjectName("bookProjectsHint")
+        books_header.addWidget(self.books_count)
+        books_header.addStretch(1)
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText("Filtern: Anzeigename, Ordnername oder Pfad…")
+        self.filter_edit.setClearButtonEnabled(True)
+        self.filter_edit.setMinimumWidth(320)
+        self.filter_edit.textChanged.connect(self._apply_filter)
+        books_header.addWidget(self.filter_edit)
+        self.btn_refresh = QPushButton("Aktualisieren")
+        self.btn_refresh.clicked.connect(self._reload)
+        books_header.addWidget(self.btn_refresh)
+        books_l.addLayout(books_header)
+
+        self.books_tree = QTreeWidget()
+        self.books_tree.setHeaderLabels(["Anzeigename", "Ordnername", "Pfad"])
+        self.books_tree.setUniformRowHeights(True)
+        self.books_tree.setAlternatingRowColors(True)
+        self.books_tree.setRootIsDecorated(True)
+        self.books_tree.setSortingEnabled(False)
+        header = self.books_tree.header()
+        header.setStretchLastSection(True)
+        header.setSectionResizeMode(_COL_DISPLAY, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(_COL_FOLDER, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(_COL_PATH, QHeaderView.ResizeMode.Stretch)
+        self.books_tree.setColumnWidth(_COL_DISPLAY, 280)
+        self.books_tree.setColumnWidth(_COL_FOLDER, 340)
+        self.books_tree.itemDoubleClicked.connect(self._on_book_double_clicked)
+        self.books_tree.itemSelectionChanged.connect(self._sync_selection_from_books)
+        books_l.addWidget(self.books_tree, stretch=1)
+        layout.addWidget(books_frame, stretch=5)
+
+        # --- Suchpfade kompakt (sekundär) ---
         roots_frame = QFrame()
         roots_frame.setObjectName("bookProjectsSection")
+        roots_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         roots_l = QVBoxLayout(roots_frame)
-        roots_l.setContentsMargins(12, 10, 12, 10)
-        roots_l.setSpacing(8)
+        roots_l.setContentsMargins(12, 8, 12, 8)
+        roots_l.setSpacing(6)
 
         roots_header = QHBoxLayout()
         roots_title = QLabel("Suchpfade (Content-Roots)")
         roots_title.setObjectName("bookProjectsSectionTitle")
         roots_header.addWidget(roots_title)
+        roots_hint = QLabel("— wo nach Büchern gesucht wird")
+        roots_hint.setObjectName("bookProjectsHint")
+        roots_header.addWidget(roots_hint)
         roots_header.addStretch(1)
         self.btn_add_root = QPushButton("Pfad hinzufügen…")
         self.btn_remove_root = QPushButton("Pfad entfernen")
@@ -90,43 +147,10 @@ class BookProjectsQtDialog(QDialog):
         self.roots_tree = QTreeWidget()
         self.roots_tree.setHeaderHidden(True)
         self.roots_tree.setRootIsDecorated(False)
-        self.roots_tree.setMaximumHeight(100)
+        self.roots_tree.setMaximumHeight(88)
         self.roots_tree.setUniformRowHeights(True)
         roots_l.addWidget(self.roots_tree)
-        layout.addWidget(roots_frame)
-
-        # --- Books ---
-        books_frame = QFrame()
-        books_frame.setObjectName("bookProjectsSection")
-        books_l = QVBoxLayout(books_frame)
-        books_l.setContentsMargins(12, 10, 12, 10)
-        books_l.setSpacing(8)
-
-        books_header = QHBoxLayout()
-        books_title = QLabel("Gefundene Bücher")
-        books_title.setObjectName("bookProjectsSectionTitle")
-        books_header.addWidget(books_title)
-        books_header.addStretch(1)
-        self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("Filtern nach Name oder Pfad…")
-        self.filter_edit.setClearButtonEnabled(True)
-        self.filter_edit.setMinimumWidth(260)
-        self.filter_edit.textChanged.connect(self._apply_filter)
-        books_header.addWidget(self.filter_edit)
-        self.btn_refresh = QPushButton("Aktualisieren")
-        self.btn_refresh.clicked.connect(self._reload)
-        books_header.addWidget(self.btn_refresh)
-        books_l.addLayout(books_header)
-
-        self.books_tree = QTreeWidget()
-        self.books_tree.setHeaderLabels(["Buch", "Ordner"])
-        self.books_tree.setColumnWidth(0, 320)
-        self.books_tree.setUniformRowHeights(True)
-        self.books_tree.setAlternatingRowColors(True)
-        self.books_tree.itemDoubleClicked.connect(lambda *_: self._activate_selected())
-        self.books_tree.itemSelectionChanged.connect(self._sync_selection_from_books)
-        books_l.addWidget(self.books_tree, stretch=1)
-        layout.addWidget(books_frame, stretch=1)
+        layout.addWidget(roots_frame, stretch=0)
 
         # --- Actions ---
         actions = QHBoxLayout()
@@ -136,9 +160,21 @@ class BookProjectsQtDialog(QDialog):
         self.btn_open.clicked.connect(self._activate_selected)
         actions.addWidget(self.btn_open)
 
-        self.btn_reveal = QPushButton("Im Explorer")
+        self.btn_label = QPushButton("Anzeigename…")
+        self.btn_label.clicked.connect(self._edit_display_name)
+        actions.addWidget(self.btn_label)
+
+        self.btn_reveal = QPushButton("Buchordner")
+        self.btn_reveal.setToolTip("Projektordner im Explorer öffnen")
         self.btn_reveal.clicked.connect(self._reveal_selected)
         actions.addWidget(self.btn_reveal)
+
+        self.btn_pdfs = QPushButton("Fertige PDFs…")
+        self.btn_pdfs.setToolTip(
+            "Öffnet die PDF-Liste für dieses Buch (nicht den Projektordner)"
+        )
+        self.btn_pdfs.clicked.connect(self._open_finished_pdfs)
+        actions.addWidget(self.btn_pdfs)
 
         actions.addSpacing(16)
         self.btn_new = QPushButton("Neues Buch…")
@@ -159,7 +195,8 @@ class BookProjectsQtDialog(QDialog):
         layout.addLayout(actions)
 
         hint = QLabel(
-            'Tipp: Beim Start auch per CLI —  python book_studio.py "C:\\Pfad\\zum\\Buch"'
+            "Hier verwaltest du Buchprojekte (Ordner). "
+            "Fertige Ausgaben: Button „Fertige PDFs…“ oder Plugins → Fertige PDFs…"
         )
         hint.setObjectName("bookProjectsHint")
         hint.setWordWrap(True)
@@ -183,12 +220,18 @@ class BookProjectsQtDialog(QDialog):
         self._books = list_books(self._repo)
         self.roots_tree.clear()
         for root in list_content_roots(self._repo):
-            item = QTreeWidgetItem([f"📁  {root}"])
+            item = QTreeWidgetItem([str(root)])
             item.setData(0, _ROLE_KIND, _KIND_ROOT)
             item.setData(0, _ROLE_PAYLOAD, root)
             item.setToolTip(0, str(root))
             self.roots_tree.addTopLevelItem(item)
         self._rebuild_books_tree()
+
+    def _book_matches(self, info: BookInfo, needle: str) -> bool:
+        if not needle:
+            return True
+        blob = f"{info.display_name} {info.name} {info.path}".lower()
+        return needle in blob
 
     def _rebuild_books_tree(self) -> None:
         needle = self.filter_edit.text().strip().lower()
@@ -196,51 +239,72 @@ class BookProjectsQtDialog(QDialog):
         self.books_tree.clear()
 
         by_root: dict[Path, list[BookInfo]] = {}
+        visible = 0
         for info in self._books:
-            if needle:
-                blob = f"{info.name} {info.path}".lower()
-                if needle not in blob:
-                    continue
+            if not self._book_matches(info, needle):
+                continue
             by_root.setdefault(info.root.resolve(), []).append(info)
+            visible += 1
+
+        total = len(self._books)
+        if needle:
+            self.books_count.setText(f"({visible} von {total})")
+        else:
+            self.books_count.setText(f"({total})")
 
         for root in list_content_roots(self._repo):
             key = root.resolve()
             books = by_root.get(key, [])
             if needle and not books:
                 continue
-            group = QTreeWidgetItem([f"📁  {root.name}", str(root)])
-            group.setFirstColumnSpanned(True)
+            group = QTreeWidgetItem([f"📁  {root.name}", "", str(root)])
+            group.setData(0, _ROLE_KIND, _KIND_GROUP)
             group.setFlags(group.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             bold = group.font(0)
             bold.setBold(True)
             group.setFont(0, bold)
             group.setToolTip(0, str(root))
+            group.setToolTip(2, str(root))
             self.books_tree.addTopLevelItem(group)
-            for info in sorted(books, key=lambda b: b.name.lower()):
-                child = QTreeWidgetItem([f"📘  {info.name}", str(info.path)])
+
+            def sort_key(b: BookInfo) -> tuple[str, str]:
+                label = (b.display_name or "").casefold()
+                return (label == "", label, b.name.casefold())
+
+            for info in sorted(books, key=sort_key):
+                label = info.display_name or ""
+                folder = info.name
+                if active is not None and info.path.resolve() == active:
+                    folder = f"{info.name}  (aktiv)"
+                child = QTreeWidgetItem([label, folder, str(info.path)])
                 child.setData(0, _ROLE_KIND, _KIND_BOOK)
                 child.setData(0, _ROLE_PAYLOAD, info)
-                child.setToolTip(0, str(info.path))
-                child.setToolTip(1, str(info.path))
+                tip = str(info.path)
+                if label:
+                    tip = f"{label}\n{tip}"
+                child.setToolTip(0, tip)
+                child.setToolTip(1, tip)
+                child.setToolTip(2, tip)
                 if active is not None and info.path.resolve() == active:
-                    mark = child.font(0)
-                    mark.setBold(True)
-                    child.setFont(0, mark)
-                    child.setText(0, f"📘  {info.name}  (aktiv)")
+                    for col in range(3):
+                        mark = child.font(col)
+                        mark.setBold(True)
+                        child.setFont(col, mark)
                 group.addChild(child)
             group.setExpanded(True)
 
-        # Bücher ohne passende Root-Gruppe (Fallback)
         known = {r.resolve() for r in list_content_roots(self._repo)}
         orphans = [b for b in self._books if b.root.resolve() not in known]
-        if orphans and (not needle or any(needle in f"{b.name} {b.path}".lower() for b in orphans)):
-            other = QTreeWidgetItem(["Weitere Bücher", ""])
+        orphan_vis = [b for b in orphans if self._book_matches(b, needle)]
+        if orphan_vis:
+            other = QTreeWidgetItem(["Weitere Bücher", "", ""])
+            other.setData(0, _ROLE_KIND, _KIND_GROUP)
             other.setFlags(other.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.books_tree.addTopLevelItem(other)
-            for info in orphans:
-                if needle and needle not in f"{info.name} {info.path}".lower():
-                    continue
-                child = QTreeWidgetItem([f"📘  {info.name}", str(info.path)])
+            for info in orphan_vis:
+                child = QTreeWidgetItem(
+                    [info.display_name or "", info.name, str(info.path)]
+                )
                 child.setData(0, _ROLE_KIND, _KIND_BOOK)
                 child.setData(0, _ROLE_PAYLOAD, info)
                 other.addChild(child)
@@ -253,7 +317,6 @@ class BookProjectsQtDialog(QDialog):
         info = self._selected_book()
         if info is None:
             return
-        # zugehörige Root in der oberen Liste markieren
         for i in range(self.roots_tree.topLevelItemCount()):
             item = self.roots_tree.topLevelItem(i)
             root = item.data(0, _ROLE_PAYLOAD) if item else None
@@ -325,7 +388,7 @@ class BookProjectsQtDialog(QDialog):
         self._reload()
         self._notify_host_refresh()
 
-    def _activate_selected(self) -> None:
+    def _activate_selected(self, *, close: bool = True) -> None:
         info = self._selected_book()
         if info is None:
             QMessageBox.information(self, "Buch", "Bitte ein Buch in der Liste wählen.")
@@ -333,7 +396,41 @@ class BookProjectsQtDialog(QDialog):
         self._notify_host_refresh(activate=info.path)
         if self.studio is not None and hasattr(self.studio, "log"):
             self.studio.log(f"Buch aktiviert: {info.path}", "info")
-        self.accept()
+        self._rebuild_books_tree()
+        if close:
+            self.accept()
+
+    def _on_book_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+        if item is None or item.data(0, _ROLE_KIND) != _KIND_BOOK:
+            return
+        self.books_tree.setCurrentItem(item)
+        # Aktivieren, Dialog offen lassen (Anzeigename setzen, weitere Bücher, …)
+        self._activate_selected(close=False)
+
+    def _edit_display_name(self) -> None:
+        info = self._selected_book()
+        if info is None:
+            QMessageBox.information(self, "Anzeigename", "Bitte ein Buch wählen.")
+            return
+        current = read_display_name(info.path)
+        text, ok = QInputDialog.getText(
+            self,
+            "Anzeigename",
+            f"Anzeigename für:\n{info.name}\n\n"
+            "(leer lassen und OK = Anzeigename entfernen)",
+            text=current,
+        )
+        if not ok:
+            return
+        try:
+            write_display_name(info.path, text)
+        except OSError as exc:
+            QMessageBox.warning(self, "Anzeigename", str(exc))
+            return
+        self._reload()
+        if self.studio is not None and hasattr(self.studio, "log"):
+            label = text.strip() or "(entfernt)"
+            self.studio.log(f"Anzeigename gesetzt: {info.name} → {label}", "info")
 
     def _reveal_selected(self) -> None:
         info = self._selected_book()
@@ -341,6 +438,17 @@ class BookProjectsQtDialog(QDialog):
             QMessageBox.information(self, "Buch", "Bitte ein Buch wählen.")
             return
         reveal_in_explorer(info.path)
+
+    def _open_finished_pdfs(self) -> None:
+        info = self._selected_book()
+        if info is None:
+            QMessageBox.information(self, "Fertige PDFs", "Bitte ein Buch wählen.")
+            return
+        self._notify_host_refresh(activate=info.path)
+        from ui_qt.dialogs.post_render_dialog import open_finished_pdfs_for_book
+
+        log = getattr(self.studio, "log", None) if self.studio else None
+        open_finished_pdfs_for_book(self, info.path, log=log)
 
     def _create_book(self) -> None:
         roots = list_content_roots(self._repo)
@@ -371,7 +479,7 @@ class BookProjectsQtDialog(QDialog):
         if not ok or not name.strip():
             return
         title, ok2 = QInputDialog.getText(
-            self, "Neues Buch", "Buchtitel (optional):", text=name.strip()
+            self, "Neues Buch", "Anzeigename / Buchtitel (optional):", text=name.strip()
         )
         if not ok2:
             return
@@ -379,6 +487,8 @@ class BookProjectsQtDialog(QDialog):
             book = create_empty_book(
                 parent, name.strip(), title=title.strip() or None, repo=self._repo
             )
+            if title.strip():
+                write_display_name(book, title.strip())
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "Neues Buch", str(exc))
             return

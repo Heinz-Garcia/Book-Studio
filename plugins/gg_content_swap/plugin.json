@@ -7,5 +7,5 @@
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 28,
-  "help_text": "Ersetzt den Markdown-Body der GrammarGraph-Nutzinhalte (automatisch: alle .md außer Required/Skeleton, index.md, Outline). Frontmatter und Buchstruktur bleiben unverändert."
+  "help_text": "Ein Klick: „Export übernehmen…“ → Publish_*-Ordner wählen. Automatisch: Payload-Body, Anzeigename, Erstellungsprotokoll, publish_meta, Provenance, Bilder. Nie die Publish-Sammelmappe."
 }

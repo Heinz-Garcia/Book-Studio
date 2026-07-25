@@ -912,6 +912,7 @@ class ExportManager:
                 snapshot_id = ensure_active_snapshot_id(self._current_book())
             except (ImportError, OSError, ValueError):
                 snapshot_id = ""
+            render_notes = str(selected.get("notes") or "").strip()
             self._pending_render_context = {
                 "format": base_fmt,
                 "template": selected_tpl,
@@ -920,6 +921,7 @@ class ExportManager:
                 "layout_profile": layout_profile,
                 "linestretch": linestretch,
                 "snapshot_id": snapshot_id,
+                "notes": render_notes,
             }
             profile = None
             try:
@@ -932,6 +934,8 @@ class ExportManager:
                 )
             except (ImportError, KeyError, ValueError):
                 self._log(f"📐 Layout-Profil: {layout_profile} · Zeilenabstand {linestretch:g}", "info")
+            if render_notes:
+                self._log(f"🏷️  Anzeigename: {render_notes}", "info")
             self._start_render_log(target_fmt, selected_tpl)
 
             # Phase 2 / Schritt 2.3c-Mini: Render-Orchestrierung im RenderService.
@@ -1064,9 +1068,23 @@ class ExportManager:
                     self._log(f"✅ ERFOLG: {output_fmt.upper()} generiert!", "success")
                     self._log(f"📋 Pfad in Zwischenablage: {path}", "success")
                     self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
-                    # Phase 2 / 2.3c voll: OS-spezifischer Open im Service.
-                    _RenderService.open_rendered_artifact(path)
+                    # Map zuerst aktualisieren, dann Nutzer fragen
                     self._fire_after_render_hook(output_fmt, hook_path)
+                    notes = str(
+                        (getattr(self, "_pending_render_context", None) or {}).get("notes")
+                        or ""
+                    )
+                    action = ui_hooks.ask_post_render_action(
+                        artifact_path=path,
+                        format_name=str(output_fmt or ""),
+                        notes=notes,
+                    )
+                    if action == "open_pdf":
+                        _RenderService.open_rendered_artifact(path)
+                    elif action == "show_pdfs":
+                        ui_hooks.open_mapping_manager(
+                            book_path=self._current_book()
+                        )
 
                 self._after(0, _on_success)
             else:
@@ -1076,6 +1094,16 @@ class ExportManager:
                     self._log(f"✅ ERFOLG: {output_fmt.upper()} im export/ Ordner generiert.", "success")
                     self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
                     self._fire_after_render_hook(output_fmt, hook_path)
+                    ui_hooks.ask_post_render_action(
+                        artifact_path=hook_path or "",
+                        format_name=str(output_fmt or ""),
+                        notes=str(
+                            (getattr(self, "_pending_render_context", None) or {}).get(
+                                "notes"
+                            )
+                            or ""
+                        ),
+                    )
 
                 self._after(0, _on_success_no_artifact)
         except (OSError, RuntimeError, AttributeError, TypeError, ValueError, subprocess.SubprocessError) as post_err:

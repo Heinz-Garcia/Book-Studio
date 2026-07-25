@@ -48,14 +48,14 @@ def _book_projects(studio, parent, log) -> None:
     from ui_qt.dialogs.book_projects_dialog import open_book_projects_qt
 
     open_book_projects_qt(studio, parent)
-    log("Buchprojekt-Manager geschlossen.", "info")
+    log("Bücher verwalten geschlossen.", "info")
 
 
 def _mapping(studio, parent, log) -> None:
     from ui_qt.dialogs.mapping_manager_dialog import open_mapping_manager_qt
 
     open_mapping_manager_qt(studio, parent)
-    log("Mapping Manager geschlossen.", "info")
+    log("Fertige PDFs geschlossen.", "info")
 
 
 def _generated(studio, parent, log) -> None:

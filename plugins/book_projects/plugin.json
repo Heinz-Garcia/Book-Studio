@@ -1,11 +1,11 @@
 {
   "name": "book_projects",
-  "label": "📚 Buchprojekt-Manager…",
-  "description": "Content-Roots und Quarto-Bücher anlegen, öffnen und verwalten.",
+  "label": "📚 Bücher verwalten…",
+  "description": "Buchprojekte suchen, öffnen, anlegen und Anzeigenamen vergeben.",
   "entrypoint": "plugins.book_projects:run",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 5,
-  "help_text": "Suchpfade festlegen, Bücher öffnen oder neu anlegen. Die Kapitelstruktur bearbeitest du danach im Hauptfenster."
+  "help_text": "Projektliste (Anzeigename · Ordner · Pfad). Buchordner ≠ PDF. Fertige Ausgaben: „Fertige PDFs…“ oder Plugins → Fertige PDFs…"
 }

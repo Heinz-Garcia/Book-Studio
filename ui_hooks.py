@@ -38,4 +38,13 @@ class _FileDialogHooks:
 messagebox = _MessageBoxHooks()
 filedialog = _FileDialogHooks()
 
-ask_export_options: Callable[..., Optional[dict]] = lambda *_a, **_k: None
+def ask_export_options(*_a: Any, **_k: Any) -> Optional[dict]:
+    return None
+
+
+def ask_post_render_action(**_k: Any) -> str:
+    """Headless-Default: wie früher die Datei öffnen."""
+    return "open_pdf"
+
+
+open_mapping_manager: Callable[..., None] = _noop

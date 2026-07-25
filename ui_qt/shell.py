@@ -6,7 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QGuiApplication
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -86,9 +87,24 @@ class MainWindow(QMainWindow):
         top = QHBoxLayout()
         top.addWidget(QLabel("Buchprojekt:"))
         self.book_combo = QComboBox()
-        self.book_combo.setMinimumWidth(360)
+        self.book_combo.setMinimumWidth(420)
+        self.book_combo.setMaxVisibleItems(20)
+        self.book_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.book_combo.setMinimumContentsLength(36)
         self.book_combo.currentIndexChanged.connect(self._on_book_chosen)
         top.addWidget(self.book_combo, stretch=1)
+        copy_btn = QPushButton("📋")
+        copy_btn.setFixedWidth(36)
+        copy_btn.setToolTip("Projektnamen in die Zwischenablage kopieren")
+        copy_btn.clicked.connect(self._copy_book_name_to_clipboard)
+        top.addWidget(copy_btn)
+        pdfs_btn = QPushButton("🗺️")
+        pdfs_btn.setFixedWidth(36)
+        pdfs_btn.setToolTip("Fertige PDFs dieses Buchs")
+        pdfs_btn.clicked.connect(self._open_finished_pdfs)
+        top.addWidget(pdfs_btn)
         refresh_btn = QPushButton("Aktualisieren")
         refresh_btn.clicked.connect(self._refresh_book_list)
         top.addWidget(refresh_btn)
@@ -121,27 +137,64 @@ class MainWindow(QMainWindow):
             act = menu.addAction(entry["label"])
             act.triggered.connect(lambda _checked=False, p=path: self._try_select_book(p))
 
+    def _copy_book_name_to_clipboard(self) -> None:
+        book = self._facade.current_book
+        if book is None:
+            data = self.book_combo.currentData()
+            book = Path(data) if data is not None else None
+        if book is None:
+            QMessageBox.information(self, "Zwischenablage", "Kein Buchprojekt gewählt.")
+            return
+        name = Path(book).name
+        QGuiApplication.clipboard().setText(name)
+        self.statusBar().showMessage(f"Projektname kopiert: {name}", 4000)
+        self._facade.log(f"Projektname in Zwischenablage: {name}", "info")
+
+    def _open_finished_pdfs(self) -> None:
+        book = self._facade.current_book
+        if book is None:
+            data = self.book_combo.currentData()
+            book = Path(data) if data is not None else None
+        if book is None:
+            QMessageBox.information(self, "Fertige PDFs", "Bitte zuerst ein Buchprojekt wählen.")
+            return
+        from ui_qt.dialogs.post_render_dialog import open_finished_pdfs_for_book
+
+        open_finished_pdfs_for_book(self, Path(book), log=self._facade.log)
+
     def _refresh_book_list(self) -> None:
-        current = self.book_combo.currentData()
+        prefer = self._facade.current_book
         self.book_combo.blockSignals(True)
         self.book_combo.clear()
-        self._books = discover_books()
+        self._books = [
+            b for b in discover_books() if not qt_session.is_ephemeral_book_path(b)
+        ]
         self.book_combo.addItem("— Buch wählen —", None)
         for book in self._books:
-            self.book_combo.addItem(book.name, book)
+            from tools.book_projects.label import read_display_name
+
+            label = read_display_name(book)
+            text = f"{label}  ·  {book.name}" if label else book.name
+            self.book_combo.addItem(text, book)
+            tip_idx = self.book_combo.count() - 1
+            self.book_combo.setItemData(tip_idx, str(book), Qt.ItemDataRole.ToolTipRole)
         self.book_combo.blockSignals(False)
         self._facade.log(f"{len(self._books)} Buchprojekt(e) gefunden.", "info")
-        if current is not None:
-            self._try_select_book(Path(current))
+        target = prefer
+        if target is None or qt_session.is_ephemeral_book_path(target):
+            target = qt_session.pick_restorable_book()
+        if target is not None:
+            self._try_select_book(Path(target))
 
     def _restore_active_book(self) -> None:
-        state = qt_session.load_session()
-        key = state.get("active_book_path")
-        if not key:
-            return
-        book = qt_session.resolve_book_key(str(key))
+        book = qt_session.pick_restorable_book()
         if book is not None:
             self._try_select_book(book)
+            return
+        self._facade.log(
+            "Kein gültiges Buch in der Session (Pytest-/Temp-Pfade werden ignoriert).",
+            "info",
+        )
 
     def _apply_saved_geometry(self) -> None:
         state = qt_session.load_session()
@@ -168,12 +221,30 @@ class MainWindow(QMainWindow):
 
     def _try_select_book(self, book: Path) -> None:
         book = book.resolve()
+        if qt_session.is_ephemeral_book_path(book):
+            self._facade.log(
+                f"Temporäres Test-Buch ignoriert: {book.name} "
+                f"(stammt aus Pytest — bitte echtes Buch wählen).",
+                "warning",
+            )
+            fallback = qt_session.pick_restorable_book()
+            if fallback is not None and fallback.resolve() != book:
+                self._try_select_book(fallback)
+            return
         for i in range(self.book_combo.count()):
             data = self.book_combo.itemData(i)
             if data is not None and Path(data).resolve() == book:
+                # Index setzen und immer laden (Signal kann ausbleiben)
+                self.book_combo.blockSignals(True)
                 self.book_combo.setCurrentIndex(i)
+                self.book_combo.blockSignals(False)
+                self._load_book(book)
                 return
-        self._load_book(book)
+        # Nicht in der Discovery-Liste → nicht heimlich laden (führt zu „Band_T“-Chaos)
+        self._facade.log(
+            f"Buch nicht in der Liste (Suchpfade prüfen): {book.name}",
+            "warning",
+        )
 
     def _on_book_chosen(self, index: int) -> None:
         data = self.book_combo.itemData(index)
@@ -198,7 +269,18 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self._window_title_from_version())
         self.statusBar().showMessage(f"Geladen: {book}")
         self._persist_session()
-
+        # Leere Struktur: nur Log/Status — kein Modal (besonders nicht beim Start)
+        if not session.book_nodes:
+            self.statusBar().showMessage(
+                f"„{book.name}“: noch keine Kapitel in der Struktur.",
+                8000,
+            )
+            self._facade.log(
+                f"„{book.name}“ hat in _quarto.yml noch keine Kapitel "
+                f"(chapters: []). Struktur rechts ist leer — Kapitel aus der "
+                f"linken Liste hinzufügen oder anderes Projekt wählen.",
+                "info",
+            )
     def _save(self) -> bool:
         if self._session and self._session.save():
             self.statusBar().showMessage("Gespeichert.", 4000)

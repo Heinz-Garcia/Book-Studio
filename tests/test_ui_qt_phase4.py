@@ -31,7 +31,11 @@ def test_export_dialog_confirm(monkeypatch):
     from ui_qt.dialogs.export_dialog import ExportDialog
 
     app = QApplication.instance() or QApplication([])
-    dlg = ExportDialog(None, ["Standard", "EXT: typstdoc"])
+    dlg = ExportDialog(
+        None,
+        ["Standard", "EXT: typstdoc"],
+        initial={"notes": "  Paperback Probe  "},
+    )
     dlg.format_combo.setCurrentText("typst")
     dlg.template_combo.setCurrentText("EXT: typstdoc")
     dlg._confirm()
@@ -39,6 +43,7 @@ def test_export_dialog_confirm(monkeypatch):
     assert dlg.result["format"] == "typst"
     assert dlg.result["template"] == "EXT: typstdoc"
     assert "layout_profile" in dlg.result
+    assert dlg.result["notes"] == "Paperback Probe"
     _ = app
 
 
