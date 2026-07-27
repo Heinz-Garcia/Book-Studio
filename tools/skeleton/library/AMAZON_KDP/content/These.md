@@ -2,7 +2,7 @@
 title: "These"
 description: "These"
 status: bookstudio
-required: true
+required: false
 order: "70"
 ---
 

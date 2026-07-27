@@ -6,7 +6,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Optional
+from typing import Iterable, Optional
 
 import yaml
 
@@ -160,6 +160,35 @@ def list_profiles(library_root: Path) -> list[str]:
     return profiles
 
 
+_ORPHAN_SCAN_EXTENSIONS = (".md", ".typ")
+
+
+def find_orphaned_files(
+    profile_dir: Path, entries: Iterable[SkeletonFileEntry]
+) -> list[str]:
+    """Findet Dateien im Profilordner, die in keinem Manifest-Eintrag referenziert sind.
+
+    Durchsucht `profile_dir` rekursiv nach `.md`/`.typ`-Dateien (dieselben Endungen,
+    die Skeleton-Vorlagen verwenden) und liefert die relativen Pfade (POSIX-Slashes,
+    sortiert) aller Dateien, die nicht in `entries` vorkommen - z. B. weil sie über
+    „Nur aus Profil entfernen“ entfernt oder manuell im Ordner abgelegt wurden.
+    Ohne diese Funktion sind solche Dateien im Skeleton-Editor unauffindbar, sobald
+    sie einmal aus dem Manifest verschwunden sind.
+    """
+    profile_dir = Path(profile_dir).resolve()
+    known = {_normalize_rel_path(e.path) for e in entries}
+    orphans: list[str] = []
+    for ext in _ORPHAN_SCAN_EXTENSIONS:
+        for path in profile_dir.rglob(f"*{ext}"):
+            if not path.is_file():
+                continue
+            rel = _normalize_rel_path(str(path.relative_to(profile_dir)))
+            if rel in known:
+                continue
+            orphans.append(rel)
+    return sorted(orphans)
+
+
 def manifest_to_dict(manifest: SkeletonManifest) -> dict:
     files: list[dict] = []
     for entry in manifest.files:
@@ -169,8 +198,11 @@ def manifest_to_dict(manifest: SkeletonManifest) -> dict:
         }
         if entry.order:
             item["order"] = entry.order
-        if entry.required:
-            item["required"] = True
+        # Immer explizit schreiben (auch False): `entry_required_from_manifest_item()`
+        # behandelt ein *fehlendes* required-Feld als Legacy-Pflicht (True). Würde hier
+        # bei required=False das Feld weggelassen, käme beim nächsten Laden fälschlich
+        # wieder True heraus — der Editor „vergisst“ dann jedes manuelle Entpflichten.
+        item["required"] = bool(entry.required)
         if not entry.include_in_tree:
             item["include_in_tree"] = False
         if entry.description and entry.description != entry.title:
@@ -382,10 +414,15 @@ def sync_markdown_order(target: Path, order: Optional[str]) -> bool:
 
 
 def sync_markdown_required(target: Path, required: bool) -> bool:
-    """Hält Frontmatter ``required`` synchron zum Manifest-Eintrag."""
-    return _sync_markdown_frontmatter_field(
-        target, "required", bool(required), omit_if_false=True
-    )
+    """Hält Frontmatter ``required`` synchron zum Manifest-Eintrag.
+
+    Schreibt den Wert immer explizit (auch ``False``): `page_required.is_page_required()`
+    faellt bei einem *fehlenden* required-Feld auf die Pfad-Konvention zurueck (Datei
+    unter ``content/required/`` = Pflicht). Da praktisch alle Skeleton-Vorlagen dort
+    liegen, wuerde ein entpflichteter Eintrag ohne explizites ``required: false`` sofort
+    wieder als Pflicht gelten (📌-Icon, Order-Erzwingung in yaml_engine, GG-Swap-Filter).
+    """
+    return _sync_markdown_frontmatter_field(target, "required", bool(required))
 
 
 def resolve_library_root(repo_root: Path, configured_path: str) -> Path:

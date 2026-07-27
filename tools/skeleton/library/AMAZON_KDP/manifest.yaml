@@ -1,7 +1,6 @@
-name: standard
-label: Standard (vollständiges Front- und Backmatter)
-description: Vollständiges Set aus Klappentext, Impressum, Einleitung, Glossar und
-  weiteren wiederkehrenden Pflichtseiten (Mapping Band_Stoffwechselgesundheit).
+name: AMAZON_KDP
+label: AMAZON_KDP
+description: Vollständiges Set von Vorlagen gemäß Anforderungen von AMAZON KDP
 files:
 - path: content/Deckblatt.md
   title: Deckblatt
@@ -9,16 +8,16 @@ files:
   required: true
 - path: content/Klappentext_vorne.md
   title: Klappentext (vorne)
-  order: '50'
+  order: '20'
   required: false
 - path: content/Widmung.md
-  title: Widmung (linke Seite)
-  order: '4'
-  required: false
+  title: Widmung (rechte Seite)
+  order: '6'
+  required: true
   description: Widmung
 - path: content/Impressum.md
   title: Impressum / Disclaimer / KI-Hinweis (linke Seite)
-  order: '6'
+  order: '5'
   required: true
   description: Impressum
 - path: content/IVZ.md
@@ -28,13 +27,12 @@ files:
   description: Inhaltsverzeichnis
 - path: content/Danksagung.md
   title: Danksagung
-  order: '60'
-  required: false
-- path: content/Einleitung.md
-  title: Einleitung (rechte Seite)
-  order: '15'
+  order: '50'
   required: true
-  description: Einleitung
+- path: content/Einleitung.md
+  title: Einleitung
+  order: '60'
+  required: true
 - path: content/These.md
   title: These
   order: '70'
@@ -81,10 +79,10 @@ files:
 - path: content/Vakanz_Verlagsdaten.md
   title: Vakanz oder Verlagsdaten (linke Seite)
   order: '3'
-  required: false
+  required: true
 - path: content/Haupttitel.md
   title: Haupttitel (rechte Seite)
-  order: '5'
+  order: '4'
   required: true
 - path: content/Vakanz.md
   title: IVZ Ende / Vakanz (linke Seite)
@@ -93,12 +91,12 @@ files:
   description: Vakanz (linke Seite)
 - path: content/Vorwort.md
   title: Vorwort (rechte Seite)
-  order: '20'
+  order: '15'
   required: true
 - path: content/Vakanz_2.md
   title: Vakanz_2 (linke Seite)
   order: '7'
-  required: false
+  required: true
 - path: content/Vakanz_3.md
   title: Vakanz_3 (linke Seite)
   order: '12'
@@ -126,4 +124,8 @@ files:
 - path: content/Vakanz_7.md
   title: Vakanz_7 (linke Seite)
   order: END-30
+  required: true
+- path: content/Druckvermerk.md
+  title: Druckvermerk
+  order: END-2
   required: true

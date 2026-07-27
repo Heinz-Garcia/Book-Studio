@@ -205,6 +205,27 @@ class MainWindow(QMainWindow):
             w, h, x, y = parsed
             self.resize(w, h)
             self.move(x, y)
+        self._ensure_window_fully_visible()
+
+    def _ensure_window_fully_visible(self) -> None:
+        """Zentriert das Fenster auf seinem Bildschirm, falls die (ggf. gespeicherte)
+        Position es ganz oder teilweise außerhalb des aktuell verfügbaren
+        Bildschirmbereichs platzieren würde - z. B. nach einem Monitor- oder
+        Auflösungswechsel seit dem letzten Speichern der Session. Eine bewusst
+        gewählte Position (z. B. auf einem zweiten Monitor) bleibt unangetastet,
+        solange das Fenster dort vollständig sichtbar ist. Die Fenstergröße wird
+        NICHT angetastet - `availableGeometry()` liefert unter Windows bei
+        Multi-Monitor-/DPI-Skalierungs-Setups teils falsche (zu kleine) Werte,
+        ein Verkleinern darauf hätte das Fenster unnötig schmal gemacht."""
+        frame = self.frameGeometry()
+        screen = QGuiApplication.screenAt(frame.center()) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        avail = screen.availableGeometry()
+        if avail.contains(frame):
+            return
+        frame.moveCenter(avail.center())
+        self.move(frame.topLeft())
 
     def _current_geometry_string(self) -> str:
         geo = self.geometry()

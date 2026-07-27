@@ -1,9 +1,8 @@
 ---
-title: "Klappentext (hinten)"
-description: "Klappentext (hinten)"
+title: Klappentext (hinten)
+description: Klappentext (hinten)
 status: bookstudio
-required: true
-order: "END-20"
+order: END-20
 ---
 
 # Klappentext (hinten)

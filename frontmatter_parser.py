@@ -85,6 +85,22 @@ class FrontmatterParts:
     def had_closing_delimiter(self) -> bool:
         return bool(self.meta.get("had_closing_delimiter", False))
 
+    @property
+    def parse_error(self) -> Optional[str]:
+        """Fehlermeldung, falls der Header kein gültiges YAML-Mapping ist
+        (z. B. `order = "15"` statt `order: "15"`) - `None` bei leerem/fehlendem
+        oder gültigem Header. Ruft `parsed()` bei Bedarf auf, damit die
+        Prüfung unabhängig von der Aufrufreihenfolge funktioniert.
+
+        Bewusst getrennt von `parsed()`, das bei jedem Fehler still `{}`
+        zurückgibt (Alt-Verhalten für die vielen bestehenden Aufrufer bleibt
+        unangetastet) - `parse_error` ist für Aufrufer gedacht, die einen
+        stillschweigend verschluckten Fehler sichtbar machen wollen (z. B. der
+        Skeleton-Editor)."""
+        self.parsed()
+        error = self.meta.get("parse_error")
+        return str(error) if error else None
+
     def parsed(self) -> dict:
         """Parst den Header als YAML. Liefert `{}` bei leerem/defektem
         Header. Setzt `yaml is None` voraus — Aufrufer sollten das
@@ -95,7 +111,11 @@ class FrontmatterParts:
             return {}
         try:
             data = yaml.safe_load(self.header) if self.header.strip() else {}
-        except (yaml.YAMLError, ValueError, TypeError):
+        except (yaml.YAMLError, ValueError, TypeError) as exc:
+            self.meta["parse_error"] = str(exc)
+            return {}
+        if not isinstance(data, dict) and self.header.strip():
+            self.meta["parse_error"] = "Frontmatter ist kein YAML-Mapping (key: value)."
             return {}
         return data if isinstance(data, dict) else {}
 

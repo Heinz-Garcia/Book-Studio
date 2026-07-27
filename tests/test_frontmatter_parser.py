@@ -269,6 +269,36 @@ def test_parsed_returns_empty_when_yaml_returns_non_dict(monkeypatch):
     assert fp_mod.FrontmatterParts(header="- a\n- b").parsed() == {}
 
 
+def test_parse_error_none_for_valid_frontmatter():
+    parts = fp.parse('---\ntitle: X\norder: "5"\n---\n\nbody\n')
+    assert parts.parse_error is None
+
+
+def test_parse_error_none_when_no_frontmatter():
+    parts = fp.parse("# nur Body, kein Frontmatter\n")
+    assert parts.parse_error is None
+
+
+def test_parse_error_set_on_invalid_yaml_syntax():
+    """Regression: `order = "15"` (Gleichheitszeichen statt Doppelpunkt) ist
+    kein gültiges YAML-Mapping. `yaml.safe_load` scheitert dabei am GESAMTEN
+    Header, nicht nur an der kaputten Zeile - `parsed()` verschluckt das
+    still (`{}`), `parse_error` macht es für Aufrufer sichtbar, die das nicht
+    wollen (z. B. der Skeleton-Editor)."""
+    parts = fp.parse('---\ntitle: X\nrequired: true\norder = "15"\n---\n\nbody\n')
+    assert parts.parsed() == {}
+    assert parts.parse_error is not None
+    # title/required sind wegen des Parse-Fehlers ebenfalls unsichtbar, nicht
+    # nur order - das ist der eigentlich gefährliche Teil des Bugs.
+    assert parts.parsed().get("required") is None
+
+
+def test_parse_error_set_when_yaml_is_not_a_mapping():
+    parts = fp.parse("---\n- a\n- b\n---\n\nbody\n")
+    assert parts.parsed() == {}
+    assert parts.parse_error is not None
+
+
 def test_parse_file_handles_oserror(tmp_path: Path, monkeypatch):
     """Wenn die Datei nicht lesbar ist, gibt `parse_file` ein leeres `FrontmatterParts` zurück."""
     import pathlib

@@ -9,6 +9,7 @@ import yaml
 from tools.skeleton.manifest import (
     create_markdown_template,
     duplicate_profile,
+    find_orphaned_files,
     load_manifest,
     manifest_to_dict,
     replace_manifest_entries,
@@ -58,6 +59,39 @@ def test_replace_manifest_entries_updates_order(tmp_path: Path) -> None:
     assert raw["files"][0]["title"] == "Neuer Titel"
 
 
+def test_replace_manifest_entries_persists_required_false(tmp_path: Path) -> None:
+    """Regression: Ein Eintrag, der von required=True auf False umgestellt wird,
+    muss das auch nach einem Neuladen von der Platte bleiben.
+
+    `manifest_to_dict` schrieb `required` früher nur, wenn es True war -
+    `entry_required_from_manifest_item()` behandelt ein fehlendes Feld aber als
+    Legacy-Pflicht (True). Ohne explizites `required: false` im Manifest kippte
+    ein im Editor entpflichteter Eintrag beim nächsten Laden zurück auf Pflicht."""
+    src = _repo_root() / "tools" / "skeleton" / "library" / "standard"
+    profile = tmp_path / "edit_me"
+    import shutil
+
+    shutil.copytree(src, profile)
+    manifest = load_manifest(profile)
+    entries = list(manifest.files)
+    first = entries[0]
+    assert first.required is True
+    entries[0] = SkeletonFileEntry(
+        path=first.path,
+        title=first.title,
+        order=first.order,
+        required=False,
+        include_in_tree=first.include_in_tree,
+    )
+    replace_manifest_entries(profile, entries)
+
+    raw = yaml.safe_load((profile / "manifest.yaml").read_text(encoding="utf-8"))
+    assert raw["files"][0]["required"] is False
+
+    reloaded = load_manifest(profile)
+    assert reloaded.files[0].required is False
+
+
 def test_duplicate_profile_creates_copy(tmp_path: Path) -> None:
     library = tmp_path / "library"
     library.mkdir()
@@ -70,7 +104,76 @@ def test_duplicate_profile_creates_copy(tmp_path: Path) -> None:
     manifest = load_manifest(dest)
     assert manifest.name == "standard_copy"
     assert manifest.label == "Kopie"
-    assert (dest / "content" / "required" / "Einleitung.md").is_file()
+    assert (dest / "content" / "Einleitung.md").is_file()
+
+
+def test_find_orphaned_files_detects_untracked_md(tmp_path: Path) -> None:
+    """Regression für die Ausgangsfrage: „Nur aus Profil entfernen“ lässt die
+    Datei auf der Platte liegen, aber ohne diese Funktion ist sie im Skeleton-
+    Editor danach unauffindbar."""
+    profile = tmp_path / "standard"
+    required_dir = profile / "content" / "required"
+    required_dir.mkdir(parents=True)
+    (required_dir / "Tracked.md").write_text(
+        '---\ntitle: "Tracked"\n---\n\n# Tracked\n', encoding="utf-8"
+    )
+    (required_dir / "Orphan.md").write_text(
+        '---\ntitle: "Orphan"\n---\n\n# Orphan\n', encoding="utf-8"
+    )
+    (profile / "orphan-partial.typ").write_text("// verwaist\n", encoding="utf-8")
+    (profile / "manifest.yaml").write_text(
+        "\n".join(
+            [
+                "name: standard",
+                "label: Standard",
+                "description: Testprofil",
+                "files:",
+                "- path: content/required/Tracked.md",
+                "  title: Tracked",
+                "  required: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manifest = load_manifest(profile)
+
+    orphans = find_orphaned_files(profile, manifest.files)
+
+    assert orphans == ["content/required/Orphan.md", "orphan-partial.typ"]
+    assert "content/required/Tracked.md" not in orphans
+
+
+def test_find_orphaned_files_empty_when_everything_tracked(tmp_path: Path) -> None:
+    """Bewusst ein eigenständiges, minimales Profil statt einer Kopie des
+    gepflegten "standard"-Profils: dort können jederzeit legitime Verwaiste
+    liegen (genau das, was diese Funktion aufspüren soll - siehe
+    test_find_orphaned_files_detects_untracked_md), ein leeres Ergebnis lässt
+    sich an der lebenden Bibliothek also nicht dauerhaft garantieren."""
+    profile = tmp_path / "standard"
+    required_dir = profile / "content" / "required"
+    required_dir.mkdir(parents=True)
+    (required_dir / "Tracked.md").write_text(
+        '---\ntitle: "Tracked"\n---\n\n# Tracked\n', encoding="utf-8"
+    )
+    (profile / "manifest.yaml").write_text(
+        "\n".join(
+            [
+                "name: standard",
+                "label: Standard",
+                "description: Testprofil",
+                "files:",
+                "- path: content/required/Tracked.md",
+                "  title: Tracked",
+                "  required: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manifest = load_manifest(profile)
+
+    assert find_orphaned_files(profile, manifest.files) == []
 
 
 def test_create_markdown_template(tmp_path: Path) -> None:

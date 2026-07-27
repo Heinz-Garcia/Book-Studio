@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import frontmatter_parser
+from page_required import is_page_required
 from tools.skeleton.config import set_default_profile
 from tools.skeleton.reveal import reveal_skeleton_path
 from tools.skeleton.manifest import (
@@ -37,6 +39,7 @@ from tools.skeleton.manifest import (
     create_markdown_template,
     delete_profile,
     duplicate_profile,
+    find_orphaned_files,
     list_profiles,
     load_manifest,
     replace_manifest_entries,
@@ -47,12 +50,35 @@ from tools.skeleton.manifest import (
     validate_profile_name,
 )
 from ui_qt.book_workspace import repo_root
+from ui_qt.dialogs.skeleton_orphan_files_dialog import OrphanFilesDialog
 from ui_qt.dialogs.text_dialogs import TextEditorDialog
 from ui_qt.widgets.help_bar import HelpBar
 
 _LOG = logging.getLogger(__name__)
 
 _ROLE_INDEX = Qt.ItemDataRole.UserRole
+
+
+def _prompt_text(
+    parent: Optional[QWidget],
+    title: str,
+    label: str,
+    *,
+    text: str = "",
+    min_width: int = 560,
+) -> tuple[str, bool]:
+    """Ersatz für `QInputDialog.getText()` mit fester Mindestbreite.
+
+    Die statische `QInputDialog.getText()` bemisst ihre Breite am Label-Text -
+    bei langen Vorschlagswerten im Textfeld (z. B. Datei-Pfaden) bleibt das
+    Feld selbst viel zu schmal, um den Wert lesbar zu machen."""
+    dlg = QInputDialog(parent)
+    dlg.setWindowTitle(title)
+    dlg.setLabelText(label)
+    dlg.setTextValue(text)
+    dlg.setMinimumWidth(min_width)
+    accepted = dlg.exec() == QDialog.DialogCode.Accepted
+    return dlg.textValue(), accepted
 
 
 class SkeletonEditorQtDialog(QDialog):
@@ -69,7 +95,7 @@ class SkeletonEditorQtDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("skeletonEditorDialog")
         self.setWindowTitle("Skeleton-Bibliothek bearbeiten")
-        self.resize(1040, 720)
+        self.resize(1400, 860)
         self.setModal(True)
 
         self.library_root = Path(library_root).resolve()
@@ -79,7 +105,9 @@ class SkeletonEditorQtDialog(QDialog):
         self._selected_index: Optional[int] = None
         self._editor_dirty = False
         self._meta_dirty = False
+        self._profile_meta_dirty = False
         self._loading = False
+        self._order_sort_ascending: Optional[bool] = None
 
         self._build_ui()
         self._reload_profiles(initial_profile)
@@ -123,22 +151,27 @@ class SkeletonEditorQtDialog(QDialog):
         meta_l.setContentsMargins(12, 10, 12, 10)
         meta_l.setSpacing(8)
 
-        meta_title = QLabel("Profil")
+        meta_title = QLabel("⚙️  Profil")
         meta_title.setObjectName("skeletonEditorSectionTitle")
         meta_l.addWidget(meta_title)
 
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Label:"))
         self._profile_label = QLineEdit()
+        self._profile_label.textChanged.connect(self._mark_profile_meta_dirty)
         row1.addWidget(self._profile_label, stretch=1)
-        save_meta = QPushButton("Speichern")
-        save_meta.clicked.connect(self._save_profile_meta)
-        row1.addWidget(save_meta)
+        self._btn_save_profile_meta = QPushButton("Profil speichern")
+        self._btn_save_profile_meta.setToolTip(
+            "Speichert Label und Beschreibung dieses Profils (nicht die Vorlage rechts)."
+        )
+        self._btn_save_profile_meta.clicked.connect(self._save_profile_meta)
+        row1.addWidget(self._btn_save_profile_meta)
         meta_l.addLayout(row1)
 
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Beschreibung:"))
         self._profile_desc = QLineEdit()
+        self._profile_desc.textChanged.connect(self._mark_profile_meta_dirty)
         row2.addWidget(self._profile_desc, stretch=1)
         meta_l.addLayout(row2)
 
@@ -164,7 +197,7 @@ class SkeletonEditorQtDialog(QDialog):
         left_l.setContentsMargins(12, 10, 12, 10)
         left_l.setSpacing(8)
 
-        left_title = QLabel("Vorlagen")
+        left_title = QLabel("🗂️  Vorlagen")
         left_title.setObjectName("skeletonEditorSectionTitle")
         left_l.addWidget(left_title)
 
@@ -175,11 +208,26 @@ class SkeletonEditorQtDialog(QDialog):
         self._file_tree.setAlternatingRowColors(True)
         self._file_tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
         header = self._file_tree.header()
-        header.setStretchLastSection(True)
+        # Wichtig: NICHT setStretchLastSection(True) - das würde die letzte Spalte
+        # ("Datei") zwingend in den Stretch-Modus versetzen und sich damit den für
+        # "Titel" gedachten Platz teilen, egal was oben für Spalte 3 gesetzt ist.
+        # Titel soll als einzige Spalte den verfügbaren Restplatz bekommen, sonst
+        # werden lange Vorlagen-Titel abgeschnitten.
+        header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionsClickable(True)
+        # Indikator bleibt bis zum ersten Klick versteckt: `setSortIndicatorShown(True)`
+        # zeigt sonst sofort einen (irreführenden) Pfeil auf Spalte 0, weil
+        # `sortIndicatorSection()` ohne vorherigen `setSortIndicator()`-Aufruf auf 0
+        # defaultet - obwohl noch gar nicht sortiert wurde.
+        header.setSortIndicatorShown(False)
+        header.sectionClicked.connect(self._on_order_header_clicked)
+        self._file_tree.headerItem().setToolTip(
+            1, "Klicken, um die Vorlagen nach ihrer tatsächlichen Reihenfolge im Buch zu sortieren."
+        )
         self._file_tree.currentItemChanged.connect(self._on_file_item_changed)
         self._file_tree.itemDoubleClicked.connect(lambda *_: self._open_in_markdown_editor())
         left_l.addWidget(self._file_tree, stretch=1)
@@ -191,6 +239,27 @@ class SkeletonEditorQtDialog(QDialog):
         btn_del = QPushButton("Löschen…")
         btn_del.clicked.connect(self._remove_entry)
         left_btns.addWidget(btn_del)
+        btn_orphans = QPushButton("🔍 Verwaiste Dateien…")
+        btn_orphans.setToolTip(
+            "Findet Dateien im Profilordner, die physisch vorhanden, aber in keinem "
+            "Vorlagen-Eintrag referenziert sind (z. B. nach „Nur aus Profil entfernen“)."
+        )
+        btn_orphans.clicked.connect(self._open_orphan_files_dialog)
+        left_btns.addWidget(btn_orphans)
+        self._btn_move_up = QPushButton("⬆️ Hoch")
+        self._btn_move_up.setToolTip(
+            "Tauscht die order-Position mit dem vorherigen Eintrag derselben Gruppe "
+            "(numerisch bzw. END-N) - weiter vorne im Buch."
+        )
+        self._btn_move_up.clicked.connect(lambda: self._move_selected_entry(-1))
+        left_btns.addWidget(self._btn_move_up)
+        self._btn_move_down = QPushButton("⬇️ Runter")
+        self._btn_move_down.setToolTip(
+            "Tauscht die order-Position mit dem nächsten Eintrag derselben Gruppe "
+            "(numerisch bzw. END-N) - weiter hinten im Buch."
+        )
+        self._btn_move_down.clicked.connect(lambda: self._move_selected_entry(1))
+        left_btns.addWidget(self._btn_move_down)
         left_btns.addStretch(1)
         left_l.addLayout(left_btns)
         splitter.addWidget(left)
@@ -201,9 +270,15 @@ class SkeletonEditorQtDialog(QDialog):
         right_l.setContentsMargins(12, 10, 12, 10)
         right_l.setSpacing(8)
 
-        right_title = QLabel("Vorlage bearbeiten")
+        right_title = QLabel("✏️  Vorlage bearbeiten")
         right_title.setObjectName("skeletonEditorSectionTitle")
         right_l.addWidget(right_title)
+
+        self._frontmatter_warning = QLabel("")
+        self._frontmatter_warning.setObjectName("skeletonEditorFrontmatterWarning")
+        self._frontmatter_warning.setWordWrap(True)
+        self._frontmatter_warning.setVisible(False)
+        right_l.addWidget(self._frontmatter_warning)
 
         path_row2 = QHBoxLayout()
         path_row2.addWidget(QLabel("Datei:"))
@@ -219,7 +294,10 @@ class SkeletonEditorQtDialog(QDialog):
         form.setContentsMargins(0, 4, 0, 4)
         self._title = QLineEdit()
         self._order = QLineEdit()
-        self._required = QCheckBox("required (Populate standardmäßig mitkopieren)")
+        self._order.setToolTip(
+            "Position im Buchbaum (kleiner = weiter vorne). Leer = keine feste Position."
+        )
+        self._required = QCheckBox("Pflicht (wird beim „Populate“ automatisch mitkopiert)")
         self._title.textChanged.connect(self._mark_meta_dirty)
         self._order.textChanged.connect(self._mark_meta_dirty)
         self._required.stateChanged.connect(self._mark_meta_dirty)
@@ -229,9 +307,12 @@ class SkeletonEditorQtDialog(QDialog):
         right_l.addLayout(form)
 
         meta_btns = QHBoxLayout()
-        save_entry = QPushButton("Metadaten speichern")
-        save_entry.clicked.connect(self._save_entry_meta)
-        meta_btns.addWidget(save_entry)
+        self._btn_save_entry_meta = QPushButton("Vorlagen-Metadaten speichern")
+        self._btn_save_entry_meta.setToolTip(
+            "Speichert Titel, order und Pflicht-Status für die ausgewählte Vorlage."
+        )
+        self._btn_save_entry_meta.clicked.connect(self._save_entry_meta)
+        meta_btns.addWidget(self._btn_save_entry_meta)
         meta_btns.addStretch(1)
         right_l.addLayout(meta_btns)
 
@@ -253,21 +334,28 @@ class SkeletonEditorQtDialog(QDialog):
         right_l.addWidget(self._text, stretch=1)
         splitter.addWidget(right)
 
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 3)
-        splitter.setSizes([420, 580])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([580, 600])
         root.addWidget(splitter, stretch=1)
 
         bottom = QHBoxLayout()
         self._btn_save_preview = QPushButton("Vorschau speichern")
         self._btn_save_preview.setObjectName("skeletonEditorPrimary")
+        self._btn_save_preview.setToolTip(
+            "Speichert den Markdown-Inhalt der ausgewählten Vorlage."
+        )
         self._btn_save_preview.clicked.connect(self._save_markdown)
         bottom.addWidget(self._btn_save_preview)
+        self._status_label = QLabel("")
+        self._status_label.setObjectName("skeletonEditorStatus")
+        bottom.addWidget(self._status_label)
         bottom.addStretch(1)
         close_btn = QPushButton("Schließen")
         close_btn.clicked.connect(self._close)
         bottom.addWidget(close_btn)
         root.addLayout(bottom)
+        self._update_action_buttons_enabled()
 
     def _current_profile_name(self) -> str:
         return self._profile_combo.currentText()
@@ -299,7 +387,11 @@ class SkeletonEditorQtDialog(QDialog):
         self._profile_folder_label.setText(root_path.name)
         self._profile_folder_label.setToolTip(str(root_path))
         self._loading = False
+        self._profile_meta_dirty = False
+        self._status_label.clear()
         self._selected_index = None
+        self._order_sort_ascending = None
+        self._file_tree.header().setSortIndicatorShown(False)
         self._populate_file_list()
         self._clear_editor()
 
@@ -316,33 +408,204 @@ class SkeletonEditorQtDialog(QDialog):
         if name:
             self._load_profile(name)
 
+    @staticmethod
+    def _order_sort_key(order: Optional[str]) -> tuple[int, float]:
+        """Sortierschlüssel für die order-Spalte nach der tatsächlichen Position
+        im gerenderten Buch (siehe .doc/required-file-ordering.md):
+        numerische Werte zuerst (aufsteigend, direkt nach index.md), dann
+        ``END-N`` (``END-10`` = absolut letzte Seite, liegt also HINTER
+        ``END-40``), Einträge ohne order-Feld zuletzt (keine feste Position)."""
+        if not order:
+            return (2, 0.0)
+        text = order.strip().upper()
+        if text.startswith("END-"):
+            try:
+                n = float(text[4:])
+            except ValueError:
+                return (2, 0.0)
+            return (1, -n)
+        try:
+            n = float(text)
+        except ValueError:
+            return (2, 0.0)
+        return (0, n)
+
+    def _on_order_header_clicked(self, logical_index: int) -> None:
+        if logical_index != 1:  # nur die "order"-Spalte ist sortierbar
+            return
+        self._order_sort_ascending = self._order_sort_ascending is not True
+        order = Qt.SortOrder.AscendingOrder if self._order_sort_ascending else Qt.SortOrder.DescendingOrder
+        header = self._file_tree.header()
+        header.setSortIndicatorShown(True)
+        header.setSortIndicator(1, order)
+        keep = self._selected_index
+        self._populate_file_list()
+        self._select_row(keep if keep is not None else -1)
+        self._update_action_buttons_enabled()
+
+    def _current_order_ranked_indices(self) -> list[int]:
+        """Entries-Indizes in tatsächlicher Buch-Reihenfolge (wie beim Sortieren
+        nach order) - unabhängig davon, ob die Liste gerade sortiert ANGEZEIGT
+        wird. Hoch/Runter müssen immer dieselbe Nachbarschaft sehen, auch wenn
+        der Nutzer die order-Spalte gerade nicht als Sortierung aktiv hat."""
+        return sorted(
+            range(len(self._entries)),
+            key=lambda i: self._order_sort_key(self._entries[i].order),
+        )
+
+    def _neighbor_entry_index(self, entry_idx: int, direction: int) -> Optional[int]:
+        """Nachbar-Index in Buch-Reihenfolge für Hoch (-1) / Runter (+1) - nur
+        innerhalb derselben order-Gruppe (numerisch <-> numerisch, END-N <->
+        END-N; siehe .doc/required-file-ordering.md). Ein Eintrag ohne
+        order-Feld hat keine Position und damit keinen Nachbarn."""
+        entry = self._entries[entry_idx]
+        if not entry.order:
+            return None
+        ranked = self._current_order_ranked_indices()
+        pos = ranked.index(entry_idx)
+        neighbor_pos = pos + direction
+        if neighbor_pos < 0 or neighbor_pos >= len(ranked):
+            return None
+        neighbor_idx = ranked[neighbor_pos]
+        neighbor = self._entries[neighbor_idx]
+        if self._order_sort_key(entry.order)[0] != self._order_sort_key(neighbor.order)[0]:
+            return None
+        return neighbor_idx
+
+    def _move_selected_entry(self, direction: int) -> None:
+        """Hoch (-1) / Runter (+1): tauscht die `order`-WERTE des ausgewählten
+        Eintrags mit seinem Nachbarn derselben Gruppe.
+
+        Tauscht bewusst NICHT die Listen-Position im Manifest - die ist nicht
+        die SSOT für die Buch-Reihenfolge (`yaml_engine.parse_required_order()`
+        liest ausschließlich das `order`-Feld, nie die Array-Position in
+        `manifest.yaml`). Schreibt über denselben Weg wie die manuelle
+        Metadaten-Speicherung: Manifest + Frontmatter beider Dateien."""
+        if self._manifest is None or self._selected_index is None:
+            return
+        idx = self._selected_index
+        neighbor_idx = self._neighbor_entry_index(idx, direction)
+        if neighbor_idx is None:
+            return
+        entry = self._entries[idx]
+        neighbor = self._entries[neighbor_idx]
+        swapped_entry = SkeletonFileEntry(
+            path=entry.path,
+            title=entry.title,
+            order=neighbor.order,
+            required=entry.required,
+            include_in_tree=entry.include_in_tree,
+            description=entry.description,
+        )
+        swapped_neighbor = SkeletonFileEntry(
+            path=neighbor.path,
+            title=neighbor.title,
+            order=entry.order,
+            required=neighbor.required,
+            include_in_tree=neighbor.include_in_tree,
+            description=neighbor.description,
+        )
+        self._entries[idx] = swapped_entry
+        self._entries[neighbor_idx] = swapped_neighbor
+        self._manifest = replace_manifest_entries(
+            self._manifest.root,
+            self._entries,
+            name=self._manifest.name,
+            label=self._manifest.label,
+            description=self._manifest.description,
+        )
+        self._entries = list(self._manifest.files)
+        sync_markdown_order(self._manifest.root / swapped_entry.path, swapped_entry.order)
+        sync_markdown_order(self._manifest.root / swapped_neighbor.path, swapped_neighbor.order)
+        if self._order_sort_ascending is None:
+            # Ohne aktive Sortierung wäre der Tausch in der Liste unsichtbar
+            # (Manifest-Array-Position bleibt ja unverändert) - also gleich
+            # die order-Sortierung aktivieren, damit die Bewegung sichtbar wird.
+            self._order_sort_ascending = True
+            header = self._file_tree.header()
+            header.setSortIndicatorShown(True)
+            header.setSortIndicator(1, Qt.SortOrder.AscendingOrder)
+        self._refresh_after_file_sync(idx)
+        self._show_saved_status("Reihenfolge aktualisiert.")
+
+    def _frontmatter_parse_error_for(self, rel_path: str) -> Optional[str]:
+        """Liest `rel_path` (relativ zum Profil) und liefert die Fehlermeldung,
+        falls das Frontmatter kein gültiges YAML-Mapping ist (z. B. `order =
+        "15"` statt `order: "15"`) - sonst `None`. Ein solcher Fehler macht
+        `frontmatter_parser.parsed()` sonst still `{}` zurückgeben, wodurch
+        Titel/order/Pflicht unbemerkt von der Datei abweichen können."""
+        if self._manifest is None:
+            return None
+        path = self._manifest.root / rel_path
+        if not path.is_file():
+            return None
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        return frontmatter_parser.parse(content).parse_error
+
     def _populate_file_list(self) -> None:
+        # Qt kann beim ersten `addTopLevelItem()` nach `clear()` implizit Zeile 0
+        # selektieren und dabei `currentItemChanged` auslösen. Ohne diese Sperre
+        # würde `_on_file_item_changed` das dann als echte Auswahl interpretieren
+        # und `_selected_index` sowie die Formularfelder auf Zeile 0 zurücksetzen -
+        # selbst wenn der Aufrufer direkt danach eine andere Zeile reselektiert.
+        was_loading = self._loading
+        self._loading = True
         self._file_tree.clear()
-        for idx, entry in enumerate(self._entries):
-            status = "required" if entry.required else "optional"
+        indices = list(range(len(self._entries)))
+        if self._order_sort_ascending is not None:
+            indices.sort(
+                key=lambda i: self._order_sort_key(self._entries[i].order),
+                reverse=not self._order_sort_ascending,
+            )
+        for idx in indices:
+            entry = self._entries[idx]
+            status = "🔒 Pflicht" if entry.required else "○ Optional"
             filename = Path(entry.path).name
+            parse_error = self._frontmatter_parse_error_for(entry.path)
+            icon = "⚠️" if parse_error else "📄"
             item = QTreeWidgetItem(
                 [
-                    f"📄  {entry.title}",
+                    f"{icon}  {entry.title}",
                     entry.order or "—",
                     status,
                     filename,
                 ]
             )
             item.setData(0, _ROLE_INDEX, idx)
+            status_font = item.font(2)
+            status_font.setBold(entry.required)
+            item.setFont(2, status_font)
             tip = str(entry.path)
-            for col in range(4):
+            if parse_error:
+                tip = (
+                    f"⚠️ Frontmatter ist kein gültiges YAML - Titel/order/Pflicht "
+                    f"können vom tatsächlichen Datei-Inhalt abweichen:\n{parse_error}\n\n{tip}"
+                )
+            item.setToolTip(0, f"{entry.title}\n{tip}")
+            for col in range(1, 4):
                 item.setToolTip(col, tip)
             self._file_tree.addTopLevelItem(item)
+        self._loading = was_loading
 
-    def _select_row(self, row: int) -> None:
-        if row < 0 or row >= self._file_tree.topLevelItemCount():
-            self._file_tree.clearSelection()
-            return
-        item = self._file_tree.topLevelItem(row)
-        self._loading = True
-        self._file_tree.setCurrentItem(item)
-        self._loading = False
+    def _select_row(self, entry_idx: Optional[int]) -> None:
+        """Selektiert die Zeile, deren Eintrag-Index (`_ROLE_INDEX`) `entry_idx`
+        entspricht - NICHT die Zeilenposition, da die Anzeige-Reihenfolge nach
+        einem Klick auf die order-Spalte von der Manifest-Reihenfolge abweichen
+        kann."""
+        if entry_idx is not None and 0 <= entry_idx < len(self._entries):
+            for row in range(self._file_tree.topLevelItemCount()):
+                item = self._file_tree.topLevelItem(row)
+                if item.data(0, _ROLE_INDEX) == entry_idx:
+                    self._loading = True
+                    self._file_tree.setCurrentItem(item)
+                    self._loading = False
+                    self._selected_index = entry_idx
+                    return
+        self._file_tree.clearSelection()
+        self._selected_index = None
 
     def _clear_editor(self) -> None:
         self._loading = True
@@ -355,6 +618,17 @@ class SkeletonEditorQtDialog(QDialog):
         self._loading = False
         self._editor_dirty = False
         self._meta_dirty = False
+        self._frontmatter_warning.setVisible(False)
+        self._update_action_buttons_enabled()
+
+    def _update_frontmatter_warning(self, rel_path: Optional[str]) -> None:
+        error = self._frontmatter_parse_error_for(rel_path) if rel_path else None
+        if error:
+            self._frontmatter_warning.setText(
+                "⚠️ Frontmatter ist kein gültiges YAML (z. B. „=“ statt „:“) - Titel/order/"
+                f"Pflicht oben können vom tatsächlichen Datei-Inhalt abweichen:\n{error}"
+            )
+        self._frontmatter_warning.setVisible(bool(error))
 
     def _selected_skeleton_file(self) -> Optional[Path]:
         entry = self._current_entry()
@@ -392,6 +666,70 @@ class SkeletonEditorQtDialog(QDialog):
         except OSError as exc:
             QMessageBox.critical(self, "Skeleton", f"Explorer konnte nicht geöffnet werden:\n{exc}")
 
+    def _sync_entry_from_file(self, idx: int) -> bool:
+        """Übernimmt Titel/order/Pflicht aus der Datei zurück in Eintrag + Manifest.
+
+        Die Vorlagen-Liste zeigt Werte aus dem Manifest, nicht aus der Datei selbst.
+        Wird das Frontmatter direkt im externen Markdown-Editor (oder in der
+        Vorschau hier im Dialog) geändert, muss dieser Rückweg existieren - sonst
+        bleiben Titel/order/Status in der Liste nach dem Speichern auf dem alten
+        Stand stehen. Gibt ``True`` zurück, wenn sich dadurch etwas geändert hat.
+        """
+        if self._manifest is None or idx < 0 or idx >= len(self._entries):
+            return False
+        entry = self._entries[idx]
+        path = self._manifest.root / entry.path
+        if not path.is_file():
+            return False
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return False
+        parts = frontmatter_parser.parse(content)
+        if not parts.has_frontmatter:
+            return False
+        data = parts.parsed()
+        new_title = str(data.get("title") or entry.title).strip() or entry.title
+        order_val = data.get("order")
+        new_order = str(order_val).strip() if order_val not in (None, "") else None
+        new_required = is_page_required(rel_path=entry.path, content=content)
+        if (new_title, new_order, new_required) == (entry.title, entry.order, entry.required):
+            return False
+        updated = SkeletonFileEntry(
+            path=entry.path,
+            title=new_title,
+            order=new_order,
+            required=new_required,
+            include_in_tree=entry.include_in_tree,
+            description=entry.description,
+        )
+        self._entries[idx] = updated
+        self._manifest = replace_manifest_entries(
+            self._manifest.root,
+            self._entries,
+            name=self._manifest.name,
+            label=self._manifest.label,
+            description=self._manifest.description,
+        )
+        self._entries = list(self._manifest.files)
+        return True
+
+    def _refresh_after_file_sync(self, idx: int) -> None:
+        """Aktualisiert Formularfelder + Vorlagen-Liste, nachdem sich `self._entries[idx]`
+        außerhalb der normalen Formular-Speicherung geändert hat (z. B.
+        `_sync_entry_from_file()` oder `_move_selected_entry()`)."""
+        entry = self._entries[idx]
+        self._loading = True
+        self._title.setText(entry.title)
+        self._order.setText(entry.order or "")
+        self._required.setChecked(entry.required)
+        self._loading = False
+        self._meta_dirty = False
+        self._populate_file_list()
+        self._select_row(idx)
+        self._update_frontmatter_warning(entry.path)
+        self._update_action_buttons_enabled()
+
     def _open_in_markdown_editor(self) -> None:
         path = self._selected_skeleton_file()
         if path is None:
@@ -417,6 +755,9 @@ class SkeletonEditorQtDialog(QDialog):
             ):
                 return
         TextEditorDialog(self, path, title="Markdown-Editor").exec()
+        idx = self._selected_index
+        if idx is not None and self._sync_entry_from_file(idx):
+            self._refresh_after_file_sync(idx)
         self._reload_selected_from_disk()
 
     def _reload_selected_from_disk(self) -> None:
@@ -435,6 +776,10 @@ class SkeletonEditorQtDialog(QDialog):
         self._loading = False
         self._editor_dirty = False
         self._meta_dirty = False
+        self._status_label.clear()
+        entry = self._current_entry()
+        self._update_frontmatter_warning(entry.path if entry else None)
+        self._update_action_buttons_enabled()
 
     def _on_file_item_changed(
         self,
@@ -473,17 +818,45 @@ class SkeletonEditorQtDialog(QDialog):
         self._loading = False
         self._editor_dirty = False
         self._meta_dirty = False
+        self._status_label.clear()
+        self._update_frontmatter_warning(entry.path)
+        self._update_action_buttons_enabled()
 
     def _on_text_modified(self) -> None:
         if not self._loading:
             self._editor_dirty = True
+            self._status_label.clear()
+            self._update_action_buttons_enabled()
 
     def _mark_meta_dirty(self, *_args: Any) -> None:
         if not self._loading:
             self._meta_dirty = True
+            self._status_label.clear()
+            self._update_action_buttons_enabled()
+
+    def _mark_profile_meta_dirty(self, *_args: Any) -> None:
+        if not self._loading:
+            self._profile_meta_dirty = True
+            self._status_label.clear()
+            self._update_action_buttons_enabled()
+
+    def _update_action_buttons_enabled(self) -> None:
+        """Save-/Move-Buttons nur anbieten, wenn es dort wirklich etwas zu tun gibt."""
+        has_entry = self._current_entry() is not None
+        self._btn_save_entry_meta.setEnabled(has_entry and self._meta_dirty)
+        self._btn_save_preview.setEnabled(has_entry and self._editor_dirty)
+        self._btn_save_profile_meta.setEnabled(
+            self._manifest is not None and self._profile_meta_dirty
+        )
+        idx = self._selected_index
+        self._btn_move_up.setEnabled(idx is not None and self._neighbor_entry_index(idx, -1) is not None)
+        self._btn_move_down.setEnabled(idx is not None and self._neighbor_entry_index(idx, 1) is not None)
+
+    def _show_saved_status(self, text: str) -> None:
+        self._status_label.setText(f"✓ {text}")
 
     def _confirm_discard(self) -> bool:
-        if not (self._editor_dirty or self._meta_dirty):
+        if not (self._editor_dirty or self._meta_dirty or self._profile_meta_dirty):
             return True
         return (
             QMessageBox.question(
@@ -511,7 +884,13 @@ class SkeletonEditorQtDialog(QDialog):
             content += "\n"
         target.write_text(content, encoding="utf-8")
         self._editor_dirty = False
-        QMessageBox.information(self, "Skeleton", f"Gespeichert: {entry.path}")
+        idx = self._selected_index
+        if idx is not None and self._sync_entry_from_file(idx):
+            self._refresh_after_file_sync(idx)
+        else:
+            self._update_frontmatter_warning(entry.path)
+        self._update_action_buttons_enabled()
+        self._show_saved_status(f"Gespeichert: {entry.path}")
 
     def _save_entry_meta(self) -> None:
         entry = self._current_entry()
@@ -546,16 +925,23 @@ class SkeletonEditorQtDialog(QDialog):
         keep = self._selected_index
         self._populate_file_list()
         self._select_row(keep)
-        QMessageBox.information(self, "Skeleton", "Vorlagen-Metadaten gespeichert.")
+        self._update_action_buttons_enabled()
+        self._show_saved_status("Vorlagen-Metadaten gespeichert.")
 
     def _add_file(self) -> None:
         if self._manifest is None:
             return
-        title, ok = QInputDialog.getText(self, "Neue Vorlage", "Titel der Vorlage:")
+        title, ok = _prompt_text(self, "Neue Vorlage", "Titel der Vorlage:")
         if not ok or not title.strip():
             return
-        suggested = f"content/required/{title.strip().replace(' ', '_')}.md"
-        rel, ok = QInputDialog.getText(
+        # KEIN "content/required/..."-Vorschlag mehr: der Ordnername "required" ist
+        # nur noch Legacy-Fallback für Alt-Bücher ohne explizites required-Feld
+        # (siehe page_required.py). Neue Vorlagen sollen ihre Pflicht/Optional-
+        # Zuordnung ausschließlich über das explizite Manifest-/Frontmatter-Feld
+        # bekommen, nicht über den Ordner - sonst droht wieder derselbe
+        # Legacy-Fallback-Fehlschluss wie bei Glossar/Über den Autor.
+        suggested = f"content/{title.strip().replace(' ', '_')}.md"
+        rel, ok = _prompt_text(
             self,
             "Pfad im Skeleton-Profil",
             f"Relativer Pfad im Profilordner:\n{self._manifest.root.name}/",
@@ -563,7 +949,7 @@ class SkeletonEditorQtDialog(QDialog):
         )
         if not ok or not rel.strip():
             return
-        order_raw, ok = QInputDialog.getText(self, "order", "order (leer = keine feste Position):")
+        order_raw, ok = _prompt_text(self, "order", "order (leer = keine feste Position):")
         order = order_raw.strip() if ok and order_raw else None
         try:
             target = create_markdown_template(
@@ -640,13 +1026,75 @@ class SkeletonEditorQtDialog(QDialog):
         self._populate_file_list()
         self._clear_editor()
 
+    def _open_orphan_files_dialog(self) -> None:
+        if self._manifest is None:
+            QMessageBox.information(self, "Skeleton", "Kein Profil geladen.")
+            return
+        orphans = find_orphaned_files(self._manifest.root, self._entries)
+        if not orphans:
+            QMessageBox.information(
+                self,
+                "Verwaiste Dateien",
+                "Keine verwaisten Dateien in diesem Profil gefunden.",
+            )
+            return
+        OrphanFilesDialog(
+            self,
+            profile_root=self._manifest.root,
+            orphans=orphans,
+            on_add=self._add_orphan_to_profile,
+            on_delete=self._delete_orphan_files,
+        ).exec()
+
+    def _add_orphan_to_profile(self, rel_path: str) -> bool:
+        if self._manifest is None:
+            return False
+        default_title = Path(rel_path).stem.replace("_", " ")
+        title, ok = _prompt_text(
+            self, "Zum Profil hinzufügen", "Titel der Vorlage:", text=default_title
+        )
+        if not ok or not title.strip():
+            return False
+        order_raw, ok = _prompt_text(self, "order", "order (leer = keine feste Position):")
+        order = order_raw.strip() if ok and order_raw else None
+        new_entry = SkeletonFileEntry(path=rel_path, title=title.strip(), order=order, required=False)
+        self._entries.append(new_entry)
+        self._manifest = replace_manifest_entries(
+            self._manifest.root,
+            self._entries,
+            name=self._manifest.name,
+            label=self._manifest.label,
+            description=self._manifest.description,
+        )
+        self._entries = list(self._manifest.files)
+        self._populate_file_list()
+        self._show_saved_status(f"Zum Profil hinzugefügt: {rel_path}")
+        return True
+
+    def _delete_orphan_files(self, rel_paths: list[str]) -> None:
+        if self._manifest is None:
+            return
+        deleted: list[str] = []
+        for rel_path in rel_paths:
+            target = self._manifest.root / rel_path
+            try:
+                if target.is_file():
+                    target.unlink()
+                    deleted.append(rel_path)
+            except OSError as exc:
+                QMessageBox.critical(
+                    self, "Skeleton", f"Datei konnte nicht gelöscht werden:\n{rel_path}\n{exc}"
+                )
+        if deleted:
+            self._show_saved_status(f"{len(deleted)} Datei(en) gelöscht.")
+
     def _duplicate_profile(self) -> None:
         if self._manifest is None:
             return
-        dest, ok = QInputDialog.getText(self, "Profil duplizieren", "Name für das neue Profil:")
+        dest, ok = _prompt_text(self, "Profil duplizieren", "Name für das neue Profil:")
         if not ok or not dest.strip():
             return
-        label, ok = QInputDialog.getText(self, "Label", "Anzeige-Label (optional):")
+        label, ok = _prompt_text(self, "Label", "Anzeige-Label (optional):")
         label_val = label.strip() if ok else None
         try:
             dest_name = validate_profile_name(dest)
@@ -665,7 +1113,9 @@ class SkeletonEditorQtDialog(QDialog):
                 label=self._profile_label.text().strip(),
                 description=self._profile_desc.text().strip(),
             )
-            QMessageBox.information(self, "Skeleton", "Profil-Metadaten gespeichert.")
+            self._profile_meta_dirty = False
+            self._update_action_buttons_enabled()
+            self._show_saved_status("Profil-Metadaten gespeichert.")
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Skeleton", str(exc))
 

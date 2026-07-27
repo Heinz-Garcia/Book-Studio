@@ -204,6 +204,24 @@ QPushButton#skeletonEditorPrimary {
 QPushButton#skeletonEditorPrimary:hover {
     background-color: #264a80;
 }
+QPushButton#skeletonEditorPrimary:disabled {
+    background-color: #c5cad3;
+    color: #7a7f88;
+}
+QLabel#skeletonEditorStatus {
+    color: #1a7f4b;
+    font-weight: 600;
+    padding-left: 8px;
+}
+QLabel#skeletonEditorFrontmatterWarning {
+    background-color: #fdecea;
+    color: #8a1f11;
+    border: 1px solid #f3b3ab;
+    border-left: 4px solid #c62828;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-weight: 600;
+}
 QDialog#ggContentSwapDialog QTableWidget#ggSwapTable,
 QDialog#ggContentSwapDialog QListWidget#ggSwapExportList {
     background-color: #ffffff;

@@ -2,6 +2,7 @@
 title: "Vorlagen-Referenz"
 description: "Vorlagen-Referenz"
 status: bookstudio
+required: false
 ---
 
 # Vorlagen-Referenz

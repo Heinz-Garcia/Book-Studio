@@ -32,7 +32,7 @@ def _create_book(tmp_path: Path) -> Path:
 
 def test_compute_file_diff_detects_changes(tmp_path: Path) -> None:
     book = _create_book(tmp_path)
-    rel = "content/required/Einleitung.md"
+    rel = "content/Einleitung.md"
     target = book / rel
     target.parent.mkdir(parents=True)
     target.write_text("# Alt\n", encoding="utf-8")
@@ -55,7 +55,7 @@ def test_build_diff_map_has_all_paths(tmp_path: Path) -> None:
 
 def test_missing_only_skips_existing(tmp_path: Path) -> None:
     book = _create_book(tmp_path)
-    existing = book / "content/required/Einleitung.md"
+    existing = book / "content/Einleitung.md"
     existing.parent.mkdir(parents=True)
     existing.write_text("# Alt\n", encoding="utf-8")
     manifest = load_manifest(_standard_profile())
@@ -81,7 +81,7 @@ def test_resolve_populate_plan_missing_only(tmp_path: Path) -> None:
 
 def test_populate_missing_only_mode(tmp_path: Path) -> None:
     book = _create_book(tmp_path)
-    existing = book / "content/required/Einleitung.md"
+    existing = book / "content/Einleitung.md"
     existing.parent.mkdir(parents=True)
     existing.write_text("# Alt\n", encoding="utf-8")
     result = populate_book(
@@ -92,7 +92,7 @@ def test_populate_missing_only_mode(tmp_path: Path) -> None:
         skip_dialog=True,
     )
     assert result.ok
-    assert "content/required/Einleitung.md" in result.skipped
+    assert "content/Einleitung.md" in result.skipped
     assert "# Alt" in existing.read_text(encoding="utf-8")
 
 
@@ -125,35 +125,43 @@ def test_delete_profile_removes_directory(tmp_path: Path) -> None:
 
 def test_build_populate_plan_skips_optional_by_default(tmp_path: Path) -> None:
     """Batch 2: `build_populate_plan` markiert nicht-required Einträge als
-    `will_copy=False`, solange `include_optional` nicht gesetzt ist."""
+    `will_copy=False`, solange `include_optional` nicht gesetzt ist.
+
+    Sucht sich bewusst dynamisch EIN optionales Manifest-Element, statt einen
+    Dateinamen fest zu verdrahten - welche konkrete Datei im "standard"-Profil
+    optional ist, ändert sich im Zuge der laufenden Pflege dieser Bibliothek.
+    """
     book = _create_book(tmp_path)
     manifest = load_manifest(_standard_profile())
+    optional_entry = next(e for e in manifest.files if not e.required)
     plan = build_populate_plan(manifest, book, include_diff=False)
-    widmung = next(line for line in plan if line.rel_path.endswith("Widmung.md"))
-    assert widmung.required is False
-    assert widmung.will_copy is False
+    optional_line = next(line for line in plan if line.rel_path == optional_entry.path)
+    assert optional_line.required is False
+    assert optional_line.will_copy is False
 
 
 def test_build_populate_plan_include_optional_copies_optional_entries(tmp_path: Path) -> None:
     book = _create_book(tmp_path)
     manifest = load_manifest(_standard_profile())
+    optional_path = next(e for e in manifest.files if not e.required).path
     plan = build_populate_plan(manifest, book, include_diff=False, include_optional=True)
-    widmung = next(line for line in plan if line.rel_path.endswith("Widmung.md"))
-    assert widmung.will_copy is True
+    optional_line = next(line for line in plan if line.rel_path == optional_path)
+    assert optional_line.will_copy is True
 
 
 def test_resolve_populate_plan_respects_include_optional(tmp_path: Path) -> None:
     book = _create_book(tmp_path)
     manifest = load_manifest(_standard_profile())
+    optional_path = next(e for e in manifest.files if not e.required).path
     base = build_populate_plan(manifest, book, include_diff=False)
     resolved_default = resolve_populate_plan(base, conflict_choice="replace", missing_only=False)
     resolved_opt_in = resolve_populate_plan(
         base, conflict_choice="replace", missing_only=False, include_optional=True
     )
-    widmung_default = next(line for line in resolved_default if line.rel_path.endswith("Widmung.md"))
-    widmung_opt_in = next(line for line in resolved_opt_in if line.rel_path.endswith("Widmung.md"))
-    assert widmung_default.will_copy is False
-    assert widmung_opt_in.will_copy is True
+    optional_default = next(line for line in resolved_default if line.rel_path == optional_path)
+    optional_opt_in = next(line for line in resolved_opt_in if line.rel_path == optional_path)
+    assert optional_default.will_copy is False
+    assert optional_opt_in.will_copy is True
 
 
 def test_resolve_populate_plan_file_overrides_force_include_optional(tmp_path: Path) -> None:
@@ -165,17 +173,24 @@ def test_resolve_populate_plan_file_overrides_force_include_optional(tmp_path: P
     manifest = load_manifest(_standard_profile())
     base = build_populate_plan(manifest, book, include_diff=False)
 
+    # Zwei verschiedene optionale Slots: einen gezielt per Override aktivieren,
+    # "Template.md" (immer optional, Sentinel-Referenzdatei) als unberuehrte
+    # Kontrolle stehen lassen.
+    override_path = next(
+        e.path for e in manifest.files if not e.required and not e.path.endswith("Template.md")
+    )
+
     resolved = resolve_populate_plan(
         base,
         conflict_choice="skip",
         missing_only=False,
         include_optional=False,
-        file_overrides={"content/required/Widmung.md": True},
+        file_overrides={override_path: True},
     )
 
-    widmung = next(line for line in resolved if line.rel_path.endswith("Widmung.md"))
+    overridden = next(line for line in resolved if line.rel_path == override_path)
     template = next(line for line in resolved if line.rel_path.endswith("Template.md"))
-    assert widmung.will_copy is True
+    assert overridden.will_copy is True
     # Andere optionale Slots bleiben von der gezielten Ausnahme unberuehrt.
     assert template.will_copy is False
 
@@ -188,18 +203,26 @@ def test_resolve_populate_plan_file_overrides_force_skip_required_file(tmp_path:
     manifest = load_manifest(_standard_profile())
     base = build_populate_plan(manifest, book, include_diff=False)
 
+    # Kontroll-Datei: irgendein anderer required-Eintrag, der von der gezielten
+    # Ausnahme für Einleitung.md unberuehrt bleiben soll.
+    control_path = next(
+        e.path
+        for e in manifest.files
+        if e.required and not e.path.endswith("Einleitung.md")
+    )
+
     resolved = resolve_populate_plan(
         base,
         conflict_choice="skip",
         missing_only=False,
         include_optional=False,
-        file_overrides={"content/required/Einleitung.md": False},
+        file_overrides={"content/Einleitung.md": False},
     )
 
     einleitung = next(line for line in resolved if line.rel_path.endswith("Einleitung.md"))
-    titel = next(line for line in resolved if line.rel_path.endswith("Titel.md"))
+    control = next(line for line in resolved if line.rel_path == control_path)
     assert einleitung.will_copy is False
-    assert titel.will_copy is True
+    assert control.will_copy is True
 
 
 def test_populate_book_respects_dialog_file_overrides(tmp_path: Path, monkeypatch) -> None:
@@ -215,7 +238,7 @@ def test_populate_book_respects_dialog_file_overrides(tmp_path: Path, monkeypatc
 
     base_lines = [
         PopulatePlanLine(
-            rel_path="content/required/Einleitung.md",
+            rel_path="content/Einleitung.md",
             exists=False,    # neue Datei — globale Regel würde kopieren
             will_copy=True,
             include_in_tree=True,
@@ -223,7 +246,7 @@ def test_populate_book_respects_dialog_file_overrides(tmp_path: Path, monkeypatc
             required=True,
         ),
         PopulatePlanLine(
-            rel_path="content/required/Widmung.md",
+            rel_path="content/Widmung.md",
             exists=False,
             will_copy=False,  # nicht-required — globale Regel würde überspringen
             include_in_tree=True,
@@ -233,8 +256,8 @@ def test_populate_book_respects_dialog_file_overrides(tmp_path: Path, monkeypatc
     ]
 
     overrides = {
-        "content/required/Einleitung.md": False,  # Override: NICHT kopieren
-        "content/required/Widmung.md": True,       # Override: trotzdem kopieren
+        "content/Einleitung.md": False,  # Override: NICHT kopieren
+        "content/Widmung.md": True,       # Override: trotzdem kopieren
     }
 
     result = apply_plan_rules(
@@ -246,10 +269,10 @@ def test_populate_book_respects_dialog_file_overrides(tmp_path: Path, monkeypatc
     )
 
     plan_by_path = {line.rel_path: line for line in result}
-    assert plan_by_path["content/required/Einleitung.md"].will_copy is False, (
+    assert plan_by_path["content/Einleitung.md"].will_copy is False, (
         "Einleitung.md: Override False muss globale Kopier-Regel überschreiben"
     )
-    assert plan_by_path["content/required/Widmung.md"].will_copy is True, (
+    assert plan_by_path["content/Widmung.md"].will_copy is True, (
         "Widmung.md: Override True muss globale Optional-Überspringen-Regel überschreiben"
     )
 

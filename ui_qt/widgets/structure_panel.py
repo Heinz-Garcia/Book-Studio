@@ -112,7 +112,7 @@ class StructurePanel(QWidget):
         root.setRowStretch(1, 1)
         root.setColumnStretch(0, 1)
         root.setColumnStretch(1, 0)
-        root.setColumnStretch(2, 2)
+        root.setColumnStretch(2, 1)
 
         label_left = QLabel("Nicht zugeordnete Kapitel")
         label_right = QLabel("Buchstruktur")

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence, QTextCursor
+from PySide6.QtGui import QAction, QKeySequence, QShortcut, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QButtonGroup,
     QDialog,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -25,8 +26,67 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui_qt import markdown_formatting
 from ui_qt.end_commands import DEFAULT_PAGEBREAK_COMMAND, insert_end_command_text
 from ui_qt.markdown_preview import markdown_to_preview_html
+
+# Alle folgenden (Icon, Tooltip, Marker davor, Marker danach)-Tupel wickeln die
+# Auswahl ein bzw. fügen bei leerer Auswahl einen selektierten Platzhalter ein
+# (siehe `_wrap_selection`). Sieben klar getrennte Gruppen (je eigener
+# Toolbar-Abschnitt), damit man bei so vielen Buttons noch durchblickt:
+# Textformatierung -> Ausrichtung -> Schriftgröße -> Mathe -> Überschriften ->
+# Listen/Zitat -> Einfügen.
+
+_TEXT_EMPHASIS_COMMANDS: tuple[tuple[str, str, str, str], ...] = (
+    ("𝐁", "Fett (**Text**)", "**", "**"),
+    ("𝐼", "Kursiv (*Text*)", "*", "*"),
+    ("S̶", "Durchgestrichen (~~Text~~)", "~~", "~~"),
+    ("x²", "Hochgestellt (^Text^)", "^", "^"),
+    ("x₂", "Tiefgestellt (~Text~)", "~", "~"),
+    ("</>", "Inline-Code (`Text`)", "`", "`"),
+)
+
+# Typst-Raw-Passthrough (`center`/`horizon`): Pandoc-Markdown kennt keine
+# Ausrichtung nativ, das ist reine Typst-Fähigkeit.
+_ALIGNMENT_COMMANDS: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "↔",
+        "Zentrieren horizontal (Typst: #align(center)[Text])",
+        "`#align(center)[",
+        "]`{=typst}",
+    ),
+    (
+        "↕↔",
+        "Zentrieren horizontal + vertikal auf der Seite (Typst: "
+        "#align(center + horizon)[Text]) - z. B. Titel/Zitat mittig auf einer "
+        "eigenen Seite (Deckblatt, Widmung).",
+        "`#align(center + horizon)[",
+        "]`{=typst}",
+    ),
+)
+
+# Ebenfalls Typst-Raw-Passthrough: `em` ist relativ zur aktuellen Schriftgröße,
+# funktioniert also unabhängig davon, welche Basisgröße gerade gilt.
+_SIZE_COMMANDS: tuple[tuple[str, str, str, str], ...] = (
+    ("A+", "Text vergrößern (Typst: #text(size: 1.2em)[Text])", "`#text(size: 1.2em)[", "]`{=typst}"),
+    ("A-", "Text verkleinern (Typst: #text(size: 0.85em)[Text])", "`#text(size: 0.85em)[", "]`{=typst}"),
+)
+
+_MATH_INLINE_COMMAND: tuple[str, str, str, str] = ("∑", "Mathe inline ($Formel$)", "$", "$")
+
+# (Icon, Tooltip, Überschrift-Ebene)
+_HEADING_COMMANDS: tuple[tuple[str, str, int], ...] = (
+    ("H1", "Überschrift 1 (# Text)", 1),
+    ("H2", "Überschrift 2 (## Text)", 2),
+    ("H3", "Überschrift 3 (### Text)", 3),
+)
+
+# (Icon, Tooltip, Marker-Fabrik pro Zeilenindex)
+_LINE_PREFIX_COMMANDS: tuple[tuple[str, str, Any], ...] = (
+    ("❝", "Zitat (> Text)", lambda _i: "> "),
+    ("•", "Aufzählungsliste (- Text)", lambda _i: "- "),
+    ("1.", "Nummerierte Liste (1. Text)", lambda i: f"{i}. "),
+)
 
 
 class PreviewDialog(QDialog):
@@ -92,20 +152,36 @@ class TextEditorDialog(QDialog):
         self._is_markdown = self.path.suffix.lower() == ".md"
         self._preview_dirty = True
         self.setWindowTitle(f"{title} — {self.path.name}")
-        self.resize(900, 650)
+        self.resize(1440, 720)
         layout = QVBoxLayout(self)
 
+        # Zwei Zeilen statt einer: die volle Formatier-Toolbar braucht in einer
+        # einzigen Zeile ~2300px, weit über eine praktikable Dialogbreite hinaus
+        # (und QToolBar würde den Rest sonst hinter einem "»"-Overflow-Button
+        # verstecken). Zeile 1: Ansicht/Seite + Text-Format/Ausrichtung/Größe/
+        # Mathe. Zeile 2: Struktur (Überschrift/Listen/Einfügen) + Umbruch/Ende/Verlauf.
         toolbar = QToolBar()
         toolbar.setMovable(False)
+        toolbar.setStyleSheet("QToolBar QPushButton { font-size: 13px; }")
         layout.addWidget(toolbar)
 
+        toolbar2 = QToolBar()
+        toolbar2.setMovable(False)
+        toolbar2.setStyleSheet("QToolBar QPushButton { font-size: 13px; }")
+        layout.addWidget(toolbar2)
+
         if self._is_markdown:
+            self._add_toolbar_group_label(toolbar, "Ansicht")
             self._mode_group = QButtonGroup(self)
-            self._btn_code = QPushButton("Code")
-            self._btn_preview = QPushButton("Vorschau")
+            self._btn_code = QPushButton("📝")
+            self._btn_code.setToolTip("Codeansicht (Rohtext bearbeiten)")
+            self._btn_preview = QPushButton("👁️")
+            self._btn_preview.setToolTip(
+                "Leservorschau (gerendert; Frontmatter/Seitenumbruch ausgeblendet)"
+            )
             for btn in (self._btn_code, self._btn_preview):
                 btn.setCheckable(True)
-                btn.setMinimumWidth(90)
+                btn.setFixedWidth(40)
                 toolbar.addWidget(btn)
             self._mode_group.addButton(self._btn_code, 0)
             self._mode_group.addButton(self._btn_preview, 1)
@@ -113,10 +189,11 @@ class TextEditorDialog(QDialog):
             self._mode_group.idClicked.connect(self._on_mode_changed)
             toolbar.addSeparator()
 
+            self._add_toolbar_group_label(toolbar, "Seite")
             self._btn_required = QPushButton("📌")
             self._btn_required.setCheckable(True)
             self._btn_required.setFlat(False)
-            self._btn_required.setFixedWidth(36)
+            self._btn_required.setFixedWidth(40)
             self._btn_required.setToolTip(
                 "Required umschalten (Frontmatter required: true).\n"
                 "Aktiv = Pflichtseite."
@@ -127,7 +204,7 @@ class TextEditorDialog(QDialog):
             self._btn_gg = QPushButton("🧬")
             self._btn_gg.setCheckable(False)
             self._btn_gg.setFlat(False)
-            self._btn_gg.setFixedWidth(36)
+            self._btn_gg.setFixedWidth(40)
             self._btn_gg.setToolTip(
                 "GrammarGraph-Inhalt aktualisieren…\n"
                 "Anderen GG-Export wählen und Nutzinhalt (Body) tauschen."
@@ -135,6 +212,24 @@ class TextEditorDialog(QDialog):
             self._btn_gg.clicked.connect(self._open_gg_swap)
             toolbar.addWidget(self._btn_gg)
             toolbar.addSeparator()
+
+            self._build_formatting_toolbar_row1(toolbar)
+
+            self._build_formatting_toolbar_row2(toolbar2)
+            toolbar2.addSeparator()
+
+            self._add_toolbar_group_label(toolbar2, "Umbruch")
+            self._btn_linebreak = QPushButton("\\")
+            self._btn_linebreak.setToolTip(
+                "Harter Zeilenumbruch: fügt einen Backslash „\\“ am Ende der aktuellen "
+                "Zeile ein.\nPandocs eigene Hard-Break-Syntax - wird beim Rendern (auch "
+                "nach Typst/PDF) in einen echten Zeilenumbruch übersetzt.\nHTML <br> "
+                "funktioniert hier NICHT: Pandoc verwirft rohes HTML bei Nicht-HTML-Zielen."
+            )
+            self._btn_linebreak.setFixedWidth(32)
+            self._btn_linebreak.clicked.connect(self._insert_hard_line_break)
+            toolbar2.addWidget(self._btn_linebreak)
+            toolbar2.addSeparator()
         else:
             self._btn_required = None
             self._btn_gg = None
@@ -145,14 +240,70 @@ class TextEditorDialog(QDialog):
         if not commands and self._is_markdown:
             commands = [DEFAULT_PAGEBREAK_COMMAND]
 
+        if commands and self._is_markdown:
+            self._add_toolbar_group_label(toolbar2, "Ende")
         self._end_command_buttons: list[QPushButton] = []
         for command in commands:
             label = str(command.get("label") or "End-Befehl")
-            btn = QPushButton(f"↵ {label}")
-            btn.setToolTip("Fügt den Befehl automatisch ans Dateiende ein.")
+            btn = QPushButton("⏭️")
+            btn.setFixedWidth(40)
+            btn.setToolTip(f"{label}\nFügt den Befehl automatisch ans Dateiende ein.")
             btn.clicked.connect(lambda _checked=False, cmd=command: self._insert_end_command(cmd))
-            toolbar.addWidget(btn)
+            toolbar2.addWidget(btn)
             self._end_command_buttons.append(btn)
+
+        if self._is_markdown:
+            toolbar2.addSeparator()
+            self._add_toolbar_group_label(toolbar2, "Suche")
+            btn_find = QPushButton("🔍")
+            btn_find.setFixedWidth(34)
+            btn_find.setToolTip("Suchen (Strg+F) - Enter: nächster Treffer, Esc: schließen")
+            btn_find.clicked.connect(self._show_find_bar)
+            toolbar2.addWidget(btn_find)
+
+            # Verlauf bleibt bewusst die LETZTE Gruppe (Undo/Redo als letzte 2 Buttons).
+            toolbar2.addSeparator()
+            self._add_toolbar_group_label(toolbar2, "Verlauf")
+            self._btn_undo = QPushButton("↶")
+            self._btn_undo.setToolTip("Rückgängig (Strg+Z)")
+            self._btn_undo.setFixedWidth(32)
+            self._btn_undo.setEnabled(False)
+            self._btn_redo = QPushButton("↷")
+            self._btn_redo.setToolTip("Wiederholen (Strg+Y)")
+            self._btn_redo.setFixedWidth(32)
+            self._btn_redo.setEnabled(False)
+            toolbar2.addWidget(self._btn_undo)
+            toolbar2.addWidget(self._btn_redo)
+
+        self._find_bar = QWidget()
+        find_layout = QHBoxLayout(self._find_bar)
+        find_layout.setContentsMargins(4, 2, 4, 2)
+        find_layout.addWidget(QLabel("🔍"))
+        self._find_input = QLineEdit()
+        self._find_input.setPlaceholderText("Suchen…")
+        self._find_input.returnPressed.connect(self._find_next)
+        find_layout.addWidget(self._find_input, stretch=1)
+        btn_find_prev = QPushButton("◀")
+        btn_find_prev.setFixedWidth(28)
+        btn_find_prev.setToolTip("Vorheriger Treffer")
+        btn_find_prev.clicked.connect(self._find_previous)
+        find_layout.addWidget(btn_find_prev)
+        btn_find_next = QPushButton("▶")
+        btn_find_next.setFixedWidth(28)
+        btn_find_next.setToolTip("Nächster Treffer")
+        btn_find_next.clicked.connect(self._find_next)
+        find_layout.addWidget(btn_find_next)
+        btn_find_close = QPushButton("✕")
+        btn_find_close.setFixedWidth(28)
+        btn_find_close.setToolTip("Suche schließen (Esc)")
+        btn_find_close.clicked.connect(self._hide_find_bar)
+        find_layout.addWidget(btn_find_close)
+        self._find_bar.setVisible(False)
+        layout.addWidget(self._find_bar)
+        QShortcut(
+            QKeySequence(Qt.Key.Key_Escape), self._find_input, self._hide_find_bar,
+            context=Qt.ShortcutContext.WidgetShortcut,
+        )
 
         self._stack = QStackedWidget()
         self.editor = QPlainTextEdit()
@@ -161,6 +312,11 @@ class TextEditorDialog(QDialog):
         except OSError as exc:
             self.editor.setPlainText(f"# Lesefehler\n{exc}")
         self.editor.textChanged.connect(self._on_text_changed)
+        if self._is_markdown:
+            self._btn_undo.clicked.connect(self.editor.undo)
+            self._btn_redo.clicked.connect(self.editor.redo)
+            self.editor.undoAvailable.connect(self._btn_undo.setEnabled)
+            self.editor.redoAvailable.connect(self._btn_redo.setEnabled)
         self._stack.addWidget(self.editor)
 
         self._preview = QTextBrowser()
@@ -190,12 +346,106 @@ class TextEditorDialog(QDialog):
         )
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
+        save_as_btn = buttons.addButton("Speichern als…", QDialogButtonBox.ButtonRole.ActionRole)
+        save_as_btn.setToolTip(
+            "Speichert den aktuellen Inhalt zusätzlich unter einem neuen Dateinamen/Pfad "
+            "(Kopie) - die hier bearbeitete Datei bleibt dieselbe. Ein stillschweigender "
+            "Pfadwechsel würde die Zuordnung im Buchbaum/Skeleton-Sync durcheinanderbringen."
+        )
+        save_as_btn.clicked.connect(self._save_as)
         layout.addWidget(buttons)
 
         save_shortcut = QAction(self)
         save_shortcut.setShortcut(QKeySequence.StandardKey.Save)
         save_shortcut.triggered.connect(self._save)
         self.addAction(save_shortcut)
+
+        find_shortcut = QAction(self)
+        find_shortcut.setShortcut(QKeySequence.StandardKey.Find)
+        find_shortcut.triggered.connect(self._show_find_bar)
+        self.addAction(find_shortcut)
+
+    @staticmethod
+    def _add_toolbar_group_label(toolbar: QToolBar, text: str) -> None:
+        """Kleine, dezente Beschriftung vor einer Button-Gruppe - reine
+        Separatoren allein liest man bei so vielen Icons leicht als eine
+        einzige lange Reihe; ein Wort pro Gruppe macht den Überblick sofort
+        klarer, ohne viel Platz zu kosten."""
+        label = QLabel(text)
+        # Baseline vor dieser Vergrößerung war 10px - bei "Reset" hierher zurück.
+        label.setStyleSheet("color: #8b8f98; font-size: 12px; padding: 0 3px;")
+        toolbar.addWidget(label)
+
+    def _add_wrap_buttons(
+        self, toolbar: QToolBar, commands: tuple[tuple[str, str, str, str], ...], width: int = 34
+    ) -> None:
+        for icon, tooltip, before, after in commands:
+            btn = QPushButton(icon)
+            btn.setFixedWidth(width)
+            btn.setToolTip(tooltip)
+            btn.clicked.connect(lambda _c=False, b=before, a=after: self._wrap_selection(b, a))
+            toolbar.addWidget(btn)
+
+    def _build_formatting_toolbar_row1(self, toolbar: QToolBar) -> None:
+        """Erste Toolbar-Zeile: Textformatierung -> Ausrichtung -> Schriftgröße
+        -> Mathe. Reine Icons (Platzgründe), bisheriger Text steht als Tooltip;
+        auf zwei Zeilen aufgeteilt, weil die volle Formatier-Toolbar in einer
+        Zeile ~2300px bräuchte (siehe `_build_formatting_toolbar_row2`)."""
+        self._add_toolbar_group_label(toolbar, "Format")
+        self._add_wrap_buttons(toolbar, _TEXT_EMPHASIS_COMMANDS)
+        toolbar.addSeparator()
+
+        self._add_toolbar_group_label(toolbar, "Ausrichtung")
+        self._add_wrap_buttons(toolbar, _ALIGNMENT_COMMANDS, width=38)
+        toolbar.addSeparator()
+
+        self._add_toolbar_group_label(toolbar, "Größe")
+        self._add_wrap_buttons(toolbar, _SIZE_COMMANDS, width=34)
+        toolbar.addSeparator()
+
+        self._add_toolbar_group_label(toolbar, "Mathe")
+        self._add_wrap_buttons(toolbar, (_MATH_INLINE_COMMAND,))
+        math_block_btn = QPushButton("∫")
+        math_block_btn.setFixedWidth(34)
+        math_block_btn.setToolTip("Mathe-Block ($$Formel$$)")
+        math_block_btn.clicked.connect(self._insert_math_block)
+        toolbar.addWidget(math_block_btn)
+
+    def _build_formatting_toolbar_row2(self, toolbar: QToolBar) -> None:
+        """Zweite Toolbar-Zeile: Überschriften -> Listen/Zitat -> Einfügen."""
+        self._add_toolbar_group_label(toolbar, "Überschrift")
+        for icon, tooltip, level in _HEADING_COMMANDS:
+            btn = QPushButton(icon)
+            btn.setFixedWidth(34)
+            btn.setToolTip(tooltip)
+            btn.clicked.connect(lambda _c=False, lvl=level: self._set_heading_level(lvl))
+            toolbar.addWidget(btn)
+        toolbar.addSeparator()
+
+        self._add_toolbar_group_label(toolbar, "Listen")
+        for icon, tooltip, marker_for_index in _LINE_PREFIX_COMMANDS:
+            btn = QPushButton(icon)
+            btn.setFixedWidth(34)
+            btn.setToolTip(tooltip)
+            btn.clicked.connect(lambda _c=False, m=marker_for_index: self._apply_line_prefix(m))
+            toolbar.addWidget(btn)
+        toolbar.addSeparator()
+
+        self._add_toolbar_group_label(toolbar, "Einfügen")
+        insert_buttons = (
+            ("―", "Trennlinie (---)", self._insert_horizontal_rule),
+            ("{ }", "Codeblock (```)", self._insert_code_block),
+            ("▦", "Tabelle (Pandoc-Pipe-Table)", self._insert_table),
+            ("🔗", "Link ([Text](URL))", self._insert_link),
+            ("🖼️", "Bild (![Alt](Pfad))", self._insert_image),
+            ("¹", "Fußnote ([^n])", self._insert_footnote),
+        )
+        for icon, tooltip, handler in insert_buttons:
+            btn = QPushButton(icon)
+            btn.setFixedWidth(34)
+            btn.setToolTip(tooltip)
+            btn.clicked.connect(handler)
+            toolbar.addWidget(btn)
 
     @staticmethod
     def _load_end_commands_from_config() -> list[dict[str, Any]]:
@@ -234,13 +484,56 @@ class TextEditorDialog(QDialog):
         self._btn_required.setChecked(is_req)
         self._btn_required.blockSignals(blocked)
 
-    def _toggle_required(self) -> None:
-        if self._btn_required is None:
-            return
+    def _ensure_code_view(self) -> None:
+        """Wechselt in die Codeansicht, falls gerade die Leservorschau aktiv
+        ist - Formatier-Buttons bearbeiten den Rohtext, nicht das gerenderte
+        HTML der Vorschau."""
         if self._stack.currentWidget() is not self.editor:
             if hasattr(self, "_btn_code"):
                 self._btn_code.setChecked(True)
             self._show_code()
+
+    def _show_find_bar(self) -> None:
+        self._ensure_code_view()
+        self._find_bar.setVisible(True)
+        self._find_input.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self._find_input.selectAll()
+
+    def _hide_find_bar(self) -> None:
+        self._find_bar.setVisible(False)
+        self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _find_next(self) -> None:
+        self._find(backward=False)
+
+    def _find_previous(self) -> None:
+        self._find(backward=True)
+
+    def _find(self, *, backward: bool) -> None:
+        """Sucht ab der aktuellen Cursorposition, läuft am Dokumentende (bzw.
+        -anfang bei Rückwärtssuche) einmal um, statt dort einfach aufzugeben -
+        wie man es von Strg+F in Editoren/Browsern erwartet."""
+        term = self._find_input.text()
+        if not term:
+            return
+        flags = QTextDocument.FindFlag.FindBackward if backward else QTextDocument.FindFlag(0)
+        if self.editor.find(term, flags):
+            self._find_input.setStyleSheet("")
+            return
+        cursor = self.editor.textCursor()
+        cursor.movePosition(
+            QTextCursor.MoveOperation.End if backward else QTextCursor.MoveOperation.Start
+        )
+        self.editor.setTextCursor(cursor)
+        if self.editor.find(term, flags):
+            self._find_input.setStyleSheet("")
+        else:
+            self._find_input.setStyleSheet("background-color: #fde2e1;")
+
+    def _toggle_required(self) -> None:
+        if self._btn_required is None:
+            return
+        self._ensure_code_view()
         from page_required import toggle_required_in_content
 
         new_text, new_state = toggle_required_in_content(self.editor.toPlainText())
@@ -331,10 +624,7 @@ class TextEditorDialog(QDialog):
         self._set_status("Leservorschau (Frontmatter/Seitenumbruch ausgeblendet)", "ok")
 
     def _insert_end_command(self, command: dict[str, Any]) -> None:
-        if self._stack.currentWidget() is not self.editor:
-            if hasattr(self, "_btn_code"):
-                self._btn_code.setChecked(True)
-            self._show_code()
+        self._ensure_code_view()
         new_content, message, level = insert_end_command_text(
             self.editor.toPlainText(),
             command,
@@ -349,6 +639,167 @@ class TextEditorDialog(QDialog):
         self.editor.centerCursor()
         self._pending_skeleton_command = dict(command)
         self._preview_dirty = True
+
+    def _insert_hard_line_break(self) -> None:
+        """Fügt „\\“ (Pandocs harter Zeilenumbruch) ans Ende der Zeile, in der
+        der Cursor steht - unabhängig davon, wo in der Zeile der Cursor genau
+        steht. Bewusst `EndOfBlock` statt `EndOfLine`: bei aktiviertem
+        Zeilenumbruch (Word-Wrap, Standard für QPlainTextEdit) markiert
+        `EndOfLine` nur das Ende der sichtbaren, umgebrochenen Zeile, nicht
+        das Ende der tatsächlichen Quelltext-Zeile."""
+        self._ensure_code_view()
+        cursor = self.editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        if cursor.block().text().endswith("\\"):
+            self._set_status("Zeile endet bereits mit einem harten Zeilenumbruch (\\).", "dim")
+            return
+        cursor.insertText("\\")
+        self.editor.setTextCursor(cursor)
+        self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._set_status("Harter Zeilenumbruch (\\) am Zeilenende eingefügt — noch nicht gespeichert.", "ok")
+
+    @staticmethod
+    def _selected_text_normalized(cursor: QTextCursor) -> str:
+        """`QTextCursor.selectedText()` liefert bei mehrzeiliger Auswahl den
+        Unicode-Absatztrenner U+2029 statt "\\n" - für Markdown-Text normalisieren."""
+        return cursor.selectedText().replace(" ", "\n")
+
+    def _focus_editor(self) -> None:
+        self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._set_status("Formatierung eingefügt — noch nicht gespeichert.", "ok")
+
+    def _wrap_selection(self, before: str, after: str, placeholder: str = "Text") -> None:
+        """Umschließt die Auswahl mit `before`/`after` (z. B. fett/kursiv).
+        Ohne Auswahl wird ein Platzhalter eingefügt und markiert."""
+        self._ensure_code_view()
+        cursor = self.editor.textCursor()
+        start = cursor.selectionStart()
+        selected = self._selected_text_normalized(cursor)
+        result = markdown_formatting.wrap_selection(selected, before, after, placeholder)
+        cursor.insertText(result.replacement)
+        new_cursor = self.editor.textCursor()
+        new_cursor.setPosition(start + result.select_from)
+        new_cursor.setPosition(start + result.select_to, QTextCursor.MoveMode.KeepAnchor)
+        self.editor.setTextCursor(new_cursor)
+        self._focus_editor()
+
+    def _set_heading_level(self, level: int) -> None:
+        """Setzt die führenden '#' der aktuellen Zeile auf `level` (1-6)."""
+        self._ensure_code_view()
+        cursor = self.editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+        new_line = markdown_formatting.set_heading_level(cursor.selectedText(), level)
+        cursor.insertText(new_line)
+        self.editor.setTextCursor(cursor)
+        self._focus_editor()
+
+    def _apply_line_prefix(self, marker_for_index: Callable[[int], str]) -> None:
+        """Setzt ein Zeilen-Präfix (Zitat/Liste) auf die aktuelle Zeile oder,
+        bei Mehrfachauswahl, auf jede betroffene Zeile."""
+        self._ensure_code_view()
+        cursor = self.editor.textCursor()
+        doc = self.editor.document()
+        start_block = doc.findBlock(cursor.selectionStart())
+        end_block = doc.findBlock(cursor.selectionEnd())
+        span = QTextCursor(doc)
+        span.setPosition(start_block.position())
+        span.setPosition(end_block.position() + end_block.length() - 1, QTextCursor.MoveMode.KeepAnchor)
+        lines = self._selected_text_normalized(span).split("\n")
+        new_lines = markdown_formatting.apply_line_prefix(lines, marker_for_index)
+        span.insertText("\n".join(new_lines))
+        self.editor.setTextCursor(span)
+        self._focus_editor()
+
+    def _insert_horizontal_rule(self) -> None:
+        """Fügt eine Trennlinie (---) als eigenen Block ein - mit Leerzeilen
+        davor UND danach, sonst würde Pandoc "Text\\n---" als Setext-
+        Überschrift lesen statt als Trennlinie."""
+        self._ensure_code_view()
+        cursor = self.editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        cursor.insertText("\n\n---\n\n")
+        self.editor.setTextCursor(cursor)
+        self._focus_editor()
+
+    def _insert_code_block(self) -> None:
+        """Umschließt die Auswahl (oder eine leere Zeile) mit einem Pandoc-
+        Codefence - eigener Block, daher mit Leerzeilen umgeben."""
+        self._ensure_code_view()
+        cursor = self.editor.textCursor()
+        start = cursor.selectionStart()
+        selected = self._selected_text_normalized(cursor)
+        cursor.insertText(f"\n```\n{selected}\n```\n")
+        new_cursor = self.editor.textCursor()
+        new_cursor.setPosition(start + len("\n```\n") + len(selected))
+        self.editor.setTextCursor(new_cursor)
+        self._focus_editor()
+
+    def _insert_table(self) -> None:
+        """Fügt ein Pandoc-Pipe-Table-Grundgerüst als eigenen Block ein."""
+        self._ensure_code_view()
+        cursor = self.editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        cursor.insertText(f"\n\n{markdown_formatting.table_skeleton()}\n\n")
+        self.editor.setTextCursor(cursor)
+        self._focus_editor()
+
+    def _insert_link(self) -> None:
+        """Fügt `[Text](URL)` ein; der Linktext ist die Auswahl (oder ein
+        Platzhalter), danach ist „URL“ zum Überschreiben markiert."""
+        self._ensure_code_view()
+        cursor = self.editor.textCursor()
+        start = cursor.selectionStart()
+        text_part = self._selected_text_normalized(cursor) or "Linktext"
+        prefix = f"[{text_part}]("
+        cursor.insertText(f"{prefix}URL)")
+        new_cursor = self.editor.textCursor()
+        new_cursor.setPosition(start + len(prefix))
+        new_cursor.setPosition(start + len(prefix) + len("URL"), QTextCursor.MoveMode.KeepAnchor)
+        self.editor.setTextCursor(new_cursor)
+        self._focus_editor()
+
+    def _insert_image(self) -> None:
+        """Fügt `![Alt](Pfad)` ein; „Pfad“ ist danach zum Überschreiben markiert."""
+        self._ensure_code_view()
+        cursor = self.editor.textCursor()
+        start = cursor.selectionStart()
+        alt_part = self._selected_text_normalized(cursor) or "Alt-Text"
+        prefix = f"![{alt_part}]("
+        cursor.insertText(f"{prefix}Pfad)")
+        new_cursor = self.editor.textCursor()
+        new_cursor.setPosition(start + len(prefix))
+        new_cursor.setPosition(start + len(prefix) + len("Pfad"), QTextCursor.MoveMode.KeepAnchor)
+        self.editor.setTextCursor(new_cursor)
+        self._focus_editor()
+
+    def _insert_footnote(self) -> None:
+        """Fügt an der Cursorposition `[^n]` ein (n = nächste freie Nummer)
+        und die zugehörige Definition `[^n]: ` ans Dateiende - Cursor landet
+        dort zum sofortigen Ausfüllen."""
+        self._ensure_code_view()
+        full_text = self.editor.toPlainText()
+        idx = markdown_formatting.next_footnote_index(full_text)
+        cursor = self.editor.textCursor()
+        cursor.insertText(f"[^{idx}]")
+        end_cursor = self.editor.textCursor()
+        end_cursor.movePosition(QTextCursor.MoveOperation.End)
+        end_cursor.insertText(f"\n\n[^{idx}]: ")
+        self.editor.setTextCursor(end_cursor)
+        self._focus_editor()
+
+    def _insert_math_block(self) -> None:
+        """Umschließt die Auswahl (oder eine leere Zeile) mit einem Mathe-
+        Block ($$...$$) - eigener Block, daher mit Leerzeilen umgeben."""
+        self._ensure_code_view()
+        cursor = self.editor.textCursor()
+        start = cursor.selectionStart()
+        selected = self._selected_text_normalized(cursor)
+        cursor.insertText(f"\n$$\n{selected}\n$$\n")
+        new_cursor = self.editor.textCursor()
+        new_cursor.setPosition(start + len("\n$$\n") + len(selected))
+        self.editor.setTextCursor(new_cursor)
+        self._focus_editor()
 
     def _offer_skeleton_sync(self) -> None:
         command = self._pending_skeleton_command
@@ -416,6 +867,24 @@ class TextEditorDialog(QDialog):
             except Exception:  # noqa: BLE001 — Speichern soll nicht wegen Refresh scheitern
                 pass
         self.accept()
+
+    def _save_as(self) -> None:
+        """Speichert eine Kopie unter einem neuen Pfad; `self.path` (die hier
+        bearbeitete Datei) bleibt unverändert - andere Teile der App
+        (Buchbaum, Skeleton-Sync) sind an genau diesen Pfad gebunden, ein
+        stiller Wechsel würde diese Zuordnung durcheinanderbringen. Der Dialog
+        bleibt offen, die Bearbeitung geht am Original weiter."""
+        target, _ = QFileDialog.getSaveFileName(
+            self, "Speichern als", str(self.path), "Markdown (*.md);;Alle Dateien (*.*)"
+        )
+        if not target:
+            return
+        try:
+            Path(target).write_text(self.editor.toPlainText(), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.critical(self, "Speichern als fehlgeschlagen", str(exc))
+            return
+        self._set_status(f"Zusätzlich gespeichert unter: {target}", "ok")
 
 
 def save_json_file(
