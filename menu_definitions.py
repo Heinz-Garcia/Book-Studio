@@ -34,9 +34,11 @@ class MenuCascade:
 MENU_FILE = [
     MenuCascade(label="Buchstruktur (JSON)", children=[
         MenuItem(label="📂 Buchstruktur aus JSON-Datei laden", command="import_json"),
+        MenuItem(label="🔍 Buchstruktur suchen & laden…", command="find_structure"),
         MenuItem(label="💾 Buchstruktur als JSON-Datei speichern", command="quick_save_json", accelerator="Ctrl+S"),
         MenuItem(label="📝 Buchstruktur als JSON-Datei speichern als...", command="export_json"),
     ]),
+    MenuItem(label="📥 Datei aus anderem Projekt holen…", command="fetch_file_from_project"),
     MenuSeparator(),
     MenuItem(label="💾 In Quarto speichern", command="save_project"),
     MenuSeparator(),
@@ -60,6 +62,7 @@ MENU_EDIT = [
     MenuSeparator(),
     MenuItem(label="➡️ Hinzufügen", command="add_files"),
     MenuItem(label="⬅️ Entfernen", command="remove_files"),
+    MenuItem(label="🧭 Gliederungspunkt anlegen…", command="create_outline_page"),
     MenuSeparator(),
     MenuItem(label="⬆️ Hoch", command="move_up"),
     MenuItem(label="⬇️ Runter", command="move_down"),
@@ -92,7 +95,8 @@ MENU_TOOLS = [
     MenuItem(label="🩺 Buch-Doktor", command="run_doctor"),
     MenuItem(label="✨ Frontmatter ergänzen…", command="heal_frontmatter"),
     MenuItem(label="📦 Backup", command="run_backup"),
-    MenuItem(label="⏪ Time Machine", command="open_time_machine"),
+    MenuItem(label="💾 Struktur-Snapshot speichern…", command="save_structure_snapshot"),
+    MenuItem(label="⏪ Struktur-Snapshots", command="open_time_machine"),
     MenuSeparator(),
     MenuCascade(label="🛠️ Wartung", children=[
         MenuItem(label="⚠️ _quarto.yml hart zurücksetzen (Nuke)", command="reset_quarto_yml"),

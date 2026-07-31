@@ -1,5 +1,6 @@
 ---
-title: IVZ Ende / Vakanz (linke Seite)
+title: Inhaltsverzeichnis Ende / Vakanz
+print_title: false
 description: Vakanz
 status: bookstudio
 required: true

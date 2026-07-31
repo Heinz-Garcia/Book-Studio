@@ -50,6 +50,17 @@ class HelpDialog(QDialog):
 
         try:
             html = self._html_path.read_text(encoding="utf-8")
+            try:
+                from tools.directory_help import (
+                    format_directory_help_html,
+                    inject_directory_help_into_html,
+                )
+                from ui_qt.book_workspace import repo_root
+
+                fragment = format_directory_help_html(repo_root())
+                html = inject_directory_help_into_html(html, fragment)
+            except (OSError, ImportError, ValueError, TypeError):
+                pass
             self.browser.setHtml(html)
             self.browser.setSearchPaths([str(self._html_path.parent)])
         except OSError as exc:

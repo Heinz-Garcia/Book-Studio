@@ -2,18 +2,26 @@
 
 - YAML-Frontmatter wird ausgeblendet (wie im gerenderten Buch)
 - Typst-Seitenumbrüche werden als visuelle Markierung gezeigt, nicht als Code
+- Typst-Deckblätter mit ``#page(margin: 0pt)`` / ``fit: "cover"`` als Vollseiten-Annäherung
 - Übrige Raw-Blöcke (`{=typst}` o. Ä.) erscheinen als dezenter Hinweis
 """
-
 from __future__ import annotations
 
 import html
 import re
+from pathlib import Path
 
 from frontmatter_parser import parse as parse_frontmatter
+from markdown_asset_scanner import collect_typst_image_targets, resolve_local_image_file
 
 _FENCE_OPEN = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
 _PAGEBREAK_LINE = re.compile(r"^\s*#pagebreak(?:\s*\([^)]*\))?\s*$")
+_INLINE_IMAGE_LINE = re.compile(r"^\s*!\[([^\]]*)\]\(([^)]+)\)\s*$")
+_INLINE_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_TYPST_ZERO_MARGIN_PAGE = re.compile(r"#page\s*\([^)]*margin\s*:\s*0", re.IGNORECASE)
+_TYPST_COVER_FIT = re.compile(r"""fit\s*:\s*["']cover["']""", re.IGNORECASE)
+# A5 Hochformat (Breite : Höhe) — Näherung für die Deckblatt-Vorschau
+_COVER_ASPECT_RATIO = "148 / 210"
 
 
 def strip_inline_markdown(text: str) -> str:
@@ -54,8 +62,153 @@ def _raw_block_marker_html(info: str) -> str:
     )
 
 
-def markdown_to_preview_html(content: str) -> str:
+def _image_html(
+    alt: str,
+    target: str,
+    *,
+    book_root: Path | None,
+    markdown_file: Path | None,
+    block: bool = True,
+    cover: bool = False,
+) -> str | None:
+    if book_root is None or markdown_file is None:
+        return None
+    resolved = resolve_local_image_file(target, markdown_file, book_root)
+    if resolved is None or not resolved.is_file():
+        return None
+    uri = resolved.resolve().as_uri()
+    safe_alt = html.escape(alt or "")
+    if cover:
+        return (
+            f"<img src='{uri}' alt='{safe_alt}' "
+            "style='display:block; width:100%; height:100%; object-fit:cover;' />"
+        )
+    display = "block" if block else "inline"
+    margin = "10px 0" if block else "0 4px"
+    max_height = "420px" if block else "1.4em"
+    return (
+        f"<img src='{uri}' alt='{safe_alt}' "
+        f"style='display:{display}; max-width:100%; max-height:{max_height}; "
+        f"margin:{margin}; border:1px solid #e2e8f0; border-radius:4px; "
+        f"vertical-align:middle;' />"
+    )
+
+
+def _is_typst_full_bleed_cover(lines: list[str]) -> bool:
+    """True für Typst-Deckblatt-Muster (randlose Seite + Cover-Zuschnitt)."""
+    text = "\n".join(lines)
+    if not collect_typst_image_targets(text):
+        return False
+    return bool(_TYPST_ZERO_MARGIN_PAGE.search(text) or _TYPST_COVER_FIT.search(text))
+
+
+def _full_bleed_cover_frame_html(image_tags: list[str], *, has_past_cover: bool) -> str:
+    """Rahmen für eine randlose Deckblatt-Annäherung (Gegenstück zu body-Padding)."""
+    images = "".join(image_tags)
+    past_cover_note = ""
+    if has_past_cover:
+        past_cover_note = (
+            "<div style='font-size:11px; color:#64748b; margin-top:4px;'>"
+            "✓ YAML-title still — sichtbare Überschriften nur mit print_title "
+            "(im PDF via typst-show.typ)"
+            "</div>"
+        )
+    return (
+        "<div style='margin:-12px -16px 18px -16px;'>"
+        f"<div style='width:100%; aspect-ratio:{_COVER_ASPECT_RATIO}; "
+        "overflow:hidden; background:#0f172a; box-shadow:0 2px 12px rgba(15,23,42,0.18);'>"
+        f"{images}"
+        "</div>"
+        "<div style='padding:8px 16px 0 16px; text-align:center; color:#94a3b8; font-size:11px;'>"
+        "📕 Deckblatt — Vollseiten-Vorschau (Annäherung; finales Layout nur im PDF-Render)"
+        f"{past_cover_note}"
+        "</div>"
+        "</div>"
+    )
+
+
+def _typst_image_targets(lines: list[str]) -> list[str]:
+    """Extrahiert Pfade aus Typst-``#image("…")``-Aufrufen in Raw-Blöcken."""
+    return collect_typst_image_targets("\n".join(lines))
+
+
+def _typst_cover_preview_html(
+    lines: list[str],
+    *,
+    book_root: Path | None,
+    markdown_file: Path | None,
+) -> str | None:
+    """Deckblatt-ähnliche Typst-Blöcke: lokale ``#image``-Referenzen als Vorschau."""
+    full_bleed = _is_typst_full_bleed_cover(lines)
+    has_past_cover = any("past-cover" in line for line in lines)
+    rendered: list[str] = []
+    for target in _typst_image_targets(lines):
+        alt = Path(target).stem or "Bild"
+        img_tag = _image_html(
+            alt,
+            target,
+            book_root=book_root,
+            markdown_file=markdown_file,
+            block=True,
+            cover=full_bleed,
+        )
+        if img_tag:
+            if full_bleed:
+                rendered.append(img_tag)
+            else:
+                rendered.append(
+                    f"<div style='margin:4px 0 8px 0; text-align:center;'>{img_tag}</div>"
+                )
+    if not rendered:
+        return None
+    if full_bleed:
+        return _full_bleed_cover_frame_html(rendered, has_past_cover=has_past_cover)
+    return "".join(rendered)
+
+
+def _inline_content_html(
+    line: str,
+    *,
+    book_root: Path | None,
+    markdown_file: Path | None,
+) -> str:
+    if book_root is None or markdown_file is None or "![" not in line:
+        return html.escape(strip_inline_markdown(line))
+
+    chunks: list[str] = []
+    last = 0
+    for match in _INLINE_IMAGE.finditer(line):
+        before = line[last : match.start()]
+        if before:
+            chunks.append(html.escape(strip_inline_markdown(before)))
+        alt, target = match.group(1), match.group(2)
+        img_tag = _image_html(
+            alt,
+            target,
+            book_root=book_root,
+            markdown_file=markdown_file,
+            block=False,
+        )
+        if img_tag:
+            chunks.append(img_tag)
+        else:
+            chunks.append(html.escape(strip_inline_markdown(match.group(0))))
+        last = match.end()
+    tail = line[last:]
+    if tail:
+        chunks.append(html.escape(strip_inline_markdown(tail)))
+    return "".join(chunks)
+
+
+def markdown_to_preview_html(
+    content: str,
+    *,
+    book_root: Path | str | None = None,
+    markdown_file: Path | str | None = None,
+) -> str:
     """Erzeugt eine lesernahe HTML-Vorschau (Frontmatter/pagebreak nicht als Rohtext)."""
+    resolved_book_root = Path(book_root) if book_root else None
+    resolved_markdown_file = Path(markdown_file) if markdown_file else None
     body = body_for_preview(content)
     lines = body.splitlines()
     parts: list[str] = [
@@ -79,7 +232,17 @@ def markdown_to_preview_html(content: str) -> str:
         ):
             parts.append(_pagebreak_marker_html())
         elif fence_is_raw:
-            parts.append(_raw_block_marker_html(fence_info))
+            typst_preview = None
+            if "typst" in fence_info.lower():
+                typst_preview = _typst_cover_preview_html(
+                    fence_buffer,
+                    book_root=resolved_book_root,
+                    markdown_file=resolved_markdown_file,
+                )
+            if typst_preview:
+                parts.append(typst_preview)
+            else:
+                parts.append(_raw_block_marker_html(fence_info))
         else:
             parts.append(
                 "<pre style='font-family: Consolas, monospace; font-size: 12px; "
@@ -161,7 +324,24 @@ def markdown_to_preview_html(content: str) -> str:
             parts.append("<div style='height:8px;'></div>")
             continue
 
-        plain = html.escape(strip_inline_markdown(line))
+        image_line = _INLINE_IMAGE_LINE.match(line)
+        if image_line:
+            img_tag = _image_html(
+                image_line.group(1),
+                image_line.group(2),
+                book_root=resolved_book_root,
+                markdown_file=resolved_markdown_file,
+                block=True,
+            )
+            if img_tag:
+                parts.append(f"<div style='margin:4px 0 8px 0;'>{img_tag}</div>")
+                continue
+
+        plain = _inline_content_html(
+            line,
+            book_root=resolved_book_root,
+            markdown_file=resolved_markdown_file,
+        )
         parts.append(f"<div style='margin:2px 0 6px 0;'>{plain}</div>")
 
     if in_fence:

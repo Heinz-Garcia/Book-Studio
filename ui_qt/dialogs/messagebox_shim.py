@@ -92,6 +92,7 @@ def install_export_manager_ui(parent: Optional[QWidget]) -> None:
     from ui_qt.dialogs.export_dialog import ask_export_options
     from ui_qt.dialogs.post_render_dialog import (
         ask_post_render_action as _ask_post_render,
+        ask_render_pdf_name as _ask_pdf_name,
         open_finished_pdfs_for_book,
     )
 
@@ -119,6 +120,9 @@ def install_export_manager_ui(parent: Optional[QWidget]) -> None:
     def _ask_post(**kwargs: Any) -> str:
         return _ask_post_render(_STATE.get("parent"), **kwargs)
 
+    def _ask_pdf(**kwargs: Any) -> Optional[str]:
+        return _ask_pdf_name(_STATE.get("parent"), **kwargs)
+
     def _open_mapping(**kwargs: Any) -> None:
         win = _STATE.get("parent")
         book = kwargs.get("book_path")
@@ -142,6 +146,7 @@ def install_export_manager_ui(parent: Optional[QWidget]) -> None:
             "old_fd": ui_hooks.filedialog,
             "old_ask": ui_hooks.ask_export_options,
             "old_post": ui_hooks.ask_post_render_action,
+            "old_pdf_name": ui_hooks.ask_render_pdf_name,
             "old_map": ui_hooks.open_mapping_manager,
         }
     )
@@ -149,6 +154,7 @@ def install_export_manager_ui(parent: Optional[QWidget]) -> None:
     ui_hooks.filedialog = shim_fd
     ui_hooks.ask_export_options = _ask
     ui_hooks.ask_post_render_action = _ask_post
+    ui_hooks.ask_render_pdf_name = _ask_pdf
     ui_hooks.open_mapping_manager = _open_mapping
     export_manager_mod.messagebox = shim_mb
     export_manager_mod.filedialog = shim_fd
@@ -164,6 +170,7 @@ def uninstall_export_manager_ui() -> None:
     old_fd = _STATE.get("old_fd")
     old_ask = _STATE.get("old_ask")
     old_post = _STATE.get("old_post")
+    old_pdf_name = _STATE.get("old_pdf_name")
     old_map = _STATE.get("old_map")
     if old_mb is not None:
         ui_hooks.messagebox = old_mb
@@ -175,6 +182,8 @@ def uninstall_export_manager_ui() -> None:
         ui_hooks.ask_export_options = old_ask
     if old_post is not None:
         ui_hooks.ask_post_render_action = old_post
+    if old_pdf_name is not None:
+        ui_hooks.ask_render_pdf_name = old_pdf_name
     if old_map is not None:
         ui_hooks.open_mapping_manager = old_map
     _STATE.clear()

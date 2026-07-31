@@ -350,14 +350,13 @@ def test_get_projects_root_paths_falls_back_when_all_invalid(tmp_path: Path):
 
 
 def test_discover_projects_scans_multiple_roots(tmp_path: Path):
-    """Regression fuer den GrammarGraph-Publish-Bug: ein Buch ausserhalb des
-    Haupt-Roots muss gefunden werden, wenn es als zweite Wurzel konfiguriert ist."""
+    """Ein Arbeitsbuch ausserhalb des Haupt-Roots muss gefunden werden."""
     main_root = tmp_path / "book_studio_repo"
-    external_root = tmp_path / "grammargraph_publish"
+    external_root = tmp_path / "external_books"
     main_root.mkdir()
     external_root.mkdir()
     _touch_yml(main_root, "Band_Dummy/_quarto.yml")
-    _touch_yml(external_root, "Publish_Foo/_quarto.yml")
+    _touch_yml(external_root, "Band_External/_quarto.yml")
 
     studio = SimpleNamespace(
         base_path=tmp_path,
@@ -366,7 +365,7 @@ def test_discover_projects_scans_multiple_roots(tmp_path: Path):
     )
     svc = WorkspaceService(studio)
     found = {p.name for p in svc.discover_projects()}
-    assert found == {"Band_Dummy", "Publish_Foo"}
+    assert found == {"Band_Dummy", "Band_External"}
 
 
 def test_discover_projects_dedupes_across_roots(tmp_path: Path):

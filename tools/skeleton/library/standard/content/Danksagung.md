@@ -1,4 +1,5 @@
 ---
+print_title: true
 title: Danksagung
 description: Danksagung
 status: bookstudio

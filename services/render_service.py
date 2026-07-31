@@ -636,6 +636,7 @@ class RenderService:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
         )
         aborted_on_colon_warning = False
         stream_error = False

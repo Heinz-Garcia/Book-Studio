@@ -31,6 +31,14 @@ from ui_qt.widgets.structure_panel import StructurePanel
 if TYPE_CHECKING:
     from ui_qt.facade import StudioFacade
 
+# Mittelspalte: drei Button-Zeilen weniger (Speichern/Laden, Einrücken×2, Ausrücken×2).
+_MID_COLUMN_COMPACT_HEIGHT_DELTA = 126
+# Einmalige Verbreiterung: Fenster +240 (Mitte +120, links/rechts je +60).
+_WINDOW_WIDTH_BOOST = 240
+_DEFAULT_WINDOW_WIDTH = 1200 + _WINDOW_WIDTH_BOOST
+_DEFAULT_WINDOW_HEIGHT = 760 - _MID_COLUMN_COMPACT_HEIGHT_DELTA
+_MIN_WINDOW_HEIGHT = 520
+
 
 class MainWindow(QMainWindow):
     def __init__(self, facade: "StudioFacade") -> None:
@@ -40,8 +48,9 @@ class MainWindow(QMainWindow):
         self._books: list[Path] = []
         self._commands = CommandHost(self)
         self._ui_scheduler = UiScheduler(self)
+        self._pending_ui_state_updates: dict[str, object] = {}
         self.setWindowTitle(self._window_title_from_version())
-        self.resize(1200, 760)
+        self.resize(_DEFAULT_WINDOW_WIDTH, _DEFAULT_WINDOW_HEIGHT)
 
         facade.set_log_hook(self._on_log)
         self._apply_saved_geometry()
@@ -199,10 +208,18 @@ class MainWindow(QMainWindow):
     def _apply_saved_geometry(self) -> None:
         state = qt_session.load_session()
         ui = state.get("ui_state") if isinstance(state, dict) else None
-        geom = ui.get("window_geometry") if isinstance(ui, dict) else None
+        if not isinstance(ui, dict):
+            ui = {}
+        geom = ui.get("window_geometry")
         parsed = qt_session.parse_geometry(str(geom)) if geom else None
         if parsed:
             w, h, x, y = parsed
+            if not ui.get("mid_column_compact_applied"):
+                h = max(_MIN_WINDOW_HEIGHT, h - _MID_COLUMN_COMPACT_HEIGHT_DELTA)
+                self._pending_ui_state_updates["mid_column_compact_applied"] = True
+            if not ui.get("window_width_boost_240_applied"):
+                w = w + _WINDOW_WIDTH_BOOST
+                self._pending_ui_state_updates["window_width_boost_240_applied"] = True
             self.resize(w, h)
             self.move(x, y)
         self._ensure_window_fully_visible()
@@ -233,10 +250,13 @@ class MainWindow(QMainWindow):
 
     def _persist_session(self) -> None:
         try:
+            updates = self._pending_ui_state_updates or None
             qt_session.save_session(
                 current_book=self._facade.current_book,
                 geometry=self._current_geometry_string(),
+                ui_state_updates=updates,
             )
+            self._pending_ui_state_updates = {}
         except (OSError, TypeError, ValueError) as exc:
             self._facade.log(f"Session konnte nicht gespeichert werden: {exc}", "warning")
 
@@ -303,7 +323,22 @@ class MainWindow(QMainWindow):
                 "info",
             )
     def _save(self) -> bool:
-        if self._session and self._session.save():
+        if self._session is None:
+            return False
+        from ui_qt.structure_snapshot import (
+            default_structure_snapshot_label,
+            prompt_structure_snapshot_label,
+        )
+
+        label = prompt_structure_snapshot_label(
+            self,
+            default=default_structure_snapshot_label(book_name=self._session.book_path),
+            book_name=self._session.book_path,
+            title="In Quarto speichern",
+        )
+        if label is None:
+            return False
+        if self._session.save(snapshot_label=label):
             self.statusBar().showMessage("Gespeichert.", 4000)
             self._persist_session()
             return True

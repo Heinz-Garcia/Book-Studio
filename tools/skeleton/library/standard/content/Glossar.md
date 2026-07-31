@@ -1,5 +1,6 @@
 ---
-title: Glossar (rechte Seite)
+title: Glossar
+print_title: true
 description: Glossar
 status: bookstudio
 order: END-35

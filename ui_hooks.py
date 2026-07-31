@@ -47,4 +47,14 @@ def ask_post_render_action(**_k: Any) -> str:
     return "open_pdf"
 
 
+def ask_render_pdf_name(*, default_stem: str = "", **_k: Any) -> Optional[str]:
+    """Headless-Default: Vorschlag unverändert übernehmen.
+
+    Qt setzt einen Bestätigungsdialog; ``None`` = Abbrechen (PDF behält
+    den Quarto-Defaultnamen).
+    """
+    stem = str(default_stem or "").strip()
+    return stem or None
+
+
 open_mapping_manager: Callable[..., None] = _noop

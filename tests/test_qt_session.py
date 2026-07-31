@@ -24,6 +24,11 @@ def test_merge_recent_puts_active_first():
 def test_save_and_load_session(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(qt_session, "repo_root", lambda: tmp_path)
     monkeypatch.setattr(qt_session, "_project_roots", lambda _root: [tmp_path])
+    # tmp_path liegt unter .../pytest-of-.../ und würde sonst vom
+    # Ephemeral-Guard (siehe test_qt_session_ephemeral.py) als Pytest-Temp-
+    # Buch erkannt und nicht in der Session gespeichert werden. Dieser Test
+    # prüft das generische Save/Load-Roundtrip, nicht den Guard selbst.
+    monkeypatch.setattr(qt_session, "is_ephemeral_book_path", lambda _path: False)
 
     book = tmp_path / "MyBook"
     book.mkdir()

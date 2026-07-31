@@ -535,12 +535,15 @@ class QuartoYamlEngine:
             else:
                 # Falls die Datei gar nicht existiert, erstellen wir eine minimale Version
                 with open(self.book_path / "index.md", "w", encoding="utf-8") as f:
-                    f.write("---\ntitle: Einleitung\n---\n\nWillkommen zu meinem Buch.")
+                    f.write(
+                        "---\ntitle: Einleitung\nunnumbered: true\nunlisted: true\n---\n\n"
+                        "<!-- index.md – technische Pflichtseite (kein sichtbarer Inhalt) -->\n"
+                    )
                 chapters.insert(0, "index.md")
         # -------------------------------------------------------
 
-        # --- REQUIRED-FILE ORDERING ---
-        # Extrahiert required-Dateien mit order-Frontmatter und setzt sie an Anfang/Ende.
+        # --- ORDER-FRONTMATTER (Vorspann / Nachspann) ---
+        # Extrahiert Dateien mit order und setzt sie an Anfang/Ende; Rest = Mitte.
         rest, front_required, end_required = self._apply_required_ordering(chapters)
         if front_required or end_required:
             # index.md aus rest entfernen, damit sie immer an Position 0 bleibt
@@ -582,14 +585,14 @@ class QuartoYamlEngine:
 
     def parse_required_order(self, rel_path):
         """
-        Liest das 'order'-Feld aus dem Frontmatter einer required-Datei.
+        Liest das Frontmatter-Feld ``order`` einer Kapiteldatei.
 
         Gültige Werte:
-          "1", "2", "3" …       → Anfang des Buchs (nach index.md), aufsteigend sortiert
-          "END-1", "END-2" …  → Ende des Buchs, aufsteigend sortiert
+          "1", "2", "3" …       → Anfang des Buchs (nach index.md), aufsteigend
+          "END-1", "END-2" …  → Ende des Buchs (``END-1`` ganz hinten)
 
-        Eligibility: Frontmatter ``required: true`` (SSOT). Legacy-Fallback:
-        Datei unter ``content/required/`` ohne explizites ``required: false``.
+        Eligibility: jedes ``.md`` mit gültigem ``order`` — unabhängig vom
+        ``required``-Flag (Skeleton-Optionals tragen oft ``order`` + ``required: false``).
 
         Rückgabe: (sort_key: int, group: 'front'|'end'|None)
         """
@@ -603,8 +606,6 @@ class QuartoYamlEngine:
                 logger.warning("ORDER-Frontmatter konnte nicht gelesen werden (%s): %s", rel_path, error)
                 return None, None
 
-        if not is_page_required(rel_path=str(rel_path), content=content):
-            return None, None
         if not content:
             return None, None
 
@@ -628,15 +629,15 @@ class QuartoYamlEngine:
         return None, None
 
     def get_required_order(self, rel_path):
-        """Öffentliche API für die ORDER-Auswertung bei required-Dateien."""
+        """Öffentliche API für die ORDER-Auswertung (Autosort links→rechts / Speichern)."""
         return self.parse_required_order(rel_path)
 
     def _apply_required_ordering(self, chapters):
         """
-        Extrahiert required-Dateien mit 'order'-Frontmatter aus der Kapitelliste
+        Extrahiert Dateien mit ``order``-Frontmatter aus der Kapitelliste
         und gibt (bereinigte Liste, front-Pfade, end-Pfade) zurück.
 
-        Nicht-geordnete required-Dateien bleiben an ihrer GUI-Position.
+        Dateien ohne ``order`` bleiben an ihrer GUI-Position (Mittelzone).
         PART-Einträge werden rekursiv bereinigt.
         """
         front = []  # (sort_key, path)

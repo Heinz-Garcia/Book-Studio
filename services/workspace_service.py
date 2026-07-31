@@ -105,14 +105,10 @@ class WorkspaceService:
         return roots[0] if roots else self._studio.base_path
 
     def get_projects_root_paths(self) -> list[Path]:
-        """Liest `content_root_path` aus der App-Config und validiert die Pfade.
+        """Liest Buch-Suchwurzeln (Phase 1: ``books/`` + Legacy ``content_root_path``).
 
-        `content_root_path` kann ein einzelner String oder eine Liste von
-        Strings sein (mehrere unabhängige Suchwurzeln, z.B. das eigene Repo
-        plus ein externes Publish-Verzeichnis eines Zulieferer-Tools).
-        Fallback: `[studio.base_path]`, falls die Config nicht lesbar ist,
-        kein gültiger Wert vorhanden ist, oder kein konfigurierter Pfad
-        existiert.
+        ``content_root_path`` bleibt für Dual-Read erhalten; reine GG-Export-Läufe
+        werden in ``discover_projects()`` per Klassifikation ausgefiltert.
         """
         default_roots = [self._studio.base_path]
         if self._read_config is None:
@@ -120,17 +116,17 @@ class WorkspaceService:
 
         try:
             cfg = self._read_config()
-        except (OSError, ValueError, TypeError) as error:  # json.JSONDecodeError erbt von ValueError
+        except (OSError, ValueError, TypeError) as error:
             self._report_nonfatal("Projekt-Root konnte nicht aus Config geladen werden", error)
             return default_roots
 
-        raw_values = normalize_content_root_paths(cfg.get("content_root_path", "."))
-        if not raw_values:
-            return default_roots
+        from tools.production_paths.config import (
+            legacy_content_root_entries,
+            resolve_books_workspace_roots,
+        )
 
-        resolved_roots: list[Path] = []
-        for raw_value in raw_values:
-            configured_path = Path(raw_value).expanduser()
+        for entry in legacy_content_root_entries(cfg):
+            configured_path = Path(entry).expanduser()
             root_path = (
                 configured_path
                 if configured_path.is_absolute()
@@ -139,10 +135,6 @@ class WorkspaceService:
             try:
                 root_path = root_path.resolve()
             except OSError as error:
-                # B-Fix (Code-Review 2026-07-03): `.resolve()` kann auf manchen
-                # Plattformen/Dateisystemen (kaputte Symlinks, Berechtigungs-
-                # fehler) einen OSError werfen. Vorher lief das ungeschuetzt
-                # ausserhalb jeglichen try/except und konnte den Aufrufer crashen.
                 self._report_nonfatal(
                     "Konfigurierter content_root_path konnte nicht aufgeloest werden",
                     error,
@@ -153,11 +145,24 @@ class WorkspaceService:
                     "Konfigurierter content_root_path ist ungültig, wird übersprungen",
                     root_path,
                 )
-                continue
-            if root_path not in resolved_roots:
-                resolved_roots.append(root_path)
 
+        resolved_roots = resolve_books_workspace_roots(cfg, self._studio.base_path)
         return resolved_roots if resolved_roots else default_roots
+
+    def get_grammargraph_inbox_roots(self) -> list[Path]:
+        """Wurzeln für GG-Import (``inbox/`` + Legacy-Publish-Hubs)."""
+        if self._read_config is None:
+            return []
+
+        try:
+            cfg = self._read_config()
+        except (OSError, ValueError, TypeError) as error:
+            self._report_nonfatal("Inbox-Root konnte nicht aus Config geladen werden", error)
+            return []
+
+        from tools.production_paths.config import resolve_grammargraph_inbox_roots
+
+        return resolve_grammargraph_inbox_roots(cfg, self._studio.base_path)
 
     # --- Project-Discovery -----------------------------------------------
 
@@ -171,6 +176,8 @@ class WorkspaceService:
         """
         roots = getattr(self._studio, "projects_root_paths", None) or [self._studio.projects_root_path]
         found: list[Path] = []
+        from tools.production_paths.paths import is_book_discovery_candidate
+
         for root in roots:
             if not root.exists() or not root.is_dir():
                 continue
@@ -178,6 +185,8 @@ class WorkspaceService:
                 if any(seg in p.parts for seg in EXCLUDED_PATH_SEGMENTS):
                     continue
                 book_path = p.parent
+                if not is_book_discovery_candidate(book_path):
+                    continue
                 if book_path not in found:
                     found.append(book_path)
         return found

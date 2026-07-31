@@ -67,7 +67,29 @@ class CommandHost:
     # --- Struktur / Session ---
 
     def save_project(self) -> None:
-        self.w._save()
+        if not self._require_book():
+            return
+        from ui_qt.structure_snapshot import (
+            default_structure_snapshot_label,
+            prompt_structure_snapshot_label,
+        )
+
+        label = prompt_structure_snapshot_label(
+            self.w,
+            default=default_structure_snapshot_label(
+                book_name=self.w._session.book_path if self.w._session else None
+            ),
+            book_name=self.w._session.book_path if self.w._session else None,
+            title="In Quarto speichern",
+        )
+        if label is None:
+            return
+        session = self.w._session
+        assert session is not None
+        if session.save(snapshot_label=label):
+            self.w.statusBar().showMessage("Gespeichert.", 4000)
+            if hasattr(self.w, "_persist_session"):
+                self.w._persist_session()
 
     def close_app(self) -> None:
         self.w.close()
@@ -76,15 +98,17 @@ class CommandHost:
         self.w.structure._on_undo()
 
     def redo(self) -> None:
-        session = self.w._session
-        if session and session.redo():
-            self.w.structure.reload_from_session()
+        self.w.structure._on_redo()
 
     def add_files(self) -> None:
         self.w.structure._on_add()
 
     def remove_files(self) -> None:
         self.w.structure._on_remove()
+
+    def create_outline_page(self) -> None:
+        """🧭 Gliederungspunkt (content_role: outline) anlegen."""
+        self.w.structure.create_outline_page()
 
     def move_up(self) -> None:
         self.w.structure._on_up()
@@ -152,6 +176,70 @@ class CommandHost:
         session._push_undo(pre)
         self.w.structure.reload_from_session()
         self.w._facade.log("Buchstruktur aus JSON geladen (noch nicht in _quarto.yml).", "info")
+
+    def find_structure(self) -> None:
+        """Struktur-Snapshots im aktuellen Buch und Geschwister-Projekten finden."""
+        if not self._require_book():
+            return
+        from ui_qt import structure_ops as ops
+        from ui_qt.dialogs.structure_finder_dialog import open_structure_finder_qt
+
+        session = self.w._session
+        assert session is not None
+        book = Path(self.w._facade.current_book)
+
+        def on_load(tree_data: list) -> bool:
+            pre = session._snapshot()
+            session.book_nodes = ops.chapters_to_display_tree(tree_data, session.title_registry)
+            session._refresh_avail()
+            session._push_undo(pre)
+            self.w.structure.reload_from_session()
+            self.w._facade.log(
+                "Buchstruktur aus Finder geladen (noch nicht in _quarto.yml — "
+                "Datei → In Quarto speichern).",
+                "success",
+            )
+            return True
+
+        open_structure_finder_qt(self.w, book, on_load=on_load)
+
+    def fetch_file_from_project(self) -> None:
+        """Einzelne Datei (z. B. Deckblatt) aus Geschwister-Projekt ersetzen."""
+        if not self._require_book():
+            return
+        from ui_qt import structure_ops as ops
+        from ui_qt.dialogs.file_fetch_dialog import open_file_fetch_qt
+
+        book = Path(self.w._facade.current_book)
+        session = self.w._session
+        suggested: list[str] = []
+        initial = "content/Deckblatt.md"
+        if session is not None:
+            for path, _title in session.avail:
+                suggested.append(path)
+            suggested.extend(ops.collect_paths(session.book_nodes))
+            selected: list[str] = []
+            if hasattr(self.w.structure, "_selected_book_paths"):
+                selected = self.w.structure._selected_book_paths()
+            if not selected and hasattr(self.w.structure, "_selected_avail_paths"):
+                selected = self.w.structure._selected_avail_paths()
+            if selected:
+                initial = selected[0]
+        replaced = open_file_fetch_qt(
+            self.w,
+            book,
+            initial_rel=initial,
+            suggested_rels=suggested,
+        )
+        if not replaced:
+            return
+        if session is not None:
+            session.refresh_from_disk_keep_structure()
+            self.w.structure.reload_from_session()
+        self.w._facade.log(
+            f"Datei übernommen: {replaced} (Backup unter .backups/file-fetch/).",
+            "success",
+        )
 
     # --- Export / Doctor ---
 
@@ -522,38 +610,78 @@ class CommandHost:
             return
         QMessageBox.information(self.w, "Backup 📦", f"Sicherungs-ZIP erstellt:\n{res}")
 
+    def save_structure_snapshot(self) -> None:
+        """Benannten Time-Machine-Snapshot speichern (sprechender Name)."""
+        if not self._require_book():
+            return
+        from ui_qt.structure_snapshot import (
+            default_structure_snapshot_label,
+            prompt_structure_snapshot_label,
+        )
+
+        session = self.w._session
+        assert session is not None
+        label = prompt_structure_snapshot_label(
+            self.w,
+            default=default_structure_snapshot_label(book_name=session.book_path),
+            book_name=session.book_path,
+            title="Struktur-Snapshot speichern",
+        )
+        if label is None:
+            return
+        try:
+            fname = session.save_named_structure_snapshot(label)
+        except (OSError, ValueError, TypeError, RuntimeError) as exc:
+            QMessageBox.critical(self.w, "Snapshot", str(exc))
+            return
+        QMessageBox.information(
+            self.w,
+            "Snapshot gespeichert",
+            f"Gespeichert als „{label}“.\nDatei: .backups/{fname}\n\n"
+            "Wiederfinden unter Tools → Struktur-Snapshots.",
+        )
+
     def open_time_machine(self) -> None:
         if not self._require_book():
             return
         from ui_qt import structure_ops as ops
-        from ui_qt.dialogs.time_machine_dialog import open_time_machine_qt
+        from ui_qt.dialogs.structure_load_dialog import (
+            apply_structure_load_result,
+            open_structure_load_dialog,
+        )
+        from ui_qt.structure_ops import collect_paths
 
         session = self.w._session
         assert session is not None
         original = session._snapshot()
+        current_ordered = collect_paths(session.book_nodes)
+        current_paths = {p.replace("\\", "/") for p in current_ordered}
 
         def on_preview(tree_data) -> None:
             if not isinstance(tree_data, list):
-                QMessageBox.warning(self.w, "Time Machine", "Ungültiges Backup-Format.")
+                QMessageBox.warning(self.w, "Struktur-Snapshots", "Ungültiges Backup-Format.")
                 return
             session.book_nodes = ops.chapters_to_display_tree(tree_data, session.title_registry)
             session._refresh_avail()
             self.w.structure.reload_from_session()
 
-        def on_apply() -> bool:
-            return bool(self.w._save())
-
-        def on_cancel() -> None:
+        def on_restore() -> None:
             session.book_nodes, session.avail = ops.restore_snapshot(original)
             self.w.structure.reload_from_session()
 
-        open_time_machine_qt(
+        result = open_structure_load_dialog(
             self.w,
             Path(self.w._facade.current_book),
+            current_paths=current_paths,
+            current_paths_ordered=current_ordered,
             on_preview=on_preview,
-            on_apply=on_apply,
-            on_cancel=on_cancel,
+            on_restore=on_restore,
+            live_preview_default=True,
+            show_save_and_apply=True,
         )
+        if result is None:
+            return
+        apply_structure_load_result(session, self.w.structure, result)
 
     def reset_quarto_yml(self) -> None:
         if not self._require_book():
@@ -598,7 +726,7 @@ class CommandHost:
             "format:\n"
             "  typst:\n"
             "    keep-typ: true\n"
-            "    toc: true\n"
+            "    toc: false\n"
         )
         try:
             template_text = template_path.read_text(encoding="utf-8")

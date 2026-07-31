@@ -1,5 +1,6 @@
 ---
 title: "Danksagung"
+print_title: true
 description: "Danksagung"
 status: bookstudio
 required: true

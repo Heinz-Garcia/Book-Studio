@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
@@ -132,36 +133,42 @@ class StructurePanel(QWidget):
         mid.setSpacing(8)
         mid_wrap = QWidget()
         mid_wrap.setObjectName("structureMidColumn")
-        mid_wrap.setMinimumWidth(260)
-        mid_wrap.setMaximumWidth(300)
+        # +120 zur früheren Breite (260–300): Buttons ziehen organisch mit.
+        mid_wrap.setMinimumWidth(380)
+        mid_wrap.setMaximumWidth(420)
         mid_wrap.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         mid_wrap.setLayout(mid)
         # Kein Stretch oben: Buttons starten auf derselben Höhe wie die Tree-Boxen
         self.btn_add = QPushButton("➡️ Hinzufügen")
         self.btn_remove = QPushButton("⬅️ Entfernen")
+        self.btn_outline = QPushButton("🧭 Gliederungspunkt…")
         self.btn_up = QPushButton("⬆️ Hoch")
         self.btn_down = QPushButton("⬇️ Runter")
         self.btn_indent = QPushButton("➡️ Einrücken")
         self.btn_indent2 = QPushButton("➡️➡️ Einrücken ×2")
         self.btn_outdent = QPushButton("⬅️ Ausrücken")
         self.btn_outdent2 = QPushButton("⬅️⬅️ Ausrücken ×2")
-        self.btn_save = QPushButton("💾 Speichern")
+        self.btn_save = QPushButton("💾 Buchstruktur speichern")
+        self.btn_load = QPushButton("📂 Buchstruktur laden")
         self.btn_undo = QPushButton("↩️ Undo")
+        self.btn_redo = QPushButton("↪️ Redo")
         for btn in (
             self.btn_add,
             self.btn_remove,
+            self.btn_outline,
             self.btn_up,
             self.btn_down,
-            self.btn_indent,
-            self.btn_indent2,
-            self.btn_outdent,
-            self.btn_outdent2,
-            self.btn_save,
-            self.btn_undo,
         ):
             btn.setMinimumHeight(34)
-            btn.setMinimumWidth(220)
+            btn.setMinimumWidth(340)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             mid.addWidget(btn)
+
+        self._add_button_pair_row(mid, self.btn_indent, self.btn_indent2)
+        self._add_button_pair_row(mid, self.btn_outdent, self.btn_outdent2)
+        # Laden links, Speichern rechts (Dialog öffnen → Persistenz).
+        self._add_button_pair_row(mid, self.btn_load, self.btn_save)
+        self._add_button_pair_row(mid, self.btn_undo, self.btn_redo)
         mid.addWidget(self._build_icon_legend())
         mid.addStretch(1)
         root.addWidget(mid_wrap, 1, 1, alignment=Qt.AlignmentFlag.AlignTop)
@@ -177,6 +184,7 @@ class StructurePanel(QWidget):
 
         self.btn_add.clicked.connect(self._on_add)
         self.btn_remove.clicked.connect(self._on_remove)
+        self.btn_outline.clicked.connect(self.create_outline_page)
         self.btn_up.clicked.connect(self._on_up)
         self.btn_down.clicked.connect(self._on_down)
         self.btn_indent.clicked.connect(self._on_indent)
@@ -184,7 +192,9 @@ class StructurePanel(QWidget):
         self.btn_outdent.clicked.connect(self._on_outdent)
         self.btn_outdent2.clicked.connect(self._on_outdent2)
         self.btn_save.clicked.connect(self._on_save)
+        self.btn_load.clicked.connect(self._on_load)
         self.btn_undo.clicked.connect(self._on_undo)
+        self.btn_redo.clicked.connect(self._on_redo)
         self.book_tree.structure_reordered.connect(self._on_reorder)
 
         self.avail_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -198,12 +208,27 @@ class StructurePanel(QWidget):
         undo_shortcut.setShortcut(QKeySequence.StandardKey.Undo)
         undo_shortcut.triggered.connect(self._on_undo)
         self.addAction(undo_shortcut)
+        redo_shortcut = QAction(self)
+        redo_shortcut.setShortcut(QKeySequence.StandardKey.Redo)
+        redo_shortcut.triggered.connect(self._on_redo)
+        self.addAction(redo_shortcut)
+
+    @staticmethod
+    def _add_button_pair_row(layout: QVBoxLayout, *buttons: QPushButton) -> None:
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        for btn in buttons:
+            btn.setMinimumHeight(34)
+            btn.setMinimumWidth(0)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            row.addWidget(btn, stretch=1)
+        layout.addLayout(row)
 
     def _build_icon_legend(self) -> QWidget:
         frame = QFrame()
         frame.setObjectName("iconLegend")
         frame.setFrameShape(QFrame.Shape.StyledPanel)
-        frame.setMinimumWidth(240)
+        frame.setMinimumWidth(360)
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(5)
@@ -260,12 +285,7 @@ class StructurePanel(QWidget):
                 bg = _nest_bg(depth)
                 if bg is not None:
                     item.setBackground(0, QBrush(bg))
-                font = item.font(0)
-                if depth == 0:
-                    font.setBold(True)
-                elif depth >= 2:
-                    font.setItalic(True)
-                item.setFont(0, font)
+                # Same font weight as left pool (no bold/italic hierarchy).
                 self._style_item_for_path(item, path)
                 if parent_item is None:
                     self.book_tree.addTopLevelItem(item)
@@ -276,6 +296,38 @@ class StructurePanel(QWidget):
 
         add_nodes(None, self._session.book_nodes)
 
+    def _select_book_paths(self, paths: list[str]) -> None:
+        """Restore selection + focus after a full tree rebuild."""
+        wanted = [p for p in paths if p]
+        if not wanted:
+            return
+        wanted_set = set(wanted)
+        self.book_tree.clearSelection()
+        first: Optional[QTreeWidgetItem] = None
+
+        def walk(item: QTreeWidgetItem) -> None:
+            nonlocal first
+            path = item.data(0, Qt.ItemDataRole.UserRole)
+            if path and str(path) in wanted_set:
+                item.setSelected(True)
+                if first is None:
+                    first = item
+            for i in range(item.childCount()):
+                walk(item.child(i))
+
+        for i in range(self.book_tree.topLevelItemCount()):
+            walk(self.book_tree.topLevelItem(i))
+        if first is None:
+            return
+        self.book_tree.setCurrentItem(first)
+        self.book_tree.scrollToItem(first)
+        self.book_tree.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _reload_keeping_selection(self, paths: Optional[list[str]] = None) -> None:
+        keep = list(paths) if paths is not None else self._selected_book_paths()
+        self.reload_from_session()
+        self._select_book_paths(keep)
+
     def _selected_book_paths(self) -> list[str]:
         paths = []
         for item in self.book_tree.selectedItems():
@@ -285,11 +337,24 @@ class StructurePanel(QWidget):
         return paths
 
     def _selected_avail_paths(self) -> list[str]:
-        paths = []
-        for item in self.avail_tree.selectedItems():
-            path = item.data(0, Qt.ItemDataRole.UserRole)
-            if path:
-                paths.append(str(path))
+        """Ausgewählte Pool-Pfade in **Baumreihenfolge** (oben→unten), nicht Klickreihenfolge."""
+        selected_ids = {id(item) for item in self.avail_tree.selectedItems()}
+        if not selected_ids:
+            return []
+        paths: list[str] = []
+
+        def walk(item: QTreeWidgetItem) -> None:
+            if id(item) in selected_ids:
+                path = item.data(0, Qt.ItemDataRole.UserRole)
+                if path:
+                    paths.append(str(path))
+            for i in range(item.childCount()):
+                walk(item.child(i))
+
+        for i in range(self.avail_tree.topLevelItemCount()):
+            top = self.avail_tree.topLevelItem(i)
+            if top is not None:
+                walk(top)
         return paths
 
     def _cursor_book_path(self) -> Optional[str]:
@@ -302,8 +367,33 @@ class StructurePanel(QWidget):
     def _on_add(self) -> None:
         if not self._session:
             return
-        if self._session.add_paths(self._selected_avail_paths(), after_path=self._cursor_book_path()):
+        added = self._selected_avail_paths()
+        if self._session.add_paths(added, after_path=self._cursor_book_path()):
+            self._reload_keeping_selection(added)
+
+    def create_outline_page(self) -> None:
+        """🧭 Gliederungspunkt anlegen (Datei + optional rechts einhängen)."""
+        if not self._session:
+            return
+        from ui_qt.dialogs.outline_page_dialog import open_outline_page_dialog
+
+        result = open_outline_page_dialog(self, self._session.book_path)
+        if result is None:
+            return
+        rel_path, add_to_book = result
+        self._session.register_new_file(rel_path)
+        if add_to_book:
+            if self._session.add_paths([rel_path], after_path=self._cursor_book_path()):
+                self._reload_keeping_selection([rel_path])
+            else:
+                self.reload_from_session()
+        else:
             self.reload_from_session()
+        self._session._log(
+            f"Gliederungspunkt angelegt: {rel_path}"
+            + (" (in Buchstruktur)" if add_to_book else " (nur Pool links)"),
+            "success",
+        )
 
     def _on_remove(self) -> None:
         if not self._session:
@@ -312,42 +402,107 @@ class StructurePanel(QWidget):
             self.reload_from_session()
 
     def _on_up(self) -> None:
-        if self._session and self._session.move_up(self._selected_book_paths()):
-            self.reload_from_session()
+        paths = self._selected_book_paths()
+        if self._session and self._session.move_up(paths):
+            self._reload_keeping_selection(paths)
 
     def _on_down(self) -> None:
-        if self._session and self._session.move_down(self._selected_book_paths()):
-            self.reload_from_session()
+        paths = self._selected_book_paths()
+        if self._session and self._session.move_down(paths):
+            self._reload_keeping_selection(paths)
 
     def _on_indent(self) -> None:
-        if self._session and self._session.indent(self._selected_book_paths()):
-            self.reload_from_session()
+        paths = self._selected_book_paths()
+        if self._session and self._session.indent(paths):
+            self._reload_keeping_selection(paths)
 
     def _on_indent2(self) -> None:
-        if self._session and self._session.indent_by(self._selected_book_paths(), levels=2):
-            self.reload_from_session()
+        paths = self._selected_book_paths()
+        if self._session and self._session.indent_by(paths, levels=2):
+            self._reload_keeping_selection(paths)
 
     def _on_outdent(self) -> None:
-        if self._session and self._session.outdent(self._selected_book_paths()):
-            self.reload_from_session()
+        paths = self._selected_book_paths()
+        if self._session and self._session.outdent(paths):
+            self._reload_keeping_selection(paths)
 
     def _on_outdent2(self) -> None:
-        if self._session and self._session.outdent_by(self._selected_book_paths(), levels=2):
-            self.reload_from_session()
+        paths = self._selected_book_paths()
+        if self._session and self._session.outdent_by(paths, levels=2):
+            self._reload_keeping_selection(paths)
 
     def _on_save(self) -> None:
-        if self._session:
-            self._session.save()
+        if not self._session:
+            return
+        from ui_qt.structure_snapshot import (
+            default_structure_snapshot_label,
+            prompt_structure_snapshot_label,
+        )
+
+        label = prompt_structure_snapshot_label(
+            self,
+            default=default_structure_snapshot_label(book_name=self._session.book_path),
+            book_name=self._session.book_path,
+            title="In Quarto speichern",
+        )
+        if label is None:
+            return
+        self._session.save(snapshot_label=label)
+
+    def _on_load(self) -> None:
+        if not self._session:
+            return
+        from ui_qt import structure_ops as ops
+        from ui_qt.dialogs.structure_load_dialog import (
+            apply_structure_load_result,
+            open_structure_load_dialog,
+        )
+        from ui_qt.structure_ops import collect_paths
+
+        session = self._session
+        original = session._snapshot()
+        current_ordered = collect_paths(session.book_nodes)
+        current_paths = {p.replace("\\", "/") for p in current_ordered}
+
+        def on_preview(tree_data) -> None:
+            if not isinstance(tree_data, list):
+                return
+            session.book_nodes = ops.chapters_to_display_tree(
+                tree_data, session.title_registry
+            )
+            session._refresh_avail()
+            self.reload_from_session()
+
+        def on_restore() -> None:
+            session.book_nodes, session.avail = ops.restore_snapshot(original)
+            self.reload_from_session()
+
+        result = open_structure_load_dialog(
+            self,
+            session.book_path,
+            current_paths=current_paths,
+            current_paths_ordered=current_ordered,
+            on_preview=on_preview,
+            on_restore=on_restore,
+            live_preview_default=True,
+        )
+        if result is None:
+            return
+        apply_structure_load_result(session, self, result)
 
     def _on_undo(self) -> None:
         if self._session and self._session.undo():
             self.reload_from_session()
 
+    def _on_redo(self) -> None:
+        if self._session and self._session.redo():
+            self.reload_from_session()
+
     def _on_reorder(self, drag_path: str, target_path: str, after: bool) -> None:
         if self._session and self._session.reorder(drag_path, target_path, after=after):
-            self.reload_from_session()
+            self._reload_keeping_selection([drag_path])
         else:
-            self.reload_from_session()
+            self._reload_keeping_selection([drag_path])
 
     def _open_item_in_editor(self, item: QTreeWidgetItem, _column: int = 0) -> None:
         if item is None or self._session is None:
@@ -385,6 +540,7 @@ class StructurePanel(QWidget):
             return
         menu = QMenu(self)
         act_edit = menu.addAction("📝 Bearbeiten…")
+        act_fetch = menu.addAction("📥 Version aus anderem Projekt holen…")
         act_explorer = menu.addAction("📂 Im Explorer anzeigen")
         act_images = menu.addAction("🖼 Fehlende Bilder anzeigen")
         chosen = menu.exec(self.avail_tree.viewport().mapToGlobal(pos))
@@ -395,6 +551,8 @@ class StructurePanel(QWidget):
 
         if chosen is act_edit:
             self._open_item_in_editor(item)
+        elif chosen is act_fetch:
+            self._fetch_file_version(str(path))
         elif chosen is act_explorer:
             open_book_file_in_explorer(self, self._session.book_path, str(path))
         elif chosen is act_images:
@@ -410,6 +568,7 @@ class StructurePanel(QWidget):
             return
         menu = QMenu(self)
         act_edit = menu.addAction("📝 Bearbeiten…")
+        act_fetch = menu.addAction("📥 Version aus anderem Projekt holen…")
         act_explorer = menu.addAction("📂 Im Explorer anzeigen")
         act_images = menu.addAction("🖼 Fehlende Bilder anzeigen")
         chosen = menu.exec(self.book_tree.viewport().mapToGlobal(pos))
@@ -420,7 +579,29 @@ class StructurePanel(QWidget):
 
         if chosen is act_edit:
             self._open_item_in_editor(item)
+        elif chosen is act_fetch:
+            self._fetch_file_version(str(path))
         elif chosen is act_explorer:
             open_book_file_in_explorer(self, self._session.book_path, str(path))
         elif chosen is act_images:
             show_missing_images_for_path(self, self._session.book_path, str(path))
+
+    def _fetch_file_version(self, rel_path: str) -> None:
+        if self._session is None:
+            return
+        from ui_qt.dialogs.file_fetch_dialog import open_file_fetch_qt
+
+        replaced = open_file_fetch_qt(
+            self,
+            self._session.book_path,
+            initial_rel=rel_path,
+            suggested_rels=[rel_path],
+        )
+        if not replaced:
+            return
+        self._session.refresh_from_disk_keep_structure()
+        self.reload_from_session()
+        self._session._log(
+            f"Datei übernommen: {replaced} (Backup unter .backups/file-fetch/).",
+            "success",
+        )

@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** Juli 2026 · **Version:** 1.24.0 („Skeleton Unleashed“)
+**Stand:** 30. Juli 2026 · **Version:** 1.31.6 („Skeleton Unleashed“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -40,6 +40,8 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 16. Buchprojekt-Workflow (GrammarGraph → PDF)
 17. Publish Readiness
 18. Fertige PDFs (Publish-Input → Ausgaben)
+19. Asset Manager (Pool und Buch-img)
+20. Verzeichnisse (live aus README.md)
 
 ---
 
@@ -53,7 +55,7 @@ Oben im Dropdown **AKTIVES PROJEKT** dein Buch auswählen (Ordner mit `_quarto.y
 
 Für ein **neues oder leeres Buch**: **Plugins → Skeleton ins Buch übernehmen…**
 
-Kopiert Standardseiten (Klappentext, Einleitung, Impressum, …) als **eigene Dateien** ins Projekt. Details: Kapitel 15 (Skeleton-Bibliothek).
+Kopiert Standardseiten (Klappentext, Einleitung, Impressum, …) als **eigene Dateien** ins Projekt. Optionale Snippets (Widmung, …) kannst du im Dialog anhaken. Details: Kapitel 15 (Skeleton-Bibliothek).
 
 ### Schritt 3 — Kapitel zuordnen
 
@@ -62,13 +64,15 @@ Kopiert Standardseiten (Klappentext, Einleitung, Impressum, …) als **eigene Da
 
 Dateien per **Doppelklick** links → rechts übernehmen, oder Buttons im mittleren Bereich (**Hinzufügen** / **Entfernen**).
 
+**Autosort beim bulkweisen Hinzufügen:** Dateien mit Frontmatter-`order` (z. B. `"10"`, `"END-10"`) landen automatisch im Vorspann bzw. Nachspann; Dateien ohne `order` in die **Mitte**, in der Reihenfolge der linken Liste. Details: Kapitel 3.
+
 ### Schritt 4 — Reihenfolge festlegen
 
-Rechts per **Drag-and-Drop** oder **Hoch/Runter** sortieren. Mit **Einrücken/Ausrücken** Unterkapitel-Ebenen setzen.
+Rechts per **Drag-and-Drop** oder **Hoch/Runter** sortieren. Mit **Einrücken/Ausrücken** Unterkapitel-Ebenen setzen. Nach Hoch/Runter/Einrücken bleibt die **Auswahl** auf dem verschobenen Eintrag — du kannst mehrfach hintereinander sortieren, ohne neu zu klicken.
 
 ### Schritt 5 — Speichern
 
-`Strg+S` oder **Datei → In Quarto speichern** — schreibt die Struktur nach `_quarto.yml`.
+`Strg+S` oder **Datei → In Quarto speichern** — schreibt die Struktur nach `_quarto.yml` und fragt nach einem **Time-Machine-Namen**. Vorschlag ist **Buchprojekt + Zeitstempel** (z. B. `IFJN_Brustkrebs 28.07.2026 21:41:05`), vorausgefüllt und markiert: Enter behält ihn, Tippen überschreibt mit einem sprechenden Namen. Abbrechen bricht das Speichern ab.
 
 ### Schritt 6 — Rendern
 
@@ -117,6 +121,69 @@ Wenn du Dateien in die Buchstruktur übernimmst, ergänzt das Studio fehlende Pf
 
 - `title`, `description`, `status` (gemäß `app_config.json`)
 
+### Autosort beim Hinzufügen (links → rechts) {#sec-autosort}
+
+Beim **bulkweisen** Übernehmen (Mehrfachauswahl + **Hinzufügen**) sortiert das Studio die Buchstruktur in **drei Zonen**:
+
+| Zone | Kriterium | Reihenfolge |
+|------|-----------|-------------|
+| **Vorspann** | Frontmatter `order: "10"`, `"20"`, … | aufsteigend nach Nummer |
+| **Mitte** | kein `order`-Feld | wie in der **linken** Liste (oben→unten) |
+| **Nachspann** | `order: END-50`, `END-10`, … | END-Logik (`END-10` ganz hinten) |
+
+Das gilt für **alle** Dateien mit gültigem `order` — auch wenn `required: false` (typisch bei optionalen Skeleton-Snippets). Der Cursor rechts steuert nur die Position **innerhalb der Mitte**; Vorspann/Nachspann ignorieren ihn.
+
+---
+
+### Buchstruktur als JSON {#sec-buchstruktur-json}
+
+Unter **Datei → Buchstruktur (JSON)**:
+
+| Menüpunkt | Funktion |
+|-----------|----------|
+| **Buchstruktur aus JSON-Datei laden** | Struktur aus einer beliebigen `.json`-Datei in den rechten Baum laden |
+| **Buchstruktur suchen & laden…** | Snapshots im **aktuellen Buch** und in **Geschwister-Projekten** unter demselben Content-Root finden und laden |
+| **Buchstruktur als JSON-Datei speichern** (`Strg+S` im Untermenü) | Schnell speichern der aktuellen Struktur |
+| **… speichern als…** | Zielpfad wählen |
+
+**Suchen & laden** durchsucht u. a.:
+
+- `.backups/struct_*.json` (Time-Machine-Snapshots, inkl. benannter Labels)
+- JSON-Dateien unter `bookconfig/` (außer Publish-/Provenance-Dateien)
+- `.gui_state.json`
+
+In der Trefferliste siehst du **Label**, Datum, Kapitelanzahl und Projektname — nicht nur den Dateinamen.
+
+### Datei aus anderem Projekt holen {#sec-datei-holen}
+
+Wenn du eine einzelne Datei (z. B. Deckblatt, Impressum, `typst-show.typ`) aus einem **anderen Buchprojekt** unter demselben Content-Root brauchst:
+
+1. **Datei → Datei aus anderem Projekt holen…**, oder
+2. Rechtsklick auf eine Datei links/rechts → **Version aus anderem Projekt holen…**
+
+Dann: Quellprojekt wählen → Kandidat auswählen → Vorschau prüfen → übernehmen. Die bestehende Zieldatei wird zuvor unter `.backups/file-fetch/` gesichert.
+
+### Struktur-Snapshots und Time Machine {#sec-time-machine}
+
+Struktur-Backups liegen unter `<Buch>/.backups/struct_*.json`. Neuere Snapshots tragen **Metadaten** (Name, Zeitpunkt, Kapitelanzahl, Titelliste); ältere reine Listen bleiben lesbar.
+
+| Aktion | Menü |
+|--------|------|
+| **Benannten Snapshot speichern** | **Tools → Struktur-Snapshot speichern…** — gleicher Namensdialog (Vorschlag markiert) |
+| **Beim Speichern** | `Strg+S` / In Quarto speichern / **Buchstruktur speichern**: Dialog mit vorausgefülltem **Buchprojekt + Zeitstempel** (markiert) — Enter behält, Tippen überschreibt; Abbrechen = kein Speichern |
+| **Wiederherstellen / Vorschau** | **Tools → Struktur-Snapshots** (ehem. Time Machine) oder **Buchstruktur laden** — derselbe Dialog |
+
+**Struktur-Snapshots** (Menü und **Buchstruktur laden**): ein Dialog für Live-Vorschau im Buchbaum, Vergleich, Ersetzen, Ergänzen und optional **Übernehmen & Speichern** (sofortige `_quarto.yml`). Bei **Live-Vorschau** bleibt der Dialog kompakt links, damit der Buchbaum sichtbar bleibt. **Doppelklick** auf ein Kapitel öffnet die Leservorschau als **eigenen modalen Dialog**. Snapshots **löschen** mit **Entf** oder **Rechtsklick → Löschen**. Ohne Sofort-Speichern danach **Buchstruktur speichern**.
+
+Im Time-Machine-Dialog:
+
+1. Links einen **Snapshot** wählen (lesbare Labels, nicht nur Zeitstempel)
+2. In der Mitte die **Kapitelreihenfolge** dieses Snapshots prüfen
+3. Optional **Doppelklick** auf eine Datei → **Leservorschau** als modaler Dialog mit dem **aktuellen** Inhalt dieser Datei im offenen Buch (kein Snapshot des Dateiinhalts — nur der Struktur-Stand)
+4. Bei Bedarf den Snapshot **wiederherstellen** (rechte Buchstruktur wird ersetzt; danach wie gewohnt speichern)
+
+> Tipp: Vor riskanten Umbauten (Skeleton, großer Import, TOC-Umbau) einmal **Struktur-Snapshot speichern…** mit sprechendem Namen — dann findest du den Stand in Time Machine und im Struktur-Finder wieder.
+
 ---
 
 ## 4) Suche und Filter {#sec-suche-filter}
@@ -154,6 +221,8 @@ Die **Icon-Legende** im mittleren Bereich erklärt die Symbole.
 | 🧬 | GrammarGraph-Nutzinhalt (automatisch: alles außer Required, Root-`index.md`, Outline) |
 | 🧭 | Nur Gliederungspunkt (`content_role: outline`) |
 
+**Gliederungspunkt anlegen:** Mittel-Button **🧭 Gliederungspunkt…** oder **Bearbeiten → Gliederungspunkt anlegen…**. Dialog fragt Titel (und Dateipfad); optional sofort rechts in die Buchstruktur. Alternativ optionaler Skeleton-Snippet `content/Gliederungspunkt.md` (Profile `standard` / `AMAZON_KDP`) beim Populate anhaken. Gliederungspunkte sollen **rechts** öffnen und danach ein Vakat lassen — Typst-Muster: Kapitel 6 (Rechte Seite und Vakat).
+
 ### Hinter dem Titel
 
 | Symbol | Bedeutung |
@@ -175,7 +244,7 @@ Die **Icon-Legende** im mittleren Bereich erklärt die Symbole.
 
 - Liest die rechte Buchstruktur
 - Schreibt `_quarto.yml`
-- Legt ein Struktur-Backup unter `.backups/` an
+- Fragt nach einem Snapshot-Namen (Vorschlag = Buchprojekt + Zeitstempel, markiert) und legt `.backups/struct_*.json` an (Time Machine, Kapitel 3)
 - Führt optional den Buch-Doktor aus
 
 ### Rendern (`F5`)
@@ -187,6 +256,101 @@ Die **Icon-Legende** im mittleren Bereich erklärt die Symbole.
 3. **Export-Dialog** — Format (typst, pdf, html, docx) und Template
 4. **Temp-Klon** — Buch wird in eine temporäre Kopie kopiert; Pre-Processing und Quarto laufen nur dort
 5. **Quarto-Render** — Originalprojekt (`_quarto.yml`, `processed/`) bleibt unverändert
+
+### Typst: Deckblatt und Inhaltsverzeichnis
+
+Für **Typst**-Bücher steuert das Studio das automatische Quarto-Inhaltsverzeichnis so, dass dein **Deckblatt / erste Inhaltsseiten** nicht hinter einem Auto-TOC landen:
+
+- Standard in neuen / zurückgesetzten `_quarto.yml`: `format.typst.toc: false`
+- Skeleton-`typst-show.typ` erzwingt ebenfalls `toc: false` (auch wenn ein altes Projekt noch `toc: true` hat)
+- Root-`index.md` ist bewusst **still** (`unnumbered` / `unlisted`, ohne störende H1) — sie ist Quarto-Einstieg, nicht die erste sichtbare Buchseite
+
+Das sichtbare Inhaltsverzeichnis gehört als **eigene Kapiteldatei** in den Buchbaum (z. B. `IVZ.md` / Skeleton), nicht als Quarto-Auto-TOC vor dem Deckblatt.
+
+### Typst: Kapitelüberschrift im PDF (`print_title`) {#sec-print-title}
+
+Quarto erzeugt aus dem YAML-Feld `title` jeder Kapiteldatei automatisch eine **Level-1-Überschrift**. Für Vakat-, Schmutztitel-, Cover- und ähnliche Rahmenseiten ist das unerwünscht — dort soll nur der Inhalt (oder gar nichts) sichtbar sein, nicht „3 Schmutztitel (rechte Seite)“.
+
+**Regel beim Typst-Render:**
+
+| Situation | Überschrift im PDF |
+|-----------|-------------------|
+| `print_title: false` | unterdrückt |
+| `print_title: true` | sichtbar (Titel aus YAML) |
+| Flag fehlt + `required: true` | unterdrückt (Vakat, Deckblatt, …) |
+| Flag fehlt + nicht required | sichtbar (Inhaltkapitel) |
+
+Skeleton-Profile (`standard`, `AMAZON_KDP`) setzen `print_title` auf den Rahmenseiten **explizit**. Der YAML-`title` bleibt für Studio, Baum und Buch-Doktor — er erscheint nur dann im PDF, wenn die Regel oben das erlaubt.
+
+**Bedienung ohne Flag-Merken:** Im Markdown-Editor Toolbar-Gruppe **YAML** — Toggle **H1** (`print_title`). Weitere Bools (`required`, `unnumbered`, `unlisted`, …) stehen in derselben Gruppe. Speichern nicht vergessen.
+
+Technisch: `typst-show.typ` blendet Level-1 standardmäßig aus; der PreProcessor setzt sichtbare Titel nur bei Opt-in und markiert stille Seiten als `unnumbered` / `unlisted`.
+
+### Typst: Rechte Seite und Vakat (`pagebreak`) {#sec-pagebreak-recto}
+
+Gedruckte Bücher öffnen wichtige Seiten oft **rechts** (Recto = ungerade Seitenzahl, solange die arabische Zählung bei 1 rechts beginnt). Statt dafür eigene **technische Vakat-Dateien** in den Buchbaum zu legen, steuerst du das mit Typst-`#pagebreak` in der jeweiligen Markdown-Datei — im Quarto-Raw-Block:
+
+````markdown
+```{=typst}
+#pagebreak(weak: true, to: "odd")
+```
+````
+
+#### Die drei Bausteine
+
+| Anweisung | Wirkung |
+|-----------|---------|
+| `#pagebreak()` | **Harter** Umbruch: immer neue Seite (auch wenn die aktuelle schon leer wäre → Risiko Extra-Leerseite). |
+| `#pagebreak(to: "odd")` | Nächste Inhaltsseite ist **ungerade** (= rechts). Fehlt dazu eine Seite, fügt Typst eine **leere** Seite ein — das ist das **implizite Vakat**. |
+| `#pagebreak(weak: true, to: "odd")` | Wie `to: "odd"`, aber: liegt man schon auf einer **leeren** Seite (z. B. nach hartem Umbruch der Vorgängerdatei), wird **kein** zusätzlicher Umbruch erzwungen → weniger Doppel-Vakats. |
+
+Automatische Pagination (Seite voll) bleibt davon unberührt — die Anweisungen erzwingen nur **manuelle** Öffnungen.
+
+#### Standardmuster für „rechte“ Seiten
+
+**Seite soll rechts öffnen und die nächste ebenfalls rechts** (Vakat dazwischen entsteht von allein):
+
+````markdown
+```{=typst}
+#pagebreak(weak: true, to: "odd")
+```
+
+# Titel bzw. Inhalt …
+
+```{=typst}
+#pagebreak(to: "odd")
+```
+````
+
+So bei Gliederungspunkten (`content_role: outline`), Schmutztitel, IVZ, Einleitung, Epilog, Danksagung u. Ä.
+
+**Seite soll rechts öffnen, die nächste aber links** (z. B. Haupttitel → Impressum, Vorwort → Widmung):
+
+````markdown
+```{=typst}
+#pagebreak(weak: true, to: "odd")
+```
+
+… Inhalt …
+
+```{=typst}
+#pagebreak()
+```
+````
+
+Ende bewusst **ohne** `to: "odd"`, sonst würde die linke Folgeseite wieder nach rechts geschoben.
+
+**Bewusst linke Seiten** (Impressum, Widmung): kein Start-`to: "odd"` nötig; am Ende meist hartes `#pagebreak()`.
+
+#### Was du vermeiden solltest
+
+- **Technische Vakat-MD** *und* `to: "odd"` gleichzeitig — oft **zwei** Leerseiten.
+- `#counter(page).update(...)` mitten im Nutzteil — dann gilt „ungerade = rechts“ nicht mehr zuverlässig.
+- Deckblatt mit `#page(margin: 0pt)[…]` pauschal wie eine normale Recto-Seite behandeln — erst im Doppelseiten-PDF prüfen.
+
+#### Editor
+
+Unter **End-Befehle** im Markdown-Editor kannst du weiterhin einen harten Umbruch ans Dateiende hängen (`#pagebreak()`). Für Recto/Vakat die Blöcke oben manuell (oder per Vorlage) setzen — der schwache End-Befehl allein ersetzt `to: "odd"` nicht.
 
 ### Layout-Profile (Export-Dialog)
 
@@ -322,15 +486,18 @@ Im Dialog: Doppelklick oder **Enter** auf eine Zeile → Editor springt zur Stel
 ## 10) Markdown-Editor {#sec-editor}
 
 - Doppelklick auf Kapitel in links/rechts
-- **Strg+S** speichern
-- End-Befehle (z. B. PDF-Seitenumbruch) über Editor-Menü
+- **Strg+S** / **Speichern** schreibt die Datei — der Editor bleibt offen
+- **Schließen** beendet den Dialog
+- End-Befehle: harter PDF-Seitenumbruch über Editor-Menü; Recto/Vakat-Logik (`to: "odd"`) siehe Kapitel 6 (Rechte Seite und Vakat)
 
 Toolbar-Buttons (Auswahl):
 
 | Button | Aktion |
 |--------|--------|
-| 📌 | Required-Flag für die geöffnete Datei umschalten |
+| **YAML** | Gruppe mit Toggle-Buttons für alle Frontmatter-Bools: **📌** `required`, **H1** `print_title`, **#–** `unnumbered`, **☰–** `unlisted`, plus weitere true/false-Felder aus dem YAML. Tooltip nennt den Key. Speichern nicht vergessen. Details zu `print_title`: Abschnitt in Kapitel 6 |
 | 🧬 | GrammarGraph-Inhalt aktualisieren… (Body-Swap-Dialog; Kapitel 16) |
+| 🖼️ | Bild einfügen… — Markdown `![](/img/…)` oder Typst `#image("/img/…", width: …%)` (Dialog, Breite 1–100 %). Markdown-Bild + Zentrieren (↔/↕↔) wandelt automatisch nach `#image(…, width: 80%)` um |
+| 👁️ | Leservorschau — zeigt lokale Bilder an; Typst-Deckblätter als Vollseiten-Annäherung (A5, `object-fit: cover`) |
 
 Beim Öffnen aus der Bildprüfung oder vom Buch-Doktor: Sprung zur gemeldeten Zeile.
 
@@ -358,6 +525,7 @@ GUI: **Tools → Studio-Konfiguration...**
 | `log_font_size` | Schriftgröße im Log (7–24) |
 | `skeleton_library_path` | Ordner mit Skeleton-Profilen (`tools/skeleton/library`) |
 | `skeleton_default_profile` | Standard-Profil beim Populate (z. B. `standard`) |
+| `asset_pool_path` | Zentraler Bild-Pool für **Plugins → Asset Manager…** (Default `assets/pool`) |
 | `skeleton_on_conflict` | `ask` \| `skip` \| `replace` bei vorhandenen Dateien |
 | `skeleton_populate_mode` | `all` \| `missing_only` (nur fehlende Dateien kopieren) |
 
@@ -407,7 +575,23 @@ Beim Speichern legt das Studio bei Bedarf eine minimale `index.md` an.
 
 ### `_quarto.yml` kaputt
 
-**Tools → _quarto.yml hart zurücksetzen** (mit Sicherheitsabfrage). Template: `templates/quarto_reset_minimal.yml`.
+**Tools → Wartung → _quarto.yml hart zurücksetzen** (mit Sicherheitsabfrage). Template: `templates/quarto_reset_minimal.yml`.
+
+### Struktur verloren / alter Stand gesucht
+
+1. **Tools → Struktur-Snapshots** — benannte und zeitgestempelte Snapshots im aktuellen Buch
+2. **Datei → Buchstruktur (JSON) → Buchstruktur suchen & laden…** — auch in Geschwister-Projekten suchen
+3. Vor dem nächsten großen Umbau: **Tools → Struktur-Snapshot speichern…** mit sprechendem Namen
+
+### Deckblatt erscheint nicht zuerst (Typst)
+
+Meist hat `_quarto.yml` noch `format.typst.toc: true` — Quarto setzt dann ein Auto-Inhaltsverzeichnis **vor** den Inhaltsseiten. Abhilfe:
+
+- `toc: false` unter `format.typst` setzen (Studio-Standard bei Reset/neu)
+- aktuelle Skeleton-`typst-show.typ` ins Projekt holen (**Datei aus anderem Projekt** oder Skeleton erneut, Diff prüfen)
+- sicherstellen, dass Deckblatt/Haupttitel **rechts im Buchbaum** vor dem IVZ stehen
+
+Details: Kapitel 6 (Typst: Deckblatt und Inhaltsverzeichnis).
 
 ### Skeleton: Dateien im Git-Panel
 
@@ -502,21 +686,25 @@ Das **Skeleton**-Feature befüllt Buchprojekte mit wiederkehrenden Seiten (Klapp
 - Alle weiteren Bearbeitungen betreffen nur die **Kopien im Buch**, nicht die Skeleton-Bibliothek.
 - Die Bibliothek ist die **Quelle für künftige** Populate-Läufe in anderen Büchern.
 - Beide Menüpunkte bleiben sichtbar (Betreiber = User und Admin).
+- Rahmenseiten (Vakat, Schmutztitel, Cover, …) tragen in den Skeleton-Profilen **`print_title: false`**, Inhaltseiten wie Einleitung/Vorwort **`print_title: true`** — damit YAML-Titel nicht ungefragt als PDF-Überschrift erscheinen. Umschalten später im Editor unter **YAML → H1** (Kapitel 6 / 10).
 
 ### Populate — Ablauf
 
 1. Aktives Buch im Dropdown wählen.
 2. **Plugins → Skeleton ins Buch übernehmen…**
 3. Bei mehreren Profilen: **Profil wählen** (z. B. `standard`).
-4. Im Dialog siehst du **genau**, was passiert:
+4. **Optionale Snippets:** Im gleichen Dialog erscheinen Checkboxen für alle Manifest-Einträge mit `required: false` (z. B. Widmung, Gliederungspunkt, Template). Pflicht-Rahmen werden immer übernommen; optionale nur, wenn du sie anhakt (**Alle optionalen** / **Keine**).
+5. Im folgenden Diff-Dialog siehst du **genau**, was passiert:
    - welche Dateien **neu** kopiert werden (landen links im Pool)
    - welche **übersprungen** oder **ersetzt** werden
    - **Hinweis:** der rechte Buchbaum bleibt unverändert (manuell einhängen)
-5. Bei Konflikten (Datei existiert schon):
+6. Bei Konflikten (Datei existiert schon):
    - **Überspringen** (empfohlen) oder **Ersetzen**
    - optional **Entscheidung merken** → `skeleton_on_conflict` in `app_config.json`
-6. Optional: **Nur fehlende Dateien übernehmen** — vorhandene Dateien werden nie überschrieben (`skeleton_populate_mode: missing_only`).
-7. Nach Bestätigung: Frontmatter wird ergänzt, Kapitel mit `order` werden sortiert, **`_quarto.yml` und GUI-Struktur werden gespeichert**.
+7. Optional: **Nur fehlende Dateien übernehmen** — vorhandene Dateien werden nie überschrieben (`skeleton_populate_mode: missing_only`).
+8. Nach Bestätigung: Frontmatter wird ergänzt, Dateien landen im Pool. **`_quarto.yml` und der rechte Buchbaum bleiben unangetastet** — du hängst Kapitel rechts selbst ein.
+
+> Nach dem Populate werden die Pool-Dateien neu eingelesen; eine bereits aufgebaute rechte Struktur bleibt erhalten.
 
 ### Diff-Vorschau
 
@@ -550,6 +738,7 @@ Das mitgelieferte Profil enthält u. a. (unter `content/required/`):
 | UeberAutor.md | `"END-30"` |
 | Klappentext_hinten.md | `"END-20"` |
 | Rueckseite.md | `"END-10"` |
+| Gliederungspunkt.md | optional; `content_role: outline` (🧭); Vorlage oder GUI-Anlage |
 | Template.md | optional; wie alle Vorlagen nur Kopie, Buchbaum manuell |
 
 Mapping orientiert sich am Buch *Band_Stoffwechselgesundheit*. Details zu `order`: Kapitel 3 (Projekt und Kapitel).
@@ -642,7 +831,7 @@ Wenn Pflichtseiten noch fehlen (`content/required/*.md`):
 - Beim **ersten Import** fragt das Studio einmalig, ob der Skeleton-Rahmen übernommen werden soll.
 - Jederzeit manuell: **Plugins → Skeleton ins Buch übernehmen…**
 
-Skeleton-Dateien landen **links** im Pool — der rechte Buchbaum bleibt unverändert. Details: Kapitel 15.
+Skeleton-Dateien landen **links** im Pool — der rechte Buchbaum bleibt unverändert. Im Populate-Dialog kannst du **optionale Snippets** des Profils einzeln zuschalten. Details: Kapitel 15.
 
 ### Phase 3 — Struktur aufbauen
 
@@ -907,6 +1096,39 @@ Du musst die Map **nicht manuell** pflegen — Plugin-Hooks schreiben bei:
 
 ---
 
+## 19) Asset Manager (Pool und Buch-img) {#sec-asset-manager}
+
+**Plugins → 🖼️ Asset Manager…** verwaltet Bilder in zwei Bereichen:
+
+| Bereich | Zweck |
+|---------|--------|
+| **Pool (links)** | Gemeinsame Bildbibliothek (Default `assets/pool`, Key `asset_pool_path`) |
+| **Buch img/ (rechts)** | Dateien unter `{Buch}/img/` — das, was mit `/img/…` referenziert wird |
+
+### Typischer Ablauf
+
+1. Bilder in den **Pool** legen (**Hinzufügen…**) oder einen anderen Ordner öffnen (**Ordner öffnen…**)
+2. Optional **Als Standard speichern** — schreibt `asset_pool_path` in `app_config.json`
+3. Auswahl → **Nach Buch img/ kopieren** (Kopie, Pool bleibt erhalten; Namenskollision → `_1`-Suffix)
+4. Im Markdown weiter mit **🖼️ Bild einfügen…** oder bestehender `/img/…`-Referenz arbeiten
+
+### Referenzen und Löschen
+
+- Bei Auswahl einer Buch-Datei zeigt die rechte Detailspalte alle Treffer (Markdown `![](…)` und Typst `#image("…")`)
+- Doppelklick auf ein **Bild** öffnet es im mit der Datei verknüpften System-Editor
+- Doppelklick auf einen **Referenz-Treffer** öffnet die Quelldatei im Studio-Editor
+- **Löschen** in `img/` nur bei **ungenutzten** Bildern (keine Referenzen). Pool-Dateien können unabhängig gelöscht werden
+
+---
+
+## 20) Verzeichnisse (live aus README.md) {#sec-verzeichnisse}
+
+Beim Öffnen von **Hilfe → Handbuch öffnen** hängt Book Studio automatisch einen Abschnitt **Verzeichnisse** an. Die Texte kommen aus `README.md` in den Ordnern (Whitelist: `production/`, `production/books/`, `production/inbox/`, `tools/skeleton/`, …). Seeds liegen unter `tools/directory_help/seeds/`, falls ein Ordner noch keine README hat.
+
+So bleibt die Erklärung am Ort des Ordners und erscheint trotzdem in der Hilfe — ohne dass du `handbuch.html` neu bauen musst.
+
+---
+
 ## Anhang: Ordnerstruktur eines Buchprojekts {#sec-anhang-ordnerstruktur}
 
 ```
@@ -927,7 +1149,8 @@ MeinBuch/
 ├── export/              ← Render-Ausgabe
 │   ├── _book/                     ← Komfort-Kopie, wird bei jedem Render überschrieben
 │   └── publish_renders/<Snapshot-ID>/   ← dauerhaftes Archiv, eine Datei pro Render (Fertige PDFs)
-└── .backups/            ← Struktur-Backups
+└── .backups/            ← Struktur-Snapshots (Time Machine: struct_*.json)
+    └── file-fetch/      ← Sicherungen vor „Datei aus anderem Projekt holen“
 
 Book-Studio-Installation (Auszug):
 tools/skeleton/library/  ← Skeleton-Vorlagen (Profile mit manifest.yaml)

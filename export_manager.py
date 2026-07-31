@@ -553,14 +553,16 @@ class ExportManager:
 
         if has_structural_hits:
             self._log("📌 Früher Treffer für ':::': strukturell auffällige Stelle(n):", "warning")
+            max_hits = 10
         else:
             self._log(
-                "📌 Früher Treffer für ':::': keine strukturellen Defekte erkannt – nur mögliche Auslöser.",
+                "📌 Früher Treffer für ':::': keine strukturellen Defekte — "
+                "nur mögliche Auslöser (kein Abbruchgrund).",
                 "warning",
             )
+            max_hits = 3
         shown = []
         seen = set()
-        max_hits = 20
         for item in normalized_entries:
             source_path = item.get("source_path")
             line_number = item.get("line_number")
@@ -586,12 +588,21 @@ class ExportManager:
             else:
                 self._log(f"   🔎 {title} [{source_path}] L{line_number}", "warning")
 
-        if len(normalized_entries) > len(shown):
+        unique_total = len(
+            {
+                (i.get("source_path"), i.get("line_number"))
+                for i in normalized_entries
+                if isinstance(i.get("source_path"), str) and isinstance(i.get("line_number"), int)
+            }
+        )
+        if unique_total > len(shown):
             self._log(
-                f"… {len(normalized_entries) - len(shown)} weitere mögliche Treffer ausgeblendet (Log-Limit).",
+                f"… {unique_total - len(shown)} weitere mögliche Treffer ausgeblendet (Log-Limit).",
                 "warning",
             )
 
+        if not shown:
+            return
         primary_path, primary_line, _primary_kind, _primary_structural = shown[0]
         self._log(f"👉 KLICK: [{primary_path}] L{primary_line}", "header")
         if len(shown) > 1:
@@ -781,13 +792,22 @@ class ExportManager:
         dispatched = False
         try:
             self._prepare_book_for_render()
-            is_healthy, analysis = self._run_doctor_preflight("Render-Vorabcheck", emit_success_log=False)
+            is_healthy, analysis = self._run_doctor_preflight(
+                "Render-Vorabcheck", emit_success_log=True
+            )
             if not is_healthy:
                 if analysis is not None:
                     error_count = analysis.get("error_count", 0)
+                    warning_count = analysis.get("warning_count", 0)
                     self._log(
-                        f"💡 Rendern pausiert: {error_count} Punkt(e) brauchen noch deine Aufmerksamkeit. "
+                        f"💡 Rendern pausiert (Buch-Doktor): "
+                        f"{error_count} Fehler, {warning_count} Warnung(en). "
                         "F4 = nächster Fund, Enter = Datei öffnen.",
+                        "warning",
+                    )
+                else:
+                    self._log(
+                        "💡 Rendern pausiert: Buch-Doktor-Vorabcheck ohne Ergebnis.",
                         "warning",
                     )
                 self._set_status("Render pausiert — siehe Hinweise im Log (F4)", _StatusFg.WARNING_ALT)
@@ -802,6 +822,19 @@ class ExportManager:
                 self._layout_app_defaults(),
             )
             export_initial = {**self._last_export_options(), **layout_defaults}
+            if self._current_profile_name():
+                export_initial["profile_name"] = self._current_profile_name()
+            # Stem immer vom aktuellen Buch (neuestes Publish_*.json), nicht
+            # von einem anderen Buch aus last_export_options übernehmen.
+            if self._current_book():
+                try:
+                    from render_artifact_store import resolve_preferred_pdf_stem
+
+                    export_initial["pdf_stem"] = resolve_preferred_pdf_stem(
+                        Path(self._current_book())
+                    )
+                except (OSError, ValueError, TypeError):
+                    export_initial["pdf_stem"] = Path(self._current_book()).name
             selected = ui_hooks.ask_export_options(
                 self._root(),
                 templates,
@@ -913,6 +946,9 @@ class ExportManager:
             except (ImportError, OSError, ValueError):
                 snapshot_id = ""
             render_notes = str(selected.get("notes") or "").strip()
+            render_pdf_stem = str(selected.get("pdf_stem") or "").strip()
+            if render_pdf_stem.lower().endswith(".pdf"):
+                render_pdf_stem = render_pdf_stem[:-4].rstrip()
             self._pending_render_context = {
                 "format": base_fmt,
                 "template": selected_tpl,
@@ -922,6 +958,7 @@ class ExportManager:
                 "linestretch": linestretch,
                 "snapshot_id": snapshot_id,
                 "notes": render_notes,
+                "pdf_stem": render_pdf_stem,
             }
             profile = None
             try:
@@ -934,6 +971,8 @@ class ExportManager:
                 )
             except (ImportError, KeyError, ValueError):
                 self._log(f"📐 Layout-Profil: {layout_profile} · Zeilenabstand {linestretch:g}", "info")
+            if render_pdf_stem:
+                self._log(f"📄 Dateiname: {render_pdf_stem}.pdf", "info")
             if render_notes:
                 self._log(f"🏷️  Anzeigename: {render_notes}", "info")
             self._start_render_log(target_fmt, selected_tpl)
@@ -1033,6 +1072,59 @@ class ExportManager:
     # =========================================================================
     # HILFSFUNKTIONEN (Auto-Open & UI)
     # =========================================================================
+    def _prompt_and_rename_render_pdfs(self, artifact, archived_artifact):
+        """Benennt Convenience- + Archiv-PDF nach Stem aus dem Export-Dialog um.
+
+        Stem kommt aus ``_pending_render_context['pdf_stem']`` (Export & Layout).
+        Fehlt er, Fallback: Bestätigungsdialog mit Publish-JSON-Vorschlag.
+        Rueckgabe: ``(artifact, archived_artifact)`` (ggf. umbenannt).
+        """
+        pdf_candidates = [
+            p
+            for p in (artifact, archived_artifact)
+            if p is not None and Path(p).suffix.lower() == ".pdf"
+        ]
+        if not pdf_candidates:
+            return artifact, archived_artifact
+
+        from render_artifact_store import rename_render_pdf, resolve_preferred_pdf_stem
+
+        ctx = getattr(self, "_pending_render_context", None) or {}
+        stem = str(ctx.get("pdf_stem") or "").strip()
+        if not stem:
+            book = self._current_book()
+            default_stem = resolve_preferred_pdf_stem(book) if book else ""
+            stem = ui_hooks.ask_render_pdf_name(default_stem=default_stem) or ""
+        stem = str(stem).strip()
+        if stem.lower().endswith(".pdf"):
+            stem = stem[:-4].rstrip()
+        if not stem:
+            return artifact, archived_artifact
+
+        new_artifact = artifact
+        new_archived = archived_artifact
+        try:
+            if artifact is not None and Path(artifact).suffix.lower() == ".pdf":
+                new_artifact = rename_render_pdf(Path(artifact), stem)
+            if (
+                archived_artifact is not None
+                and Path(archived_artifact).suffix.lower() == ".pdf"
+            ):
+                new_archived = rename_render_pdf(Path(archived_artifact), stem)
+        except (OSError, ValueError) as rename_err:
+            self._log(f"⚠️ PDF-Umbenennung fehlgeschlagen: {rename_err}", "warning")
+            return artifact, archived_artifact
+
+        renamed_name = (
+            Path(new_archived).name
+            if new_archived is not None
+            else Path(new_artifact).name
+            if new_artifact is not None
+            else f"{stem}.pdf"
+        )
+        self._log(f"📄 PDF benannt als: {renamed_name}", "info")
+        return new_artifact, new_archived
+
     def _handle_render_success(self, fmt):
         try:
             # Phase 2 / 2.3c voll: out_dir-Berechnung im RenderService.
@@ -1060,10 +1152,19 @@ class ExportManager:
                     archived_artifact = None
 
             if artifact is not None:
-                abs_path = str(artifact.resolve())
-                hook_path = str(archived_artifact.resolve()) if archived_artifact is not None else abs_path
 
-                def _on_success(path=abs_path, hook_path=hook_path, output_fmt=fmt):
+                def _on_success(
+                    convenience=artifact,
+                    archived=archived_artifact,
+                    output_fmt=fmt,
+                ):
+                    convenience, archived = self._prompt_and_rename_render_pdfs(
+                        convenience, archived
+                    )
+                    path = str(convenience.resolve())
+                    hook_path = (
+                        str(archived.resolve()) if archived is not None else path
+                    )
                     self._copy_to_clipboard(path)
                     self._log(f"✅ ERFOLG: {output_fmt.upper()} generiert!", "success")
                     self._log(f"📋 Pfad in Zwischenablage: {path}", "success")
@@ -1090,7 +1191,15 @@ class ExportManager:
             else:
                 hook_path = str(archived_artifact.resolve()) if archived_artifact is not None else ""
 
-                def _on_success_no_artifact(output_fmt=fmt, hook_path=hook_path):
+                def _on_success_no_artifact(
+                    output_fmt=fmt,
+                    archived=archived_artifact,
+                    hook_path=hook_path,
+                ):
+                    if archived is not None:
+                        _, archived = self._prompt_and_rename_render_pdfs(None, archived)
+                        if archived is not None:
+                            hook_path = str(archived.resolve())
                     self._log(f"✅ ERFOLG: {output_fmt.upper()} im export/ Ordner generiert.", "success")
                     self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
                     self._fire_after_render_hook(output_fmt, hook_path)

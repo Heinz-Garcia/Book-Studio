@@ -10,7 +10,7 @@ book:
 format:
   typst:
     keep-typ: true
-    toc: true
+    toc: false
     toc-depth: 3
     number-sections: true
     section-numbering: 1.1.1

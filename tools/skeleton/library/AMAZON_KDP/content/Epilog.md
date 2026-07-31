@@ -1,5 +1,6 @@
 ---
-title: Epilog (rechte Seite)
+title: Epilog
+print_title: true
 description: Epilog
 status: bookstudio
 required: true

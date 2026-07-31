@@ -170,6 +170,7 @@ def save_session(
     *,
     current_book: Optional[Path],
     geometry: Optional[str] = None,
+    ui_state_updates: Optional[dict[str, Any]] = None,
     root: Optional[Path] = None,
 ) -> None:
     base = root or repo_root()
@@ -192,6 +193,8 @@ def save_session(
         ui_state["window_geometry"] = geometry
     elif "window_geometry" in (existing.get("ui_state") or {}):
         ui_state["window_geometry"] = existing["ui_state"]["window_geometry"]
+    if ui_state_updates:
+        ui_state.update(ui_state_updates)
     payload = {
         "active_book_path": active_key,
         "active_book_name": active_name,

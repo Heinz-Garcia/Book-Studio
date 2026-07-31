@@ -5,10 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -103,6 +106,36 @@ def ask_post_render_action(
     return dlg.choice
 
 
+def ask_render_pdf_name(
+    parent: Optional[QWidget],
+    *,
+    default_stem: str = "",
+) -> Optional[str]:
+    """Bestätigt/ändert den PDF-Dateinamen (ohne .pdf).
+
+    Rückgabe: Stem oder ``None`` bei Abbrechen.
+    """
+    suggested = str(default_stem or "").strip()
+    dlg = QInputDialog(parent)
+    dlg.setWindowTitle("PDF-Dateiname")
+    dlg.setLabelText("Dateiname für die gerenderte PDF (ohne .pdf):")
+    dlg.setTextValue(suggested)
+    dlg.setInputMode(QInputDialog.InputMode.TextInput)
+    dlg.resize(520, 140)
+
+    def _select_all() -> None:
+        line = dlg.findChild(QLineEdit)
+        if line is not None:
+            line.selectAll()
+            line.setFocus()
+
+    QTimer.singleShot(0, _select_all)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+    stem = str(dlg.textValue() or "").strip()
+    return stem or None
+
+
 def open_finished_pdfs_for_book(
     parent: Optional[QWidget],
     book_path: Path,
@@ -128,5 +161,6 @@ __all__ = [
     "ACTION_SHOW_PDFS",
     "PostRenderDialog",
     "ask_post_render_action",
+    "ask_render_pdf_name",
     "open_finished_pdfs_for_book",
 ]

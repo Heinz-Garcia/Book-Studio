@@ -1,6 +1,7 @@
 ---
-title: Vakanz oder Verlagsdaten (linke Seite)
-description: Vakanz oder Verlagsdaten (linke Seite)
+title: Vakanz oder Verlagsdaten
+print_title: false
+description: Vakanz oder Verlagsdaten
 status: bookstudio
 order: '3'
 ---

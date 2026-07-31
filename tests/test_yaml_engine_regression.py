@@ -67,6 +67,37 @@ def test_save_chapters_keeps_index_first_and_orders_required_files(tmp_path: Pat
     ]
 
 
+def test_save_chapters_orders_optional_files_with_order_field(tmp_path: Path) -> None:
+    """order gilt auch bei required: false (Skeleton-Optionals)."""
+    book = _create_book(tmp_path)
+    _write(
+        book / "content" / "Widmung.md",
+        "---\ntitle: Widmung\nrequired: false\norder: \"4\"\n---\n\n# Widmung\n",
+    )
+    _write(
+        book / "content" / "Glossar.md",
+        "---\ntitle: Glossar\nrequired: false\norder: END-35\n---\n\n# Glossar\n",
+    )
+    _write(book / "content" / "chapter.md", _frontmatter(title="Kapitel"))
+
+    engine = QuartoYamlEngine(book)
+    engine.save_chapters(
+        [
+            {"path": "content/Glossar.md", "children": []},
+            {"path": "content/chapter.md", "children": []},
+            {"path": "content/Widmung.md", "children": []},
+        ],
+        save_gui_state=False,
+    )
+
+    assert _load_chapters(book) == [
+        "index.md",
+        "content/Widmung.md",
+        "content/chapter.md",
+        "content/Glossar.md",
+    ]
+
+
 def test_parse_chapters_reads_quarto_yaml_when_no_gui_state_exists(tmp_path: Path) -> None:
     book = _create_book(tmp_path)
     _write(

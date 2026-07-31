@@ -1,5 +1,6 @@
 ---
 title: "Titel"
+print_title: false
 description: "Titel"
 status: bookstudio
 required: true

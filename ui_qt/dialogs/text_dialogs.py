@@ -51,15 +51,15 @@ _TEXT_EMPHASIS_COMMANDS: tuple[tuple[str, str, str, str], ...] = (
 _ALIGNMENT_COMMANDS: tuple[tuple[str, str, str, str], ...] = (
     (
         "↔",
-        "Zentrieren horizontal (Typst: #align(center)[Text])",
+        "Zentrieren horizontal (Typst). Enthält die Auswahl ein Markdown-Bild, "
+        "wird es nach #image(…, width: 80%) umgewandelt (Fence-Block).",
         "`#align(center)[",
         "]`{=typst}",
     ),
     (
         "↕↔",
-        "Zentrieren horizontal + vertikal auf der Seite (Typst: "
-        "#align(center + horizon)[Text]) - z. B. Titel/Zitat mittig auf einer "
-        "eigenen Seite (Deckblatt, Widmung).",
+        "Zentrieren horizontal + vertikal (Typst). Markdown-Bilder in der Auswahl "
+        "werden automatisch nach #image(\"/img/…\", width: 80%) konvertiert — sonst Klartext im PDF.",
         "`#align(center + horizon)[",
         "]`{=typst}",
     ),
@@ -152,7 +152,7 @@ class TextEditorDialog(QDialog):
         self._is_markdown = self.path.suffix.lower() == ".md"
         self._preview_dirty = True
         self.setWindowTitle(f"{title} — {self.path.name}")
-        self.resize(1440, 720)
+        self.resize(1500, 720)
         layout = QVBoxLayout(self)
 
         # Zwei Zeilen statt einer: die volle Formatier-Toolbar braucht in einer
@@ -189,18 +189,18 @@ class TextEditorDialog(QDialog):
             self._mode_group.idClicked.connect(self._on_mode_changed)
             toolbar.addSeparator()
 
-            self._add_toolbar_group_label(toolbar, "Seite")
-            self._btn_required = QPushButton("📌")
-            self._btn_required.setCheckable(True)
-            self._btn_required.setFlat(False)
-            self._btn_required.setFixedWidth(40)
-            self._btn_required.setToolTip(
-                "Required umschalten (Frontmatter required: true).\n"
-                "Aktiv = Pflichtseite."
-            )
-            self._btn_required.clicked.connect(self._toggle_required)
-            toolbar.addWidget(self._btn_required)
+            self._add_toolbar_group_label(toolbar, "YAML")
+            self._yaml_toggle_buttons: dict[str, QPushButton] = {}
+            self._yaml_toggle_keys_sig: tuple[str, ...] = ()
+            self._yaml_toggle_host = QWidget()
+            self._yaml_toggle_layout = QHBoxLayout(self._yaml_toggle_host)
+            self._yaml_toggle_layout.setContentsMargins(0, 0, 0, 0)
+            self._yaml_toggle_layout.setSpacing(2)
+            toolbar.addWidget(self._yaml_toggle_host)
+            # Buttons erst nach Editor-Erzeugung (_rebuild_yaml_toggles).
 
+            toolbar.addSeparator()
+            self._add_toolbar_group_label(toolbar, "Inhalt")
             self._btn_gg = QPushButton("🧬")
             self._btn_gg.setCheckable(False)
             self._btn_gg.setFlat(False)
@@ -231,7 +231,9 @@ class TextEditorDialog(QDialog):
             toolbar2.addWidget(self._btn_linebreak)
             toolbar2.addSeparator()
         else:
-            self._btn_required = None
+            self._yaml_toggle_buttons = {}
+            self._yaml_toggle_keys_sig = ()
+            self._yaml_toggle_host = None
             self._btn_gg = None
 
         commands = list(end_commands) if end_commands is not None else []
@@ -324,8 +326,9 @@ class TextEditorDialog(QDialog):
         self._stack.addWidget(self._preview)
         layout.addWidget(self._stack)
 
-        if self._btn_required is not None:
-            self._sync_required_button()
+        if self._yaml_toggle_host is not None:
+            self._rebuild_yaml_toggles(force=True)
+            self._sync_yaml_toggles()
 
         if initial_line and initial_line > 0:
             block = self.editor.document().findBlockByNumber(initial_line - 1)
@@ -342,10 +345,13 @@ class TextEditorDialog(QDialog):
         layout.addLayout(status_row)
 
         buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Close
         )
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
+        close_btn = buttons.button(QDialogButtonBox.StandardButton.Close)
+        if close_btn is not None:
+            close_btn.setText("Schließen")
         save_as_btn = buttons.addButton("Speichern als…", QDialogButtonBox.ButtonRole.ActionRole)
         save_as_btn.setToolTip(
             "Speichert den aktuellen Inhalt zusätzlich unter einem neuen Dateinamen/Pfad "
@@ -437,7 +443,7 @@ class TextEditorDialog(QDialog):
             ("{ }", "Codeblock (```)", self._insert_code_block),
             ("▦", "Tabelle (Pandoc-Pipe-Table)", self._insert_table),
             ("🔗", "Link ([Text](URL))", self._insert_link),
-            ("🖼️", "Bild (![Alt](Pfad))", self._insert_image),
+            ("🖼️", "Bild einfügen… (Datei wählen)", self._insert_image),
             ("¹", "Fußnote ([^n])", self._insert_footnote),
         )
         for icon, tooltip, handler in insert_buttons:
@@ -471,18 +477,65 @@ class TextEditorDialog(QDialog):
 
     def _on_text_changed(self) -> None:
         self._preview_dirty = True
-        if self._btn_required is not None:
-            self._sync_required_button()
+        if self._yaml_toggle_host is not None:
+            self._rebuild_yaml_toggles(force=False)
+            self._sync_yaml_toggles()
 
-    def _sync_required_button(self) -> None:
-        if self._btn_required is None:
+    def _rebuild_yaml_toggles(self, *, force: bool = False) -> None:
+        """Baut YAML-Toggle-Buttons neu, wenn sich die Bool-Key-Menge ändert."""
+        if self._yaml_toggle_host is None:
             return
-        from page_required import content_explicitly_required
+        from frontmatter_bool_toggles import list_bool_toggle_specs, toggle_keys_signature
 
-        is_req = content_explicitly_required(self.editor.toPlainText())
-        blocked = self._btn_required.blockSignals(True)
-        self._btn_required.setChecked(is_req)
-        self._btn_required.blockSignals(blocked)
+        text = self.editor.toPlainText() if hasattr(self, "editor") else ""
+        sig = toggle_keys_signature(text)
+        if not force and sig == self._yaml_toggle_keys_sig:
+            return
+        self._yaml_toggle_keys_sig = sig
+
+        while self._yaml_toggle_layout.count():
+            item = self._yaml_toggle_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._yaml_toggle_buttons.clear()
+
+        for spec in list_bool_toggle_specs(text):
+            btn = QPushButton(spec.button_label)
+            btn.setCheckable(True)
+            btn.setFlat(False)
+            btn.setFixedWidth(40)
+            btn.setToolTip(spec.tooltip)
+            btn.clicked.connect(
+                lambda _checked=False, key=spec.key: self._toggle_yaml_bool(key)
+            )
+            self._yaml_toggle_layout.addWidget(btn)
+            self._yaml_toggle_buttons[spec.key] = btn
+
+    def _sync_yaml_toggles(self) -> None:
+        if not self._yaml_toggle_buttons:
+            return
+        from frontmatter_bool_toggles import effective_bool
+
+        text = self.editor.toPlainText()
+        for key, btn in self._yaml_toggle_buttons.items():
+            blocked = btn.blockSignals(True)
+            btn.setChecked(effective_bool(text, key))
+            btn.blockSignals(blocked)
+
+    def _toggle_yaml_bool(self, key: str) -> None:
+        self._ensure_code_view()
+        from frontmatter_bool_toggles import toggle_bool_in_content
+
+        new_text, new_state = toggle_bool_in_content(self.editor.toPlainText(), key)
+        self._apply_editor_text(new_text)
+        self._rebuild_yaml_toggles(force=False)
+        self._sync_yaml_toggles()
+        state_word = "an" if new_state else "aus"
+        self._set_status(
+            f"YAML {key}: {state_word} — noch nicht gespeichert.",
+            "ok" if new_state else "dim",
+        )
 
     def _ensure_code_view(self) -> None:
         """Wechselt in die Codeansicht, falls gerade die Leservorschau aktiv
@@ -529,20 +582,6 @@ class TextEditorDialog(QDialog):
             self._find_input.setStyleSheet("")
         else:
             self._find_input.setStyleSheet("background-color: #fde2e1;")
-
-    def _toggle_required(self) -> None:
-        if self._btn_required is None:
-            return
-        self._ensure_code_view()
-        from page_required import toggle_required_in_content
-
-        new_text, new_state = toggle_required_in_content(self.editor.toPlainText())
-        self._apply_editor_text(new_text)
-        self._sync_required_button()
-        if new_state:
-            self._set_status("Required aktiv (required: true) — noch nicht gespeichert.", "ok")
-        else:
-            self._set_status("Required aus — noch nicht gespeichert.", "dim")
 
     def _open_gg_swap(self) -> None:
         from types import SimpleNamespace
@@ -616,7 +655,13 @@ class TextEditorDialog(QDialog):
 
     def _show_preview(self) -> None:
         if self._preview_dirty:
-            self._preview.setHtml(markdown_to_preview_html(self.editor.toPlainText()))
+            self._preview.setHtml(
+                markdown_to_preview_html(
+                    self.editor.toPlainText(),
+                    book_root=self.book_path,
+                    markdown_file=self.path,
+                )
+            )
             self._preview_dirty = False
         self._stack.setCurrentWidget(self._preview)
         for btn in self._end_command_buttons:
@@ -670,11 +715,42 @@ class TextEditorDialog(QDialog):
 
     def _wrap_selection(self, before: str, after: str, placeholder: str = "Text") -> None:
         """Umschließt die Auswahl mit `before`/`after` (z. B. fett/kursiv).
-        Ohne Auswahl wird ein Platzhalter eingefügt und markiert."""
+        Ohne Auswahl wird ein Platzhalter eingefügt und markiert.
+
+        Typst-Wraps + Markdown-Bild: konvertiert nach ``#image`` und nutzt
+        einen Fence-Block (sonst Klartext im PDF).
+        """
         self._ensure_code_view()
         cursor = self.editor.textCursor()
         start = cursor.selectionStart()
         selected = self._selected_text_normalized(cursor)
+        if "{=typst}" in after and selected:
+            from ui_qt.editor_image import (
+                contains_markdown_image,
+                convert_markdown_images_to_typst,
+            )
+
+            if contains_markdown_image(selected):
+                open_cmd = before[1:] if before.startswith("`") else before
+                body = convert_markdown_images_to_typst(selected).strip()
+                if open_cmd.endswith("["):
+                    inner = f"{open_cmd}\n  {body}\n]"
+                else:
+                    inner = f"{open_cmd}{body}]"
+                replacement = f"```{{=typst}}\n{inner}\n```\n"
+                cursor.insertText(replacement)
+                body_start = replacement.find(body)
+                new_cursor = self.editor.textCursor()
+                if body_start >= 0:
+                    new_cursor.setPosition(start + body_start)
+                    new_cursor.setPosition(
+                        start + body_start + len(body), QTextCursor.MoveMode.KeepAnchor
+                    )
+                    self.editor.setTextCursor(new_cursor)
+                self._preview_dirty = True
+                self._focus_editor()
+                return
+
         result = markdown_formatting.wrap_selection(selected, before, after, placeholder)
         cursor.insertText(result.replacement)
         new_cursor = self.editor.textCursor()
@@ -760,17 +836,39 @@ class TextEditorDialog(QDialog):
         self._focus_editor()
 
     def _insert_image(self) -> None:
-        """Fügt `![Alt](Pfad)` ein; „Pfad“ ist danach zum Überschreiben markiert."""
+        """Öffnet den Bild-Dialog und fügt ``![Alt](/img/…)`` ein."""
         self._ensure_code_view()
+        book_root = self.book_path
+        if book_root is None and self.path is not None:
+            from ui_qt.editor_image import infer_book_root_from_markdown
+
+            book_root = infer_book_root_from_markdown(Path(self.path))
+        if book_root is None:
+            QMessageBox.warning(
+                self,
+                "Bild einfügen",
+                "Buchprojekt nicht bekannt — Bild kann nicht eingebunden werden.",
+            )
+            return
+
+        from ui_qt.dialogs.insert_image_dialog import InsertImageDialog
+        from ui_qt.editor_image import suggested_image_start_dir
+
+        default_alt = self._selected_text_normalized(self.editor.textCursor())
+        dialog = InsertImageDialog(
+            self,
+            book_root=book_root,
+            start_dir=suggested_image_start_dir(book_root),
+            default_alt=default_alt,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        snippet = dialog.markdown_snippet()
+        if not snippet:
+            return
         cursor = self.editor.textCursor()
-        start = cursor.selectionStart()
-        alt_part = self._selected_text_normalized(cursor) or "Alt-Text"
-        prefix = f"![{alt_part}]("
-        cursor.insertText(f"{prefix}Pfad)")
-        new_cursor = self.editor.textCursor()
-        new_cursor.setPosition(start + len(prefix))
-        new_cursor.setPosition(start + len(prefix) + len("Pfad"), QTextCursor.MoveMode.KeepAnchor)
-        self.editor.setTextCursor(new_cursor)
+        cursor.insertText(snippet)
+        self._preview_dirty = True
         self._focus_editor()
 
     def _insert_footnote(self) -> None:
@@ -855,6 +953,7 @@ class TextEditorDialog(QDialog):
             )
 
     def _save(self) -> None:
+        """Schreibt die Datei; der Dialog bleibt offen (Schließen separat)."""
         try:
             self.path.write_text(self.editor.toPlainText(), encoding="utf-8")
         except OSError as exc:
@@ -866,7 +965,7 @@ class TextEditorDialog(QDialog):
                 self._on_save()
             except Exception:  # noqa: BLE001 — Speichern soll nicht wegen Refresh scheitern
                 pass
-        self.accept()
+        self._set_status("Gespeichert.", level="ok")
 
     def _save_as(self) -> None:
         """Speichert eine Kopie unter einem neuen Pfad; `self.path` (die hier

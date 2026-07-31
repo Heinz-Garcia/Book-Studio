@@ -29,9 +29,15 @@ DEFAULTS: dict[str, Any] = {
     "help_html_path": "doc/handbuch.html",
     "reset_quarto_template_path": "templates/quarto_reset_minimal.yml",
     "content_root_path": ".",
+    "production_root_path": "production",
+    "books_workspace_path": "",
+    "grammargraph_inbox_path": "",
     "prep_sources": [],
     "prep_dest_folder": "",
     "indexer_target_folder": "",
+    # Zielordner für „Deploy“ in Fertige PDFs (Kopie der markierten PDF).
+    # Leer = Auto-Discovery unter ~/WEB.DE Online-Speicher/*/__Projekte/IFJN/PDF
+    "pdf_deploy_folder": "",
     # B-Fix (Code-Review 2026-07-03): frueher hier `False`, waehrend
     # `app_config_editor.DEFAULTS` und `ExportManager.
     # should_abort_on_first_preflight_error()` beide bereits `True` als
@@ -63,6 +69,8 @@ DEFAULTS: dict[str, Any] = {
     "skeleton_on_conflict": "ask",
     # all | missing_only — nur fehlende Dateien kopieren
     "skeleton_populate_mode": "all",
+    # Zentraler Bild-Pool für den Asset Manager (relativ zum Repo oder absolut)
+    "asset_pool_path": "assets/pool",
     "handbuch_pdf_format": "typst",
 }
 

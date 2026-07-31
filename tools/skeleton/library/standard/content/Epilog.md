@@ -1,8 +1,9 @@
 ---
-title: Epilog (rechte Seite)
+title: Epilog
 description: Epilog
 status: bookstudio
 required: true
+print_title: true
 order: 'END-90'
 ---
 

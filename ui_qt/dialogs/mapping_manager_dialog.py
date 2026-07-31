@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from tools.book_projects.label import read_display_name
 from tools.mapping_manager.actions import delete_pdf, open_path, rename_pdf, reveal_in_explorer
+from tools.mapping_manager.deploy import deploy_pdf, resolve_pdf_deploy_folder
 from tools.mapping_manager.loader import load_renders, load_snapshots
 from tools.mapping_manager.models import RenderView, SnapshotView, layout_profile_label
 from tools.publish_map.store import read_map, remove_render, update_render_fields
@@ -150,6 +151,14 @@ class MappingManagerQtDialog(QDialog):
         self.btn_rename = QPushButton("Dateiname…")
         self.btn_rename.clicked.connect(self._rename_selected)
         actions.addWidget(self.btn_rename)
+
+        self.btn_deploy = QPushButton("Deploy")
+        self.btn_deploy.setToolTip(
+            "Markierte PDF in den konfigurierten Deploy-Ordner kopieren "
+            "(Studio-Konfiguration: pdf_deploy_folder)"
+        )
+        self.btn_deploy.clicked.connect(self._deploy_selected)
+        actions.addWidget(self.btn_deploy)
 
         actions.addStretch(1)
         self.btn_delete = QPushButton("Löschen…")
@@ -496,6 +505,73 @@ class MappingManagerQtDialog(QDialog):
             self._on_snapshot_changed(self.snapshot_combo.currentIndex())
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Fertige PDFs", str(exc))
+
+    def _configured_deploy_folder(self) -> str:
+        import app_config as _app_config
+        from ui_qt.book_workspace import repo_root
+
+        try:
+            cfg = _app_config.read_config(repo_root() / "app_config.json")
+        except (OSError, TypeError, ValueError):
+            return ""
+        return str(cfg.get("pdf_deploy_folder") or "").strip()
+
+    def _deploy_selected(self) -> None:
+        render = self._selected_render()
+        if not render or not render.exists:
+            QMessageBox.information(
+                self, "Deploy", "Bitte eine vorhandene PDF-Zeile wählen."
+            )
+            return
+        configured = self._configured_deploy_folder()
+        dest_dir = resolve_pdf_deploy_folder(configured)
+        if dest_dir is None:
+            QMessageBox.warning(
+                self,
+                "Deploy",
+                "Kein Deploy-Ziel gefunden.\n\n"
+                "Bitte unter Tools → Studio-Konfiguration den Schlüssel "
+                "„pdf_deploy_folder“ setzen "
+                "(z. B. WEB.DE Online-Speicher\\…\\__Projekte\\IFJN\\PDF).",
+            )
+            return
+        target = dest_dir / render.pdf_path.name
+        if target.exists():
+            if (
+                QMessageBox.question(
+                    self,
+                    "Deploy",
+                    f"Datei existiert bereits und wird überschrieben:\n\n{target.name}\n\n"
+                    f"Ziel:\n{dest_dir}",
+                )
+                != QMessageBox.StandardButton.Yes
+            ):
+                return
+        try:
+            deployed = deploy_pdf(render.pdf_path, dest_dir, overwrite=True)
+        except (OSError, FileNotFoundError, FileExistsError) as exc:
+            QMessageBox.critical(self, "Deploy", str(exc))
+            return
+        self.path_label.setText(f"Deployed → {deployed}")
+        log = getattr(self.studio, "log", None)
+        if callable(log):
+            try:
+                log(f"PDF deployed → {deployed}", "success")
+            except (TypeError, RuntimeError, AttributeError):
+                pass
+        box = QMessageBox(self)
+        box.setWindowTitle("Deploy")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(f"PDF kopiert nach:\n\n{deployed}")
+        btn_ok = box.addButton(QMessageBox.StandardButton.Ok)
+        btn_reveal = box.addButton("Im Explorer zeigen", QMessageBox.ButtonRole.ActionRole)
+        box.setDefaultButton(btn_ok)
+        box.exec()
+        if box.clickedButton() is btn_reveal:
+            try:
+                reveal_in_explorer(deployed)
+            except OSError as exc:
+                QMessageBox.critical(self, "Deploy", str(exc))
 
     def _delete_selected(self) -> None:
         render = self._selected_render()

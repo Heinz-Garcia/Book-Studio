@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -53,12 +53,21 @@ def format_snapshot_label(snap: dict[str, Any]) -> str:
 
 
 def _format_at_display(at: str) -> str:
+    """Formatiert ISO-Zeitstempel für die UI in der lokalen Zeitzone.
+
+    Speicherung in ``publish_map.json`` ist UTC (``_utc_now_iso``); ohne
+    ``astimezone()`` wirkte die Uhrzeit um den UTC-Offset verschoben
+    (z. B. CEST: Dateiname 23:06, Spalte Datum 21:06).
+    """
     if not at:
         return "—"
     try:
         normalized = at.replace("Z", "+00:00")
         dt = datetime.fromisoformat(normalized)
-        return dt.strftime("%Y-%m-%d %H:%M")
+        if dt.tzinfo is None:
+            # Legacy/naive: Speicherkonvention ist UTC.
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M")
     except ValueError:
         return at[:16]
 

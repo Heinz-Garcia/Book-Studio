@@ -1,6 +1,7 @@
 ---
-title: Haupttitel (rechte Seite)
-description: Haupttitel (rechte Seite)
+title: Haupttitel
+print_title: false
+description: Haupttitel
 status: bookstudio
 required: true
 order: '4'

@@ -34,7 +34,7 @@ def test_export_dialog_confirm(monkeypatch):
     dlg = ExportDialog(
         None,
         ["Standard", "EXT: typstdoc"],
-        initial={"notes": "  Paperback Probe  "},
+        initial={"notes": "  Paperback Probe  ", "pdf_stem": "Publish_Test_rev.01"},
     )
     dlg.format_combo.setCurrentText("typst")
     dlg.template_combo.setCurrentText("EXT: typstdoc")
@@ -44,6 +44,32 @@ def test_export_dialog_confirm(monkeypatch):
     assert dlg.result["template"] == "EXT: typstdoc"
     assert "layout_profile" in dlg.result
     assert dlg.result["notes"] == "Paperback Probe"
+    assert dlg.result["pdf_stem"] == "Publish_Test_rev.01"
+    _ = app
+
+
+def test_export_dialog_prefills_stem_and_path_from_publish_json(tmp_path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.export_dialog import ExportDialog
+
+    book = tmp_path / "IFJN_Brustkrebs"
+    cfg = book / "bookconfig"
+    cfg.mkdir(parents=True)
+    (cfg / "Publish_IFJN_Brustkrebs_rev.07.json").write_text("{}", encoding="utf-8")
+
+    app = QApplication.instance() or QApplication([])
+    dlg = ExportDialog(None, ["Standard"], book_path=book)
+    assert dlg.pdf_stem_edit.text() == "Publish_IFJN_Brustkrebs_rev.07"
+    expected = book / "export" / "_book" / "Publish_IFJN_Brustkrebs_rev.07.pdf"
+    assert Path(dlg.path_edit.text()) == expected
+
+    dlg.pdf_stem_edit.setText("Mein_Name")
+    assert Path(dlg.path_edit.text()) == book / "export" / "_book" / "Mein_Name.pdf"
+    dlg._confirm()
+    assert dlg.result["pdf_stem"] == "Mein_Name"
     _ = app
 
 

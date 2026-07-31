@@ -1,5 +1,6 @@
 ---
 title: "These"
+print_title: true
 description: "These"
 status: bookstudio
 required: false

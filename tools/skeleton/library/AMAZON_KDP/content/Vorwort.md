@@ -1,5 +1,6 @@
 ---
-title: Vorwort (rechte Seite)
+title: Vorwort
+print_title: true
 description: Vorwort
 status: bookstudio
 required: true

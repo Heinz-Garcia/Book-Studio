@@ -1,5 +1,6 @@
 ---
 title: "Einleitung"
+print_title: true
 description: "Einleitung"
 status: bookstudio
 required: true

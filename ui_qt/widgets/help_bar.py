@@ -42,7 +42,9 @@ def load_plugin_help_text(plugin_name: str, *, root: Optional[Path] = None) -> s
 class HelpBar(QFrame):
     """Dezent eingefaerbte Info-Leiste mit 🛈-Icon und Hilfetext."""
 
-    def __init__(self, parent: Optional[QWidget], text: str) -> None:
+    def __init__(
+        self, parent: Optional[QWidget], text: str, *, rich_text: bool = False
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("HelpBar")
         self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -56,6 +58,8 @@ class HelpBar(QFrame):
         self._label = QLabel(text)
         self._label.setObjectName("HelpBarText")
         self._label.setWordWrap(True)
+        if rich_text:
+            self._label.setTextFormat(Qt.TextFormat.RichText)
         row.addWidget(self._label, 1)
 
     def set_text(self, text: str) -> None:
@@ -67,7 +71,11 @@ class HelpBar(QFrame):
 
     @staticmethod
     def create_and_prepend(
-        parent_layout: QVBoxLayout, text: str, *, index: int = 0
+        parent_layout: QVBoxLayout,
+        text: str,
+        *,
+        index: int = 0,
+        rich_text: bool = False,
     ) -> Optional["HelpBar"]:
         """Fuegt eine HelpBar an Position `index` von `parent_layout` ein.
 
@@ -79,7 +87,7 @@ class HelpBar(QFrame):
         """
         if not text.strip():
             return None
-        bar = HelpBar(parent_layout.parentWidget(), text)
+        bar = HelpBar(parent_layout.parentWidget(), text, rich_text=rich_text)
         parent_layout.insertWidget(index, bar)
         return bar
 

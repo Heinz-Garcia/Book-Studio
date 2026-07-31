@@ -270,18 +270,24 @@ class BackupManager:
                     
         return file_name.name
 
-    def create_structure_backup(self, tree_data): # NEU: Nimmt jetzt die Daten direkt an!
-        """Sichert die JSON-GUI-Struktur direkt aus dem Arbeitsspeicher für die Time Machine."""
+    def create_structure_backup(self, tree_data, *, label: str | None = None):
+        """Sichert die JSON-GUI-Struktur für die Time Machine (Envelope + Label)."""
         if not self.current_book:
             return None
         self.backup_dir.mkdir(exist_ok=True)
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        from ui_qt.structure_snapshot import (
+            default_structure_snapshot_label,
+            write_snapshot_file,
+        )
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         f_name = self.backup_dir / f"struct_{timestamp}.json"
-        
-        # Wir schreiben die Daten direkt aus dem RAM in die Backup-Datei!
-        with open(f_name, 'w', encoding='utf-8') as f:
-            json.dump(tree_data, f, ensure_ascii=False, indent=4)
-            
+        write_snapshot_file(
+            f_name,
+            list(tree_data or []),
+            label=(label or "").strip()
+            or default_structure_snapshot_label(book_name=self.current_book),
+        )
         return f_name.name
 

@@ -1,5 +1,6 @@
 ---
-title: "Impressum / Disclaimer / KI-Hinweis (linke Seite)"
+title: "Impressum"
+print_title: false
 description: "Impressum" 
 status: bookstudio
 required: true
@@ -8,7 +9,7 @@ order: "5"
 
 # Impressum\
 © 2026 Heinz-Garcia Verlag GmbH, Gaggenau\
-Titel: Diagnose Brustkrebs\
+Titel: {{BOOK_TITLE}}\
 Reihe: Ich frage ja nur\
 Autoren: KI Gemma4 und Wolfram Daniel Heinz-Garcia\
 Reihenherausgeber: Heinz-Garcia\

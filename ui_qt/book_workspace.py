@@ -116,6 +116,21 @@ class StructureSession:
         )
         self.avail = [(path, self.display_title(path, title)) for path, title in entries]
 
+    def refresh_from_disk_keep_structure(self) -> None:
+        """Neu-Scan Titel/Marker/Avail nach externen Dateien; Buchstruktur behalten.
+
+        Skeleton-Populate legt Dateien nur in den Pool. Ein volles ``load()``
+        würde die rechte Struktur aus YAML neu aufbauen und unsaved/in-memory
+        Änderungen (oder eine frische GUI-Struktur) unsichtbar machen.
+        """
+        self.title_registry = self.engine.build_title_registry()
+        self._refresh_file_state_registry()
+        self._refresh_avail()
+        self._log(
+            "Pool aktualisiert (neue Dateien links) — Buchstruktur rechts unverändert.",
+            "info",
+        )
+
     def _snapshot(self) -> dict[str, Any]:
         return ops.snapshot(self.book_nodes, self.avail)
 
@@ -304,15 +319,54 @@ class StructureSession:
                     order_meta_for_path=get_order,
                 )
             if not placed_by_order:
-                ops.insert_nodes(
-                    self.book_nodes,
-                    [node],
-                    after_path=cursor,
-                )
-                cursor = path
+                if callable(get_order):
+                    cursor = ops.insert_node_in_middle_zone(
+                        self.book_nodes,
+                        node,
+                        after_path=cursor,
+                        order_meta_for_path=get_order,
+                    )
+                else:
+                    ops.insert_nodes(
+                        self.book_nodes,
+                        [node],
+                        after_path=cursor,
+                    )
+                    cursor = path
         self._refresh_avail()
         self._push_undo(pre)
         return True
+
+    def replace_structure_from_snapshot(self, tree_data: list[Any]) -> bool:
+        """Rechten Baum komplett durch Snapshot ersetzen (ohne _quarto.yml)."""
+        if not isinstance(tree_data, list):
+            return False
+        pre = self._snapshot()
+        self.book_nodes = ops.chapters_to_display_tree(tree_data, self.title_registry)
+        self._refresh_avail()
+        self._push_undo(pre)
+        self.dirty = True
+        return True
+
+    def merge_paths_from_snapshot(self, paths: list[str]) -> tuple[int, int]:
+        """Ausgewählte Pfade ergänzen. Rückgabe: (neu, übersprungen)."""
+        if not paths:
+            return 0, 0
+        existing = {p.replace("\\", "/") for p in ops.collect_paths(self.book_nodes)}
+        normalized = [str(p).replace("\\", "/") for p in paths]
+        to_add = [p for p in normalized if p not in existing]
+        skipped = len(normalized) - len(to_add)
+        if to_add:
+            self.add_paths(to_add)
+            self.dirty = True
+        return len(to_add), skipped
+
+    def register_new_file(self, rel_path: str) -> None:
+        """Nach Anlegen einer Datei auf Disk: Registry + Pool aktualisieren."""
+        del rel_path  # Pfad ist auf Disk; Registry scannt neu
+        self.title_registry = self.engine.build_title_registry()
+        self._refresh_file_state_registry()
+        self._refresh_avail()
 
     def remove_paths(self, paths: list[str]) -> bool:
         if not paths:
@@ -326,25 +380,52 @@ class StructureSession:
         self._push_undo(pre)
         return True
 
-    def save(self) -> bool:
+    def save(self, *, snapshot_label: Optional[str] = None) -> bool:
+        """Speichert ``_quarto.yml`` und legt einen Time-Machine-Snapshot an.
+
+        ``snapshot_label=None`` → dynamischer Zeitstempel als Label (z. B. Headless/API).
+        """
         try:
             self.engine.save_chapters(self.book_nodes, profile_name=None)
             self.dirty = False
             self._log("Struktur in _quarto.yml gespeichert.", "success")
-            self._create_structure_backup()
+            self._create_structure_backup(label=snapshot_label)
             return True
         except (OSError, ValueError, TypeError, RuntimeError) as exc:
             self._log(f"Speichern fehlgeschlagen: {exc}", "error")
             return False
 
-    def _create_structure_backup(self) -> None:
-        """Time-Machine-Snapshot unter ``.backups/struct_*.json`` (wie Tk)."""
+    def save_named_structure_snapshot(self, label: str) -> Optional[str]:
+        """Benannter Time-Machine-Snapshot (ohne Quarto-Save)."""
+        clean = (label or "").strip()
+        if not clean:
+            raise ValueError("Snapshot-Name darf nicht leer sein.")
+        return self._create_structure_backup(label=clean, required=True)
+
+    def _create_structure_backup(
+        self, *, label: Optional[str] = None, required: bool = False
+    ) -> Optional[str]:
+        """Time-Machine-Snapshot unter ``.backups/struct_*.json``.
+
+        ``label=None`` → aktueller Zeitstempel als Label. ``required=True`` wirft bei Fehler.
+        """
         try:
             from book_doctor import BackupManager
+            from ui_qt.structure_snapshot import default_structure_snapshot_label
 
+            resolved = (label or "").strip() or default_structure_snapshot_label(
+                book_name=self.book_path
+            )
             mgr = BackupManager(None, self.book_path)
-            name = mgr.create_structure_backup(list(self.book_nodes))
+            name = mgr.create_structure_backup(
+                list(self.book_nodes),
+                label=resolved,
+            )
             if name:
-                self._log(f"Time-Machine-Snapshot: {name}", "dim")
+                self._log(f"Time-Machine-Snapshot: „{resolved}“ → {name}", "dim")
+            return name
         except (OSError, TypeError, ValueError, RuntimeError) as exc:
             self._log(f"Struktur-Backup fehlgeschlagen: {exc}", "warning")
+            if required:
+                raise
+            return None

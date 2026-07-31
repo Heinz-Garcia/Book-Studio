@@ -218,8 +218,9 @@ def _ensure_index_md(book_path: Path, engine) -> None:
     if index_path.exists():
         return
     index_path.write_text(
-        "---\ntitle: Einleitung\ndescription: Einleitung\nstatus: bookstudio\n---\n\n"
-        "Willkommen zu meinem Buch.\n",
+        "---\ntitle: Einleitung\nunnumbered: true\nunlisted: true\n"
+        "description: Einleitung\nstatus: bookstudio\n---\n\n"
+        "<!-- index.md – technische Pflichtseite (kein sichtbarer Inhalt) -->\n",
         encoding="utf-8",
     )
     engine.ensure_required_frontmatter(index_path, fallback_title="Einleitung")
@@ -260,7 +261,35 @@ def _copy_skeleton_file(
         backup_path = str(backup_dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
+    if dest.suffix.lower() == ".md":
+        _apply_book_title_placeholders(dest, book_path)
     return backup_path
+
+
+def _book_title_for_placeholders(book_path: Path) -> str:
+    """Lesertitel aus ``_quarto.yml`` / ``_book_studio.toml`` / Ordnername."""
+    try:
+        from import_helpers import resolve_import_book_title
+
+        return resolve_import_book_title(book_path)
+    except Exception:
+        yml = book_path / "_quarto.yml"
+        if yml.is_file():
+            import re
+
+            m = re.search(r'(?m)^\s*title:\s*["\']?(.+?)["\']?\s*$', yml.read_text(encoding="utf-8"))
+            if m:
+                return m.group(1).strip().strip('"').strip("'")
+        return book_path.name
+
+
+def _apply_book_title_placeholders(md_path: Path, book_path: Path) -> None:
+    """Ersetzt ``{{BOOK_TITLE}}`` in frisch kopierten Skeleton-Dateien."""
+    text = md_path.read_text(encoding="utf-8")
+    if "{{BOOK_TITLE}}" not in text:
+        return
+    title = _book_title_for_placeholders(book_path)
+    md_path.write_text(text.replace("{{BOOK_TITLE}}", title), encoding="utf-8")
 
 
 def populate_book(
@@ -277,6 +306,7 @@ def populate_book(
     on_remember_mode: Optional[Any] = None,
     skip_dialog: bool = False,
     include_optional: bool = False,
+    file_overrides: Optional[dict] = None,
 ) -> PopulateResult:
     """Kopiert Skeleton-Dateien ins Buchprojekt (Pool links).
 
@@ -286,6 +316,9 @@ def populate_book(
 
     `include_optional`: Einträge ohne ``required: true`` (nicht-Pflicht-Slots
     wie `Widmung.md`, `Template.md`) werden standardmäßig NICHT kopiert.
+
+    `file_overrides`: Pro-Pfad ``True``/``False`` überschreibt die globale
+    Optional-/Konflikt-Regel (Dialog: einzelne optionale Snippets anwählen).
     """
     from yaml_engine import QuartoYamlEngine
 
@@ -318,6 +351,9 @@ def populate_book(
             "Bitte skip_dialog=True / --yes und conflict_mode skip|replace nutzen."
         )
     else:
+        effective_choice: RunConflictChoice = run_conflict_choice or (
+            "skip" if conflict_mode == "skip" else "replace"
+        )
         plan = build_populate_plan(
             manifest,
             book_path,
@@ -327,6 +363,14 @@ def populate_book(
             include_diff=False,
             include_optional=include_optional,
         )
+        if file_overrides:
+            plan = resolve_populate_plan(
+                plan,
+                conflict_choice=effective_choice,
+                missing_only=populate_mode == "missing_only",
+                include_optional=include_optional,
+                file_overrides=file_overrides,
+            )
 
     engine = QuartoYamlEngine(book_path)
     _ensure_index_md(book_path, engine)
@@ -482,6 +526,9 @@ def run(studio: Any = None, **kwargs: Any) -> int:
         _write_populate_mode(repo_root, mode)
 
     include_optional = bool(kwargs.get("include_optional"))
+    file_overrides = kwargs.get("file_overrides")
+    if file_overrides is not None and not isinstance(file_overrides, dict):
+        file_overrides = None
 
     try:
         result = populate_book(
@@ -498,6 +545,7 @@ def run(studio: Any = None, **kwargs: Any) -> int:
                 "skip" if conflict_mode == "skip" else "replace" if conflict_mode == "replace" else None
             ),
             include_optional=include_optional,
+            file_overrides=file_overrides,
         )
     except (OSError, ValueError, FileNotFoundError) as exc:
         if studio is not None and hasattr(studio, "log"):

@@ -30,6 +30,7 @@ from tools.book_projects.catalog import (
     BookInfo,
     add_content_root,
     create_empty_book,
+    default_new_book_parent,
     ensure_book_discoverable,
     list_books,
     list_content_roots,
@@ -451,7 +452,11 @@ class BookProjectsQtDialog(QDialog):
         open_finished_pdfs_for_book(self, info.path, log=log)
 
     def _create_book(self) -> None:
+        default_parent = default_new_book_parent(self._repo)
         roots = list_content_roots(self._repo)
+        root_set = {r.resolve() for r in roots}
+        if default_parent.resolve() not in root_set:
+            roots = [default_parent, *roots]
         if not roots:
             QMessageBox.warning(
                 self,
@@ -460,7 +465,7 @@ class BookProjectsQtDialog(QDialog):
             )
             return
 
-        parent = self._selected_root() or roots[0]
+        parent = self._selected_root() or default_parent
         if len(roots) > 1 and self._selected_root() is None:
             labels = [str(r) for r in roots]
             choice, ok = QInputDialog.getItem(

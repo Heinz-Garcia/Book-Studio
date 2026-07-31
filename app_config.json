@@ -6,9 +6,13 @@
         ".",
         "../GrammarGraph/Publish"
     ],
+    "production_root_path": "production",
+    "books_workspace_path": "",
+    "grammargraph_inbox_path": "",
     "prep_sources": [],
     "prep_dest_folder": "",
     "indexer_target_folder": "",
+    "pdf_deploy_folder": "C:\\Users\\RDP-Nutzer\\WEB.DE Online-Speicher\\4873e705-71e0-474b-93a5-970b5d2725d1\\__Projekte\\IFJN\\PDF",
     "abort_on_first_preflight_error": false,
     "abort_on_first_render_colon_warning": false,
     "default_export_format": "typst",

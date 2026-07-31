@@ -73,6 +73,18 @@ def list_content_roots(repo: Path | None = None) -> list[Path]:
     return ws.get_projects_root_paths()
 
 
+def default_new_book_parent(repo: Path | None = None) -> Path:
+    """Dual-Write-Ziel für neue Bücher (``Buchproduktion/books/``)."""
+    root = _repo_root(repo)
+    try:
+        cfg = _app_config.read_config(_config_path(root))
+    except (OSError, TypeError, ValueError):
+        cfg = {}
+    from tools.production_paths.config import ensure_books_workspace_dir
+
+    return ensure_books_workspace_dir(cfg, root)
+
+
 def list_books(repo: Path | None = None) -> list[BookInfo]:
     """Alle entdeckten Quarto-Bücher mit zugehöriger Content-Root."""
     root = _repo_root(repo)
@@ -161,6 +173,7 @@ def remove_content_root(target: Path, *, repo: Path | None = None) -> list[str]:
 def ensure_book_discoverable(book: Path, *, repo: Path | None = None) -> Path:
     """Stellt sicher, dass `book` unter einer Content-Root liegt.
 
+    Bücher unter ``books/`` brauchen keinen Legacy-``content_root_path``-Eintrag.
     Fehlt die Root, wird der Elternordner des Buches als Root ergänzt.
     Gibt den Buchpfad zurück.
     """
@@ -168,6 +181,14 @@ def ensure_book_discoverable(book: Path, *, repo: Path | None = None) -> Path:
     if not is_quarto_book(book):
         raise ValueError(f"Kein Quarto-Buch (_quarto.yml fehlt): {book}")
     root = _repo_root(repo)
+    try:
+        cfg = _app_config.read_config(_config_path(root))
+    except (OSError, TypeError, ValueError):
+        cfg = {}
+    from tools.production_paths.config import is_under_books_workspace
+
+    if is_under_books_workspace(book, cfg, root):
+        return book
     for r in list_content_roots(root):
         try:
             book.relative_to(r.resolve())
@@ -196,6 +217,7 @@ __all__ = [
     "BookInfo",
     "add_content_root",
     "create_empty_book",
+    "default_new_book_parent",
     "ensure_book_discoverable",
     "is_quarto_book",
     "list_books",

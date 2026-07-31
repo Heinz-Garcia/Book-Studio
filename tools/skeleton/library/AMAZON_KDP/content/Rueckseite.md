@@ -1,5 +1,6 @@
 ---
 title: "Rückseite"
+print_title: false
 description: "Rückseite"
 status: bookstudio
 required: true

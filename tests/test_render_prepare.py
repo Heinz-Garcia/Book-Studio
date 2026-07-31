@@ -111,7 +111,7 @@ def test_run_quarto_render_auto_heals_before_preflight(tmp_path: Path) -> None:
 
     assert 'description: "Einleitung"' in index_content
     assert 'description: "Kapitel"' in chapter_content
-    assert studio.preflight_calls == [("Render-Vorabcheck", False)]
+    assert studio.preflight_calls == [("Render-Vorabcheck", True)]
     assert any("Auto-Healing" in message for message, _level in studio.logged)
     assert studio.preflight_calls  # preflight ran after heal
 

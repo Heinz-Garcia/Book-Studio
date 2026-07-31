@@ -97,8 +97,21 @@ LAYOUT_PROFILES: tuple[LayoutProfile, ...] = (
     LayoutProfile(
         id="taschenbuch-bod",
         label="Taschenbuch / Book on Demand",
-        description="A5, 11 pt, Zeilenabstand 1,2 — typisch für POD",
+        description=(
+            "A5, 11 pt, Zeilenabstand 1,2 — typisch für POD. "
+            "Ränder innen 20mm / außen 16mm / oben 18mm / unten 20mm "
+            "(Bund größer als Außensteg wegen Bindung)."
+        ),
         linestretch=1.2,
+        page_margin={
+            # Kompromiss A5/BoD (~150–300 S.): POD braucht Bund ≥ Außen;
+            # 14/17mm wirkte zu eng, ~1,25″-Default zu weit.
+            # Orientierung: Selfpublisher/BoD ~20/16/18/20 mm.
+            "inside": "20mm",
+            "outside": "16mm",
+            "top": "18mm",
+            "bottom": "20mm",
+        },
     ),
     LayoutProfile(
         id="paperback",
@@ -157,15 +170,17 @@ def profile_id_from_label(label: str) -> str:
 
 
 # Typst-Partial-Overrides, die ein Custom-Trimm-Profil (page-width/page-
-# height, siehe LayoutProfile) fuer Quartos "Standard"-Buchformat
-# ("typst", ohne Extension) benoetigt — Quartos eingebautes Buch-Rendering
-# nutzt sonst intern das orange-book-Paket, das eigene Seitenmaße setzt
-# und jede vorherige Konfiguration ueberschreibt. `typst-show.typ`
-# ersetzt diesen internen Pfad durch den generischen `article()`-Renderer,
-# `page.typ` setzt darin Breite/Höhe/Rand. Nur fuer das reine "typst"-
-# Zielformat relevant — Extension-Formate (z. B. "typstdoc-typst") regeln
-# das selbst über ihr eigenes `_extension.yml`.
-TYPST_CUSTOM_TRIM_PARTIALS: tuple[str, ...] = ("typst-show.typ", "page.typ")
+# Quarto's eingebautes Buch-Rendering nutzt intern das orange-book-Paket und
+# ignoriert projektlokale `typst-show.typ` / `page.typ`, solange sie nicht als
+# `format.typst.template-partials` deklariert sind. Ohne diese Deklaration
+# scheitert z. B. Deckblatt.md ohne typst-show.typ (chapter-titles-visible /
+# früheres past-cover). `typst-show.typ` ersetzt den orange-book-Pfad durch den
+# generischen `article()`-Renderer; `page.typ` setzt Papiermaß/Rand (Preset
+# oder Custom-Trimm). Nur fuer das reine "typst"-Zielformat — Extension-
+# Formate (z. B. "typstdoc-typst") regeln Partials selbst ueber `_extension.yml`.
+TYPST_STANDARD_PARTIALS: tuple[str, ...] = ("typst-show.typ", "page.typ")
+# Alias (historisch): Custom-Trimm brauchte denselben Partial-Satz zuerst.
+TYPST_CUSTOM_TRIM_PARTIALS: tuple[str, ...] = TYPST_STANDARD_PARTIALS
 
 # Das Zielformat, für das obiger Automatismus greift (Quartos generisches,
 # extensionsloses Typst-Buchformat).
@@ -180,10 +195,6 @@ def build_layout_format_options(
 ) -> dict[str, dict[str, Any]]:
     profile = get_profile(profile_id)
     opts = profile.format_options(linestretch=linestretch)
-    if (
-        profile.typst_page_width
-        and profile.typst_page_height
-        and target_fmt == _STANDARD_TYPST_TARGET_FMT
-    ):
-        opts.setdefault("template-partials", list(TYPST_CUSTOM_TRIM_PARTIALS))
+    if target_fmt == _STANDARD_TYPST_TARGET_FMT:
+        opts.setdefault("template-partials", list(TYPST_STANDARD_PARTIALS))
     return {target_fmt: opts}

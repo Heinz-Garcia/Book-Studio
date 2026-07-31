@@ -41,7 +41,10 @@ def test_mapping_manager_qt_constructs(tmp_path: Path, monkeypatch):
     app = QApplication.instance() or QApplication([])
     studio = SimpleNamespace(current_book=book, log=lambda *_a, **_k: None)
     dlg = MappingManagerQtDialog(None, studio)
-    assert "Mapping Manager" in dlg.windowTitle()
+    # Umbenannt (siehe "Fertige PDFs und Bücher verwalten trennen"): der
+    # Dialog heißt UI-seitig "Fertige PDFs", die Klasse blieb intern
+    # MappingManagerQtDialog.
+    assert "Fertige PDFs" in dlg.windowTitle()
     dlg.close()
     _ = app
 

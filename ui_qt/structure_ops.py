@@ -216,6 +216,87 @@ def insert_nodes(
     roots.extend(copy.deepcopy(n) for n in nodes)
 
 
+def _safe_order_meta(
+    order_meta_for_path: Callable[[str], tuple[Any, Any]],
+    path: str,
+) -> tuple[Any, Any]:
+    try:
+        return order_meta_for_path(path)
+    except (TypeError, ValueError, OSError, AttributeError):
+        return None, None
+
+
+def middle_zone_bounds(
+    roots: Tree,
+    *,
+    order_meta_for_path: Callable[[str], tuple[Any, Any]],
+) -> tuple[int, int]:
+    """Root-Indizes ``[start, end)`` der Mittelzone (ohne order / zwischen front und end)."""
+
+    def meta(item: Node) -> tuple[Any, Any]:
+        p = str(item.get("path") or "").replace("\\", "/")
+        if not p or p.startswith("PART:"):
+            return None, None
+        return _safe_order_meta(order_meta_for_path, p)
+
+    start = 0
+    for idx, item in enumerate(roots):
+        path = str(item.get("path") or "").replace("\\", "/")
+        if path == "index.md":
+            start = idx + 1
+            continue
+        _key, group = meta(item)
+        if group == "front":
+            start = idx + 1
+            continue
+        break
+
+    end = len(roots)
+    for idx in range(start, len(roots)):
+        _key, group = meta(roots[idx])
+        if group == "end":
+            end = idx
+            break
+    return start, end
+
+
+def insert_node_in_middle_zone(
+    roots: Tree,
+    node: Node,
+    *,
+    after_path: Optional[str] = None,
+    order_meta_for_path: Callable[[str], tuple[Any, Any]],
+) -> str:
+    """Fügt einen Knoten ohne ``order`` in die Mittelzone ein.
+
+    - Cursor ``after_path`` wird nur respektiert, wenn er in der Mittelzone
+      auf Root-Ebene liegt (nicht Vorspann/Nachspann).
+    - Sonst: ans Ende der Mittelzone (vor dem ersten END-Block).
+    - Verschachtelter Cursor: bisheriges ``insert_nodes``-Verhalten.
+
+    Rückgabe: Pfad des eingefügten Knotens (für Cursor-Kette).
+    """
+    path = str(node.get("path") or "")
+    if after_path:
+        hit = locate(roots, after_path)
+        if hit is not None:
+            _siblings, _idx, parent = hit
+            if parent is not None:
+                insert_nodes(roots, [node], after_path=after_path)
+                return path
+
+    start, end = middle_zone_bounds(roots, order_meta_for_path=order_meta_for_path)
+    insert_at = end
+    if after_path:
+        hit = locate(roots, after_path)
+        if hit is not None:
+            siblings, idx, parent = hit
+            if parent is None and siblings is roots and start <= idx < end:
+                insert_at = idx + 1
+    roots.insert(insert_at, copy.deepcopy(node))
+    return path
+
+
 def insert_node_by_order(
     roots: Tree,
     node: Node,
@@ -227,25 +308,19 @@ def insert_node_by_order(
     Entspricht Tk ``insert_required_by_order`` / ``populate._insert_node_by_order``:
     - ``front``: nach ``index.md`` (falls vorhanden), aufsteigend nach sort_key
     - ``end``: Endblock, höhere END-Zahl weiter vorn (``END-1`` ganz hinten)
-    - sonst: False (Aufrufer soll cursor-basiert einfügen)
+    - sonst: False (Aufrufer soll in die Mittelzone einfügen)
 
     ``order_meta_for_path(path) -> (sort_key, group)`` wie
     ``yaml_engine.get_required_order``.
     """
     path = str(node.get("path") or "").replace("\\", "/")
-    try:
-        sort_key, group = order_meta_for_path(path)
-    except (TypeError, ValueError, OSError, AttributeError):
-        return False
+    sort_key, group = _safe_order_meta(order_meta_for_path, path)
 
     def meta(item: Node) -> tuple[Any, Any]:
         p = str(item.get("path") or "").replace("\\", "/")
         if not p or p.startswith("PART:"):
             return None, None
-        try:
-            return order_meta_for_path(p)
-        except (TypeError, ValueError, OSError, AttributeError):
-            return None, None
+        return _safe_order_meta(order_meta_for_path, p)
 
     fresh = copy.deepcopy(node)
 

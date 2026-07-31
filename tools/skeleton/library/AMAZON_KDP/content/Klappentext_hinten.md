@@ -1,5 +1,6 @@
 ---
 title: Klappentext (hinten)
+print_title: false
 description: Klappentext (hinten)
 status: bookstudio
 order: END-20

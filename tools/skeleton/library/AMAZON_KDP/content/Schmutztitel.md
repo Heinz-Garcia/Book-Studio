@@ -1,6 +1,7 @@
 ---
-title: Schmutztitel (rechte Seite)
-description: Schmutztitel (rechte Seite)
+title: Schmutztitel
+print_title: false
+description: Schmutztitel
 status: bookstudio
 required: true
 order: '2'

@@ -3,6 +3,11 @@ import shutil
 from pathlib import Path
 import yaml
 
+from chapter_title_render import (
+    ensure_silent_chapter_frontmatter,
+    maybe_inject_chapter_title,
+)
+
 # B4 (Refactoring): Die komplette Fußnoten-Funktionalität wurde
 # entfernt. Pandoc-konforme `[^1]`-Marker im Quell-Markdown werden
 # unverändert weitergereicht — Quarto kümmert sich um die Auflösung.
@@ -243,12 +248,23 @@ class PreProcessor:
 
         frontmatter, body = self._extract_parts(content)
         frontmatter = self._sanitize_frontmatter_for_render(frontmatter)
+        rel_path = str(node.get("path") or "")
+        frontmatter = ensure_silent_chapter_frontmatter(frontmatter, rel_path=rel_path)
 
         # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
         body = self._sanitize_markdown(body)
 
-        # 2. H1 bereinigen
+        # 2. H1 bereinigen (Body-H1 würde mit YAML-title konkurrieren)
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
+
+        # 3. Sichtbare Kapitelüberschrift nur bei Opt-in (Typst)
+        body = maybe_inject_chapter_title(
+            frontmatter,
+            body,
+            node_title=str(node.get("title") or ""),
+            output_format=self.output_format,
+            rel_path=rel_path,
+        )
 
         # B4: Footnote-Harvesting-Block entfernt (war 3+5).
 
@@ -272,12 +288,23 @@ class PreProcessor:
 
         frontmatter, body = self._extract_parts(content)
         frontmatter = self._sanitize_frontmatter_for_render(frontmatter)
+        rel_path = str(node.get("path") or "")
+        frontmatter = ensure_silent_chapter_frontmatter(frontmatter, rel_path=rel_path)
 
         # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
         body = self._sanitize_markdown(body)
 
-        # 2. H1 bereinigen
+        # 2. H1 bereinigen (Body-H1 würde mit YAML-title konkurrieren)
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
+
+        # 3. Sichtbare Kapitelüberschrift nur bei Opt-in (Typst)
+        body = maybe_inject_chapter_title(
+            frontmatter,
+            body,
+            node_title=str(node.get("title") or ""),
+            output_format=self.output_format,
+            rel_path=rel_path,
+        )
 
         # B4: Footnote-Harvesting-Block entfernt (war 3+5).
 

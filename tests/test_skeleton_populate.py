@@ -153,6 +153,48 @@ def test_populate_include_optional_copies_optional_slots(tmp_path: Path) -> None
     assert config["book"]["chapters"] == ["index.md"]
 
 
+def test_populate_book_file_overrides_copy_selected_optionals(tmp_path: Path) -> None:
+    """Dialog-Overrides: einzelne optionale Snippets ohne include_optional=True."""
+    book = _create_empty_book(tmp_path)
+    manifest = load_manifest(_standard_profile())
+    optional_paths = [e.path for e in manifest.files if not e.required]
+    assert optional_paths
+    chosen = optional_paths[0]
+    other = next((p for p in optional_paths if p != chosen), None)
+
+    result = populate_book(
+        book,
+        profile_dir=_standard_profile(),
+        conflict_mode="skip",
+        skip_dialog=True,
+        include_optional=False,
+        file_overrides={chosen: True},
+    )
+
+    assert result.ok
+    assert chosen in result.copied
+    assert (book / chosen).is_file()
+    if other is not None:
+        assert other in result.skipped
+        assert not (book / other).exists()
+
+
+def test_list_optional_manifest_entries_amazon_kdp() -> None:
+    from ui_qt.dialogs.skeleton_qt import (
+        file_overrides_for_selected_optionals,
+        list_optional_manifest_entries,
+    )
+
+    library = _repo_root() / "tools" / "skeleton" / "library"
+    optionals = list_optional_manifest_entries(library, "AMAZON_KDP")
+    assert optionals
+    assert all(not e.required for e in optionals)
+    paths = [e.path for e in optionals]
+    assert "content/Klappentext_vorne.md" in paths
+    overrides = file_overrides_for_selected_optionals(paths[:2])
+    assert overrides == {paths[0]: True, paths[1]: True}
+
+
 def test_populate_skip_existing_file(tmp_path: Path) -> None:
     book = _create_empty_book(tmp_path)
     manifest = load_manifest(_standard_profile())

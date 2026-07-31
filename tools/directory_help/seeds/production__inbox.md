@@ -1,0 +1,1 @@
+Posteingang für GrammarGraph-/El-Pitugrafo-Lieferungen. Enthält Pipeline-Läufe (Payload, Meta, Bilder), noch kein fertiges Arbeitsbuch. In Book Studio per „Export übernehmen…“ (🧬) in ein Buch unter `books/` holen.

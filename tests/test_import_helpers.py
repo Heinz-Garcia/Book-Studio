@@ -165,7 +165,11 @@ def test_generate_quarto_yml_creates_index_md(tmp_path):
     index = (tmp_path / "index.md").read_text(encoding="utf-8")
     assert 'title: "X"' in index
     assert 'author: "Y"' in index
-    assert "# X" in index
+    assert "unnumbered: true" in index
+    assert "unlisted: true" in index
+    assert "# X" not in index
+    yml = (tmp_path / "_quarto.yml").read_text(encoding="utf-8")
+    assert "toc: false" in yml
 
 
 def test_generate_quarto_yml_removes_gui_state(tmp_path):
@@ -192,11 +196,32 @@ def test_generate_quarto_yml_keeps_populated_bookconfig(tmp_path):
     assert (bookconfig / "other.txt").is_file()
 
 
-def test_generate_quarto_yml_description_optional(tmp_path):
-    """Ohne index_description wird keine description-Zeile geschrieben."""
-    generate_quarto_yml_for_import(tmp_path, index_title="T")
+def test_generate_quarto_yml_ignores_book_master_placeholder(tmp_path):
+    """Historischer Bridge-Default „Book Master“ darf den echten Titel nicht überschreiben."""
+    (tmp_path / "_book_studio.toml").write_text(
+        'book = { title = "Diagnose Brustkrebs", author = "Autor" }\n',
+        encoding="utf-8",
+    )
+    generate_quarto_yml_for_import(tmp_path, index_title="Book Master")
+    text = (tmp_path / "_quarto.yml").read_text(encoding="utf-8")
+    assert 'title: "Diagnose Brustkrebs"' in text
+    assert "Book Master" not in text
     index = (tmp_path / "index.md").read_text(encoding="utf-8")
-    assert "description:" not in index
+    assert "print_title: false" in index
+
+
+def test_resolve_import_book_title_prefers_publish_meta_book_title(tmp_path):
+    from import_helpers import resolve_import_book_title
+
+    (tmp_path / "publish_meta.json").write_text(
+        '{"name": "IFJN_rev.06", "book_title": "Diagnose Brustkrebs"}',
+        encoding="utf-8",
+    )
+    (tmp_path / "_book_studio.toml").write_text(
+        'book = { title = "Book Master" }\n',
+        encoding="utf-8",
+    )
+    assert resolve_import_book_title(tmp_path, index_title="Book Master") == "Diagnose Brustkrebs"
 
 
 # --- Code-Review 2026-07-03: Regressionstests ------------------------------

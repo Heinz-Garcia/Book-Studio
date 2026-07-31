@@ -10,6 +10,7 @@ _SVG_COMPANION_PATTERN = re.compile(r"^svg_.*\.svg$", re.IGNORECASE)
 _REF_IMAGE_PATTERN = re.compile(r"!\[([^\]]*)\]\[([^\]]*)\]")
 _REF_DEF_PATTERN = re.compile(r"^\s*\[([^\]]+)\]:\s*(.+?)\s*$", re.MULTILINE)
 _URL_SCHEME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+_TYPST_IMAGE_PATTERN = re.compile(r'#image\s*\(\s*["\']([^"\']+)["\']')
 
 
 def _is_windows_drive_path(target: str) -> bool:
@@ -124,6 +125,37 @@ def collect_image_refs(markdown_text):
     return refs
 
 
+def collect_typst_image_refs(text):
+    """Extrahiert ``#image("…")``-Pfade mit 1-basierter Zeilennummer.
+
+    SSOT für Typst-Bildreferenzen (Markdown-Raw-Blöcke und ``.typ``-Dateien).
+    """
+    content = str(text or "")
+    line_starts = _build_line_starts(content)
+    refs = []
+    for match in _TYPST_IMAGE_PATTERN.finditer(content):
+        target = _extract_target(match.group(1))
+        if target:
+            refs.append((target, _line_for_index(match.start(), line_starts)))
+    return refs
+
+
+def collect_typst_image_targets(text):
+    """Eindeutige Typst-``#image``-Pfade in Dokumentreihenfolge (ohne Zeile)."""
+    targets = []
+    seen = set()
+    for target, _line in collect_typst_image_refs(text):
+        if target not in seen:
+            seen.add(target)
+            targets.append(target)
+    return targets
+
+
+def collect_all_local_image_refs(text):
+    """Markdown- plus Typst-Bildreferenzen aus einem Textblock."""
+    return list(collect_image_refs(text)) + list(collect_typst_image_refs(text))
+
+
 def find_missing_image_refs(markdown_text, markdown_file_path, book_root_path):
     markdown_path = Path(markdown_file_path)
     book_root = Path(book_root_path)
@@ -153,6 +185,28 @@ def find_missing_image_refs(markdown_text, markdown_file_path, book_root_path):
 def find_missing_images(markdown_text, markdown_file_path, book_root_path):
     missing_refs = find_missing_image_refs(markdown_text, markdown_file_path, book_root_path)
     return sorted({target for _, target in missing_refs})
+
+
+def resolve_local_image_file(target, markdown_file_path, book_root_path):
+    """Löst eine lokale Markdown-Bildreferenz zu einer existierenden Datei auf."""
+    if not target or not _is_local_asset_target(target):
+        return None
+
+    markdown_path = Path(markdown_file_path)
+    book_root = Path(book_root_path)
+    normalized_target = target.replace("\\", "/")
+    candidates = []
+
+    if normalized_target.startswith("/"):
+        candidates.append(book_root / normalized_target.lstrip("/"))
+    else:
+        candidates.append(markdown_path.parent / normalized_target)
+        candidates.append(book_root / normalized_target)
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
 
 
 def is_render_safe_relative_target(target):

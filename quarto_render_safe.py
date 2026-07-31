@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -100,12 +101,16 @@ def _print_colon_occurrence_hints(occurrences):
     has_structural_hits = any(bool(item.get("is_structural")) for item in occurrences if isinstance(item, dict))
     if has_structural_hits:
         print("[safe-render] ::: Hinweis: strukturell auffällige Stelle(n) gefunden:")
+        max_hits = 10
     else:
-        print("[safe-render] ::: Hinweis: keine strukturellen Defekte erkannt – mögliche Auslöser:")
+        print(
+            "[safe-render] ::: Hinweis: keine strukturellen Defekte — "
+            "nur mögliche Auslöser (kein Abbruchgrund):"
+        )
+        max_hits = 3
 
     shown = []
     seen = set()
-    max_hits = 20
     for item in occurrences:
         if not isinstance(item, dict):
             continue
@@ -127,14 +132,67 @@ def _print_colon_occurrence_hints(occurrences):
         prefix = "ERROR" if is_structural else "INFO"
         print(f"[safe-render] {prefix} [{source_path}] L{line_number} ({issue_kind})")
 
-    if len(occurrences) > len(shown):
-        print(f"[safe-render] ... {len(occurrences) - len(shown)} weitere Treffer ausgeblendet.")
+    all_keys: set[tuple[str, int]] = set()
+    for item in occurrences:
+        if not isinstance(item, dict):
+            continue
+        sp, ln = item.get("source_path"), item.get("line_number")
+        if isinstance(sp, str) and isinstance(ln, int):
+            all_keys.add((sp, ln))
+    remaining = max(0, len(all_keys) - len(shown))
+    if remaining:
+        print(f"[safe-render] ... {remaining} weitere Treffer ausgeblendet.")
 
+    if not shown:
+        return
     primary_path, primary_line, _primary_kind, _primary_structural = shown[0]
     print(f"[safe-render] KLICK: [{primary_path}] L{primary_line}")
     if len(shown) > 1:
         alt_path, alt_line, _alt_kind, _alt_structural = shown[1]
         print(f"[safe-render] Alternative: [{alt_path}] L{alt_line}")
+
+
+def _run_quarto_render(cmd: list[str], *, cwd: Path) -> int:
+    """Startet Quarto und streamt stdout/stderr UTF-8-sicher Zeile für Zeile."""
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    # Quarto/Node oft CP_ACP — erzwinge UTF-8 wo unterstützt.
+    env.setdefault("PYTHONUTF8", "1")
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            bufsize=1,
+        )
+    except OSError as exc:
+        print(f"[safe-render] Quarto konnte nicht gestartet werden: {exc}")
+        return 127
+
+    try:
+        stdout = proc.stdout
+        if stdout is not None:
+            for raw_line in stdout:
+                line = raw_line.rstrip("\r\n")
+                if line:
+                    print(line, flush=True)
+    except (OSError, ValueError) as exc:
+        print(f"[safe-render] Fehler beim Lesen der Quarto-Ausgabe: {exc}")
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    finally:
+        try:
+            proc.wait()
+        except OSError:
+            pass
+    return int(proc.returncode or 0)
 
 
 def _copy_book_to_temp(source_book: Path, temp_root: Path) -> Path:
@@ -250,6 +308,22 @@ def run_safe_render(
         processed_tree = processor.prepare_render_environment(tree_data)
         colon_occurrences = _collect_processed_colon_occurrences(temp_book, processed_tree)
         _print_colon_occurrence_hints(colon_occurrences)
+        # Standard-"typst" (nicht Extension-Formate wie "typstdoc-typst")
+        # braucht immer typst-show.typ/page.typ als template-partials -
+        # sonst ignoriert Quartos eingebautes Buch-Rendering die Datei und
+        # PreProcessor.maybe_inject_chapter_title's #chapter-titles-visible-
+        # Injektion referenziert eine nirgends definierte Variable (Crash).
+        # export_manager.py deklariert das für den GUI-Export bereits über
+        # build_layout_format_options; hier dieselbe Default-Deklaration für
+        # den bare-CLI-Pfad (per setdefault - ein explizit übergebenes
+        # extra_format_options gewinnt weiterhin).
+        if output_format == "typst":
+            from tools.layout_profiles.catalog import TYPST_STANDARD_PARTIALS
+
+            extra_format_options = dict(extra_format_options or {})
+            fmt_opts = dict(extra_format_options.get("typst") or {})
+            fmt_opts.setdefault("template-partials", list(TYPST_STANDARD_PARTIALS))
+            extra_format_options["typst"] = fmt_opts
         engine.save_chapters(
             processed_tree,
             profile_name=profile_name,
@@ -275,9 +349,10 @@ def run_safe_render(
 
         cmd = ["quarto", "render", str(temp_book), "--to", output_format]
         print(f"[safe-render] book={book_path.name} format={output_format}")
-        result = subprocess.run(cmd, cwd=project_root, check=False)
-        if result.returncode != 0:
-            return result.returncode
+        returncode = _run_quarto_render(cmd, cwd=project_root)
+        if returncode != 0:
+            print(f"[safe-render] Quarto beendet mit Code {returncode}", flush=True)
+            return returncode
 
         copy_render_artifacts(temp_book, book_path, original_output_dir)
         if archive_dir is not None:

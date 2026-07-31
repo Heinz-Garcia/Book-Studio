@@ -1,5 +1,6 @@
 ---
-title: Widmung (rechte Seite)
+title: Widmung
+print_title: false
 description: Widmung
 status: bookstudio
 comment: Persönliche Widmung

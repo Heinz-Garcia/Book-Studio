@@ -62,7 +62,7 @@ def test_command_host_covers_all_menu_commands():
 
 def test_time_machine_lists_struct_backups(tmp_path: Path):
     pytest.importorskip("PySide6")
-    from ui_qt.dialogs.time_machine_dialog import format_backup_label, list_structure_backups
+    from ui_qt.structure_snapshot import format_backup_label, list_structure_backups
 
     book = tmp_path / "Band"
     backups = book / ".backups"
@@ -71,7 +71,9 @@ def test_time_machine_lists_struct_backups(tmp_path: Path):
     (backups / "backup_ignore.zip").write_bytes(b"x")
     found = list_structure_backups(book)
     assert len(found) == 1
-    assert "15:30:00" in format_backup_label(found[0])
+    label = format_backup_label(found[0])
+    assert "ohne Namen" in label or "0 Kapitel" in label
+    assert "15:30" in label
 
 
 def test_file_indexer_plugin_runs_tool(tmp_path: Path):

@@ -86,7 +86,7 @@ QListWidget::item:selected, QTableWidget::item:selected {
 
 
 def _default_source_dir(studio: Any) -> Path:
-    """Startordner für den Dateidialog — nie die Publish-Sammelmappe als Quelle setzen."""
+    """Startordner für den Dateidialog — inbox/ oder neuester Publish_*-Lauf."""
     book = getattr(studio, "current_book", None)
     if book:
         parent = Path(book).resolve().parent
@@ -94,9 +94,19 @@ def _default_source_dir(studio: Any) -> Path:
             return parent
     try:
         import app_config as _app_config
+        from tools.production_paths.config import resolve_grammargraph_inbox_roots
         from ui_qt.book_workspace import repo_root
 
         cfg = _app_config.read_config(repo_root() / "app_config.json")
+        for entry in resolve_grammargraph_inbox_roots(cfg, repo_root()):
+            if not entry.is_dir():
+                continue
+            if check_source_folder(entry).is_publish_hub:
+                run = find_newest_publish_run(entry)
+                if run and run.is_dir():
+                    return run
+                continue
+            return entry
         for entry in cfg.get("content_root_path") or []:
             p = Path(str(entry))
             if not p.is_absolute():

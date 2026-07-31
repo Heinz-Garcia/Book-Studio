@@ -1,6 +1,7 @@
 ---
-title: Abkürzungsverzeichnis (rechte Seite)
-description: Abkürzungsverzeichnis (rechte Seite)
+title: Abkürzungsverzeichnis
+print_title: true
+description: Abkürzungsverzeichnis
 status: bookstudio
 order: END-44
 ---

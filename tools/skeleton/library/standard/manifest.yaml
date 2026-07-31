@@ -12,17 +12,17 @@ files:
   order: '50'
   required: false
 - path: content/Widmung.md
-  title: Widmung (linke Seite)
+  title: Widmung
   order: '4'
   required: false
   description: Widmung
 - path: content/Impressum.md
-  title: Impressum / Disclaimer / KI-Hinweis (linke Seite)
+  title: Impressum
   order: '6'
   required: true
   description: Impressum
 - path: content/IVZ.md
-  title: IVZ (rechte Seite)
+  title: Inhaltsverzeichnis
   order: '8'
   required: true
   description: Inhaltsverzeichnis
@@ -31,7 +31,7 @@ files:
   order: '60'
   required: false
 - path: content/Einleitung.md
-  title: Einleitung (rechte Seite)
+  title: Einleitung
   order: '15'
   required: true
   description: Einleitung
@@ -40,12 +40,12 @@ files:
   order: '70'
   required: false
 - path: content/Glossar.md
-  title: Glossar (rechte Seite)
+  title: Glossar
   order: END-35
   required: false
   description: Glossar
 - path: content/UeberAutor.md
-  title: Über den Autor (rechte Seite)
+  title: Über den Autor
   order: END-25
   required: true
   description: Über den Autor
@@ -57,6 +57,11 @@ files:
   title: Rückseite
   order: END-10
   required: true
+- path: content/Gliederungspunkt.md
+  title: Gliederungspunkt (Beispiel)
+  required: false
+  description: Vorlage mit content_role outline (Icon 🧭). Optional zuschalten
+    oder in der GUI unter Bearbeiten → Gliederungspunkt anlegen…
 - path: content/Template.md
   title: Vorlagen-Referenz
   required: false
@@ -65,8 +70,9 @@ files:
   title: Typst-Titelblock unterdrücken
   required: true
   include_in_tree: false
-  description: Ueberschreibt Quartos automatisches Titelblock-Partial (Titel/Autor/Datum
-    vor dem ersten Kapitel), damit das Deckblatt wirklich die erste Seite ist.
+  description: Unterdrueckt Quarto-YAML-Kapitelueberschriften standardmaessig;
+    sichtbare Titel nur per print_title / Editor-Toggle H1. Enthaelt ausserdem
+    den article()-Renderer statt orange-book.
 - path: page.typ
   title: Typst-Seitenformat (Custom-Trimm)
   required: true
@@ -75,55 +81,55 @@ files:
     (z. B. fuer das Paperback-Layout-Profil) - faellt auf das normale papersize-Preset
     zurueck, wenn nicht gesetzt.
 - path: content/Schmutztitel.md
-  title: Schmutztitel (rechte Seite)
+  title: Schmutztitel
   order: '2'
   required: true
 - path: content/Vakanz_Verlagsdaten.md
-  title: Vakanz oder Verlagsdaten (linke Seite)
+  title: Vakanz oder Verlagsdaten
   order: '3'
   required: false
 - path: content/Haupttitel.md
-  title: Haupttitel (rechte Seite)
+  title: Haupttitel
   order: '5'
   required: true
 - path: content/Vakanz.md
-  title: IVZ Ende / Vakanz (linke Seite)
+  title: IVZ Ende / Vakanz
   order: '9'
   required: true
-  description: Vakanz (linke Seite)
+  description: Vakanz
 - path: content/Vorwort.md
-  title: Vorwort (rechte Seite)
+  title: Vorwort
   order: '20'
   required: true
 - path: content/Vakanz_2.md
-  title: Vakanz_2 (linke Seite)
+  title: Vakanz_2
   order: '7'
   required: false
 - path: content/Vakanz_3.md
-  title: Vakanz_3 (linke Seite)
+  title: Vakanz_3
   order: '12'
   required: true
 - path: content/Epilog.md
-  title: Epilog (rechte Seite)
+  title: Epilog
   order: END-90
   required: true
 - path: content/Vakanz_4.md
-  title: Vakanz_4 (linke Seite)
+  title: Vakanz_4
   order: END-100
   required: true
 - path: content/Abkverzeichnis.md
-  title: Abkürzungsverzeichnis (rechte Seite)
+  title: Abkürzungsverzeichnis
   order: END-44
   required: false
 - path: content/Vakanz_5.md
-  title: Vakanz_5 (linke Seite)
+  title: Vakanz_5
   order: END-45
   required: false
 - path: content/Vakanz_6.md
-  title: Vakanz_6 (linke Seite)
+  title: Vakanz_6
   order: END-40
   required: false
 - path: content/Vakanz_7.md
-  title: Vakanz_7 (linke Seite)
+  title: Vakanz_7
   order: END-30
   required: true

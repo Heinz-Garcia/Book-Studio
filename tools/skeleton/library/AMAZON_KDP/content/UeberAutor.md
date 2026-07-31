@@ -1,5 +1,6 @@
 ---
-title: Über den Autor (rechte Seite)
+title: Über den Autor
+print_title: true
 description: Über den Autor
 status: bookstudio
 order: END-25

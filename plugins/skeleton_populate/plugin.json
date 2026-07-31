@@ -7,7 +7,7 @@
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 1,
-  "help_text": "Kopiert Standard-Vorlagen aus der Skeleton-Bibliothek links in den Pool des aktiven Buchprojekts. Die Reihenfolge im Buchbaum stellst du danach selbst per Drag-and-Drop her.",
+  "help_text": "Kopiert Standard-Vorlagen aus der Skeleton-Bibliothek links in den Pool des aktiven Buchprojekts. Im Dialog kannst du optionale Snippets des gewählten Profils einzeln zuschalten. Die Reihenfolge im Buchbaum stellst du danach selbst per Drag-and-Drop her.",
   "hooks": {
     "after_book_import": "on_after_book_import"
   }

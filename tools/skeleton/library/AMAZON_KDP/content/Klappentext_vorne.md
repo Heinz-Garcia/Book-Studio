@@ -1,5 +1,6 @@
 ---
 title: Klappentext (vorne)
+print_title: false
 description: Klappentext (vorne)
 status: bookstudio
 order: '20'

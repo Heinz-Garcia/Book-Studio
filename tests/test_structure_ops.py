@@ -165,3 +165,59 @@ def test_insert_node_by_order_returns_false_without_order():
     )
     assert ok is False
     assert roots == []
+
+
+def test_middle_zone_bounds_and_insert_before_end_block():
+    order_map = {
+        "content/front.md": (10, "front"),
+        "content/back.md": (10, "end"),
+    }
+
+    def meta(path: str):
+        return order_map.get(path.replace("\\", "/"), (None, None))
+
+    roots: list = [
+        {"path": "content/front.md", "title": "F", "children": []},
+        {"path": "content/back.md", "title": "B", "children": []},
+    ]
+    assert ops.middle_zone_bounds(roots, order_meta_for_path=meta) == (1, 1)
+
+    ops.insert_node_in_middle_zone(
+        roots,
+        {"path": "content/mid.md", "title": "M", "children": []},
+        after_path=None,
+        order_meta_for_path=meta,
+    )
+    assert [n["path"] for n in roots] == [
+        "content/front.md",
+        "content/mid.md",
+        "content/back.md",
+    ]
+
+
+def test_insert_in_middle_ignores_cursor_on_front_matter():
+    order_map = {
+        "content/front.md": (10, "front"),
+        "content/back.md": (1, "end"),
+    }
+
+    def meta(path: str):
+        return order_map.get(path.replace("\\", "/"), (None, None))
+
+    roots: list = [
+        {"path": "content/front.md", "title": "F", "children": []},
+        {"path": "content/exist.md", "title": "E", "children": []},
+        {"path": "content/back.md", "title": "B", "children": []},
+    ]
+    ops.insert_node_in_middle_zone(
+        roots,
+        {"path": "content/new.md", "title": "N", "children": []},
+        after_path="content/front.md",  # Vorspann — ignorieren
+        order_meta_for_path=meta,
+    )
+    assert [n["path"] for n in roots] == [
+        "content/front.md",
+        "content/exist.md",
+        "content/new.md",
+        "content/back.md",
+    ]

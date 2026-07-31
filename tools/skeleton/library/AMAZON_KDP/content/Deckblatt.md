@@ -1,10 +1,11 @@
 ---
 title: "Deckblatt"
+print_title: false
 description: "Deckblatt"
 status: bookstudio
 required: true
 order: "1"
-comment: "Platzhalter für das Deckblatt: ein separates, seitenfüllendes Cover-Bild ohne Ränder. Titel.md bleibt der reine Schmutztitel (nur Text, kein Bild)."
+comment: "Platzhalter für das Deckblatt. YAML-title erscheint nicht im PDF (required → still)."
 ---
 
 Platzhalter für das Cover. Sobald ein Cover-Bild bereitsteht: Bild-Datei nach
@@ -15,11 +16,9 @@ ersetzen:
     #page(margin: 0pt)[
       #image("/img/<Dateiname>.png", width: 100%, height: 100%, fit: "cover")
     ]
-    #past-cover.update(true)
 
-Das `#past-cover.update(true)` ist Pflicht (siehe `typst-show.typ`): erst
-danach werden Kapitel-Überschriften wieder normal angezeigt, sonst bleiben
-auch spätere Kapitel unsichtbar.
+Die YAML-``title`` wird beim Typst-Render standardmäßig unterdrückt.
+Sichtbare Kapitelüberschriften: Inhaltkapitel oder ``print_title: true``.
 
 ```{=typst}
 #pagebreak()

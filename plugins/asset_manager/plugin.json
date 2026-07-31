@@ -1,0 +1,11 @@
+{
+  "name": "asset_manager",
+  "label": "🖼️ Asset Manager…",
+  "description": "Bild-Pool und Buch-img/ — anzeigen, kopieren, Referenzen, Orphans löschen.",
+  "entrypoint": "plugins.asset_manager:run",
+  "version": "1.1.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 28,
+  "help_text": "Ablauf: (1) Bilder im Pool sammeln → (2) mit dem blauen →-Button nach img/ kopieren → (3) Referenzen rechts prüfen. Ungenutzte Buch-Bilder (grün) können gelöscht werden; referenzierte (blau) sind geschützt. Anderen Pool-Ordner: „Ordner…“, dauerhaft: „Standard“."
+}

@@ -1,6 +1,7 @@
 ---
-title: Vakanz_3 (linke Seite)
-description: Vakanz_3 (linke Seite)
+title: Vakanz_3
+print_title: false
+description: Vakanz_3
 status: bookstudio
 required: true
 order: '12'

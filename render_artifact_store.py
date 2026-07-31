@@ -158,6 +158,73 @@ def ensure_typst_template_partials(
             shutil.copy2(src, dest)
 
 
+def resolve_preferred_pdf_stem(book_path: Path) -> str:
+    """Bevorzugter PDF-Dateiname (ohne Suffix): neueste ``Publish_*.json``.
+
+    Fallback: Buchordnername. Dateiname wird fürs Dateisystem bereinigt
+    (keine Pfadtrenner).
+
+    Wichtig (Windows): ``Path.glob("Publish_*.json")`` ist case-insensitive und
+    trifft sonst auch ``publish_map.json`` / ``publish_record.json``. Deshalb
+    zusätzlich der **case-sensitive** Prefix-Check auf den echten Dateinamen.
+    """
+    book_path = Path(book_path)
+    config = book_path / "bookconfig"
+    candidates: list[Path] = []
+    if config.is_dir():
+        candidates = [
+            p
+            for p in config.glob("Publish_*.json")
+            if p.is_file() and p.name.startswith("Publish_")
+        ]
+    if candidates:
+        newest = max(candidates, key=lambda p: p.stat().st_mtime)
+        stem = newest.stem
+    else:
+        stem = book_path.name
+    cleaned = str(stem).strip().replace("/", "_").replace("\\", "_")
+    return cleaned or book_path.name
+
+
+def rename_render_pdf(path: Path, stem: str, *, overwrite: bool = True) -> Path:
+    """Benennt eine Render-PDF im selben Ordner auf ``{stem}.pdf`` um.
+
+    Bei Archiv-Dateien mit ``_YYYYMMDD_HHMMSS``-Suffix am Ende des Stems
+    wird dieses Suffix erhalten: ``Book-Master_20260728_120000.pdf`` +
+    Stem ``Publish_X`` → ``Publish_X_20260728_120000.pdf``.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Datei nicht gefunden: {path}")
+    stem = str(stem or "").strip().replace("/", "_").replace("\\", "_")
+    if not stem:
+        raise ValueError("PDF-Stem darf nicht leer sein.")
+
+    archive_stamp = ""
+    parts = path.stem.rsplit("_", 2)
+    if (
+        len(parts) == 3
+        and len(parts[1]) == 8
+        and parts[1].isdigit()
+        and len(parts[2]) == 6
+        and parts[2].isdigit()
+    ):
+        archive_stamp = f"_{parts[1]}_{parts[2]}"
+
+    dest_name = f"{stem}{archive_stamp}{path.suffix.lower() or '.pdf'}"
+    if not dest_name.lower().endswith(".pdf"):
+        dest_name += ".pdf"
+    dest = path.parent / dest_name
+    if dest.resolve() == path.resolve():
+        return path
+    if dest.exists():
+        if not overwrite:
+            raise FileExistsError(f"Ziel existiert bereits: {dest.name}")
+        dest.unlink()
+    path.rename(dest)
+    return dest
+
+
 __all__ = [
     "ROOT_OUTPUT_SUFFIXES",
     "ARCHIVE_TIMESTAMP_FMT",
@@ -166,4 +233,6 @@ __all__ = [
     "copy_render_artifacts",
     "archive_render_artifacts",
     "ensure_typst_template_partials",
+    "resolve_preferred_pdf_stem",
+    "rename_render_pdf",
 ]

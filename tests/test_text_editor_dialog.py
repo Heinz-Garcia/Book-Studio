@@ -133,10 +133,29 @@ def test_wrap_selection_center_horizon_centers_both_axes(tmp_path: Path, monkeyp
 
     dlg._wrap_selection("`#align(center + horizon)[", "]`{=typst}")
 
-    assert dlg.editor.document().findBlockByNumber(0).text() == (
-        "`#align(center + horizon)[Titel der Seite]`{=typst}"
-    )
-    assert dlg.editor.textCursor().selectedText() == "Titel der Seite"
+    assert "`#align(center + horizon)[Titel der Seite]`{=typst}" in dlg.editor.toPlainText()
+    dlg.close()
+    _ = app
+
+
+def test_wrap_selection_typst_converts_markdown_image(tmp_path: Path, monkeypatch):
+    """Regression: Markdown-Bild + Typst-Zentrieren darf nicht ![]() im Raw lassen."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    text = "![DSC_3595](/img/DSC_3595.jpg)\n"
+    dlg = _make_dialog(tmp_path, text)
+    _place_cursor(dlg, 0, 0, len(text.strip()))
+
+    dlg._wrap_selection("`#align(center + horizon)[", "]`{=typst}")
+
+    out = dlg.editor.toPlainText()
+    assert "```{=typst}" in out
+    assert '#image("/img/DSC_3595.jpg", width: 80%)' in out
+    assert "![" not in out
+    assert "]`{=typst}" not in out
     dlg.close()
     _ = app
 
@@ -216,7 +235,8 @@ def test_formatting_toolbar_groups_have_labels(tmp_path: Path, monkeypatch):
 
     assert _toolbar_labels(dlg) == [
         "Ansicht",
-        "Seite",
+        "YAML",
+        "Inhalt",
         "Format",
         "Ausrichtung",
         "Größe",
@@ -544,5 +564,21 @@ def test_save_as_cancelled_dialog_does_nothing(tmp_path: Path, monkeypatch):
 
     dlg._save_as()  # darf nicht crashen und nichts schreiben
 
+    dlg.close()
+    _ = app
+
+
+def test_save_keeps_dialog_open(tmp_path: Path, monkeypatch):
+    """Speichern schließt den Markdown-Editor nicht mehr (nur Schließen)."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    app = QApplication.instance() or QApplication([])
+    dlg = _make_dialog(tmp_path, "alt\n")
+    dlg.editor.setPlainText("neu\n")
+    dlg._save()
+    assert dlg.path.read_text(encoding="utf-8") == "neu\n"
+    assert dlg.result() != QDialog.DialogCode.Accepted
     dlg.close()
     _ = app

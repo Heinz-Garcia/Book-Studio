@@ -361,3 +361,33 @@ def test_run_safe_render_default_popen_killer_calls_terminate(tmp_path):
 
     assert aborted is True
     assert proc.terminated is True
+
+
+def test_run_safe_render_sets_pythonioencoding_env(tmp_path):
+    """Safe-Render-Subprocess setzt PYTHONIOENCODING/UTF-8 fuer stabile Logs."""
+    safe_script = tmp_path / "quarto_render_safe.py"
+    safe_script.write_text("# stub", encoding="utf-8")
+
+    captured: dict = {}
+
+    def _factory(*_args, **kwargs):
+        captured.update(kwargs)
+        return _MockPopen([], returncode=0)
+
+    rc, aborted = RenderService().run_safe_render(
+        target_fmt="typst",
+        profile_name=None,
+        extra_format_options=None,
+        book=tmp_path,
+        safe_script=safe_script,
+        on_log_line=lambda _l: None,
+        popen_factory=_factory,
+    )
+
+    assert rc == 0
+    assert aborted is False
+    env = captured.get("env") or {}
+    assert env.get("PYTHONIOENCODING") == "utf-8"
+    assert env.get("PYTHONUTF8") == "1"
+    assert captured.get("encoding") == "utf-8"
+    assert captured.get("errors") == "replace"

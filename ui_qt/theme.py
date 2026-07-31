@@ -247,6 +247,93 @@ QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item:selected:!active 
 QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item:hover {
     background-color: #e8f0f8;
 }
+QDialog#assetManagerDialog {
+    background-color: #f5f6f8;
+}
+QFrame#assetManagerSection {
+    background-color: #ffffff;
+    border: 1px solid #c5cad3;
+    border-radius: 8px;
+}
+QLabel#assetManagerSectionTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a1d23;
+}
+QLabel#assetManagerHint {
+    color: #5b6573;
+    font-size: 12px;
+}
+QLabel#assetManagerBadgeUsed {
+    background-color: #e8f0f8;
+    color: #2f5d9f;
+    border-radius: 10px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QLabel#assetManagerBadgeFree {
+    background-color: #e7f6ed;
+    color: #1b6b3a;
+    border-radius: 10px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QLabel#assetManagerBadgePool {
+    background-color: #f1f0f7;
+    color: #4b4568;
+    border-radius: 10px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QListWidget#assetManagerGrid {
+    background-color: #fafbfc;
+    border: 1px solid #d8dde5;
+    border-radius: 6px;
+    padding: 8px;
+    outline: none;
+}
+QListWidget#assetManagerGrid::item {
+    color: #1a1d23;
+    border-radius: 6px;
+    padding: 6px;
+    margin: 2px;
+}
+QListWidget#assetManagerGrid::item:selected,
+QListWidget#assetManagerGrid::item:selected:active,
+QListWidget#assetManagerGrid::item:selected:!active {
+    background-color: #d6e6f5;
+    color: #1a1d23;
+}
+QListWidget#assetManagerGrid::item:hover {
+    background-color: #e8f0f8;
+}
+QLabel#assetManagerPreview {
+    background-color: #0f172a;
+    border: 1px solid #c5cad3;
+    border-radius: 8px;
+    color: #94a3b8;
+}
+QPushButton#assetManagerPrimary {
+    background-color: #2f5d9f;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 10px 16px;
+    font-weight: 600;
+}
+QPushButton#assetManagerPrimary:hover {
+    background-color: #264a80;
+}
+QPushButton#assetManagerPrimary:disabled {
+    background-color: #a8b7cb;
+    color: #eef2f7;
+}
+QPushButton#assetManagerDanger {
+    color: #8b1e1e;
+}
 QFrame#HelpBar {
     background-color: #eaf1fb;
     border: 1px solid #b9d3ef;

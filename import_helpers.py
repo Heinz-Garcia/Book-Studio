@@ -12,10 +12,12 @@ Funktionen:
 - `extract_all_inline_svgs(publish_dir)` - iterativ ueber alle .md
 - `generate_quarto_yml_for_import(publish_dir, index_title, ...)` -
   _quarto.yml + index.md fuer Import anlegen
+- `resolve_import_book_title(...)` - Titel-SSOT (kein „Book Master“)
 """
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -45,6 +47,87 @@ SVG_FILE_SUFFIX = ".svg"
 # aufgeraeumt wird.
 GUI_STATE_FILENAME = ".gui_state.json"
 GUI_STATE_DIR = "bookconfig"
+
+# Bekannte Dummy-Titel aus aelteren Bridge-Defaults — nie als Buchtitel uebernehmen.
+TITLE_PLACEHOLDERS = frozenset(
+    {
+        "book master",
+        "buch master",
+        "book-master",
+        "buch-master",
+        "book_master",
+        "buch_master",
+    }
+)
+
+
+def is_placeholder_book_title(title: str | None) -> bool:
+    """True bei leerem oder historischem Dummy-Titel (z. B. „Book Master“)."""
+    text = str(title or "").strip()
+    if not text:
+        return True
+    return text.casefold() in TITLE_PLACEHOLDERS
+
+
+def _title_from_book_studio_toml(publish_dir: Path) -> str:
+    cfg_file = publish_dir / "_book_studio.toml"
+    if not cfg_file.is_file():
+        return ""
+    try:
+        raw = tomllib.loads(cfg_file.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError):
+        return ""
+    book = raw.get("book") if isinstance(raw, dict) else None
+    if not isinstance(book, dict):
+        return ""
+    return str(book.get("title") or "").strip()
+
+
+def _title_from_publish_meta(publish_dir: Path) -> tuple[str, str]:
+    """Returns ``(book_title, publication_name)`` from publish_meta.json."""
+    meta_file = publish_dir / "publish_meta.json"
+    if not meta_file.is_file():
+        return "", ""
+    try:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return "", ""
+    if not isinstance(meta, dict):
+        return "", ""
+    book_title = str(meta.get("book_title") or "").strip()
+    name = str(meta.get("name") or "").strip()
+    default_name = f"Publikation {publish_dir.name}"
+    if name == default_name:
+        name = ""
+    return book_title, name
+
+
+def resolve_import_book_title(
+    publish_dir: Path,
+    *,
+    index_title: str = "",
+) -> str:
+    """Titel-SSOT fuer Import: echter Lesertitel, nie „Book Master“.
+
+    Prioritaet:
+    1. CLI ``index_title`` (nur wenn kein Platzhalter)
+    2. ``publish_meta.json`` → ``book_title``
+    3. ``_book_studio.toml`` → ``book.title``
+    4. ``publish_meta.json`` → ``name`` (Publikationsname, wenn kein Default)
+    5. Ordnername
+    """
+    publish_dir = Path(publish_dir)
+    candidates = [str(index_title or "").strip()]
+    meta_book, meta_name = _title_from_publish_meta(publish_dir)
+    candidates.append(meta_book)
+    candidates.append(_title_from_book_studio_toml(publish_dir))
+    candidates.append(meta_name)
+    candidates.append(publish_dir.name)
+
+    for candidate in candidates:
+        if candidate and not is_placeholder_book_title(candidate):
+            return candidate
+    return publish_dir.name or "Unbenanntes Buch"
 
 
 def _yaml_double_quoted(value: str) -> str:
@@ -166,7 +249,8 @@ def generate_quarto_yml_for_import(
     index_description: str = "",
 ) -> Optional[Path]:
     """Erzeuge eine minimale ``_quarto.yml`` im Publish-Verzeichnis, falls
-    noch keine existiert.  Liest Metadaten aus ``_book_studio.toml``.
+    noch keine existiert.  Liest Metadaten aus ``_book_studio.toml`` /
+    ``publish_meta.json`` (Titel-SSOT, siehe ``resolve_import_book_title``).
 
     Die ``chapters``-Liste bleibt **leer**, damit saemtliche .md-Dateien
     zunaechst im linken Fenster ("nicht zugeordnete Kapitel") erscheinen.
@@ -175,26 +259,26 @@ def generate_quarto_yml_for_import(
     # Immer ueberschreiben – die chapters-Liste muss LEER sein, damit alle
     # .md-Dateien im linken Fenster ("nicht zugeordnete Kapitel") landen.
 
-    # Metadaten aus _book_studio.toml lesen
-    cfg_file = publish_dir / "_book_studio.toml"
-    title = publish_dir.name
+    # Autor aus _book_studio.toml; Titel ueber SSOT (nie „Book Master“)
     author = ""
+    cfg_file = publish_dir / "_book_studio.toml"
     if cfg_file.is_file():
         try:
             raw = tomllib.loads(cfg_file.read_text(encoding="utf-8"))
-            title = raw.get("book", {}).get("title", title)
-            author = raw.get("book", {}).get("author", author)
-        except Exception:
+            book = raw.get("book", {}) if isinstance(raw, dict) else {}
+            if isinstance(book, dict):
+                author = str(book.get("author") or "").strip()
+        except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError):
             pass
 
-    # Beschreibung aus dem Publish-Kontext (aktuell nur per CLI-Override)
+    title = resolve_import_book_title(publish_dir, index_title=index_title)
     description = index_description
 
-    # CLI-Overrides aus der Bridge-Config koennen die Werte ueberschreiben
-    if index_title:
-        title = index_title
-    if index_author:
+    if index_author and not is_placeholder_book_title(index_author):
         author = index_author
+    # Alte Exporte setzten oft author=title (technischer Stem) — das ist kein Autor.
+    if author and author.casefold() == title.casefold() and ("_" in author or "rev." in author.casefold()):
+        author = ""
 
     # Keine .md-Dateien in chapters eintragen → alle landen in list_avail
     content = (
@@ -207,12 +291,12 @@ def generate_quarto_yml_for_import(
         f'  chapters: []\n'
         f'format:\n'
         f'  typst:\n'
-        f'    toc: true\n'
+        f'    toc: false\n'
     )
     quarto_yml.write_text(content, encoding="utf-8")
 
-    # index.md anlegen/ueberschreiben (wird von Book Studio fuer Render
-    # zwingend benoetigt – immer frisch, damit Config-Aenderungen wirken)
+    # index.md: technische Quarto-Pflichtseite ohne sichtbaren Titelblock,
+    # damit Deckblatt die erste sichtbare Seite bleibt (siehe typst-show.typ).
     desc_line = f'description: {_yaml_double_quoted(description)}\n' if description else ''
     index_md = publish_dir / "index.md"
     index_md.write_text(
@@ -220,11 +304,13 @@ def generate_quarto_yml_for_import(
         f'title: {_yaml_double_quoted(title)}\n'
         f'author: {_yaml_double_quoted(author)}\n'
         f'{desc_line}'
+        f'status: "bookstudio"\n'
+        f'unnumbered: true\n'
+        f'unlisted: true\n'
+        f'print_title: false\n'
         f'---\n'
         f'\n'
-        f'# {title}\n'
-        f'\n'
-        f'<!-- index.md – automatisch erzeugt von Book Studio Bridge -->\n',
+        f'<!-- index.md – technische Pflichtseite (kein sichtbarer Inhalt) -->\n',
         encoding="utf-8",
     )
 
@@ -248,6 +334,9 @@ def generate_quarto_yml_for_import(
 __all__ = [
     "INLINE_SVG_PATTERN",
     "OLD_SVG_REF_PATTERN",
+    "TITLE_PLACEHOLDERS",
+    "is_placeholder_book_title",
+    "resolve_import_book_title",
     "extract_inline_svgs_from_md",
     "extract_all_inline_svgs",
     "generate_quarto_yml_for_import",

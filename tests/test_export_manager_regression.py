@@ -46,7 +46,7 @@ def test_run_quarto_render_stops_immediately_on_doctor_preflight_failure() -> No
 
     manager.run_quarto_render()
 
-    assert studio.preflight_calls == [("Render-Vorabcheck", False)]
+    assert studio.preflight_calls == [("Render-Vorabcheck", True)]
     assert studio.save_calls == []
     assert any("Rendern pausiert" in message for message, _level in studio.logged)
     assert studio.status.last == {
@@ -430,7 +430,10 @@ def test_log_render_line_emits_source_hint_for_raw_valid_colon_warning(tmp_path:
 
     manager._log_render_line("The following string was found in the document: :::")
 
-    assert any("Früher Treffer für ':::': keine strukturellen Defekte erkannt" in message for message, _level in studio.logged)
+    assert any(
+        "Früher Treffer für ':::': keine strukturellen Defekte" in message
+        for message, _level in studio.logged
+    )
     assert any("👉 KLICK: [content/chapter.md] L23" in message for message, _level in studio.logged)
 
 

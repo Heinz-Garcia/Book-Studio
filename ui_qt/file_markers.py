@@ -18,7 +18,7 @@ ICON_LEGEND_TITLE = "Icon-Legende"
 ICON_LEGEND_LINES: tuple[str, ...] = (
     "📌 required (Frontmatter required: true)",
     "🧬 GrammarGraph-Nutzinhalt (automatisch: nicht Required/Skeleton)",
-    "🧭 Nur Gliederungspunkt",
+    "🧭 Nur Gliederungspunkt (anlegen: Button / Bearbeiten)",
     "↵ Seitenumbruch am Dateiende",
     "🖼 Fehlende Bildreferenz",
     "☠ Buch-Doktor-Befund",

@@ -1,9 +1,10 @@
 ---
-title: Einleitung (rechte Seite)
+title: Einleitung
 description: Einleitung
 status: bookstudio
 required: true
 order: '15'
+print_title: true
 ---
 
 # Einleitung

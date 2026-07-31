@@ -172,28 +172,56 @@ class QtStudioBridge:
         self, context_label: str, emit_success_log: bool = False
     ) -> tuple[bool, Any]:
         self._sync_from_window()
+        label = str(context_label or "Buch-Doktor").strip() or "Buch-Doktor"
+        self.log(f"🩺 Buch-Doktor ({label}) wird ausgeführt …", "info")
         if self.doctor is None or self.current_book is None:
+            self.log(
+                f"⚠️ Buch-Doktor ({label}): kein aktives Buch oder Doctor — übersprungen.",
+                "warning",
+            )
             return False, None
         session = self._window._session
         used = ops.collect_paths(session.book_nodes) if session else []
         unused = len(session.avail) if session else 0
         analysis = self.doctor.analyze_health(used, unused, include_index=True)
-        errors = int(analysis.get("error_count") or 0) if isinstance(analysis, dict) else 0
-        # Prefer explicit is_healthy if present
-        if isinstance(analysis, dict) and "is_healthy" in analysis:
+        if not isinstance(analysis, dict):
+            self.log(
+                f"⚠️ Buch-Doktor ({label}): Analyse fehlgeschlagen (kein Ergebnis).",
+                "warning",
+            )
+            return False, None
+        errors = int(analysis.get("error_count") or 0)
+        warnings = int(analysis.get("warning_count") or 0)
+        if "is_healthy" in analysis:
             healthy = bool(analysis["is_healthy"])
         else:
             healthy = errors == 0
-        if session is not None and isinstance(analysis, dict):
+        if session is not None:
             session.set_doctor_issues(analysis.get("issues_by_path") or {})
             # ☠-Marker sofort sichtbar machen
             structure = getattr(self._window, "structure", None)
             if structure is not None and hasattr(structure, "reload_from_session"):
                 structure.reload_from_session()
-        if healthy and emit_success_log:
-            self.log(f"✅ {context_label}: keine Befunde.", "success")
-        elif not healthy:
-            self.log(f"🩺 {context_label}: {errors} Befund(e).", "warning")
+        if healthy:
+            # Ergebnis immer loggen (auch bei Erfolg). ``emit_success_log``
+            # bleibt API-kompatibel, steuert die Ausgabe nicht mehr.
+            if warnings:
+                self.log(
+                    f"✅ Buch-Doktor ({label}): keine kritischen Befunde "
+                    f"({warnings} Hinweis(e)).",
+                    "success",
+                )
+            else:
+                self.log(
+                    f"✅ Buch-Doktor ({label}): keine Befunde — alles in Ordnung.",
+                    "success",
+                )
+        else:
+            self.log(
+                f"⚠️ Buch-Doktor ({label}): {errors} Fehler, {warnings} Warnung(en). "
+                "F4 = nächster Fund, Enter = Datei öffnen.",
+                "warning",
+            )
         return healthy, analysis
 
     def get_title_for_path(self, source_path: str) -> str:
@@ -215,6 +243,24 @@ class QtStudioBridge:
         if session is None:
             return
         session.load()
+        self._window.structure.reload_from_session()
+        self._sync_from_window()
+
+    def load_book(self, _event: Any = None) -> None:
+        """Hook für Skeleton-Populate u. a.: Pool refreshen, Struktur behalten.
+
+        Früher fehlte diese Methode am Qt-Bridge → Populate fiel in den
+        Tk-Fallback und die linke Liste blieb oft stale; ein späteres
+        volles ``session.load()`` konnte die rechte Struktur wegwischen.
+        """
+        session = self._window._session
+        book = self._window._facade.current_book
+        if session is None:
+            if book is not None:
+                self._window._load_book(Path(book))
+            return
+        # Immer Struktur behalten — neue Skeleton-Dateien gehören nur in den Pool.
+        session.refresh_from_disk_keep_structure()
         self._window.structure.reload_from_session()
         self._sync_from_window()
 

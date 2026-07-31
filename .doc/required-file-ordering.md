@@ -53,11 +53,11 @@ index.md
 
 ## Hinweise
 
-- **Berechtigt für die `order`-Sortierung** sind Dateien, die als „required" gelten:
-  entweder durch explizites `required: true` im Frontmatter **oder** durch den
-  Legacy-Pfad-Fallback (Datei liegt unter `content/required/`).
-- Dateien mit `order`-Feld bleiben an der Stelle, die der Nutzer im GUI-Baum gesetzt hat,
-  wenn sie nicht als required gelten.
+- **Order gilt für jede Datei mit gültigem `order`-Feld** im Frontmatter —
+  unabhängig von `required: true/false` (Skeleton-Optionals tragen oft beides:
+  `order` + `required: false`).
+- Dateien **ohne** `order` bleiben in der **Mittelzone** in der Reihenfolge,
+  in der sie links ausgewählt / angezeigt wurden.
 - Identische `order`-Werte (z. B. zwei Dateien mit `"1"`) sind technisch möglich, führen aber zu undefinierter Reihenfolge zwischen diesen beiden Dateien.
 
 ## Konkretes Mapping (Band_Stoffwechselgesundheit)
