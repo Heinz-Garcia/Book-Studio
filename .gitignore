@@ -44,6 +44,11 @@ sanitizer_backup_*/
 /production/
 /assets/pool/*
 !/assets/pool/.gitkeep
+/.doc/formalmaengel-findings-brustkrebs.md
+
+# Cursor-Editor-Konfiguration (analog .vscode/) - hier zudem buchspezifischer
+# Inhalt gespiegelt, der ebenfalls nicht ins Repo gehört.
+/.cursor/
 
 # B5: app_config.json wird versioniert (App-Defaults).
 # Wenn ein Maintainer lokale Anpassungen vornehmen will, die nicht
