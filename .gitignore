@@ -39,6 +39,12 @@ session_state.json
 _Sanitizer_Backups_*/
 sanitizer_backup_*/
 
+# Bucheinhalte sind Daten, kein Code (analog Band_Dummy/Band_Template, die
+# bereits lokal per .git/info/exclude ausgeschlossen sind) - nicht versionieren.
+/production/
+/assets/pool/*
+!/assets/pool/.gitkeep
+
 # B5: app_config.json wird versioniert (App-Defaults).
 # Wenn ein Maintainer lokale Anpassungen vornehmen will, die nicht
 # ins Repo sollen, soll er die Datei einmal umbenennen und in dieser
