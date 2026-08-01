@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QKeySequence, QShortcut, QTextCursor, QTextDocument
+from PySide6.QtPdf import QPdfDocument
+from PySide6.QtPdfWidgets import QPdfView
 from PySide6.QtWidgets import (
     QButtonGroup,
     QDialog,
@@ -28,7 +33,61 @@ from PySide6.QtWidgets import (
 
 from ui_qt import markdown_formatting
 from ui_qt.end_commands import DEFAULT_PAGEBREAK_COMMAND, insert_end_command_text
-from ui_qt.markdown_preview import markdown_to_preview_html
+from ui_qt.markdown_preview import body_for_preview, markdown_to_preview_html
+
+# Eigenständiges Tool (tools/live_preview) — kein PySide6-Import dort, damit
+# die Render-Logik ohne GUI testbar/aufrufbar bleibt (siehe dortiger Modul-
+# Docstring). Diese Datei ruft nur render_single_chapter_preview() auf und
+# zeigt das Ergebnis an.
+from tools.live_preview.preview_render import PreviewRenderResult, render_single_chapter_preview
+
+
+_BLANK_PDF_BYTES = b"%PDF-1.4\n%%EOF"
+
+
+def _blank_pdf_path() -> Path:
+    """Minimaler Platzhalter-PDF-Pfad, um ``QPdfDocument`` zum Freigeben der
+    vorher geladenen Datei zu zwingen (siehe ``TextEditorDialog.closeEvent``).
+
+    Empirisch geprüft: ``QPdfDocument.close()`` allein gibt eine unter
+    Windows offene PDF-Datei NICHT zuverlässig frei (Sperre bleibt bestehen,
+    ``shutil.rmtree`` schlägt fehl) — auch nicht mit ``deleteLater()`` +
+    ``processEvents()`` + ``gc.collect()``. Erst das Laden eines ANDEREN,
+    tatsächlich existierenden Pfads (auch wenn dessen Inhalt ungültig ist
+    und der Ladevorgang selbst mit ``Status.Error`` endet) löst die Sperre.
+    Ein nicht existierender Pfad reicht nachweislich NICHT.
+    """
+    path = Path(tempfile.gettempdir()) / "book_studio_pdf_preview_blank.pdf"
+    if not path.is_file():
+        path.write_bytes(_BLANK_PDF_BYTES)
+    return path
+
+
+class _PdfPreviewWorker(QThread):
+    """Rendert im Hintergrund-Thread — hält die UI währenddessen responsiv.
+
+    Nutzt den Einzelkapitel-Kurzweg (temporäre Buch-Kopie mit gekürzter
+    ``chapters:``-Liste, siehe ``render_single_chapter_preview``): ~1-2s
+    statt ~8s+ bei einem Vollbuch-Render. Fällt für ``index.md`` und
+    Aggregator-Seiten (z. B. IVZ.md mit ``#outline()``) automatisch auf den
+    Vollbuch-Render zurück — dort kann diese Beschleunigung nicht greifen.
+    """
+
+    finished_ok = Signal(str, str)  # (pdf_path, cleanup_dir oder "")
+    finished_err = Signal(str)
+
+    def __init__(self, markdown_file: Path, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._markdown_file = markdown_file
+
+    def run(self) -> None:  # noqa: D102 - QThread-Override
+        result: PreviewRenderResult = render_single_chapter_preview(self._markdown_file)
+        if result.success and result.pdf_path is not None:
+            cleanup_dir = str(result.cleanup_dir) if result.cleanup_dir is not None else ""
+            self.finished_ok.emit(str(result.pdf_path), cleanup_dir)
+        else:
+            message = result.log_tail.strip() or f"Render fehlgeschlagen (rc={result.returncode})."
+            self.finished_err.emit(message)
 
 # Alle folgenden (Icon, Tooltip, Marker davor, Marker danach)-Tupel wickeln die
 # Auswahl ein bzw. fügen bei leerer Auswahl einen selektierten Platzhalter ein
@@ -151,6 +210,7 @@ class TextEditorDialog(QDialog):
         self._pending_skeleton_command: Optional[dict[str, Any]] = None
         self._is_markdown = self.path.suffix.lower() == ".md"
         self._preview_dirty = True
+        self._pdf_preview_dirty = True
         self.setWindowTitle(f"{title} — {self.path.name}")
         self.resize(1500, 720)
         layout = QVBoxLayout(self)
@@ -179,12 +239,22 @@ class TextEditorDialog(QDialog):
             self._btn_preview.setToolTip(
                 "Leservorschau (gerendert; Frontmatter/Seitenumbruch ausgeblendet)"
             )
-            for btn in (self._btn_code, self._btn_preview):
+            self._btn_pdf_preview = QPushButton("🖨️")
+            self._btn_pdf_preview.setToolTip(
+                "Echte PDF-Vorschau: rendert nur diese Datei in einer temporären "
+                "Buch-Kopie (wie beim finalen Export, aber ~1-2s statt mehrerer "
+                "Sekunden für's ganze Buch).\n"
+                "Kapitelnummer/Seitenzahl weichen dabei von der echten Position "
+                "im Buch ab. Aggregator-Seiten (z. B. IVZ.md) und index.md "
+                "rendern automatisch das ganze Buch."
+            )
+            for btn in (self._btn_code, self._btn_preview, self._btn_pdf_preview):
                 btn.setCheckable(True)
                 btn.setFixedWidth(40)
                 toolbar.addWidget(btn)
             self._mode_group.addButton(self._btn_code, 0)
             self._mode_group.addButton(self._btn_preview, 1)
+            self._mode_group.addButton(self._btn_pdf_preview, 2)
             self._btn_code.setChecked(True)
             self._mode_group.idClicked.connect(self._on_mode_changed)
             toolbar.addSeparator()
@@ -351,6 +421,34 @@ class TextEditorDialog(QDialog):
         self._preview = QTextBrowser()
         self._preview.setOpenExternalLinks(True)
         self._stack.addWidget(self._preview)
+
+        if self._is_markdown:
+            self._pdf_page = QWidget()
+            pdf_layout = QVBoxLayout(self._pdf_page)
+            pdf_layout.setContentsMargins(0, 0, 0, 0)
+            pdf_layout.setSpacing(0)
+            self._pdf_status_label = QLabel("")
+            self._pdf_status_label.setStyleSheet(
+                "padding: 6px 10px; background:#f1f5f9; color:#334155;"
+            )
+            self._pdf_status_label.setWordWrap(True)
+            self._pdf_status_label.setVisible(False)
+            pdf_layout.addWidget(self._pdf_status_label)
+            self._pdf_document = QPdfDocument(self)
+            self._pdf_document.statusChanged.connect(self._on_pdf_document_status_changed)
+            self._pdf_view = QPdfView()
+            self._pdf_view.setDocument(self._pdf_document)
+            self._pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
+            self._pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+            pdf_layout.addWidget(self._pdf_view, stretch=1)
+            self._stack.addWidget(self._pdf_page)
+            self._pdf_worker: Optional[_PdfPreviewWorker] = None
+            self._pdf_render_pending = False
+            # Verzeichnis der zuletzt geladenen Einzelkapitel-PDF (siehe
+            # PreviewRenderResult.cleanup_dir) — erst NACH dem Nachladen der
+            # nächsten PDF entfernen (Windows sperrt offene Dateien).
+            self._pdf_cleanup_dir: Optional[Path] = None
+
         layout.addWidget(self._stack)
 
         if self._yaml_toggle_host is not None:
@@ -397,6 +495,28 @@ class TextEditorDialog(QDialog):
         find_shortcut.setShortcut(QKeySequence.StandardKey.Find)
         find_shortcut.triggered.connect(self._show_find_bar)
         self.addAction(find_shortcut)
+
+    def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt-Override
+        worker = getattr(self, "_pdf_worker", None)
+        if worker is not None and worker.isRunning():
+            # Der Worker blockiert auf einem echten Quarto-Subprozess, den er
+            # nicht auf Zuruf abbrechen kann — kurz warten, sonst statt
+            # Absturz durch "Destroyed while thread is still running" den
+            # Worker verwaisen lassen (kein Dialog-Widget mehr referenziert,
+            # läuft im Hintergrund harmlos zu Ende).
+            if not worker.wait(3000):
+                worker.finished_ok.disconnect(self._on_pdf_render_ok)
+                worker.finished_err.disconnect(self._on_pdf_render_err)
+                worker.finished.disconnect(self._on_pdf_worker_finished)
+                worker.setParent(None)
+        cleanup_dir = getattr(self, "_pdf_cleanup_dir", None)
+        if cleanup_dir is not None:
+            pdf_document = getattr(self, "_pdf_document", None)
+            if pdf_document is not None:
+                pdf_document.load(str(_blank_pdf_path()))
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
+            self._pdf_cleanup_dir = None
+        super().closeEvent(event)
 
     @staticmethod
     def _add_toolbar_group_label(toolbar: QToolBar, text: str) -> None:
@@ -504,6 +624,7 @@ class TextEditorDialog(QDialog):
 
     def _on_text_changed(self) -> None:
         self._preview_dirty = True
+        self._pdf_preview_dirty = True
         if self._yaml_toggle_host is not None:
             self._rebuild_yaml_toggles(force=False)
             self._sync_yaml_toggles()
@@ -694,6 +815,8 @@ class TextEditorDialog(QDialog):
     def _on_mode_changed(self, mode_id: int) -> None:
         if mode_id == 1:
             self._show_preview()
+        elif mode_id == 2:
+            self._show_pdf_preview()
         else:
             self._show_code()
 
@@ -718,6 +841,97 @@ class TextEditorDialog(QDialog):
         for btn in self._end_command_buttons:
             btn.setEnabled(False)
         self._set_status("Leservorschau (Frontmatter/Seitenumbruch ausgeblendet)", "ok")
+
+    def _show_pdf_preview(self) -> None:
+        self._stack.setCurrentWidget(self._pdf_page)
+        for btn in self._end_command_buttons:
+            btn.setEnabled(False)
+        if self._pdf_worker is not None and self._pdf_worker.isRunning():
+            return
+        if not self._pdf_preview_dirty and self._pdf_document.pageCount() > 0:
+            self._set_status(
+                "PDF-Vorschau (letzter Render-Stand, unverändert seit dem letzten Klick)", "dim"
+            )
+            return
+        self._start_pdf_render()
+
+    def _start_pdf_render(self) -> None:
+        self._pdf_render_pending = True
+        self._pdf_status_label.setVisible(True)
+        self._pdf_status_label.setStyleSheet(
+            "padding: 6px 10px; background:#fef3c7; color:#78350f;"
+        )
+        self._pdf_status_label.setText(
+            "🔄 Rendert echte PDF-Vorschau (ganzes Buch, Quarto/Typst) — "
+            "kann je nach Buchgröße mehrere Sekunden dauern…"
+        )
+        self._set_status("PDF-Vorschau wird gerendert…", "dim")
+        self._btn_pdf_preview.setEnabled(False)
+        worker = _PdfPreviewWorker(self.path, self)
+        worker.finished_ok.connect(self._on_pdf_render_ok)
+        worker.finished_err.connect(self._on_pdf_render_err)
+        worker.finished.connect(self._on_pdf_worker_finished)
+        self._pdf_worker = worker
+        worker.start()
+
+    def _on_pdf_worker_finished(self) -> None:
+        self._pdf_render_pending = False
+        self._btn_pdf_preview.setEnabled(True)
+
+    def _on_pdf_render_ok(self, pdf_path: str, cleanup_dir: str) -> None:
+        self._pdf_preview_dirty = False
+        self._pdf_status_label.setVisible(False)
+        note = (
+            " (Einzelkapitel-Vorschau — Kapitelnummer/Seitenzahl weichen von der "
+            "echten Position im Buch ab)"
+            if cleanup_dir
+            else ""
+        )
+        self._set_status(f"PDF-Vorschau: {pdf_path}{note}", "ok")
+        self._pdf_document.load(pdf_path)
+        # Alten Temp-Ordner erst NACH dem Nachladen der neuen PDF entfernen —
+        # load() gibt die vorherige Datei frei, sonst würde Windows das
+        # Löschen der noch offenen alten PDF verweigern.
+        stale_dir = self._pdf_cleanup_dir
+        self._pdf_cleanup_dir = Path(cleanup_dir) if cleanup_dir else None
+        if stale_dir is not None:
+            shutil.rmtree(stale_dir, ignore_errors=True)
+
+    def _on_pdf_render_err(self, message: str) -> None:
+        self._pdf_status_label.setStyleSheet(
+            "padding: 6px 10px; background:#fee2e2; color:#7f1d1d;"
+        )
+        self._pdf_status_label.setText(f"⚠ PDF-Vorschau fehlgeschlagen:\n{message}")
+        self._pdf_status_label.setVisible(True)
+        self._set_status("PDF-Vorschau fehlgeschlagen", "error")
+
+    def _on_pdf_document_status_changed(self, status: QPdfDocument.Status) -> None:
+        if status != QPdfDocument.Status.Ready:
+            return
+        self._jump_to_matching_pdf_page()
+
+    def _jump_to_matching_pdf_page(self) -> None:
+        """Springt zur ersten PDF-Seite, die einen Textausschnitt der
+        aktuellen Datei enthält — sonst müsste man im ganzen Buch-PDF
+        manuell nach der eigenen Seite suchen."""
+        snippet = self._distinctive_body_snippet()
+        if not snippet:
+            return
+        page_count = self._pdf_document.pageCount()
+        for page in range(page_count):
+            selection = self._pdf_document.getAllText(page)
+            page_text = re.sub(r"\s+", " ", selection.text() if selection else "")
+            if snippet in page_text:
+                self._pdf_view.pageNavigator().jump(page, QPointF(0, 0))
+                return
+
+    def _distinctive_body_snippet(self, *, min_len: int = 12) -> str:
+        body = body_for_preview(self.editor.toPlainText())
+        for line in body.splitlines():
+            candidate = re.sub(r"\s+", " ", line).strip("# >*-\t ").strip()
+            if len(candidate) >= min_len:
+                return candidate[:80]
+        return ""
 
     def _insert_end_command(self, command: dict[str, Any]) -> None:
         self._ensure_code_view()
