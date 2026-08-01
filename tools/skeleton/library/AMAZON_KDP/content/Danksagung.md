@@ -3,14 +3,18 @@ title: "Danksagung"
 print_title: true
 description: "Danksagung"
 status: bookstudio
-required: true
 order: "50"
+unnumbered: true
 ---
 
-# Danksagung
-
-Dank an …
+```{=typst}
+#pagebreak(weak: true, to: "odd")
+```
+\
+\
+\
+Mein besonderer Dank gilt meiner Frau: Sie hat in den intensivsten Schreib- und Vibe-Coding Phasen den Alltag und den Haushalt fast allein gestemmt und mir auch beim Alltag mit Julian den Rücken freigehalten. Ohne ihren unermüdlichen Einsatz wäre dieses Buch nicht entstanden.“
 
 ```{=typst}
-#pagebreak()
+#pagebreak(to: "odd")
 ```

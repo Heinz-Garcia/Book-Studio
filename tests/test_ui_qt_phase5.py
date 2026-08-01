@@ -45,6 +45,35 @@ def test_mapping_manager_qt_constructs(tmp_path: Path, monkeypatch):
     # Dialog heißt UI-seitig "Fertige PDFs", die Klasse blieb intern
     # MappingManagerQtDialog.
     assert "Fertige PDFs" in dlg.windowTitle()
+    # Spalten per Drag&Drop umsortierbar.
+    assert dlg.table.horizontalHeader().sectionsMovable() is True
+    # "Pfad kopieren"-Button vorhanden.
+    assert dlg.btn_copy_path.text() == "Pfad kopieren"
+    dlg.close()
+    _ = app
+
+
+def test_mapping_manager_copy_path_no_selection_shows_info(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.mapping_manager_dialog import MappingManagerQtDialog
+
+    book = tmp_path / "B"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    (book / "bookconfig").mkdir()
+
+    app = QApplication.instance() or QApplication([])
+    studio = SimpleNamespace(current_book=book, log=lambda *_a, **_k: None)
+    dlg = MappingManagerQtDialog(None, studio)
+    with patch("ui_qt.dialogs.mapping_manager_dialog.QMessageBox") as mock_box:
+        dlg._copy_selected_path()
+        mock_box.information.assert_called_once()
     dlg.close()
     _ = app
 

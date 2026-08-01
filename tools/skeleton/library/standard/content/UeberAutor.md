@@ -3,8 +3,8 @@ title: Über den Autor
 description: Über den Autor
 status: bookstudio
 order: END-25
-required: true
 print_title: true
+unnumbered: true
 ---
 
 # Über den Autor\

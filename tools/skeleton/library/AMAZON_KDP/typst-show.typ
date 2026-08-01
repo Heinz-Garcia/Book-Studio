@@ -13,6 +13,20 @@
 // Kein Effekt mehr auf Titel-Sichtbarkeit (Compat, damit Raw-Typst nicht knallt).
 #let past-cover = state("past-cover", false)
 
+// Vakatseiten (automatisch eingefuegte Leerseiten durch
+// #pagebreak(to: "odd"/"even"), z. B. damit ein Kapitel auf einer rechten
+// Seite beginnt): klassische Buchsatz-Konvention ist "mitgezaehlt, aber
+// nicht gedruckt" — die Folgeseite behaelt ihre korrekte Nummer, nur auf
+// der eingefuegten Leerseite selbst erscheint keine Ziffer. Ein
+// state()-Ansatz (vor/nach dem pagebreak umschalten) hat sich als
+// zeitlich instabil erwiesen (faerbt auf die VORHERIGE echte Seite ab,
+// empirisch getestet) — der show-Selektor direkt auf den pagebreak-Typ
+// wirkt dagegen exakt nur auf die dadurch neu erzeugte(n) Seite(n).
+#show selector.or(
+  pagebreak.where(to: "odd"),
+  pagebreak.where(to: "even"),
+): set page(header: none, footer: none)
+
 // Kapitelzaehlung (9, 11, 13, 15 … statt 1, 2, 3, 4):
 // counter(heading) steppt fuer JEDE Level-1-Heading, sobald ihre eigene
 // ``numbering`` bei der KONSTRUKTION nicht ``none`` ist — unabhaengig davon,

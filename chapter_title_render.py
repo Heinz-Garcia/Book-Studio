@@ -42,6 +42,11 @@ def _is_unlisted(parsed: dict[str, Any]) -> bool:
     return bool(flag) if flag is not None else False
 
 
+def _is_unnumbered(parsed: dict[str, Any]) -> bool:
+    flag = _as_bool(parsed.get("unnumbered"))
+    return bool(flag) if flag is not None else False
+
+
 def should_print_chapter_title(
     parsed_frontmatter: Optional[dict[str, Any]], *, rel_path: str = ""
 ) -> bool:
@@ -169,7 +174,11 @@ def toggle_print_title_in_content(content: str) -> tuple[str, bool]:
 
 
 def build_visible_chapter_title_injection(
-    title: str, *, unlisted: bool = False, used_ids: Optional[set] = None
+    title: str,
+    *,
+    unlisted: bool = False,
+    unnumbered: bool = False,
+    used_ids: Optional[set] = None,
 ) -> str:
     """Typst-Block: Heading kurz sichtbar machen, dann wieder sperren.
 
@@ -183,6 +192,14 @@ def build_visible_chapter_title_injection(
     PDF-Lesezeichen-Eintrag — z. B. eine Widmungsseite mit sichtbarem Titel,
     die trotzdem nicht im Inhaltsverzeichnis auftauchen soll. Eine getrennte
     Steuerung beider Aspekte hat keinen praktischen Anwendungsfall.
+
+    ``unnumbered: true`` (Editor-Toggle "#–") unterdrückt NUR die
+    Kapitelnummer, Titel bleibt sichtbar (z. B. Danksagung/Epilog, die zwar
+    einen Titel, aber keine Nummer tragen sollen) — dafür wird der
+    Nummerierungs-``show``-Aufruf für dieses Label schlicht nicht emittiert,
+    sodass die blanke ``numbering: none``-Regel aus ``typst-show.typ``
+    greift. Wichtig: das zaehlt die Heading auch nicht im Zaehler mit (siehe
+    dortiger Kommentar) — Folgekapitel behalten ihre fortlaufende Nummer.
 
     Jede Heading bekommt ein aus dem Titel abgeleitetes, BUCHWEIT
     EINDEUTIGES Label (``used_ids``, siehe ``heading_anchor_ascii``) statt
@@ -205,9 +222,17 @@ def build_visible_chapter_title_injection(
     )
     listed = "false" if unlisted else "true"
     label = unique_ascii_id(f"bs-visible-{title}", used_ids=used_ids if used_ids is not None else set())
+    numbering_rule = (
+        ""
+        if unnumbered
+        else (
+            f"#show heading.where(level: 1).and(<{label}>): "
+            "set heading(numbering: bs-section-numbering)\n"
+        )
+    )
     return (
         "```{=typst}\n"
-        f"#show heading.where(level: 1).and(<{label}>): set heading(numbering: bs-section-numbering)\n"
+        f"{numbering_rule}"
         "#chapter-titles-visible.update(true)\n"
         f"#heading(level: 1, outlined: {listed}, bookmarked: {listed})[{safe}] <{label}>\n"
         "#chapter-titles-visible.update(false)\n"
@@ -310,7 +335,10 @@ def maybe_inject_chapter_title(
     if not title:
         return body
     injection = build_visible_chapter_title_injection(
-        title, unlisted=_is_unlisted(parsed), used_ids=used_ids
+        title,
+        unlisted=_is_unlisted(parsed),
+        unnumbered=_is_unnumbered(parsed),
+        used_ids=used_ids,
     )
     # Idempotent: nicht doppelt injizieren.
     if "#chapter-titles-visible.update(true)" in body:

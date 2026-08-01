@@ -3,8 +3,8 @@ title: "Einleitung"
 print_title: true
 description: "Einleitung"
 status: bookstudio
-required: true
 order: "60"
+unnumbered: true
 ---
 
 # Einleitung

@@ -8,6 +8,7 @@ from typing import Any, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QHBoxLayout,
@@ -103,25 +104,29 @@ class MappingManagerQtDialog(QDialog):
             ["Datum", "Layout", "Datei", "Anzeigename (optional)", "Format", "Status"]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
-        self.table.setSortingEnabled(False)
+        # Sortierung per Klick auf Spaltenkopf. WICHTIG: waehrend _fill_table()
+        # neu befuellt wird ausdruecklich kurz deaktiviert (siehe dort) - sonst
+        # sortiert Qt bei jedem einzelnen setItem()-Aufruf live mit, wodurch
+        # Zeilen unter der Schleife durcheinanderrutschen.
+        self.table.setSortingEnabled(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(True)
         header = self.table.horizontalHeader()
         header.setStretchLastSection(False)
-        header.setSectionResizeMode(_COL_DATE, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(_COL_LAYOUT, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(_COL_FILE, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(_COL_FORMAT, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(_COL_STATUS, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(_COL_DATE, 150)
-        self.table.setColumnWidth(_COL_LAYOUT, 220)
-        self.table.setColumnWidth(_COL_NAME, 200)
-        self.table.setColumnWidth(_COL_FORMAT, 70)
-        self.table.setColumnWidth(_COL_STATUS, 70)
+        header.setSectionsMovable(True)
+        header.setSortIndicatorShown(True)
+        # Autosize: JEDE Spalte folgt automatisch ihrem tatsächlichen Inhalt
+        # (kein manuelles Ziehen am Rand nötig, das u. a. über Remote Desktop
+        # unzuverlässig sein kann). Bewusst KEINE Stretch-Spalte: eine lange
+        # Anzeigename-Notiz würde sonst der Stretch-Spalte (z. B. "Datei")
+        # den Platz wegnehmen und sie unlesbar zusammenquetschen. Reicht der
+        # Platz insgesamt nicht, zeigt die Tabelle stattdessen einen
+        # horizontalen Scrollbalken — nie eine gequetschte Spalte.
+        for _col in (_COL_DATE, _COL_LAYOUT, _COL_FILE, _COL_NAME, _COL_FORMAT, _COL_STATUS):
+            header.setSectionResizeMode(_col, QHeaderView.ResizeMode.ResizeToContents)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         layout.addWidget(self.table, stretch=1)
@@ -148,13 +153,21 @@ class MappingManagerQtDialog(QDialog):
         self.btn_reveal.clicked.connect(self._reveal_selected)
         actions.addWidget(self.btn_reveal)
 
+        self.btn_copy_path = QPushButton("Pfad kopieren")
+        self.btn_copy_path.setToolTip(
+            "Vollständigen Pfad inkl. Dateiname der markierten PDF(s) "
+            "in die Zwischenablage kopieren (mehrere = eine Zeile je Datei)"
+        )
+        self.btn_copy_path.clicked.connect(self._copy_selected_path)
+        actions.addWidget(self.btn_copy_path)
+
         self.btn_rename = QPushButton("Dateiname…")
         self.btn_rename.clicked.connect(self._rename_selected)
         actions.addWidget(self.btn_rename)
 
         self.btn_deploy = QPushButton("Deploy")
         self.btn_deploy.setToolTip(
-            "Markierte PDF in den konfigurierten Deploy-Ordner kopieren "
+            "Markierte PDF(s) in den konfigurierten Deploy-Ordner kopieren "
             "(Studio-Konfiguration: pdf_deploy_folder)"
         )
         self.btn_deploy.clicked.connect(self._deploy_selected)
@@ -353,6 +366,11 @@ class MappingManagerQtDialog(QDialog):
         self._fill_table()
 
     def _fill_table(self) -> None:
+        # Sortierung waehrend des Befuellens aus: sonst sortiert Qt bei jedem
+        # einzelnen setItem()-Aufruf innerhalb der Schleife live mit, wodurch
+        # Zeilen unter der Schleife durcheinanderrutschen (Spalte X von Zeile
+        # A landet neben Spalte Y von Zeile B). Nach dem Befuellen wieder an.
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self._renders))
         total = len(self._all_renders)
         shown = len(self._renders)
@@ -404,46 +422,78 @@ class MappingManagerQtDialog(QDialog):
                 if col == _COL_STATUS and not render.exists:
                     item.setForeground(Qt.GlobalColor.darkRed)
                 self.table.setItem(row, col, item)
+        self.table.setSortingEnabled(True)
+        # Explizit statt nur auf die automatische ResizeToContents-Neuberechnung
+        # zu vertrauen — stellt sicher, dass Breiten sofort nach dem Neu-Füllen
+        # (z. B. nach Filterwechsel) zum aktuellen Inhalt passen.
+        self.table.resizeColumnsToContents()
         self._on_selection_changed()
 
     def _on_selection_changed(self) -> None:
-        render = self._selected_render()
-        if render is None:
+        renders = self._selected_renders()
+        if not renders:
             self.path_label.setText(
                 "Doppelklick oder „Öffnen“: PDF anzeigen. Pfad erscheint hier."
             )
             return
-        status = "vorhanden" if render.exists else "Datei fehlt"
-        self.path_label.setText(f"{render.pdf_path}  ({status})")
+        if len(renders) == 1:
+            render = renders[0]
+            status = "vorhanden" if render.exists else "Datei fehlt"
+            self.path_label.setText(f"{render.pdf_path}  ({status})")
+            return
+        existing = sum(1 for r in renders if r.exists)
+        self.path_label.setText(f"{len(renders)} PDFs ausgewählt ({existing} vorhanden).")
 
     def _on_cell_double_clicked(self, row: int, _col: int) -> None:
         if 0 <= row < len(self._renders):
             self.table.selectRow(row)
             self._open_selected()
 
+    def _selected_renders(self) -> list[RenderView]:
+        """Ausgewaehlte Renders — per ID aus dem Item-Data aufgeloest, NICHT
+        per Zeilenindex in ``self._renders``: seit Spaltensortierung aktiv
+        ist, weicht die sichtbare Zeilenreihenfolge von der Erzeugungs-
+        reihenfolge ab (Qt sortiert nur die Anzeige, nicht die Liste)."""
+        by_id = {r.id: r for r in self._renders}
+        rows = sorted(idx.row() for idx in self.table.selectionModel().selectedRows())
+        result: list[RenderView] = []
+        for row in rows:
+            item = self.table.item(row, _COL_DATE)
+            if item is None:
+                continue
+            render = by_id.get(item.data(Qt.ItemDataRole.UserRole))
+            if render is not None:
+                result.append(render)
+        return result
+
     def _selected_render(self) -> Optional[RenderView]:
-        rows = self.table.selectionModel().selectedRows()
-        if not rows:
-            return None
-        idx = rows[0].row()
-        if 0 <= idx < len(self._renders):
-            return self._renders[idx]
-        return None
+        renders = self._selected_renders()
+        return renders[0] if renders else None
 
     def _open_selected(self) -> None:
-        render = self._selected_render()
-        if not render or not render.exists:
+        renders = [r for r in self._selected_renders() if r.exists]
+        if not renders:
             QMessageBox.information(
-                self, "Fertige PDFs", "Bitte eine vorhandene PDF-Zeile wählen."
+                self, "Fertige PDFs", "Bitte mindestens eine vorhandene PDF-Zeile wählen."
             )
             return
-        try:
-            open_path(render.pdf_path)
-        except OSError as exc:
-            QMessageBox.critical(self, "Fertige PDFs", str(exc))
+        errors = []
+        for render in renders:
+            try:
+                open_path(render.pdf_path)
+            except OSError as exc:
+                errors.append(f"{render.pdf_name}: {exc}")
+        if errors:
+            QMessageBox.critical(self, "Fertige PDFs", "\n".join(errors))
 
     def _edit_display_name(self) -> None:
-        render = self._selected_render()
+        renders = self._selected_renders()
+        if len(renders) > 1:
+            QMessageBox.information(
+                self, "Anzeigename", "Bitte genau eine Zeile für „Anzeigename…“ wählen."
+            )
+            return
+        render = renders[0] if renders else None
         if render is None:
             QMessageBox.information(self, "Anzeigename", "Bitte eine Zeile wählen.")
             return
@@ -470,7 +520,13 @@ class MappingManagerQtDialog(QDialog):
         self._on_snapshot_changed(self.snapshot_combo.currentIndex())
 
     def _reveal_selected(self) -> None:
-        render = self._selected_render()
+        renders = self._selected_renders()
+        if len(renders) > 1:
+            QMessageBox.information(
+                self, "Fertige PDFs", "Bitte genau eine Zeile für „PDF im Explorer“ wählen."
+            )
+            return
+        render = renders[0] if renders else None
         book = self._book()
         try:
             if render and render.exists:
@@ -482,8 +538,30 @@ class MappingManagerQtDialog(QDialog):
         except OSError as exc:
             QMessageBox.critical(self, "Fertige PDFs", str(exc))
 
+    def _copy_selected_path(self) -> None:
+        renders = [r for r in self._selected_renders() if r.pdf_path]
+        if not renders:
+            QMessageBox.information(self, "Pfad kopieren", "Bitte eine Zeile wählen.")
+            return
+        QApplication.clipboard().setText("\n".join(str(r.pdf_path) for r in renders))
+        log = getattr(self.studio, "log", None)
+        if callable(log):
+            try:
+                if len(renders) == 1:
+                    log(f"Pfad kopiert → {renders[0].pdf_path}", "success")
+                else:
+                    log(f"{len(renders)} Pfade kopiert", "success")
+            except (TypeError, RuntimeError, AttributeError):
+                pass
+
     def _rename_selected(self) -> None:
-        render = self._selected_render()
+        renders = self._selected_renders()
+        if len(renders) > 1:
+            QMessageBox.information(
+                self, "Fertige PDFs", "Bitte genau eine Zeile für „Dateiname…“ wählen."
+            )
+            return
+        render = renders[0] if renders else None
         if not render or not render.exists:
             QMessageBox.information(
                 self, "Fertige PDFs", "Bitte eine vorhandene PDF-Zeile wählen."
@@ -517,10 +595,10 @@ class MappingManagerQtDialog(QDialog):
         return str(cfg.get("pdf_deploy_folder") or "").strip()
 
     def _deploy_selected(self) -> None:
-        render = self._selected_render()
-        if not render or not render.exists:
+        renders = [r for r in self._selected_renders() if r.exists]
+        if not renders:
             QMessageBox.information(
-                self, "Deploy", "Bitte eine vorhandene PDF-Zeile wählen."
+                self, "Deploy", "Bitte mindestens eine vorhandene PDF-Zeile wählen."
             )
             return
         configured = self._configured_deploy_folder()
@@ -535,65 +613,93 @@ class MappingManagerQtDialog(QDialog):
                 "(z. B. WEB.DE Online-Speicher\\…\\__Projekte\\IFJN\\PDF).",
             )
             return
-        target = dest_dir / render.pdf_path.name
-        if target.exists():
+        conflicts = [r.pdf_path.name for r in renders if (dest_dir / r.pdf_path.name).exists()]
+        if conflicts:
+            listing = "\n".join(conflicts)
             if (
                 QMessageBox.question(
                     self,
                     "Deploy",
-                    f"Datei existiert bereits und wird überschrieben:\n\n{target.name}\n\n"
-                    f"Ziel:\n{dest_dir}",
+                    f"{len(conflicts)} Datei(en) existieren bereits und werden "
+                    f"überschrieben:\n\n{listing}\n\nZiel:\n{dest_dir}",
                 )
                 != QMessageBox.StandardButton.Yes
             ):
                 return
-        try:
-            deployed = deploy_pdf(render.pdf_path, dest_dir, overwrite=True)
-        except (OSError, FileNotFoundError, FileExistsError) as exc:
-            QMessageBox.critical(self, "Deploy", str(exc))
-            return
-        self.path_label.setText(f"Deployed → {deployed}")
-        log = getattr(self.studio, "log", None)
-        if callable(log):
+
+        deployed: list = []
+        errors = []
+        for render in renders:
             try:
-                log(f"PDF deployed → {deployed}", "success")
-            except (TypeError, RuntimeError, AttributeError):
-                pass
+                deployed.append(deploy_pdf(render.pdf_path, dest_dir, overwrite=True))
+            except (OSError, FileNotFoundError, FileExistsError) as exc:
+                errors.append(f"{render.pdf_name}: {exc}")
+
+        if deployed:
+            self.path_label.setText(
+                f"Deployed → {deployed[0]}"
+                if len(deployed) == 1
+                else f"{len(deployed)} PDFs deployed nach {dest_dir}"
+            )
+            log = getattr(self.studio, "log", None)
+            if callable(log):
+                for path in deployed:
+                    try:
+                        log(f"PDF deployed → {path}", "success")
+                    except (TypeError, RuntimeError, AttributeError):
+                        pass
+
+        if errors:
+            QMessageBox.critical(self, "Deploy", "\n".join(errors))
+            if not deployed:
+                return
+
         box = QMessageBox(self)
         box.setWindowTitle("Deploy")
         box.setIcon(QMessageBox.Icon.Information)
-        box.setText(f"PDF kopiert nach:\n\n{deployed}")
+        reveal_target = deployed[0] if len(deployed) == 1 else dest_dir
+        box.setText(
+            f"PDF kopiert nach:\n\n{deployed[0]}"
+            if len(deployed) == 1
+            else f"{len(deployed)} PDFs kopiert nach:\n\n{dest_dir}"
+        )
         btn_ok = box.addButton(QMessageBox.StandardButton.Ok)
-        btn_reveal = box.addButton("Im Explorer zeigen", QMessageBox.ButtonRole.ActionRole)
+        reveal_label = "Im Explorer zeigen" if len(deployed) == 1 else "Ordner im Explorer zeigen"
+        btn_reveal = box.addButton(reveal_label, QMessageBox.ButtonRole.ActionRole)
         box.setDefaultButton(btn_ok)
         box.exec()
         if box.clickedButton() is btn_reveal:
             try:
-                reveal_in_explorer(deployed)
+                reveal_in_explorer(reveal_target)
             except OSError as exc:
                 QMessageBox.critical(self, "Deploy", str(exc))
 
     def _delete_selected(self) -> None:
-        render = self._selected_render()
-        if not render:
+        renders = self._selected_renders()
+        if not renders:
             return
-        label = render.notes.strip() or render.pdf_name or render.id
+        if len(renders) == 1:
+            label = renders[0].notes.strip() or renders[0].pdf_name or renders[0].id
+            message = f"PDF und Listeneintrag löschen?\n\n{label}"
+        else:
+            labels = "\n".join(r.notes.strip() or r.pdf_name or r.id for r in renders)
+            message = f"{len(renders)} PDFs und Listeneinträge löschen?\n\n{labels}"
         if (
-            QMessageBox.question(
-                self,
-                "Löschen",
-                f"PDF und Listeneintrag löschen?\n\n{label}",
-            )
+            QMessageBox.question(self, "Löschen", message)
             != QMessageBox.StandardButton.Yes
         ):
             return
-        try:
-            if render.exists:
-                delete_pdf(render.pdf_path)
-            remove_render(self._book(), render.snapshot_id, render.id)
-            self._on_snapshot_changed(self.snapshot_combo.currentIndex())
-        except (OSError, ValueError) as exc:
-            QMessageBox.critical(self, "Fertige PDFs", str(exc))
+        errors = []
+        for render in renders:
+            try:
+                if render.exists:
+                    delete_pdf(render.pdf_path)
+                remove_render(self._book(), render.snapshot_id, render.id)
+            except (OSError, ValueError) as exc:
+                errors.append(f"{render.pdf_name or render.id}: {exc}")
+        self._on_snapshot_changed(self.snapshot_combo.currentIndex())
+        if errors:
+            QMessageBox.critical(self, "Fertige PDFs", "\n".join(errors))
 
 
 def open_mapping_manager_qt(studio: Any, parent: Optional[QWidget] = None) -> None:

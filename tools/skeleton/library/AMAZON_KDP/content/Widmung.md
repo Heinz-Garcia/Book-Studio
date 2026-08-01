@@ -5,7 +5,6 @@ description: Widmung
 status: bookstudio
 comment: Persönliche Widmung
 order: '6'
-required: true
 ---
 
 # Widmung

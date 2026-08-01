@@ -94,6 +94,26 @@ def test_inject_visible_title_carries_unique_label():
     assert "bs-visible-einleitung" != "bs-visible-vorwort"
 
 
+def test_inject_visible_title_unnumbered_suppresses_numbering_rule():
+    """Regression: Editor-Toggle "#--" (unnumbered) muss die Kapitelnummer
+    unterdruecken, ohne den Titel selbst zu verstecken (anders als
+    print_title: false). Vorher wurde ``unnumbered`` nirgends gelesen --
+    die Kapitelheading bekam trotzdem eine Nummer (toter Toggle)."""
+    fm = "---\ntitle: Danksagung\nprint_title: true\nunnumbered: true\n---\n"
+    out = maybe_inject_chapter_title(fm, "Text.\n", output_format="typst")
+    # Titel + Label weiterhin vorhanden (sichtbar, verlinkbar) ...
+    assert "[Danksagung] <bs-visible-danksagung>" in out
+    # ... aber KEIN numbering-reaktivierender show-Aufruf fuer dieses Label.
+    assert "set heading(numbering: bs-section-numbering)" not in out
+
+
+def test_inject_visible_title_numbered_by_default():
+    """Gegenprobe: ohne unnumbered-Flag bleibt die Nummerierung aktiv."""
+    fm = "---\ntitle: Diagnose\nprint_title: true\n---\n"
+    out = maybe_inject_chapter_title(fm, "Text.\n", output_format="typst")
+    assert "set heading(numbering: bs-section-numbering)" in out
+
+
 def test_inject_visible_title_unlisted_hides_from_outline_and_bookmarks():
     """Widmung-Fall: Titel sichtbar auf der Seite, aber weder im IVZ
     (#outline()) noch im PDF-Lesezeichen-Panel — Editor-Toggle "☰–"."""

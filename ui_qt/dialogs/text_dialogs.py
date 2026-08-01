@@ -211,6 +211,33 @@ class TextEditorDialog(QDialog):
             )
             self._btn_gg.clicked.connect(self._open_gg_swap)
             toolbar.addWidget(self._btn_gg)
+
+            self._btn_skeleton_sync: Optional[QPushButton] = None
+            if self._find_skeleton_sync_targets():
+                self._btn_skeleton_sync = QPushButton("🧩")
+                self._btn_skeleton_sync.setCheckable(False)
+                self._btn_skeleton_sync.setFixedWidth(40)
+                # Auffaelliger Hintergrund statt nur Emoji-Eigenfarbe: der
+                # Button existiert NUR, wenn eine gleichnamige Skeleton-Datei
+                # gefunden wurde (kein "sichtbar aber deaktiviert"-Zustand) -
+                # das muss auf den ersten Blick als "aktiv/klickbar" erkennbar
+                # sein, nicht wie ein ausgegrautes Icon wirken. Kein border/
+                # border-radius (liess den Button trotz gleicher fixedWidth
+                # optisch groesser/breiter als die Nachbar-Icons wirken) -
+                # nur ein dezenter Farbton, sonst identisches Erscheinungsbild.
+                self._btn_skeleton_sync.setStyleSheet(
+                    "QPushButton { background-color: #e0ecff; }"
+                    "QPushButton:hover { background-color: #cfe0ff; }"
+                    "QPushButton:pressed { background-color: #b9d3fb; }"
+                )
+                self._btn_skeleton_sync.setToolTip(
+                    "Mit Skeleton-Pool abgleichen…\n"
+                    "Zeigt Buchdatei und gleichnamige Pool-Vorlage side by side — "
+                    "manuell markieren/kopieren, dann speichern.\n"
+                    "„standard“ ist ausgenommen und bleibt unverändert."
+                )
+                self._btn_skeleton_sync.clicked.connect(self._open_skeleton_sync)
+                toolbar.addWidget(self._btn_skeleton_sync)
             toolbar.addSeparator()
 
             self._build_formatting_toolbar_row1(toolbar)
@@ -628,6 +655,30 @@ class TextEditorDialog(QDialog):
             root=self,
         )
         open_gg_content_swap_qt(studio, self)
+
+    def _find_skeleton_sync_targets(self) -> list:
+        """Gleichnamige Datei in einer nicht-geschuetzten Skeleton-Bibliothek?
+
+        Nur der Dateiname zaehlt (nicht der volle Pfad) — Skeleton-Pools
+        spiegeln dieselbe flache ``content/``-Struktur wie echte Buecher.
+        """
+        try:
+            from ui_qt.dialogs.skeleton_file_sync_dialog import (
+                find_matching_skeleton_targets,
+            )
+
+            return find_matching_skeleton_targets(self.path.name)
+        except (ImportError, OSError, ValueError):
+            return []
+
+    def _open_skeleton_sync(self) -> None:
+        from ui_qt.dialogs.skeleton_file_sync_dialog import open_skeleton_file_sync_qt
+
+        open_skeleton_file_sync_qt(
+            self,
+            book_file_name=self.path.name,
+            book_content=self.editor.toPlainText(),
+        )
 
     def _apply_editor_text(self, new_text: str) -> None:
         cursor = self.editor.textCursor()
