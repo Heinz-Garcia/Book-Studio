@@ -20,6 +20,7 @@ import re
 from typing import Any, Optional
 
 import page_required
+from heading_anchor_ascii import unique_ascii_id
 
 
 def _as_bool(value: Any) -> Optional[bool]:
@@ -167,7 +168,9 @@ def toggle_print_title_in_content(content: str) -> tuple[str, bool]:
     return apply_print_title_to_content(content, new_state), new_state
 
 
-def build_visible_chapter_title_injection(title: str, *, unlisted: bool = False) -> str:
+def build_visible_chapter_title_injection(
+    title: str, *, unlisted: bool = False, used_ids: Optional[set] = None
+) -> str:
     """Typst-Block: Heading kurz sichtbar machen, dann wieder sperren.
 
     Quarto hat die YAML-``title`` bereits als (ausgeblendetes) Heading
@@ -180,6 +183,18 @@ def build_visible_chapter_title_injection(title: str, *, unlisted: bool = False)
     PDF-Lesezeichen-Eintrag — z. B. eine Widmungsseite mit sichtbarem Titel,
     die trotzdem nicht im Inhaltsverzeichnis auftauchen soll. Eine getrennte
     Steuerung beider Aspekte hat keinen praktischen Anwendungsfall.
+
+    Jede Heading bekommt ein aus dem Titel abgeleitetes, BUCHWEIT
+    EINDEUTIGES Label (``used_ids``, siehe ``heading_anchor_ascii``) statt
+    eines geteilten ``<bs-visible-chapter>``: Typst registriert jedes Label
+    automatisch als PDF-Sprungziel, ein geteiltes Label wuerde also alle
+    Kapitel-IVZ-Eintraege buchweit auf ein einziges Kapitel kollidieren
+    lassen. Der zugehoerige ``show``-Aufruf (Nummerierung nur fuer *dieses*
+    Label wieder anschalten, siehe ``typst-show.typ``) wird direkt hier mit
+    injiziert, weil ``$section-numbering$`` als Pandoc-Template-Variable nur
+    in ``typst-show.typ`` selbst ausgewertet wird — Inhaltsdateien lesen
+    stattdessen die dort einmalig gesetzte Typst-Variable
+    ``bs-section-numbering``.
     """
     safe = (
         str(title)
@@ -189,10 +204,12 @@ def build_visible_chapter_title_injection(title: str, *, unlisted: bool = False)
         .replace("]", "\\]")
     )
     listed = "false" if unlisted else "true"
+    label = unique_ascii_id(f"bs-visible-{title}", used_ids=used_ids if used_ids is not None else set())
     return (
         "```{=typst}\n"
+        f"#show heading.where(level: 1).and(<{label}>): set heading(numbering: bs-section-numbering)\n"
         "#chapter-titles-visible.update(true)\n"
-        f"#heading(level: 1, outlined: {listed}, bookmarked: {listed})[{safe}]\n"
+        f"#heading(level: 1, outlined: {listed}, bookmarked: {listed})[{safe}] <{label}>\n"
         "#chapter-titles-visible.update(false)\n"
         "```\n\n"
     )
@@ -275,8 +292,14 @@ def maybe_inject_chapter_title(
     node_title: str = "",
     output_format: str = "typst",
     rel_path: str = "",
+    used_ids: Optional[set] = None,
 ) -> str:
-    """Hängt bei Opt-in den sichtbaren Titel vor den Body (nur Typst)."""
+    """Hängt bei Opt-in den sichtbaren Titel vor den Body (nur Typst).
+
+    ``used_ids`` sollte vom Aufrufer buchweit (ueber alle Kapiteldateien
+    hinweg, siehe ``PreProcessor``) mitgefuehrt werden, damit jedes Kapitel
+    ein eindeutiges Label bekommt (siehe ``build_visible_chapter_title_injection``).
+    """
     fmt = str(output_format or "").lower()
     if not fmt.startswith("typst"):
         return body
@@ -286,7 +309,9 @@ def maybe_inject_chapter_title(
     title = resolve_print_title_text(parsed, node_title=node_title)
     if not title:
         return body
-    injection = build_visible_chapter_title_injection(title, unlisted=_is_unlisted(parsed))
+    injection = build_visible_chapter_title_injection(
+        title, unlisted=_is_unlisted(parsed), used_ids=used_ids
+    )
     # Idempotent: nicht doppelt injizieren.
     if "#chapter-titles-visible.update(true)" in body:
         return body

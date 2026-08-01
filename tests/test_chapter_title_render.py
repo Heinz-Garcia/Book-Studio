@@ -71,6 +71,29 @@ def test_inject_visible_title_for_content_chapter():
     assert "Text hier." in out
 
 
+def test_inject_visible_title_carries_unique_label():
+    """Regression: typst-show.typ vergibt Nummerierung nur an Headings mit
+    eigenem Label — ohne Label zaehlt counter(heading) wieder jede stille
+    Front-Matter-Seite mit (Kapitelzaehlungs-Bug 9, 11, 13, 15 …). Das Label
+    muss zudem EINDEUTIG pro Kapitel sein: Typst registriert jedes Label
+    automatisch als PDF-Sprungziel, ein geteiltes Label wuerde alle
+    Kapitel-IVZ-Eintraege auf dasselbe Kapitel kollidieren lassen."""
+    fm = "---\ntitle: Einleitung\n---\n"
+    used_ids: set = set()
+    out = maybe_inject_chapter_title(
+        fm, "Text.\n", output_format="typst", used_ids=used_ids
+    )
+    assert "[Einleitung] <bs-visible-einleitung>" in out
+    assert "bs-visible-einleitung" in used_ids
+
+    fm2 = "---\ntitle: Vorwort\n---\n"
+    out2 = maybe_inject_chapter_title(
+        fm2, "Text.\n", output_format="typst", used_ids=used_ids
+    )
+    assert "[Vorwort] <bs-visible-vorwort>" in out2
+    assert "bs-visible-einleitung" != "bs-visible-vorwort"
+
+
 def test_inject_visible_title_unlisted_hides_from_outline_and_bookmarks():
     """Widmung-Fall: Titel sichtbar auf der Seite, aber weder im IVZ
     (#outline()) noch im PDF-Lesezeichen-Panel — Editor-Toggle "☰–"."""

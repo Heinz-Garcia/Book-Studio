@@ -7,6 +7,7 @@ from chapter_title_render import (
     ensure_silent_chapter_frontmatter,
     maybe_inject_chapter_title,
 )
+from heading_anchor_ascii import ensure_ascii_heading_ids
 
 # B4 (Refactoring): Die komplette Fußnoten-Funktionalität wurde
 # entfernt. Pandoc-konforme `[^1]`-Marker im Quell-Markdown werden
@@ -26,6 +27,11 @@ class PreProcessor:
         self.book_path = Path(book_path)
         self.processed_dir = self.book_path / "processed"
         self.output_format = str(output_format) if output_format else "typst"
+        # Buchweite Eindeutigkeit fuer generierte Typst-Labels/Pandoc-Header-IDs
+        # (Kapitel-Labels + ASCII-IDs gegen Umlaut-Sprungmarken-Bug, siehe
+        # heading_anchor_ascii.py). Quartos crossref macht IDs buchglobal
+        # sichtbar (nicht nur pro Datei), daher EIN Set fuer den ganzen Lauf.
+        self._used_heading_ids: set = set()
 
     def _extract_parts(self, content):
         """Trennt Frontmatter extrem robust vom Text ab, selbst bei Windows-BOMs."""
@@ -257,6 +263,10 @@ class PreProcessor:
         # 2. H1 bereinigen (Body-H1 würde mit YAML-title konkurrieren)
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
 
+        # 2b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround Typst-PDF-
+        # Named-Destination-Bug bei Umlauten, siehe heading_anchor_ascii.py)
+        body = ensure_ascii_heading_ids(body, used_ids=self._used_heading_ids)
+
         # 3. Sichtbare Kapitelüberschrift nur bei Opt-in (Typst)
         body = maybe_inject_chapter_title(
             frontmatter,
@@ -264,6 +274,7 @@ class PreProcessor:
             node_title=str(node.get("title") or ""),
             output_format=self.output_format,
             rel_path=rel_path,
+            used_ids=self._used_heading_ids,
         )
 
         # B4: Footnote-Harvesting-Block entfernt (war 3+5).
@@ -297,6 +308,10 @@ class PreProcessor:
         # 2. H1 bereinigen (Body-H1 würde mit YAML-title konkurrieren)
         body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
 
+        # 2b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround Typst-PDF-
+        # Named-Destination-Bug bei Umlauten, siehe heading_anchor_ascii.py)
+        body = ensure_ascii_heading_ids(body, used_ids=self._used_heading_ids)
+
         # 3. Sichtbare Kapitelüberschrift nur bei Opt-in (Typst)
         body = maybe_inject_chapter_title(
             frontmatter,
@@ -304,6 +319,7 @@ class PreProcessor:
             node_title=str(node.get("title") or ""),
             output_format=self.output_format,
             rel_path=rel_path,
+            used_ids=self._used_heading_ids,
         )
 
         # B4: Footnote-Harvesting-Block entfernt (war 3+5).
@@ -344,6 +360,12 @@ class PreProcessor:
 
                 # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
                 body = self._sanitize_markdown(body)
+
+                # 1b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround
+                # Typst-PDF-Named-Destination-Bug bei Umlauten, siehe
+                # heading_anchor_ascii.py) — hier landen die eigentlichen
+                # Fragen-Ueberschriften der amalgamierten Kapitel.
+                body = ensure_ascii_heading_ids(body, used_ids=self._used_heading_ids)
 
                 # B4: Footnote-Harvesting-Block entfernt (war 2).
                 # Überschriften-Shift entfernt: Quellen sind bereits eingerückt.
