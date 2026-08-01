@@ -142,6 +142,21 @@ LAYOUT_PROFILES: tuple[LayoutProfile, ...] = (
         widows="auto",
         orphans="auto",
     ),
+    LayoutProfile(
+        id="normseite-vgwort",
+        label="Normseite (VG Wort, 55 Z./Zeile)",
+        description=(
+            "A5, 11 pt, Zeilenabstand 1,2 — Satzspiegel so bemessen, dass sich "
+            "im Schnitt 55 Anschläge/Zeile bei 30 Zeilen/Seite ergeben (VG-Wort-"
+            "/Übersetzer-Normseite, 1650 Anschläge/Seite). Symmetrische Ränder "
+            "30mm/32mm statt Bundsteg, da für Manuskript-/Lektoratszwecke "
+            "gedacht, nicht für zweiseitigen Druck."
+        ),
+        linestretch=1.2,
+        page_margin={"x": "30mm", "y": "32mm"},
+        lines_per_page=30,
+        chars_per_line=55,
+    ),
 )
 
 DEFAULT_LAYOUT_PROFILE_ID = "taschenbuch-bod"

@@ -72,7 +72,7 @@ $endif$
 // zu einer ununterscheidbaren Textwueste zusammen. Fett + Abstand davor
 // gruppiert die Fragen sichtbar unter ihr Kapitel; Level 2 bleibt Standard.
 #show outline.entry.where(level: 1): it => {
-  v(0.75em, weak: true)
+  v(1.4em, weak: true)
   strong(it)
 }
 

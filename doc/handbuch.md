@@ -363,6 +363,7 @@ Im Export-Dialog wählst du neben Format und Template auch ein **Layout-Profil**
 | **(Pb) Paperback** | 135×215mm (Custom-Trimm) | 1,2 | Bundsteg-Rand (innen 20mm/außen 16mm), 36 Zeilen/Seite, 62 Zeichen/Zeile |
 | **Verlagsdruck** | A5 | 1,15 | Schusterjungen-/Hurenkinder-Kontrolle |
 | **Manuskript / Lektorat** | A5 | 2,0 | Großzügiger Abstand zum Korrekturlesen |
+| **Normseite (VG Wort, 55 Z./Zeile)** | A5 | 1,2 | Satzspiegel für ~55 Zeichen/Zeile bei ~30 Zeilen/Seite (VG-Wort-/Übersetzer-Normseite) |
 
 Der **Zeilenabstand** lässt sich unabhängig vom gewählten Profil per eigenem Dropdown feinjustieren.
 

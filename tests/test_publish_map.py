@@ -63,7 +63,27 @@ def test_sync_map_from_record(tmp_path):
     assert len(data["snapshots"][0]["renders"]) == 1
 
 
-def test_backfill_renders_from_disk(tmp_path):
+def test_backfill_renders_from_disk_finds_archive_copy(tmp_path):
+    book = tmp_path / "Band_Disk"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("book:\n  title: Disk\n", encoding="utf-8")
+    pdf = book / "export" / "publish_renders" / "snap-1" / "alt_20260101_120000.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-1.4")
+    ensure_active_snapshot(book)
+
+    added = backfill_renders_from_disk(book)
+    assert added == 1
+    data = read_map(book)
+    assert data["snapshots"][0]["renders"][0]["artifact_path"].endswith(
+        "alt_20260101_120000.pdf"
+    )
+
+
+def test_backfill_renders_from_disk_ignores_book_convenience_copy(tmp_path):
+    """``export/_book/...`` ist nur die bei jedem Render überschriebene
+    Convenience-Kopie (siehe render_artifact_store) — kein eigenständiger
+    Render, der als zweite Karteikarte im Mapping Manager auftauchen soll."""
     book = tmp_path / "Band_Disk"
     book.mkdir()
     (book / "_quarto.yml").write_text("book:\n  title: Disk\n", encoding="utf-8")
@@ -73,9 +93,9 @@ def test_backfill_renders_from_disk(tmp_path):
     ensure_active_snapshot(book)
 
     added = backfill_renders_from_disk(book)
-    assert added == 1
+    assert added == 0
     data = read_map(book)
-    assert data["snapshots"][0]["renders"][0]["artifact_path"].endswith("alt.pdf")
+    assert data["snapshots"][0]["renders"] == []
 
 
 def test_ensure_active_snapshot_local(tmp_path):

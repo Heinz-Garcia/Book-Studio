@@ -123,6 +123,16 @@ def test_taschenbuch_bod_has_balanced_bod_margins():
     }
 
 
+def test_normseite_vgwort_profile_defaults():
+    profile = get_profile("normseite-vgwort")
+    assert profile.label == "Normseite (VG Wort, 55 Z./Zeile)"
+    assert profile.papersize == "a5"
+    assert profile.linestretch == 1.2
+    assert profile.lines_per_page == 30
+    assert profile.chars_per_line == 55
+    assert profile.page_margin == {"x": "30mm", "y": "32mm"}
+
+
 def test_paperback_profile_auto_declares_template_partials_for_standard_typst():
     """Ohne diese Auto-Deklaration muesste jedes Buchprojekt manuell
     `format.typst.template-partials` in seiner _quarto.yml pflegen, damit

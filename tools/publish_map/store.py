@@ -289,9 +289,18 @@ def _merge_record_renders(book_path: Path, data: dict[str, Any]) -> int:
 
 
 def backfill_renders_from_disk(book_path: Path) -> int:
-    """Ergänzt PDFs aus export/_book*, die noch nicht in publish_map stehen."""
-    from tools.generated_books.discovery import find_generated_pdfs
+    """Ergänzt PDFs aus dem Render-Archiv (``export/publish_renders/``), die
+    noch nicht in publish_map stehen.
 
+    Scannt bewusst NICHT ``export/_book/...`` (die feste, bei jedem Render
+    überschriebene Convenience-Kopie für den Auto-Open/Zwischenablage-Flow,
+    siehe ``render_artifact_store``): sie ist keine eigenständige, dauerhafte
+    Render-Fassung, sondern nur ein Nebenprodukt der Archiv-Kopie mit
+    identischem Namensstamm (nur ohne Zeitstempel) — ihr Nachtragen erzeugte
+    pro Render eine zweite, metadatenlose Karteikarte im Mapping Manager
+    ("Fertige PDFs") neben der eigentlichen, vollständig registrierten
+    Archiv-Kopie.
+    """
     data = read_map(book_path)
     if data is None:
         data = ensure_map(book_path)
@@ -305,18 +314,27 @@ def backfill_renders_from_disk(book_path: Path) -> int:
     if snap is None:
         return 0
 
+    archive_dir = Path(book_path) / "export" / RENDER_ARCHIVE_DIR
+    if not archive_dir.is_dir():
+        return 0
+
     paths, _event_ids = _known_render_keys(data)
-    pdfs = find_generated_pdfs([book_path], max_entries=100)
     added = 0
-    for entry in pdfs:
-        artifact_key = _normalize_artifact_key(str(entry.path))
+    for pdf_path in sorted(archive_dir.rglob("*.pdf")):
+        if not pdf_path.is_file():
+            continue
+        artifact_key = _normalize_artifact_key(str(pdf_path))
         if not artifact_key or artifact_key in paths:
             continue
-        at = datetime.fromtimestamp(entry.mtime, timezone.utc).replace(microsecond=0).isoformat()
+        try:
+            mtime = pdf_path.stat().st_mtime
+        except OSError:
+            continue
+        at = datetime.fromtimestamp(mtime, timezone.utc).replace(microsecond=0).isoformat()
         _append_render_to_snapshot(
             snap,
             at=at,
-            payload={"artifact_path": str(entry.path.resolve())},
+            payload={"artifact_path": str(pdf_path.resolve())},
         )
         paths.add(artifact_key)
         added += 1
