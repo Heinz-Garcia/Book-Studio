@@ -62,6 +62,23 @@ class ExportManager:
             ctx["artifact_path"] = artifact_path
             fire_hooks(**ctx)
 
+    def _run_publisher_compliance_guard(self, artifact_path: str) -> None:
+        """Automatischer Druck-Freigabe-Guard nach jedem Render (siehe
+        .doc/publisher-compliance-konzept.md) — PyMuPDF-Checks brauchen nur
+        wenige Millisekunden, daher hier synchron und ohne Opt-in vertretbar.
+        Öffnet den Dialog NUR bei tatsächlichen Befunden (headless: no-op)."""
+        book = self._current_book()
+        if not book or not artifact_path:
+            return
+        ui_hooks.run_publisher_compliance_guard(
+            pdf_path=artifact_path,
+            book_path=str(book),
+            layout_profile_id=str(
+                (getattr(self, "_pending_render_context", None) or {}).get("layout_profile") or ""
+            )
+            or None,
+        )
+
     def _set_status(self, text, fg):
         self._adapter.update_status(text, fg)
 
@@ -1141,6 +1158,7 @@ class ExportManager:
             # oben wird beim naechsten Render ueberschrieben und darf
             # deshalb nicht in `publish_map.json` landen.
             archived_artifact = None
+            source_archive_path = None
             snapshot_id = self._pending_render_context.get("snapshot_id")
             if snapshot_id:
                 try:
@@ -1148,8 +1166,10 @@ class ExportManager:
 
                     archive_dir = snapshot_render_dir(self._current_book(), snapshot_id)
                     archived_artifact = _RenderService.pick_latest_artifact(archive_dir, fmt)
+                    source_archive_path = _RenderService.pick_latest_source_archive(archive_dir)
                 except (ImportError, OSError, ValueError):
                     archived_artifact = None
+                    source_archive_path = None
 
             if artifact is not None:
 
@@ -1157,6 +1177,7 @@ class ExportManager:
                     convenience=artifact,
                     archived=archived_artifact,
                     output_fmt=fmt,
+                    source_archive=source_archive_path,
                 ):
                     convenience, archived = self._prompt_and_rename_render_pdfs(
                         convenience, archived
@@ -1170,7 +1191,11 @@ class ExportManager:
                     self._log(f"📋 Pfad in Zwischenablage: {path}", "success")
                     self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
                     # Map zuerst aktualisieren, dann Nutzer fragen
+                    self._pending_render_context["source_archive_path"] = (
+                        str(source_archive.resolve()) if source_archive is not None else ""
+                    )
                     self._fire_after_render_hook(output_fmt, hook_path)
+                    self._run_publisher_compliance_guard(path)
                     notes = str(
                         (getattr(self, "_pending_render_context", None) or {}).get("notes")
                         or ""
@@ -1195,6 +1220,7 @@ class ExportManager:
                     output_fmt=fmt,
                     archived=archived_artifact,
                     hook_path=hook_path,
+                    source_archive=source_archive_path,
                 ):
                     if archived is not None:
                         _, archived = self._prompt_and_rename_render_pdfs(None, archived)
@@ -1202,7 +1228,11 @@ class ExportManager:
                             hook_path = str(archived.resolve())
                     self._log(f"✅ ERFOLG: {output_fmt.upper()} im export/ Ordner generiert.", "success")
                     self._set_status("Render erfolgreich", _StatusFg.SUCCESS)
+                    self._pending_render_context["source_archive_path"] = (
+                        str(source_archive.resolve()) if source_archive is not None else ""
+                    )
                     self._fire_after_render_hook(output_fmt, hook_path)
+                    self._run_publisher_compliance_guard(hook_path)
                     ui_hooks.ask_post_render_action(
                         artifact_path=hook_path or "",
                         format_name=str(output_fmt or ""),

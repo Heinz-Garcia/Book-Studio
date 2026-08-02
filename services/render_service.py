@@ -506,6 +506,28 @@ class RenderService:
             return None
         return max(candidates, key=lambda p: p.stat().st_mtime)
 
+    @classmethod
+    def pick_latest_source_archive(cls, dir_path: Optional[Path]) -> Optional[Path]:
+        """Waehlt den zuletzt archivierten Quell-Snapshot-Ordner
+        (`source_<timestamp>/`, siehe `render_artifact_store.
+        archive_render_source`) in `dir_path` -- Pendant zu
+        `pick_latest_artifact`, aber fuer Verzeichnisse statt Dateien.
+        Sortierung ueber den Namen (Zeitstempel-Format sortiert lexikalisch
+        wie chronologisch), nicht mtime: `shutil.copytree` setzt mtime auf
+        den Kopierzeitpunkt der jeweils LETZTEN Datei im Baum, nicht auf den
+        Zeitpunkt der Ordnererstellung selbst -- bei sehr schnell
+        aufeinanderfolgenden Renders unzuverlaessig.
+        """
+        if not dir_path or not Path(dir_path).is_dir():
+            return None
+        candidates = [
+            p for p in Path(dir_path).iterdir()
+            if p.is_dir() and p.name.startswith("source_")
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda p: p.name)
+
     @staticmethod
     def open_rendered_artifact(path: str, *, system_name: Optional[str] = None) -> None:
         """Plattform-spezifisches Oeffnen einer gerenderten Datei.

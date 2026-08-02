@@ -27,6 +27,24 @@ ROOT_OUTPUT_SUFFIXES = {".typ", ".pdf", ".html", ".docx", ".tex"}
 
 ARCHIVE_TIMESTAMP_FMT = "%Y%m%d_%H%M%S"
 
+# Ordner, die beim Quell-Archivieren (`archive_render_source`) NICHT mit
+# kopiert werden: generierte/Cache-Anteile, die im Temp-Klon erst durch den
+# Render selbst entstehen (Build-Ergebnis, nicht Quelle) bzw. deterministisch
+# aus der Quelle neu erzeugt werden. "export" bewusst dieselbe Begruendung
+# wie `quarto_render_safe.IGNORED_DIR_NAMES` (dort: beim Erzeugen des
+# Temp-Klons aus dem Original ausgeschlossen; hier: das waehrend DIESES
+# Renders im Temp-Klon neu entstandene Output-Verzeichnis) -- kein Import von
+# dort, um den Zirkelbezug zu vermeiden (quarto_render_safe importiert
+# dieses Modul).
+SOURCE_ARCHIVE_EXCLUDE_DIR_NAMES = {
+    ".git", ".venv", ".quarto", "__pycache__", "export", "processed",
+}
+
+# Präfix für Quell-Snapshot-Ordner in `archive_render_source` -- Pendant zum
+# `<stem>_<timestamp>`-Namensschema der PDF-Archivierung, aber als eigener
+# Unterordner (ein ganzer Verzeichnisbaum, keine Einzeldatei).
+SOURCE_ARCHIVE_DIR_PREFIX = "source_"
+
 # Quelle für Typst-Partial-Overrides (page.typ, typst-show.typ), die
 # Custom-Trimm-Layoutprofile (z. B. "(Pb) Paperback", siehe
 # tools/layout_profiles/catalog.py) ohne manuelles _quarto.yml-Setup
@@ -116,6 +134,72 @@ def archive_render_artifacts(
         shutil.copy2(artifact, dest)
         archived.append(dest)
     return archived
+
+
+def archive_render_source(
+    temp_book: Path,
+    archive_dir: Path,
+    *,
+    timestamp: Optional[str] = None,
+) -> Optional[Path]:
+    """Kopiert den QUELLSTAND (`temp_book`, ohne generierte/Output-Anteile,
+    siehe `SOURCE_ARCHIVE_EXCLUDE_DIR_NAMES`) dauerhaft und zeitstempel-
+    eindeutig nach `archive_dir` -- das Gegenstück zu
+    `archive_render_artifacts`: dort landet das ERGEBNIS (PDF), hier der
+    EINGANG (Kapitel-Markdown, `_quarto.yml`, ...), der zu genau diesem
+    Ergebnis führte. `temp_book` ist zum Aufrufzeitpunkt (direkt nach dem
+    Render, vor dem Aufräumen des Temp-Klons) noch exakt der Stand, der
+    tatsächlich gerendert wurde.
+
+    Aufrufer sollten denselben `timestamp` wie beim zugehörigen
+    `archive_render_artifacts`-Aufruf übergeben, damit PDF (`<stem>_<ts>.pdf`)
+    und Quelle (`source_<ts>/`) im selben Archiv-Ordner eindeutig einander
+    zuordenbar bleiben (reproduzierbares Quelle-Artefakt-Mapping).
+
+    Gibt `None` zurück, wenn `temp_book` nicht existiert.
+    """
+    temp_book = Path(temp_book)
+    if not temp_book.is_dir():
+        return None
+    archive_dir = Path(archive_dir)
+    stamp = timestamp or datetime.now().strftime(ARCHIVE_TIMESTAMP_FMT)
+    dest = archive_dir / f"{SOURCE_ARCHIVE_DIR_PREFIX}{stamp}"
+
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        temp_book,
+        dest,
+        ignore=shutil.ignore_patterns(*SOURCE_ARCHIVE_EXCLUDE_DIR_NAMES),
+    )
+    return dest
+
+
+def restore_source_archive(source_archive_dir: Path, book_path: Path) -> list[str]:
+    """Kopiert einen archivierten Quellstand (`archive_render_source`-Ergebnis)
+    ZURÜCK in ein lebendes Buchprojekt -- überschreibt dort jeden Eintrag, der
+    im Archiv vorkommt (z. B. `content/`, `_quarto.yml`, `bookconfig/`), lässt
+    aber alles andere im Zielprojekt unangetastet (z. B. `export/`, das nie
+    Teil des Archivs war). Ruft NICHT selbst ein Sicherheits-Backup des
+    aktuellen Standes vorher auf -- Aufrufer (UI) entscheidet das bewusst
+    sichtbar, siehe `ui_qt/dialogs/mapping_manager_dialog.py`.
+
+    Gibt die Namen der wiederhergestellten Top-Level-Einträge zurück.
+    """
+    source_archive_dir = Path(source_archive_dir)
+    if not source_archive_dir.is_dir():
+        raise FileNotFoundError(f"Archivierte Quelle fehlt: {source_archive_dir}")
+    book_path = Path(book_path)
+
+    restored: list[str] = []
+    for entry in sorted(source_archive_dir.iterdir()):
+        dest = book_path / entry.name
+        if entry.is_dir():
+            shutil.copytree(entry, dest, dirs_exist_ok=True)
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(entry, dest)
+        restored.append(entry.name)
+    return restored
 
 
 def ensure_typst_template_partials(
@@ -228,10 +312,14 @@ def rename_render_pdf(path: Path, stem: str, *, overwrite: bool = True) -> Path:
 __all__ = [
     "ROOT_OUTPUT_SUFFIXES",
     "ARCHIVE_TIMESTAMP_FMT",
+    "SOURCE_ARCHIVE_EXCLUDE_DIR_NAMES",
+    "SOURCE_ARCHIVE_DIR_PREFIX",
     "STANDARD_SKELETON_DIR",
     "read_output_dir",
     "copy_render_artifacts",
     "archive_render_artifacts",
+    "archive_render_source",
+    "restore_source_archive",
     "ensure_typst_template_partials",
     "resolve_preferred_pdf_stem",
     "rename_render_pdf",

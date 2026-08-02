@@ -15,6 +15,11 @@ Autoren: KI Gemma4 und Wolfram Daniel Heinz-Garcia\
 Reihenherausgeber: Heinz-Garcia\
 \
 Umschlaggestaltung: Wolfram Daniel Heinz-Garcia\
+
+```{=typst}
+#if bs-isbn != none [ISBN: #bs-isbn \ ]
+```
+
 \
 *Wichtiger medizinischer Hinweis und Haftungsausschluss*\
 \

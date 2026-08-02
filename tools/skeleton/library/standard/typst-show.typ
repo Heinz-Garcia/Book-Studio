@@ -54,6 +54,17 @@ $else$
 #let bs-section-numbering = none
 $endif$
 
+// ``bs-isbn``: analog zu ``bs-section-numbering`` -- macht die buchweite
+// ISBN (Top-Level-Feld ``isbn:`` in ``_quarto.yml``, SSOT statt Freitext)
+// als Typst-Variable fuer Inhaltsdateien verfuegbar (z. B. Impressum.md:
+// ``#bs-isbn``), damit sie nicht ein zweites Mal von Hand eingetippt und
+// dabei potenziell abweichend geschrieben wird.
+$if(isbn)$
+#let bs-isbn = "$isbn$"
+$else$
+#let bs-isbn = none
+$endif$
+
 #show heading.where(level: 1): set heading(outlined: false, bookmarked: false)
 
 #show heading.where(level: 1): it => context {
@@ -81,6 +92,19 @@ $endif$
 #show heading: set block(sticky: true)
 #set text(costs: (widow: 100%, orphan: 100%))
 
+// PDF-Metadaten (Titel/Autor/Keywords, u. a. fuer die ISBN -- s. bs-isbn
+// oben, die Anbieter wie Amazon KDP nicht auslesen, aber manche strengere
+// Vertriebsplattformen gegen eine Dashboard-Eingabe abgleichen): article()
+// wird bewusst OHNE eigene title:/authors:-Argumente aufgerufen (das Buch
+// hat sein eigenes Deckblatt/Haupttitel-Seitensystem -- article()s
+// eingebauter automatischer Titelblock waere ein zweiter, unerwuenschter).
+// article()s eigener, interner ``set document(title: title, keywords:
+// keywords)``-Aufruf (siehe Quartos typst-template.typ) laeuft daher immer
+// mit den leeren Defaults und ueberschreibt jeden VORHER gesetzten Wert
+// wieder -- deshalb muss unser eigener set-document-Aufruf INNERHALB des an
+// article() uebergebenen doc-Arguments liegen (dort ausgefuehrt, NACHDEM
+// article()s interner Aufruf schon durch ist), nicht davor. Empirisch
+// verifiziert (siehe .doc/publisher-compliance-konzept.md).
 #show: doc => article(
 $if(section-numbering)$
   sectionnumbering: "$section-numbering$",
@@ -93,5 +117,26 @@ $if(toc-indent)$
   toc_indent: $toc-indent$,
 $endif$
   toc_depth: $toc-depth$,
-  doc,
+  {
+$if(title)$
+    set document(title: content-to-string([$title$]))
+$endif$
+$if(by-author)$
+    set document(author: (
+$for(by-author)$
+$if(it.name.literal)$
+      content-to-string([$it.name.literal$]),
+$endif$
+$endfor$
+    ))
+$endif$
+$if(keywords)$
+    set document(keywords: (
+$for(keywords)$
+      "$keywords$",
+$endfor$
+    ))
+$endif$
+    doc
+  },
 )

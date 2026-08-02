@@ -136,6 +136,46 @@ def install_export_manager_ui(parent: Optional[QWidget]) -> None:
             log = win._facade.log
         open_finished_pdfs_for_book(win, Path(book), log=log)
 
+    def _run_compliance_guard(**kwargs: Any) -> None:
+        """Prüft die frisch gerenderte PDF (PyMuPDF-basiert, ~ms, siehe
+        tools/publisher_compliance/) und öffnet den Druck-Freigabe-Dialog
+        automatisch NUR bei Befunden — bei 0 Befunden keine Unterbrechung."""
+        pdf_path = kwargs.get("pdf_path")
+        book_path = kwargs.get("book_path")
+        if not pdf_path or not book_path:
+            return
+        win = _STATE.get("parent")
+        log = win._facade.log if win is not None and hasattr(win, "_facade") else None
+        layout_profile_id = kwargs.get("layout_profile_id") or None
+        try:
+            from tools.publisher_compliance.metadata import read_isbn_from_quarto_yml
+            from tools.publisher_compliance.validators import run_compliance_report
+
+            isbn = read_isbn_from_quarto_yml(Path(book_path) / "_quarto.yml")
+            results = run_compliance_report(
+                Path(pdf_path), isbn=isbn, layout_profile_id=layout_profile_id
+            )
+        except (ImportError, OSError, RuntimeError, ValueError) as exc:
+            if log is not None:
+                log(f"⚠️ Druck-Freigabe-Check übersprungen: {exc}", "dim")
+            return
+        issue_count = sum(1 for r in results if r.severity in ("error", "warning"))
+        if not issue_count:
+            return
+        if log is not None:
+            log(f"🖨️ Druck-Freigabe: {issue_count} Befund(e) gefunden.", "warning")
+
+        from tools.publisher_compliance.catalog import DEFAULT_PUBLISHER_PROFILE_ID
+        from ui_qt.dialogs.publisher_compliance_dialog import PublisherComplianceQtDialog
+
+        PublisherComplianceQtDialog(
+            win,
+            pdf_path=Path(pdf_path),
+            publisher_profile_id=DEFAULT_PUBLISHER_PROFILE_ID,
+            layout_profile_id=layout_profile_id,
+            results=results,
+        ).exec()
+
     _STATE.update(
         {
             "installed": True,
@@ -148,6 +188,7 @@ def install_export_manager_ui(parent: Optional[QWidget]) -> None:
             "old_post": ui_hooks.ask_post_render_action,
             "old_pdf_name": ui_hooks.ask_render_pdf_name,
             "old_map": ui_hooks.open_mapping_manager,
+            "old_compliance_guard": ui_hooks.run_publisher_compliance_guard,
         }
     )
     ui_hooks.messagebox = shim_mb
@@ -156,6 +197,7 @@ def install_export_manager_ui(parent: Optional[QWidget]) -> None:
     ui_hooks.ask_post_render_action = _ask_post
     ui_hooks.ask_render_pdf_name = _ask_pdf
     ui_hooks.open_mapping_manager = _open_mapping
+    ui_hooks.run_publisher_compliance_guard = _run_compliance_guard
     export_manager_mod.messagebox = shim_mb
     export_manager_mod.filedialog = shim_fd
 
@@ -172,6 +214,7 @@ def uninstall_export_manager_ui() -> None:
     old_post = _STATE.get("old_post")
     old_pdf_name = _STATE.get("old_pdf_name")
     old_map = _STATE.get("old_map")
+    old_compliance_guard = _STATE.get("old_compliance_guard")
     if old_mb is not None:
         ui_hooks.messagebox = old_mb
         export_manager_mod.messagebox = old_mb
@@ -186,6 +229,8 @@ def uninstall_export_manager_ui() -> None:
         ui_hooks.ask_render_pdf_name = old_pdf_name
     if old_map is not None:
         ui_hooks.open_mapping_manager = old_map
+    if old_compliance_guard is not None:
+        ui_hooks.run_publisher_compliance_guard = old_compliance_guard
     _STATE.clear()
     _STATE["installed"] = False
 

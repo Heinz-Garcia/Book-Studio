@@ -1,4 +1,4 @@
-"""Fertige PDFs — lesbare Liste der Render-Ausgaben zum aktiven Buch."""
+"""PDF Manager — lesbare Liste der Render-Ausgaben zum aktiven Buch."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -25,7 +25,14 @@ from PySide6.QtWidgets import (
 )
 
 from tools.book_projects.label import read_display_name
-from tools.mapping_manager.actions import delete_pdf, open_path, rename_pdf, reveal_in_explorer
+from tools.mapping_manager.actions import (
+    delete_pdf,
+    delete_source_archive,
+    open_path,
+    rename_pdf,
+    restore_source,
+    reveal_in_explorer,
+)
 from tools.mapping_manager.deploy import deploy_pdf, resolve_pdf_deploy_folder
 from tools.mapping_manager.loader import load_renders, load_snapshots
 from tools.mapping_manager.models import RenderView, SnapshotView, layout_profile_label
@@ -37,6 +44,10 @@ _COL_FILE = 2
 _COL_NAME = 3
 _COL_FORMAT = 4
 _COL_STATUS = 5
+_COL_SOURCE = 6
+
+_SOURCE_DOT_AVAILABLE = "#16a34a"
+_SOURCE_DOT_MISSING = "#dc2626"
 
 
 class MappingManagerQtDialog(QDialog):
@@ -44,7 +55,7 @@ class MappingManagerQtDialog(QDialog):
         super().__init__(parent)
         self.studio = studio
         self.setObjectName("finishedPdfsDialog")
-        self.setWindowTitle("Fertige PDFs")
+        self.setWindowTitle("PDF Manager")
         self.setMinimumSize(1200, 640)
         self.resize(1360, 720)
         self._snapshots: list[SnapshotView] = []
@@ -55,7 +66,7 @@ class MappingManagerQtDialog(QDialog):
         layout.setSpacing(10)
         layout.setContentsMargins(16, 14, 16, 14)
 
-        title = QLabel("Fertige PDFs")
+        title = QLabel("PDF Manager")
         title_font = QFont(title.font())
         title_font.setPointSize(16)
         title_font.setWeight(QFont.Weight.DemiBold)
@@ -99,9 +110,9 @@ class MappingManagerQtDialog(QDialog):
         filter_row.addWidget(self.filter_edit)
         layout.addLayout(filter_row)
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
-            ["Datum", "Layout", "Datei", "Anzeigename (optional)", "Format", "Status"]
+            ["Datum", "Layout", "Datei", "Anzeigename (optional)", "Format", "Status", "Quelle"]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
@@ -125,7 +136,9 @@ class MappingManagerQtDialog(QDialog):
         # den Platz wegnehmen und sie unlesbar zusammenquetschen. Reicht der
         # Platz insgesamt nicht, zeigt die Tabelle stattdessen einen
         # horizontalen Scrollbalken — nie eine gequetschte Spalte.
-        for _col in (_COL_DATE, _COL_LAYOUT, _COL_FILE, _COL_NAME, _COL_FORMAT, _COL_STATUS):
+        for _col in (
+            _COL_DATE, _COL_LAYOUT, _COL_FILE, _COL_NAME, _COL_FORMAT, _COL_STATUS, _COL_SOURCE,
+        ):
             header.setSectionResizeMode(_col, QHeaderView.ResizeMode.ResizeToContents)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
@@ -147,6 +160,23 @@ class MappingManagerQtDialog(QDialog):
         self.btn_name = QPushButton("Anzeigename…")
         self.btn_name.clicked.connect(self._edit_display_name)
         actions.addWidget(self.btn_name)
+
+        self.btn_open_source = QPushButton("Quelle öffnen")
+        self.btn_open_source.setToolTip(
+            "Buchprojekt dieses Renders im Hauptfenster aktivieren (in situ, keine Kopie) "
+            "— direkt weiterbearbeiten und neu rendern"
+        )
+        self.btn_open_source.clicked.connect(self._open_source_selected)
+        actions.addWidget(self.btn_open_source)
+
+        self.btn_reveal_source = QPushButton("Archiv-Quelle im Explorer")
+        self.btn_reveal_source.setToolTip(
+            "Read-only: zeigt den exakten Quellstand (Kapitel-Markdown, _quarto.yml, ...), "
+            "der zu genau dieser PDF geführt hat — dauerhaft archiviert bei diesem Render. "
+            "Nicht verfügbar für Renders von vor Einführung dieses Felds."
+        )
+        self.btn_reveal_source.clicked.connect(self._reveal_source_selected)
+        actions.addWidget(self.btn_reveal_source)
 
         self.btn_reveal = QPushButton("PDF im Explorer")
         self.btn_reveal.setToolTip("Explorer öffnen und diese PDF-Datei markieren")
@@ -174,6 +204,14 @@ class MappingManagerQtDialog(QDialog):
         actions.addWidget(self.btn_deploy)
 
         actions.addStretch(1)
+        self.btn_restore = QPushButton("Quelle wiederherstellen…")
+        self.btn_restore.setObjectName("finishedPdfsDanger")
+        self.btn_restore.setToolTip(
+            "Überschreibt das lebende Buchprojekt mit dem archivierten Quellstand dieses "
+            "Renders. Der aktuelle Stand wird davor automatisch gesichert."
+        )
+        self.btn_restore.clicked.connect(self._restore_source_selected)
+        actions.addWidget(self.btn_restore)
         self.btn_delete = QPushButton("Löschen…")
         self.btn_delete.setObjectName("finishedPdfsDanger")
         self.btn_delete.clicked.connect(self._delete_selected)
@@ -393,6 +431,9 @@ class MappingManagerQtDialog(QDialog):
             # Anzeigename = nur vom Nutzer gesetzter Merknamen (notes), nie Layout
             name = render.notes.strip()
             name_display = name if name else ""
+            source_available = (
+                render.source_archive_path is not None and render.source_archive_path.is_dir()
+            )
             vals = [
                 render.at_display,
                 layout_txt,
@@ -400,6 +441,7 @@ class MappingManagerQtDialog(QDialog):
                 name_display,
                 render.format or "—",
                 "OK" if render.exists else "fehlt",
+                "●",
             ]
             tip_parts = [
                 f"Datei: {render.pdf_name}" if render.pdf_name else "",
@@ -410,10 +452,17 @@ class MappingManagerQtDialog(QDialog):
             else:
                 tip_parts.insert(0, "Kein Anzeigename — über „Anzeigename…“ setzen")
             tip = "\n".join(p for p in tip_parts if p)
+            source_tip = (
+                "Archivierter Quellstand vorhanden — Quelle im Explorer ansehen "
+                "oder wiederherstellen möglich."
+                if source_available
+                else "Kein archivierter Quellstand (Render von vor Einführung dieses Felds) "
+                "— nicht wiederherstellbar."
+            )
             for col, text in enumerate(vals):
                 item = QTableWidgetItem(str(text))
                 item.setData(Qt.ItemDataRole.UserRole, render.id)
-                item.setToolTip(tip)
+                item.setToolTip(source_tip if col == _COL_SOURCE else tip)
                 if col == _COL_NAME and not name:
                     item.setForeground(Qt.GlobalColor.gray)
                     item.setText("(kein Merknamen)")
@@ -421,6 +470,11 @@ class MappingManagerQtDialog(QDialog):
                     item.setForeground(Qt.GlobalColor.gray)
                 if col == _COL_STATUS and not render.exists:
                     item.setForeground(Qt.GlobalColor.darkRed)
+                if col == _COL_SOURCE:
+                    item.setForeground(
+                        QColor(_SOURCE_DOT_AVAILABLE if source_available else _SOURCE_DOT_MISSING)
+                    )
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(row, col, item)
         self.table.setSortingEnabled(True)
         # Explizit statt nur auf die automatische ResizeToContents-Neuberechnung
@@ -470,11 +524,161 @@ class MappingManagerQtDialog(QDialog):
         renders = self._selected_renders()
         return renders[0] if renders else None
 
+    def _activate_book_in_main_window(self, book: Path) -> bool:
+        """Aktiviert `book` IN SITU im Hauptfenster (`parent._try_select_book`,
+        löst dort ein volles Neuladen der Struktur aus Disk aus) und holt das
+        Fenster nach vorne. Zeigt bei fehlendem Hauptfenster (z. B. Dialog
+        ohne Parent, headless) selbst eine Info an und liefert `False` --
+        Aufrufer entscheiden dann, ob/was zusätzlich noch angezeigt werden
+        muss. Gemeinsame Basis für `_open_source_selected` (lebender Stand)
+        und `_restore_source_selected` (gerade wiederhergestellter Stand)."""
+        parent = self.parent()
+        if parent is None or not hasattr(parent, "_try_select_book"):
+            QMessageBox.information(
+                self,
+                "PDF Manager",
+                "Kein Hauptfenster verfügbar, um das Buchprojekt zu aktivieren.\n"
+                f"Projektordner: {book}",
+            )
+            return False
+        try:
+            parent._try_select_book(book)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            QMessageBox.critical(self, "PDF Manager", str(exc))
+            return False
+        parent.raise_()
+        parent.activateWindow()
+        return True
+
+    def _open_source_selected(self) -> None:
+        """Aktiviert das LEBENDE Buchprojekt dieses Renders IN SITU im
+        Hauptfenster (keine Kopie) -- zum Weiterbearbeiten des aktuellen
+        Standes. Für den eingefrorenen Quellstand ZUM RENDER-ZEITPUNKT siehe
+        stattdessen `_reveal_source_selected`/`_restore_source_selected`
+        (archiviert via `render_artifact_store.archive_render_source`).
+        Schließt diesen Dialog, damit der Nutzer direkt im Kapitelbaum
+        weiterarbeiten und danach neu rendern (F5) kann."""
+        render = self._selected_render()
+        if render is None:
+            QMessageBox.information(self, "PDF Manager", "Bitte eine Zeile wählen.")
+            return
+        book = self._book()
+        if not self._activate_book_in_main_window(book):
+            return
+        log = getattr(self.studio, "log", None)
+        if callable(log):
+            try:
+                log(
+                    f"Quelle geöffnet → {book.name} (Änderungen vornehmen, dann neu rendern).",
+                    "info",
+                )
+            except (TypeError, RuntimeError, AttributeError):
+                pass
+        self.accept()
+
+    def _reveal_source_selected(self) -> None:
+        """Read-only: öffnet den archivierten Quellstand (zum Zeitpunkt
+        dieses Renders) im Explorer -- ändert nichts am lebenden
+        Buchprojekt. Für Renders von vor Einführung dieses Felds gibt es
+        keinen archivierten Stand (nachträglich nicht rekonstruierbar)."""
+        render = self._selected_render()
+        if render is None:
+            QMessageBox.information(self, "PDF Manager", "Bitte eine Zeile wählen.")
+            return
+        if render.source_archive_path is None or not render.source_archive_path.is_dir():
+            QMessageBox.information(
+                self,
+                "PDF Manager",
+                "Für diesen Render ist kein archivierter Quellstand vorhanden "
+                "(Renders von vor Einführung dieses Felds können nachträglich "
+                "nicht rekonstruiert werden).",
+            )
+            return
+        try:
+            reveal_in_explorer(render.source_archive_path)
+        except OSError as exc:
+            QMessageBox.critical(self, "PDF Manager", str(exc))
+
+    def _restore_source_selected(self) -> None:
+        """Überschreibt das lebende Buchprojekt mit dem archivierten
+        Quellstand dieses Renders (`tools.mapping_manager.actions.
+        restore_source`) -- sichert den aktuellen Stand davor automatisch,
+        damit auch das Wiederherstellen selbst rückgängig gemacht werden
+        kann. Erfordert explizite Bestätigung, da destruktiv.
+
+        Bei Erfolg: aktiviert das (jetzt wiederhergestellte) Buchprojekt IN
+        SITU im Hauptfenster (Kapitelbaum zeigt sofort den wiederhergestellten
+        Stand), setzt dort einen bleibenden Hinweis-Banner ("dies ist ein
+        wiederhergestellter Stand, nicht der zuletzt bearbeitete") und
+        schließt diesen Dialog."""
+        render = self._selected_render()
+        if render is None:
+            QMessageBox.information(self, "PDF Manager", "Bitte eine Zeile wählen.")
+            return
+        if render.source_archive_path is None or not render.source_archive_path.is_dir():
+            QMessageBox.information(
+                self,
+                "PDF Manager",
+                "Für diesen Render ist kein archivierter Quellstand vorhanden "
+                "(Renders von vor Einführung dieses Felds können nachträglich "
+                "nicht rekonstruiert werden).",
+            )
+            return
+        book = self._book()
+        confirm = QMessageBox.question(
+            self,
+            "Quelle wiederherstellen",
+            f"Aktuelles Buchprojekt „{book.name}“ mit dem Quellstand von "
+            f"{render.at_display} überschreiben?\n\n"
+            "Der jetzige Stand wird davor automatisch gesichert "
+            "(export/pre_restore_backups/…), geht also nicht verloren.\n\n"
+            "Betroffen sind u. a. content/, _quarto.yml, bookconfig/.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            backup_dir, restored = restore_source(render.source_archive_path, book)
+        except OSError as exc:
+            QMessageBox.critical(self, "PDF Manager", str(exc))
+            return
+        log = getattr(self.studio, "log", None)
+        if callable(log):
+            try:
+                log(
+                    f"Quelle wiederhergestellt ← {render.at_display} "
+                    f"(Sicherung des vorigen Standes: {backup_dir}).",
+                    "warning",
+                )
+            except (TypeError, RuntimeError, AttributeError):
+                pass
+
+        pdf_label = render.pdf_name if render.pdf_name and render.pdf_name != "(kein Pfad)" else render.id
+        banner_text = (
+            f"🔁 Wiederhergestellte Quelle — Stand vom Render {render.at_display} "
+            f"(PDF: {pdf_label}). Voriger Stand gesichert unter: {backup_dir}"
+        )
+        if not self._activate_book_in_main_window(book):
+            QMessageBox.information(
+                self,
+                "PDF Manager",
+                f"Wiederhergestellt: {', '.join(restored)}\n\n"
+                f"Sicherung des vorigen Standes:\n{backup_dir}",
+            )
+            return
+        show_banner = getattr(self.parent(), "show_restored_source_banner", None)
+        if callable(show_banner):
+            try:
+                show_banner(banner_text)
+            except (TypeError, RuntimeError, AttributeError):
+                pass
+        self.accept()
+
     def _open_selected(self) -> None:
         renders = [r for r in self._selected_renders() if r.exists]
         if not renders:
             QMessageBox.information(
-                self, "Fertige PDFs", "Bitte mindestens eine vorhandene PDF-Zeile wählen."
+                self, "PDF Manager", "Bitte mindestens eine vorhandene PDF-Zeile wählen."
             )
             return
         errors = []
@@ -484,7 +688,7 @@ class MappingManagerQtDialog(QDialog):
             except OSError as exc:
                 errors.append(f"{render.pdf_name}: {exc}")
         if errors:
-            QMessageBox.critical(self, "Fertige PDFs", "\n".join(errors))
+            QMessageBox.critical(self, "PDF Manager", "\n".join(errors))
 
     def _edit_display_name(self) -> None:
         renders = self._selected_renders()
@@ -515,7 +719,7 @@ class MappingManagerQtDialog(QDialog):
                 {"notes": text.strip()},
             )
         except (OSError, ValueError) as exc:
-            QMessageBox.critical(self, "Fertige PDFs", str(exc))
+            QMessageBox.critical(self, "PDF Manager", str(exc))
             return
         self._on_snapshot_changed(self.snapshot_combo.currentIndex())
 
@@ -523,7 +727,7 @@ class MappingManagerQtDialog(QDialog):
         renders = self._selected_renders()
         if len(renders) > 1:
             QMessageBox.information(
-                self, "Fertige PDFs", "Bitte genau eine Zeile für „PDF im Explorer“ wählen."
+                self, "PDF Manager", "Bitte genau eine Zeile für „PDF im Explorer“ wählen."
             )
             return
         render = renders[0] if renders else None
@@ -536,7 +740,7 @@ class MappingManagerQtDialog(QDialog):
             else:
                 reveal_in_explorer(book / "export")
         except OSError as exc:
-            QMessageBox.critical(self, "Fertige PDFs", str(exc))
+            QMessageBox.critical(self, "PDF Manager", str(exc))
 
     def _copy_selected_path(self) -> None:
         renders = [r for r in self._selected_renders() if r.pdf_path]
@@ -558,13 +762,13 @@ class MappingManagerQtDialog(QDialog):
         renders = self._selected_renders()
         if len(renders) > 1:
             QMessageBox.information(
-                self, "Fertige PDFs", "Bitte genau eine Zeile für „Dateiname…“ wählen."
+                self, "PDF Manager", "Bitte genau eine Zeile für „Dateiname…“ wählen."
             )
             return
         render = renders[0] if renders else None
         if not render or not render.exists:
             QMessageBox.information(
-                self, "Fertige PDFs", "Bitte eine vorhandene PDF-Zeile wählen."
+                self, "PDF Manager", "Bitte eine vorhandene PDF-Zeile wählen."
             )
             return
         new_name, ok = QInputDialog.getText(
@@ -582,7 +786,7 @@ class MappingManagerQtDialog(QDialog):
             )
             self._on_snapshot_changed(self.snapshot_combo.currentIndex())
         except (OSError, ValueError) as exc:
-            QMessageBox.critical(self, "Fertige PDFs", str(exc))
+            QMessageBox.critical(self, "PDF Manager", str(exc))
 
     def _configured_deploy_folder(self) -> str:
         import app_config as _app_config
@@ -689,17 +893,54 @@ class MappingManagerQtDialog(QDialog):
             != QMessageBox.StandardButton.Yes
         ):
             return
+
+        # Zusätzliche, separate Abfrage NUR wenn mindestens einer der
+        # markierten Renders einen archivierten Quellstand hat -- Löschen
+        # der PDF und Löschen der (reproduzierbaren!) Quelle sind zwei
+        # unabhängige Entscheidungen, Default ist deshalb "Nein" (sicherer).
+        renders_with_source = [
+            r for r in renders
+            if r.source_archive_path is not None and r.source_archive_path.is_dir()
+        ]
+        delete_sources = False
+        if renders_with_source:
+            count = len(renders_with_source)
+            prompt = (
+                (
+                    "Auch den archivierten Quellstand dieser PDF löschen?"
+                    if count == 1
+                    else f"Auch die archivierten Quellstände dieser {count} PDFs löschen?"
+                )
+                + "\n\nDanach ist der exakte Quellstand nicht mehr wiederherstellbar."
+            )
+            delete_sources = (
+                QMessageBox.question(
+                    self,
+                    "Quelle mitlöschen?",
+                    prompt,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                == QMessageBox.StandardButton.Yes
+            )
+
         errors = []
         for render in renders:
             try:
                 if render.exists:
                     delete_pdf(render.pdf_path)
+                if (
+                    delete_sources
+                    and render.source_archive_path is not None
+                    and render.source_archive_path.is_dir()
+                ):
+                    delete_source_archive(render.source_archive_path)
                 remove_render(self._book(), render.snapshot_id, render.id)
             except (OSError, ValueError) as exc:
                 errors.append(f"{render.pdf_name or render.id}: {exc}")
         self._on_snapshot_changed(self.snapshot_combo.currentIndex())
         if errors:
-            QMessageBox.critical(self, "Fertige PDFs", "\n".join(errors))
+            QMessageBox.critical(self, "PDF Manager", "\n".join(errors))
 
 
 def open_mapping_manager_qt(studio: Any, parent: Optional[QWidget] = None) -> None:

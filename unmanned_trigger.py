@@ -10,7 +10,9 @@ from pathlib import Path
 
 from pre_processor import PreProcessor
 from render_artifact_store import (
+    ARCHIVE_TIMESTAMP_FMT,
     archive_render_artifacts,
+    archive_render_source,
     copy_render_artifacts,
     ensure_typst_template_partials,
     read_output_dir,
@@ -301,9 +303,19 @@ def run_unmanned_trigger(request: TriggerRequest):
             if render_code == 0:
                 copy_render_artifacts(temp_book, request.book_path, original_output_dir)
                 if request.archive_dir is not None:
+                    stamp = datetime.now().strftime(ARCHIVE_TIMESTAMP_FMT)
                     archive_render_artifacts(
-                        temp_book, request.archive_dir, output_dir=original_output_dir
+                        temp_book,
+                        request.archive_dir,
+                        output_dir=original_output_dir,
+                        timestamp=stamp,
                     )
+                    # Bewusst `request.book_path` (unveraendertes Original), nicht
+                    # `temp_book` -- siehe quarto_render_safe.run_safe_render fuer
+                    # die ausfuehrliche Begruendung (temp_book._quarto.yml zeigt
+                    # nach dem Render auf `processed/...`, nicht mehr die
+                    # verschachtelte, editierbare Original-Struktur).
+                    archive_render_source(request.book_path, request.archive_dir, timestamp=stamp)
                 _emit("✅ Render erfolgreich", log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
                 return 0
 

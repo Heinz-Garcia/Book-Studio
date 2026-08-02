@@ -92,7 +92,7 @@ FIELDS: tuple[ConfigField, ...] = (
         "PDF-Deploy-Ordner",
         "path",
         "Pfade",
-        tip="Ziel für „Deploy“ in Fertige PDFs. Leer = WEB.DE-Discovery.",
+        tip="Ziel für „Deploy“ im PDF Manager. Leer = WEB.DE-Discovery.",
     ),
     ConfigField(
         "asset_pool_path",

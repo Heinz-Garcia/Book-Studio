@@ -1,4 +1,4 @@
-"""Tests für Mehrfachauswahl im "Fertige PDFs"-Dialog (MappingManagerQtDialog)."""
+"""Tests für Mehrfachauswahl im "PDF Manager"-Dialog (MappingManagerQtDialog)."""
 
 from __future__ import annotations
 
@@ -226,3 +226,333 @@ def test_selection_stays_correct_after_sorting(monkeypatch, tmp_path):
     assert len(selected) == 1
     assert selected[0].id == "r0"
     dlg.close()
+
+
+# --- Archivierte Quelle: ansehen (read-only) / wiederherstellen (destruktiv) -
+
+
+def _make_book_with_source_archive(tmp_path: Path) -> Path:
+    """Ein Buch mit genau einem Render, dessen Quelle archiviert wurde."""
+    book = tmp_path / "Band"
+    cfg = book / "bookconfig"
+    cfg.mkdir(parents=True)
+    (book / "content").mkdir()
+    (book / "content" / "01.md").write_text("aktueller Stand", encoding="utf-8")
+    (book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+
+    export_dir = book / "export" / "publish_renders" / "snap-a"
+    pdf = export_dir / "render_0.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-1.4 fake")
+
+    source_dir = export_dir / "source_20260802_000329"
+    (source_dir / "content").mkdir(parents=True)
+    (source_dir / "content" / "01.md").write_text("archivierter Stand", encoding="utf-8")
+
+    payload = {
+        "active_snapshot_id": "snap-a",
+        "snapshots": [
+            {
+                "id": "snap-a",
+                "origin": "local",
+                "created_at": "2026-08-01T00:00:00",
+                "renders": [
+                    {
+                        "id": "r0",
+                        "artifact_path": str(pdf),
+                        "source_archive_path": str(source_dir),
+                        "format": "typst",
+                        "at": "2026-08-02T00:03:29",
+                        "notes": "",
+                    }
+                ],
+            }
+        ],
+    }
+    (cfg / "publish_map.json").write_text(json.dumps(payload), encoding="utf-8")
+    return book
+
+
+def _make_dialog_for_book(monkeypatch, book):
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    class Studio:
+        current_book = book
+
+        def log(self, *a, **k):
+            pass
+
+    monkeypatch.setattr("ui_qt.book_workspace.discover_books", lambda base=None: [book])
+    monkeypatch.setattr("ui_qt.qt_session.is_ephemeral_book_path", lambda _p: False)
+
+    from ui_qt.dialogs.mapping_manager_dialog import MappingManagerQtDialog
+
+    app = QApplication.instance() or QApplication([])
+    dlg = MappingManagerQtDialog(None, Studio())
+    return app, dlg
+
+
+def test_source_column_shows_green_dot_when_available(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_source_archive(tmp_path)
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+
+    item = dlg.table.item(0, mod._COL_SOURCE)
+    assert item.text() == "●"
+    assert item.foreground().color().name() == mod._SOURCE_DOT_AVAILABLE
+    dlg.close()
+
+
+def test_source_column_shows_red_dot_when_missing(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_renders(tmp_path, count=1)  # kein source_archive_path
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+
+    item = dlg.table.item(0, mod._COL_SOURCE)
+    assert item.text() == "●"
+    assert item.foreground().color().name() == mod._SOURCE_DOT_MISSING
+    dlg.close()
+
+
+def test_delete_selected_asks_about_source_and_keeps_it_when_declined(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_source_archive(tmp_path)
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+    dlg.table.selectRow(0)
+    render = dlg._selected_render()
+    pdf_path = render.pdf_path
+    source_path = render.source_archive_path
+    assert pdf_path.is_file()
+    assert source_path.is_dir()
+
+    with patch.object(mod, "QMessageBox") as mock_box:
+        mock_box.StandardButton = mod.QMessageBox.StandardButton
+        mock_box.question.side_effect = [
+            mod.QMessageBox.StandardButton.Yes,  # PDF löschen? -> Ja
+            mod.QMessageBox.StandardButton.No,  # Quelle mitlöschen? -> Nein
+        ]
+        dlg._delete_selected()
+        assert mock_box.question.call_count == 2
+
+    assert not pdf_path.is_file()
+    assert source_path.is_dir()  # Quelle bleibt erhalten (Default: sicher)
+    assert dlg.table.rowCount() == 0
+    dlg.close()
+
+
+def test_delete_selected_deletes_source_when_confirmed(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_source_archive(tmp_path)
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+    dlg.table.selectRow(0)
+    render = dlg._selected_render()
+    pdf_path = render.pdf_path
+    source_path = render.source_archive_path
+
+    with patch.object(mod, "QMessageBox") as mock_box:
+        mock_box.StandardButton = mod.QMessageBox.StandardButton
+        mock_box.question.return_value = mod.QMessageBox.StandardButton.Yes
+        dlg._delete_selected()
+        assert mock_box.question.call_count == 2
+
+    assert not pdf_path.is_file()
+    assert not source_path.exists()
+    dlg.close()
+
+
+def test_delete_selected_skips_source_prompt_when_no_source_archived(monkeypatch, tmp_path):
+    """Renders ohne archivierten Quellstand (z. B. von vor Einführung des
+    Felds) dürfen keine zusätzliche Frage auslösen."""
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    _app, dlg, _book = _make_dialog(monkeypatch, tmp_path, count=1)
+    _select_all_rows(dlg)
+
+    with patch.object(mod, "QMessageBox") as mock_box:
+        mock_box.StandardButton = mod.QMessageBox.StandardButton
+        mock_box.question.return_value = mod.QMessageBox.StandardButton.Yes
+        dlg._delete_selected()
+        assert mock_box.question.call_count == 1
+    dlg.close()
+
+
+def test_delete_selected_cancelled_does_not_ask_about_source(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_source_archive(tmp_path)
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+    dlg.table.selectRow(0)
+    render = dlg._selected_render()
+    pdf_path = render.pdf_path
+    source_path = render.source_archive_path
+
+    with patch.object(mod, "QMessageBox") as mock_box:
+        mock_box.StandardButton = mod.QMessageBox.StandardButton
+        mock_box.question.return_value = mod.QMessageBox.StandardButton.No
+        dlg._delete_selected()
+        assert mock_box.question.call_count == 1
+
+    assert pdf_path.is_file()
+    assert source_path.is_dir()
+    dlg.close()
+
+
+def test_reveal_source_shows_info_when_no_row_selected(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_source_archive(tmp_path)
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+
+    with patch.object(mod, "QMessageBox") as mock_box:
+        dlg._reveal_source_selected()
+        mock_box.information.assert_called_once()
+    dlg.close()
+
+
+def test_reveal_source_shows_info_when_no_archive_available(monkeypatch, tmp_path):
+    """Renders von vor Einfuehrung dieses Felds haben keinen archivierten
+    Quellstand -- muss klar kommuniziert werden, nicht crashen."""
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_renders(tmp_path, count=1)  # kein source_archive_path
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+    dlg.table.selectRow(0)
+
+    with patch.object(mod, "QMessageBox") as mock_box:
+        dlg._reveal_source_selected()
+        mock_box.information.assert_called_once()
+        args = mock_box.information.call_args[0]
+        assert "kein archivierter Quellstand" in args[2]
+    dlg.close()
+
+
+def test_reveal_source_opens_archive_directory(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_source_archive(tmp_path)
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+    dlg.table.selectRow(0)
+
+    revealed = []
+    with patch.object(mod, "reveal_in_explorer", side_effect=lambda p: revealed.append(p)):
+        dlg._reveal_source_selected()
+    assert len(revealed) == 1
+    assert revealed[0].name == "source_20260802_000329"
+    dlg.close()
+
+
+def test_restore_source_cancelled_leaves_content_untouched(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_source_archive(tmp_path)
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+    dlg.table.selectRow(0)
+
+    with patch.object(mod, "QMessageBox") as mock_box:
+        mock_box.StandardButton = mod.QMessageBox.StandardButton
+        mock_box.question.return_value = mod.QMessageBox.StandardButton.No
+        dlg._restore_source_selected()
+
+    assert (book / "content" / "01.md").read_text(encoding="utf-8") == "aktueller Stand"
+    dlg.close()
+
+
+def test_restore_source_confirmed_without_main_window_still_restores(monkeypatch, tmp_path):
+    """Kein Hauptfenster verfuegbar (Dialog ohne Parent, z. B. headless):
+    das Wiederherstellen selbst funktioniert trotzdem, es fehlt nur die
+    Aktivierung im Hauptfenster -- entsprechend zwei Hinweise statt einem
+    (kein Hauptfenster + Ergebnis), Dialog bleibt offen."""
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_source_archive(tmp_path)
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+    dlg.table.selectRow(0)
+
+    with patch.object(mod, "QMessageBox") as mock_box:
+        mock_box.StandardButton = mod.QMessageBox.StandardButton
+        mock_box.question.return_value = mod.QMessageBox.StandardButton.Yes
+        dlg._restore_source_selected()
+        assert mock_box.information.call_count == 2
+
+    # Wiederhergestellt: der archivierte Stand ist jetzt im lebenden Projekt.
+    assert (book / "content" / "01.md").read_text(encoding="utf-8") == "archivierter Stand"
+    # Der VORHERIGE Stand ("aktueller Stand") muss automatisch gesichert
+    # worden sein -- ein Restore darf nie unwiderruflich sein.
+    backups = list((book / "export" / "pre_restore_backups").glob("source_*"))
+    assert len(backups) == 1
+    assert (backups[0] / "content" / "01.md").read_text(encoding="utf-8") == "aktueller Stand"
+    assert dlg.result() != mod.QDialog.DialogCode.Accepted
+    dlg.close()
+
+
+def test_restore_source_confirmed_activates_book_shows_banner_and_closes(monkeypatch, tmp_path):
+    """Mit Hauptfenster: Dialog schliesst sich, das Buch wird IN SITU
+    aktiviert (Kapitelbaum zeigt den wiederhergestellten Stand) und ein
+    Banner im Hauptfenster weist auf den wiederhergestellten Stand hin."""
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QDialog, QWidget
+
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    book = _make_book_with_source_archive(tmp_path)
+
+    class FakeMainWindow(QWidget):
+        def __init__(self) -> None:
+            super().__init__()
+            self.selected: list[Path] = []
+            self.banner_text: str | None = None
+
+        def _try_select_book(self, path: Path) -> None:
+            self.selected.append(Path(path))
+
+        def show_restored_source_banner(self, text: str) -> None:
+            self.banner_text = text
+
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    class Studio:
+        current_book = book
+
+        def log(self, *a, **k):
+            pass
+
+    monkeypatch.setattr("ui_qt.book_workspace.discover_books", lambda base=None: [book])
+    monkeypatch.setattr("ui_qt.qt_session.is_ephemeral_book_path", lambda _p: False)
+
+    app = QApplication.instance() or QApplication([])
+    parent = FakeMainWindow()
+    dlg = mod.MappingManagerQtDialog(parent, Studio())
+    dlg.table.selectRow(0)
+    parent.selected.clear()  # Init-Sync beim Dialogaufbau zaehlt nicht mit
+
+    with patch.object(mod, "QMessageBox") as mock_box:
+        mock_box.StandardButton = mod.QMessageBox.StandardButton
+        mock_box.question.return_value = mod.QMessageBox.StandardButton.Yes
+        dlg._restore_source_selected()
+        mock_box.information.assert_not_called()
+
+    assert (book / "content" / "01.md").read_text(encoding="utf-8") == "archivierter Stand"
+    assert parent.selected == [book]
+    assert dlg.result() == QDialog.DialogCode.Accepted
+    assert parent.banner_text is not None
+    assert "render_0.pdf" in parent.banner_text
+    assert "2026-08-02" in parent.banner_text
+    dlg.close()
+    _ = app

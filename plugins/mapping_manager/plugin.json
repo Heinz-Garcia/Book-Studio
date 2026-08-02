@@ -1,6 +1,6 @@
 {
   "name": "mapping_manager",
-  "label": "🗺️ Fertige PDFs…",
+  "label": "🗺️ PDF Manager…",
   "description": "Generierte PDFs des aktiven Buchs — Anzeigename, Datum, Layout.",
   "entrypoint": "plugins.mapping_manager:run",
   "version": "1.2.0",

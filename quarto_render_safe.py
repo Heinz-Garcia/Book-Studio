@@ -10,10 +10,14 @@ from pathlib import Path
 
 import yaml
 
+from datetime import datetime
+
 from pre_processor import PreProcessor
 from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues
 from render_artifact_store import (
+    ARCHIVE_TIMESTAMP_FMT,
     archive_render_artifacts,
+    archive_render_source,
     copy_render_artifacts,
     ensure_typst_template_partials,
     read_output_dir,
@@ -356,7 +360,23 @@ def run_safe_render(
 
         copy_render_artifacts(temp_book, book_path, original_output_dir)
         if archive_dir is not None:
-            archive_render_artifacts(temp_book, archive_dir, output_dir=original_output_dir)
+            # Gleicher Zeitstempel fuer PDF- und Quell-Archiv: haelt beide im
+            # Archiv-Ordner eindeutig einander zuordenbar (reproduzierbares
+            # Quelle-Artefakt-Mapping, siehe archive_render_source-Docstring).
+            stamp = datetime.now().strftime(ARCHIVE_TIMESTAMP_FMT)
+            archive_render_artifacts(
+                temp_book, archive_dir, output_dir=original_output_dir, timestamp=stamp
+            )
+            # Bewusst `book_path` (das unveraenderte Original), NICHT
+            # `temp_book`: `engine.save_chapters(processed_tree, ...)` oben
+            # hat `temp_book`s eigene `_quarto.yml` bereits auf die
+            # PROZESSIERTEN Pfade (`processed/...`) umgeschrieben und dabei
+            # die verschachtelte part/chapter-Struktur verloren -- ein
+            # Restore daraus zeigt in der Buchstruktur nur noch flache,
+            # dateinamen-basierte Titel ohne Einrueckung. `book_path` bleibt
+            # laut Kommentar oben (B1/R2) von diesem Render unangetastet und
+            # ist der tatsaechlich editierbare Quellstand.
+            archive_render_source(book_path, archive_dir, timestamp=stamp)
         return 0
 
 

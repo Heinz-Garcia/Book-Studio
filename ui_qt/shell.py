@@ -111,13 +111,31 @@ class MainWindow(QMainWindow):
         top.addWidget(copy_btn)
         pdfs_btn = QPushButton("🗺️")
         pdfs_btn.setFixedWidth(36)
-        pdfs_btn.setToolTip("Fertige PDFs dieses Buchs")
+        pdfs_btn.setToolTip("PDF Manager für dieses Buch")
         pdfs_btn.clicked.connect(self._open_finished_pdfs)
         top.addWidget(pdfs_btn)
         refresh_btn = QPushButton("Aktualisieren")
         refresh_btn.clicked.connect(self._refresh_book_list)
         top.addWidget(refresh_btn)
         layout.addLayout(top)
+
+        self._restore_banner = QWidget()
+        self._restore_banner.setObjectName("restoredSourceBanner")
+        banner_row = QHBoxLayout(self._restore_banner)
+        banner_row.setContentsMargins(0, 0, 0, 0)
+        self._restore_banner_label = QLabel("")
+        self._restore_banner_label.setWordWrap(True)
+        self._restore_banner_label.setStyleSheet(
+            "background:#fef3c7; color:#78350f; padding:6px 10px; border-radius:4px;"
+        )
+        banner_row.addWidget(self._restore_banner_label, stretch=1)
+        banner_dismiss = QPushButton("✕")
+        banner_dismiss.setFixedWidth(28)
+        banner_dismiss.setToolTip("Hinweis ausblenden")
+        banner_dismiss.clicked.connect(self.clear_restored_source_banner)
+        banner_row.addWidget(banner_dismiss)
+        self._restore_banner.setVisible(False)
+        layout.addWidget(self._restore_banner)
 
         self.structure = StructurePanel()
         layout.addWidget(self.structure, stretch=1)
@@ -165,7 +183,7 @@ class MainWindow(QMainWindow):
             data = self.book_combo.currentData()
             book = Path(data) if data is not None else None
         if book is None:
-            QMessageBox.information(self, "Fertige PDFs", "Bitte zuerst ein Buchprojekt wählen.")
+            QMessageBox.information(self, "PDF Manager", "Bitte zuerst ein Buchprojekt wählen.")
             return
         from ui_qt.dialogs.post_render_dialog import open_finished_pdfs_for_book
 
@@ -287,7 +305,24 @@ class MainWindow(QMainWindow):
             "warning",
         )
 
+    def show_restored_source_banner(self, text: str) -> None:
+        """Persistenter Hinweis über der Kapitelstruktur: die gerade
+        geladene Quelle ist ein wiederhergestellter Stand (siehe
+        `ui_qt.dialogs.mapping_manager_dialog._restore_source_selected`),
+        nicht der zuletzt bearbeitete. Bleibt sichtbar bis manuell
+        ausgeblendet oder das Buch über die Dropdown-Liste gewechselt wird
+        (siehe `_on_book_chosen`) -- Programm-interne Buchwechsel
+        (`_try_select_book`, z. B. durch den Restore-Flow selbst) lassen ihn
+        bewusst stehen."""
+        self._restore_banner_label.setText(text)
+        self._restore_banner.setVisible(True)
+
+    def clear_restored_source_banner(self) -> None:
+        self._restore_banner.setVisible(False)
+        self._restore_banner_label.setText("")
+
     def _on_book_chosen(self, index: int) -> None:
+        self.clear_restored_source_banner()
         data = self.book_combo.itemData(index)
         if data is None:
             self._session = None

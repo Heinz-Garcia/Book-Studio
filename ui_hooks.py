@@ -58,3 +58,9 @@ def ask_render_pdf_name(*, default_stem: str = "", **_k: Any) -> Optional[str]:
 
 
 open_mapping_manager: Callable[..., None] = _noop
+
+# Automatischer Guard nach jedem Render (siehe .doc/publisher-compliance-
+# konzept.md, "Erreicht" -> Nachtrag): prüft die frische PDF gegen das
+# KDP-Profil und öffnet den Druck-Freigabe-Dialog NUR bei tatsächlichen
+# Befunden. Headless-Default no-op — Qt installiert die echte Prüfung.
+run_publisher_compliance_guard: Callable[..., None] = _noop

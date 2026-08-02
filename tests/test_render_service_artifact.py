@@ -145,3 +145,28 @@ def test_pick_latest_artifact_picks_most_recently_modified(tmp_path):
 
     result = RenderService.pick_latest_artifact(tmp_path, "typst")
     assert result == newer
+
+
+# --- pick_latest_source_archive -----------------------------------------
+
+
+def test_pick_latest_source_archive_returns_none_for_missing_dir(tmp_path):
+    assert RenderService.pick_latest_source_archive(tmp_path / "nope") is None
+
+
+def test_pick_latest_source_archive_returns_none_for_no_dir_path():
+    assert RenderService.pick_latest_source_archive(None) is None
+
+
+def test_pick_latest_source_archive_ignores_non_source_entries(tmp_path):
+    (tmp_path / "Buch_20260722_000000.pdf").write_bytes(b"x")
+    (tmp_path / "not_a_source_dir").mkdir()
+    assert RenderService.pick_latest_source_archive(tmp_path) is None
+
+
+def test_pick_latest_source_archive_picks_newest_by_name(tmp_path):
+    older = tmp_path / "source_20260721_234150"
+    newer = tmp_path / "source_20260722_115607"
+    older.mkdir()
+    newer.mkdir()
+    assert RenderService.pick_latest_source_archive(tmp_path) == newer

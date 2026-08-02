@@ -9,14 +9,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from render_artifact_store import (
     STANDARD_SKELETON_DIR,
     archive_render_artifacts,
+    archive_render_source,
     copy_render_artifacts,
     ensure_typst_template_partials,
     read_output_dir,
     rename_render_pdf,
     resolve_preferred_pdf_stem,
+    restore_source_archive,
 )
 
 
@@ -109,6 +113,93 @@ def test_archive_render_artifacts_picks_up_root_suffix_files(tmp_path):
     archived = archive_render_artifacts(temp_book, archive_dir, timestamp="20260722_000000")
     assert len(archived) == 1
     assert archived[0].suffix == ".pdf"
+
+
+# --- archive_render_source / restore_source_archive --------------------
+#
+# Gegenstueck zu archive_render_artifacts: dort landet das ERGEBNIS (PDF),
+# hier der EINGANG (Kapitel-Markdown, _quarto.yml, ...), der zu genau
+# diesem Ergebnis fuehrte -- reproduzierbares Quelle-Artefakt-Mapping.
+
+
+def _make_temp_book_with_source(tmp_path: Path) -> Path:
+    temp_book = tmp_path / "temp_render" / "Band_Source"
+    (temp_book / "content").mkdir(parents=True)
+    (temp_book / "content" / "01_Kapitel.md").write_text("# Kapitel 1\n", encoding="utf-8")
+    (temp_book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    # Generierte/Cache-Anteile, die waehrend DIESES Renders im Temp-Klon
+    # entstehen -- duerfen NICHT mit archiviert werden (Build-Ergebnis bzw.
+    # deterministisch aus der Quelle neu erzeugt, keine Quelle selbst).
+    (temp_book / "export" / "_book").mkdir(parents=True)
+    (temp_book / "export" / "_book" / "Buch.pdf").write_bytes(b"%PDF-1.4")
+    (temp_book / ".quarto").mkdir()
+    (temp_book / ".quarto" / "cache.bin").write_bytes(b"cache")
+    (temp_book / "processed").mkdir()
+    (temp_book / "processed" / "01_Kapitel.md").write_text("processed", encoding="utf-8")
+    return temp_book
+
+
+def test_archive_render_source_copies_content_excludes_generated_dirs(tmp_path):
+    temp_book = _make_temp_book_with_source(tmp_path)
+    archive_dir = tmp_path / "export" / "publish_renders" / "snapshot-1"
+
+    dest = archive_render_source(temp_book, archive_dir, timestamp="20260802_000329")
+
+    assert dest == archive_dir / "source_20260802_000329"
+    assert (dest / "content" / "01_Kapitel.md").read_text(encoding="utf-8") == "# Kapitel 1\n"
+    assert (dest / "_quarto.yml").is_file()
+    assert not (dest / "export").exists()
+    assert not (dest / ".quarto").exists()
+    assert not (dest / "processed").exists()
+
+
+def test_archive_render_source_and_archive_render_artifacts_share_timestamp(tmp_path):
+    """Gleicher Zeitstempel wie das PDF-Archiv haelt beide im Archiv-Ordner
+    eindeutig einander zuordenbar."""
+    temp_book = _make_temp_book_with_source(tmp_path)
+    archive_dir = tmp_path / "export" / "publish_renders" / "snapshot-1"
+    stamp = "20260802_000329"
+
+    archived_pdfs = archive_render_artifacts(
+        temp_book, archive_dir, output_dir="export/_book", timestamp=stamp
+    )
+    dest = archive_render_source(temp_book, archive_dir, timestamp=stamp)
+
+    assert len(archived_pdfs) == 1
+    assert stamp in archived_pdfs[0].name
+    assert dest.name == f"source_{stamp}"
+    assert dest.parent == archived_pdfs[0].parent
+
+
+def test_archive_render_source_returns_none_for_missing_temp_book(tmp_path):
+    missing = tmp_path / "does_not_exist"
+    archive_dir = tmp_path / "export" / "publish_renders" / "snapshot-1"
+    assert archive_render_source(missing, archive_dir) is None
+
+
+def test_restore_source_archive_overwrites_matching_entries_only(tmp_path):
+    temp_book = _make_temp_book_with_source(tmp_path)
+    archive_dir = tmp_path / "export" / "publish_renders" / "snapshot-1"
+    dest = archive_render_source(temp_book, archive_dir, timestamp="20260802_000329")
+
+    live_book = tmp_path / "live_book"
+    (live_book / "content").mkdir(parents=True)
+    (live_book / "content" / "01_Kapitel.md").write_text("edited later", encoding="utf-8")
+    (live_book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    # Nicht Teil des Archivs -- muss unangetastet bleiben.
+    (live_book / "export").mkdir()
+    (live_book / "export" / "marker.txt").write_text("keep me", encoding="utf-8")
+
+    restored = restore_source_archive(dest, live_book)
+
+    assert set(restored) == {"content", "_quarto.yml"}
+    assert (live_book / "content" / "01_Kapitel.md").read_text(encoding="utf-8") == "# Kapitel 1\n"
+    assert (live_book / "export" / "marker.txt").read_text(encoding="utf-8") == "keep me"
+
+
+def test_restore_source_archive_raises_for_missing_archive(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        restore_source_archive(tmp_path / "no_such_archive", tmp_path / "book")
 
 
 # --- ensure_typst_template_partials -----------------------------------
@@ -239,3 +330,53 @@ def test_rename_render_pdf_overwrite_existing(tmp_path):
     dest = rename_render_pdf(src, "Publish_X", overwrite=True)
     assert dest == existing
     assert dest.read_bytes() == b"%PDF-1.4 new"
+
+
+# --- Regression: run_safe_render muss den PRISTINEN Original-Buchpfad -----
+# archivieren, nicht den Temp-Klon NACH dem Render.
+#
+# Bug (User-Report 2026-08-02): Der Temp-Klon wird waehrend des Renders von
+# `engine.save_chapters(processed_tree, ...)` auf die PROZESSIERTEN Pfade
+# (`processed/...`) umgeschrieben und verliert dabei die verschachtelte
+# part/chapter-Struktur aus der Original-`_quarto.yml`. Ein Restore aus dem
+# (falsch archivierten) Temp-Klon zeigte in der Buchstruktur nur noch
+# flache, dateinamen-basierte Titel ohne Einrueckung/Icons -- weil
+# `title_registry`/`book_nodes` beim Laden aus genau dieser kaputten
+# `_quarto.yml` aufgebaut werden (siehe `ui_qt/book_workspace.py`).
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_SMOKE_FIXTURE = _PROJECT_ROOT / "Band_Dummy"
+
+
+@pytest.mark.slow
+def test_run_safe_render_archives_pristine_original_source(tmp_path):
+    if not _SMOKE_FIXTURE.exists():
+        pytest.skip(f"Test-Fixture fehlt: {_SMOKE_FIXTURE}")
+    import shutil
+
+    book = tmp_path / _SMOKE_FIXTURE.name
+    shutil.copytree(
+        _SMOKE_FIXTURE, book, ignore=shutil.ignore_patterns("export", "processed", ".quarto")
+    )
+    original_quarto_yml = (book / "_quarto.yml").read_text(encoding="utf-8")
+
+    from quarto_render_safe import run_safe_render
+
+    archive_dir = tmp_path / "archive"
+    returncode = run_safe_render(book, "typst", archive_dir=archive_dir)
+    assert returncode == 0, f"Render fehlgeschlagen (rc={returncode})"
+
+    source_dirs = sorted(archive_dir.glob("source_*"))
+    assert len(source_dirs) == 1
+    source_dir = source_dirs[0]
+
+    # Der ORIGINAL-Pfad (book_path) selbst muss unangetastet geblieben sein
+    # (dokumentierte Garantie der ganzen Render-Pipeline).
+    assert (book / "_quarto.yml").read_text(encoding="utf-8") == original_quarto_yml
+
+    archived_quarto_yml = (source_dir / "_quarto.yml").read_text(encoding="utf-8")
+    # Archivierte Quelle muss dem UNVERAENDERTEN Original entsprechen --
+    # nicht dem vom Render umgeschriebenen Temp-Klon.
+    assert archived_quarto_yml == original_quarto_yml
+    assert "processed/" not in archived_quarto_yml
+    assert (source_dir / "content" / "required" / "Titel.md").is_file()

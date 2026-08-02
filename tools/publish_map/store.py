@@ -181,6 +181,7 @@ def append_render(
         "layout_profile": str(payload.get("layout_profile") or ""),
         "profile_name": str(payload.get("profile_name") or ""),
         "artifact_path": str(payload.get("artifact_path") or ""),
+        "source_archive_path": str(payload.get("source_archive_path") or ""),
         "record_event_id": str(payload.get("record_event_id") or ""),
         "metadata": dict(payload.get("metadata") or {}),
         "notes": str(payload.get("notes") or ""),
@@ -236,6 +237,7 @@ def _append_render_to_snapshot(
         "layout_profile": str(payload.get("layout_profile") or ""),
         "profile_name": str(payload.get("profile_name") or ""),
         "artifact_path": str(payload.get("artifact_path") or ""),
+        "source_archive_path": str(payload.get("source_archive_path") or ""),
         "record_event_id": record_event_id,
         "metadata": dict(payload.get("metadata") or {}),
         "notes": str(payload.get("notes") or ""),
@@ -467,6 +469,7 @@ def sync_map_from_record(book_path: Path) -> bool:
                 "layout_profile": payload.get("layout_profile", ""),
                 "profile_name": payload.get("profile_name", ""),
                 "artifact_path": payload.get("artifact_path", ""),
+                "source_archive_path": payload.get("source_archive_path", ""),
                 "record_event_id": event.get("id", ""),
                 "metadata": payload.get("metadata") or {},
             })

@@ -120,6 +120,40 @@ def test_append_render_on_fresh_map(tmp_path):
     assert len(data["snapshots"][0]["renders"]) == 1
 
 
+def test_append_render_persists_source_archive_path(tmp_path):
+    """Reproduzierbares Quelle-Artefakt-Mapping: der archivierte
+    Quellstand (siehe render_artifact_store.archive_render_source) wird
+    im Render-Eintrag mitgespeichert, nicht nur der PDF-Pfad."""
+    book = tmp_path / "Band_Source"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("book:\n  title: Quelle\n", encoding="utf-8")
+    pdf = book / "export" / "_book" / "quelle.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-1.4")
+    source_dir = book / "export" / "publish_renders" / "snap" / "source_20260802_000329"
+
+    append_render(
+        book,
+        {
+            "format": "typst",
+            "artifact_path": str(pdf),
+            "source_archive_path": str(source_dir),
+        },
+    )
+    data = read_map(book)
+    assert data["snapshots"][0]["renders"][0]["source_archive_path"] == str(source_dir)
+
+
+def test_append_render_defaults_source_archive_path_to_empty(tmp_path):
+    book = tmp_path / "Band_NoSource"
+    book.mkdir()
+    pdf = book / "out.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    append_render(book, {"format": "typst", "artifact_path": str(pdf)})
+    data = read_map(book)
+    assert data["snapshots"][0]["renders"][0]["source_archive_path"] == ""
+
+
 def test_merge_record_renders_into_existing_snapshot(tmp_path):
     book = tmp_path / "Band_Merge"
     book.mkdir()

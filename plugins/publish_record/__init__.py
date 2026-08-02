@@ -103,6 +103,7 @@ def on_after_render(studio: Optional[Any] = None, **kwargs) -> None:
         "layout_profile": str(kwargs.get("layout_profile") or ""),
         "profile_name": str(kwargs.get("profile_name") or ""),
         "artifact_path": str(kwargs.get("artifact_path") or ""),
+        "source_archive_path": str(kwargs.get("source_archive_path") or ""),
         "notes": str(kwargs.get("notes") or "").strip(),
         "metadata": metadata,
     }

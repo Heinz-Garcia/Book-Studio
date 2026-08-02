@@ -170,7 +170,7 @@ class BookProjectsQtDialog(QDialog):
         self.btn_reveal.clicked.connect(self._reveal_selected)
         actions.addWidget(self.btn_reveal)
 
-        self.btn_pdfs = QPushButton("Fertige PDFs…")
+        self.btn_pdfs = QPushButton("PDF Manager…")
         self.btn_pdfs.setToolTip(
             "Öffnet die PDF-Liste für dieses Buch (nicht den Projektordner)"
         )
@@ -197,7 +197,7 @@ class BookProjectsQtDialog(QDialog):
 
         hint = QLabel(
             "Hier verwaltest du Buchprojekte (Ordner). "
-            "Fertige Ausgaben: Button „Fertige PDFs…“ oder Plugins → Fertige PDFs…"
+            "Fertige Ausgaben: Button „PDF Manager…“ oder Plugins → PDF Manager…"
         )
         hint.setObjectName("bookProjectsHint")
         hint.setWordWrap(True)
@@ -443,7 +443,7 @@ class BookProjectsQtDialog(QDialog):
     def _open_finished_pdfs(self) -> None:
         info = self._selected_book()
         if info is None:
-            QMessageBox.information(self, "Fertige PDFs", "Bitte ein Buch wählen.")
+            QMessageBox.information(self, "PDF Manager", "Bitte ein Buch wählen.")
             return
         self._notify_host_refresh(activate=info.path)
         from ui_qt.dialogs.post_render_dialog import open_finished_pdfs_for_book

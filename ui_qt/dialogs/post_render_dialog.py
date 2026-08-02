@@ -1,4 +1,4 @@
-"""Nach erfolgreichem Render: PDF öffnen, Fertige PDFs zeigen, oder schließen."""
+"""Nach erfolgreichem Render: PDF öffnen, PDF Manager zeigen, oder schließen."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ class PostRenderDialog(QDialog):
 
         layout.addWidget(
             QLabel(
-                "Fertige PDFs dieses Buchs verwaltest du unter Plugins → Fertige PDFs…"
+                "Fertige PDFs dieses Buchs verwaltest du unter Plugins → PDF Manager…"
             )
         )
 
@@ -64,7 +64,7 @@ class PostRenderDialog(QDialog):
         btn_open.clicked.connect(self._choose_open)
         row.addWidget(btn_open)
 
-        btn_map = QPushButton("In Fertige PDFs zeigen…")
+        btn_map = QPushButton("Im PDF Manager zeigen…")
         btn_map.clicked.connect(self._choose_mapping)
         row.addWidget(btn_map)
 

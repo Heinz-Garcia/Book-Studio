@@ -55,7 +55,7 @@ def _mapping(studio, parent, log) -> None:
     from ui_qt.dialogs.mapping_manager_dialog import open_mapping_manager_qt
 
     open_mapping_manager_qt(studio, parent)
-    log("Fertige PDFs geschlossen.", "info")
+    log("PDF Manager geschlossen.", "info")
 
 
 def _generated(studio, parent, log) -> None:

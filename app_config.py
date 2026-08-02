@@ -35,7 +35,7 @@ DEFAULTS: dict[str, Any] = {
     "prep_sources": [],
     "prep_dest_folder": "",
     "indexer_target_folder": "",
-    # Zielordner für „Deploy“ in Fertige PDFs (Kopie der markierten PDF).
+    # Zielordner für „Deploy“ im PDF Manager (Kopie der markierten PDF).
     # Leer = Auto-Discovery unter ~/WEB.DE Online-Speicher/*/__Projekte/IFJN/PDF
     "pdf_deploy_folder": "",
     # B-Fix (Code-Review 2026-07-03): frueher hier `False`, waehrend

@@ -53,6 +53,7 @@ def load_renders(book_path: Path, snapshot_id: str) -> list[RenderView]:
             continue
         artifact = str(render.get("artifact_path") or "").strip()
         pdf_path = Path(artifact) if artifact else Path()
+        source_archive = str(render.get("source_archive_path") or "").strip()
         views.append(
             RenderView(
                 id=str(render.get("id") or ""),
@@ -67,6 +68,7 @@ def load_renders(book_path: Path, snapshot_id: str) -> list[RenderView]:
                 at_display=_format_at_display(str(render.get("at") or "")),
                 exists=pdf_path.is_file() if artifact else False,
                 notes=str(render.get("notes") or ""),
+                source_archive_path=Path(source_archive) if source_archive else None,
             )
         )
     views.sort(key=lambda r: r.at, reverse=True)

@@ -41,10 +41,10 @@ def test_mapping_manager_qt_constructs(tmp_path: Path, monkeypatch):
     app = QApplication.instance() or QApplication([])
     studio = SimpleNamespace(current_book=book, log=lambda *_a, **_k: None)
     dlg = MappingManagerQtDialog(None, studio)
-    # Umbenannt (siehe "Fertige PDFs und Bücher verwalten trennen"): der
-    # Dialog heißt UI-seitig "Fertige PDFs", die Klasse blieb intern
-    # MappingManagerQtDialog.
-    assert "Fertige PDFs" in dlg.windowTitle()
+    # Umbenannt (siehe "Fertige PDFs und Bücher verwalten trennen", später
+    # "PDF Manager"): der Dialog heißt UI-seitig "PDF Manager", die Klasse
+    # blieb intern MappingManagerQtDialog.
+    assert "PDF Manager" in dlg.windowTitle()
     # Spalten per Drag&Drop umsortierbar.
     assert dlg.table.horizontalHeader().sectionsMovable() is True
     # "Pfad kopieren"-Button vorhanden.

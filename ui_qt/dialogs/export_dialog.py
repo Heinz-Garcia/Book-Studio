@@ -118,7 +118,7 @@ class ExportDialog(QDialog):
         self.notes_edit = QLineEdit()
         self.notes_edit.setText(str(initial.get("notes") or "").strip())
         self.notes_edit.setPlaceholderText(
-            "Anzeigename: z. B. rev.5 Probe — erscheint unter Fertige PDFs (nicht Layout/BoD)"
+            "Anzeigename: z. B. rev.5 Probe — erscheint im PDF Manager (nicht Layout/BoD)"
         )
         self.notes_edit.setClearButtonEnabled(True)
         form.addRow("Anzeigename:", self.notes_edit)
@@ -132,7 +132,7 @@ class ExportDialog(QDialog):
             QLabel(
                 "Dateiname = Name der PDF-Datei (änderbar). "
                 "Pfad = Convenience-Ausgabe unter export/_book "
-                "(Archiv zusätzlich unter Fertige PDFs)."
+                "(Archiv zusätzlich im PDF Manager)."
             )
         )
         layout.addWidget(

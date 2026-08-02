@@ -47,8 +47,8 @@ Menü-Entrypoint ins Plugin.
 | `provenance` | (Hook only) | `tools/provenance/` — `grammargraph_export.json` |
 | `publish_record` | (Hook only) | `tools/publish_record/` — `publish_record.json` |
 | `publish_readiness` | Publish Readiness… | `tools/publish_readiness/` — Owner-Matrix |
-| `book_projects` | Bücher verwalten… | `tools/book_projects/` — Projekte; Anzeigename; Link zu Fertige PDFs |
-| `mapping_manager` | Fertige PDFs… | `tools/mapping_manager/` — Publish-Input → PDFs |
+| `book_projects` | Bücher verwalten… | `tools/book_projects/` — Projekte; Anzeigename; Link zu PDF Manager |
+| `mapping_manager` | PDF Manager… | `tools/mapping_manager/` — Publish-Input → PDFs |
 | `generated_books` | (versteckt) | `tools/generated_books/` — ersetzt durch Mapping Manager |
 | `gg_content_swap` | GrammarGraph-Inhalt aktualisieren… | `tools/gg_content_swap/` — Bundle „Export übernehmen“ + Body-Swap; Doku: `.doc/gg-content-swap.md` |
 

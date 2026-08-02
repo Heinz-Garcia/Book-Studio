@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.mapping_manager.actions import rename_pdf
+from tools.mapping_manager.actions import rename_pdf, restore_source
 from tools.mapping_manager.models import _format_at_display, _truncate_filename
 from tools.mapping_manager.loader import load_renders, load_snapshots
 from tools.mapping_manager.models import layout_profile_label
@@ -65,6 +65,41 @@ def test_load_snapshots_and_renders(tmp_path):
     assert len(renders) == 1
     assert renders[0].exists is True
     assert renders[0].pdf_name == "demo.pdf"
+
+
+def test_load_renders_propagates_source_archive_path(tmp_path):
+    book = tmp_path / "Band"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("book:\n  title: Demo\n", encoding="utf-8")
+    pdf = book / "export" / "_book" / "demo.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-1.4")
+    source_dir = book / "export" / "publish_renders" / "snap" / "source_20260802_000329"
+
+    snap = create_import_snapshot(book, import_path="/import", import_run_id="id-1")
+    append_render(
+        book,
+        {
+            "format": "typst",
+            "artifact_path": str(pdf),
+            "source_archive_path": str(source_dir),
+        },
+    )
+
+    renders = load_renders(book, snap["id"])
+    assert renders[0].source_archive_path == source_dir
+
+
+def test_load_renders_source_archive_path_none_when_unset(tmp_path):
+    book = tmp_path / "Band"
+    book.mkdir()
+    pdf = book / "out.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    snap = create_import_snapshot(book, import_path="/import")
+    append_render(book, {"format": "typst", "artifact_path": str(pdf)}, snapshot_id=snap["id"])
+
+    renders = load_renders(book, snap["id"])
+    assert renders[0].source_archive_path is None
 
 
 def test_two_renders_same_snapshot_keep_distinct_layout_profiles(tmp_path):
@@ -233,6 +268,33 @@ def test_rename_pdf_rejects_existing_target(tmp_path):
     (tmp_path / "Belegt.pdf").write_bytes(b"%PDF-1.4 other")
     with pytest.raises(ValueError):
         rename_pdf(pdf, "Belegt.pdf")
+
+
+# --- restore_source (tools.mapping_manager.actions) ---------------------
+#
+# Duenner Wrapper um render_artifact_store.archive_render_source (Backup
+# des aktuellen Standes) + restore_source_archive (eigentliches Zurueck-
+# kopieren) -- siehe dortige Tests fuer die Kopierlogik im Detail. Hier nur
+# die Verdrahtung: Backup passiert VOR dem Ueberschreiben.
+
+
+def test_restore_source_backs_up_current_state_before_overwriting(tmp_path):
+    archive = tmp_path / "archive" / "source_20260802_000329"
+    (archive / "content").mkdir(parents=True)
+    (archive / "content" / "01.md").write_text("archived version", encoding="utf-8")
+
+    live_book = tmp_path / "live_book"
+    (live_book / "content").mkdir(parents=True)
+    (live_book / "content" / "01.md").write_text("current version", encoding="utf-8")
+
+    backup_dir, restored = restore_source(archive, live_book)
+
+    assert restored == ["content"]
+    assert (live_book / "content" / "01.md").read_text(encoding="utf-8") == "archived version"
+    # Der VORHERIGE Stand ("current version") muss im Backup ueberlebt haben.
+    assert backup_dir.is_dir()
+    assert (backup_dir / "content" / "01.md").read_text(encoding="utf-8") == "current version"
+    assert backup_dir.parent == live_book / "export" / "pre_restore_backups"
 
 
 # --- _truncate_filename (Mapping-Manager-Tabelle: feste Zeilenhoehe) ----

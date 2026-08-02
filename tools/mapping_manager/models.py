@@ -34,6 +34,11 @@ class RenderView:
     at_display: str
     exists: bool
     notes: str = ""
+    # Dauerhaft archivierter Quellstand (`content/`, `_quarto.yml`, ...) zum
+    # Render-Zeitpunkt, siehe `render_artifact_store.archive_render_source`.
+    # `None` bei Renders von vor Einführung dieses Felds (nachträglich nicht
+    # rekonstruierbar) oder wenn die Archivierung fehlschlug.
+    source_archive_path: Optional[Path] = None
 
 
 def format_snapshot_label(snap: dict[str, Any]) -> str:
