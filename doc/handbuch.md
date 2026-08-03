@@ -39,9 +39,10 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 15. Skeleton-Bibliothek (Vorlagen)
 16. Buchprojekt-Workflow (GrammarGraph → PDF)
 17. Publish Readiness
-18. Fertige PDFs (Publish-Input → Ausgaben)
+18. PDF Manager (Publish-Input → Ausgaben)
 19. Asset Manager (Pool und Buch-img)
 20. Verzeichnisse (live aus README.md)
+21. Neuerungen 2026-08-02: PDF Manager-Ausbau, ISBN, Cover-Größe, Bleed
 
 ---
 
@@ -367,7 +368,7 @@ Im Export-Dialog wählst du neben Format und Template auch ein **Layout-Profil**
 
 Der **Zeilenabstand** lässt sich unabhängig vom gewählten Profil per eigenem Dropdown feinjustieren.
 
-**Anzeigename (optional):** Im gleichen Dialog kannst du einen kurzen Namen vergeben (z. B. `Paperback Probe rev.5`). Er landet unter **Fertige PDFs** und macht den Render wiederfindbar — auch später dort editierbar.
+**Anzeigename (optional):** Im gleichen Dialog kannst du einen kurzen Namen vergeben (z. B. `Paperback Probe rev.5`). Er landet im **PDF Manager** und macht den Render wiederfindbar — auch später dort editierbar.
 
 **„(Pb) Paperback“ — funktioniert ohne Zusatzschritt.** Anders als die übrigen Profile setzt Paperback ein **exaktes** Seitenformat statt nur ein Papierformat-Preset. Das Studio richtet die dafür nötigen Vorlagendateien beim Rendern **automatisch** ein:
 
@@ -514,7 +515,7 @@ GUI: **Tools → Studio-Konfiguration...**
 |---------|-----------|
 | `content_root_path` | Wo Buchprojekte gesucht werden (`.` = Studio-Ordner); Pflege auch im **Buchprojekt-Manager** |
 
-**Bücher verwalten** (**Plugins → Bücher verwalten…**): große Liste der gefundenen Bücher mit Spalten **Anzeigename**, Ordnername, Pfad. Anzeigename per **Anzeigename…** setzen (`bookconfig/project_label.json`); ohne Vergabe bleibt die Spalte leer. Fertige Ausgaben: Button **Fertige PDFs…** oder **Plugins → Fertige PDFs…** (nicht „Buchordner“).
+**Bücher verwalten** (**Plugins → Bücher verwalten…**): große Liste der gefundenen Bücher mit Spalten **Anzeigename**, Ordnername, Pfad. Anzeigename per **Anzeigename…** setzen (`bookconfig/project_label.json`); ohne Vergabe bleibt die Spalte leer. Fertige Ausgaben: Button **PDF Manager…** oder **Plugins → PDF Manager…** (nicht „Buchordner“). Dort auch **ISBN…** setzen — Kapitel 21.
 
 | `help_manual_path` | Handbuch-Quelle Markdown (`doc/handbuch.md`) — PDF + Pflege |
 | `help_html_path` | Angezeigte Hilfe HTML (`doc/handbuch.html`) — Hilfe-Fenster |
@@ -897,9 +898,9 @@ Typische GrammarGraph-Themen (Bildpfade `/img/…`, `---` im Text, BOX-Syntax) s
 
 Nach erfolgreichem Render wird ein Eintrag in `publish_record.json` geschrieben (`render_success`) und die **Publish Map** um den Render-Lauf ergänzt (Kapitel 18).
 
-### Phase 6 — Fertige PDFs
+### Phase 6 — PDF Manager
 
-**Plugins → Fertige PDFs…** — zeigt pro **Produktionslinie** (Import-Snapshot) alle zugehörigen PDF-Ausgaben mit Template, Format und Profil. Öffnen, Ordner anzeigen oder aufräumen. In der Shell auch über **🗺️** neben dem Buch-Dropdown.
+**Plugins → PDF Manager…** — zeigt pro **El Pitugrafo Quelle** (Import-Snapshot, früher „Produktionslinie“) alle zugehörigen PDF-Ausgaben mit Template, Format und Profil. Öffnen, Ordner anzeigen oder aufräumen. In der Shell auch über **🗺️** neben dem Buch-Dropdown.
 
 Details: Kapitel 18.
 
@@ -913,7 +914,7 @@ Details: Kapitel 18.
 | Was ist 🧬 im Baum? | Automatisch erkannte GG-Nutzinhalt-Datei |
 | Wo steht, welches LLM exportiert hat? | `bookconfig/grammargraph_export.json` |
 | Wer behebt welchen Fehler? | **Plugins → Publish Readiness…** |
-| Wo sind meine PDFs zum Import? | **Plugins → Fertige PDFs…** oder 🗺️ (Kapitel 18) |
+| Wo sind meine PDFs zum Import? | **Plugins → PDF Manager…** oder 🗺️ (Kapitel 18) |
 
 Kurzreferenz auch in `doc/kickstart-grammargraph-skeleton.md`.
 
@@ -994,25 +995,27 @@ Du musst dafür **kein Menü** öffnen — es läuft über Plugin-Hooks mit.
 
 ---
 
-## 18) Fertige PDFs (Publish-Input → Ausgaben) {#sec-mapping-manager}
+## 18) PDF Manager (Publish-Input → Ausgaben) {#sec-mapping-manager}
 
-Unter **Plugins → Fertige PDFs…** (früher „Mapping Manager“) siehst du die **generierten PDFs** des aktiven Buchs, verknüpft mit dem Publish-Input. Oben steht der Kontext des aktiven Buches (Anzeigename, falls vergeben).
+Unter **Plugins → PDF Manager…** (früher „Fertige PDFs“, davor „Mapping Manager“) siehst du die **generierten PDFs** des aktiven Buchs, verknüpft mit dem Publish-Input. Oben steht der Kontext des aktiven Buches (Anzeigename, falls vergeben).
 
 Im Gegensatz zur flachen PDF-Liste (früher „Generierte Bücher“, jetzt versteckt) siehst du hier die **Herkunft** und kannst mehrere Import-/Render-Zyklen nebeneinander vergleichen.
 
 **Jeder Render bekommt eine eigene, dauerhafte Datei.** Renderst du dieselbe Produktionslinie mehrfach — auch mit unterschiedlichem Format oder Layout-Profil (z. B. erst BoD, dann Paperback) —, überschreibt der neue Render **nicht** den vorherigen. Alle Renders derselben Produktionslinie bleiben nebeneinander bestehen und erscheinen hier als eigene Zeilen.
 
-Nach **Export → Buch rendern… (F5)** erscheint ein kurzer Dialog: **PDF öffnen**, **In Fertige PDFs zeigen…** oder **Schließen**.
+Nach **Export → Buch rendern… (F5)** erscheint ein kurzer Dialog: **PDF öffnen**, **Im PDF Manager zeigen…** oder **Schließen**.
+
+> Seit 2026-08-02 kann der PDF Manager mehr als nur PDFs auflisten — auch den **Quellstand** jedes Renders archivieren/wiederherstellen und die **ISBN** verwalten. Details: [Kapitel 21](#sec-neuerungen-2026-08-02).
 
 ### Aufruf
 
-**Plugins → Fertige PDFs…** oder Shell-Button **🗺️** neben dem Buchprojekt-Dropdown.
+**Plugins → PDF Manager…** oder Shell-Button **🗺️** neben dem Buchprojekt-Dropdown.
 
 Voraussetzung: ein **aktives Buchprojekt** im Dropdown.
 
-### Produktionslinien (Snapshots)
+### El Pitugrafo Quelle (Produktionslinien/Snapshots)
 
-Oben wählst du die **Produktionslinie** aus einer Dropdown-Liste:
+Oben wählst du die **El Pitugrafo Quelle** (früher „Produktionslinie“) aus einer Dropdown-Liste:
 
 | Herkunft | Wann angelegt |
 |----------|----------------|
@@ -1031,6 +1034,7 @@ Jede Linie enthält Buchtitel, Provenance-Zusammenfassung (falls vorhanden) und 
 | **Anzeigename** | Optionaler Merknamen (z. B. „rev.5 Probe“) — **nicht** das Layout |
 | **Format** | Export-Format (z. B. `typst`) |
 | **Status** | `OK` oder `fehlt` |
+| **Quelle** | 🟢/🔴 — ob der Quellstand dieses Renders archiviert ist, siehe [Kapitel 21](#sec-neuerungen-2026-08-02) |
 
 Volle Pfade: Zeile unter der Tabelle. **Doppelklick** oder **Öffnen** zeigt die PDF.
 
@@ -1038,8 +1042,8 @@ Volle Pfade: Zeile unter der Tabelle. **Doppelklick** oder **Öffnen** zeigt die
 
 | Ort | Zweck | Verhalten |
 |-----|-------|-----------|
-| `export/_book/…pdf` | Komfort-Kopie für „direkt nach dem Render öffnen“ und Zwischenablage | Wird bei **jedem** Render überschrieben — nicht die Quelle von Fertige PDFs |
-| `export/publish_renders/<Snapshot-ID>/…pdf` | Dauerhaftes Archiv, eine Datei pro Render | **Nie** überschrieben — das ist, was unter Fertige PDFs erscheint |
+| `export/_book/…pdf` | Komfort-Kopie für „direkt nach dem Render öffnen“ und Zwischenablage | Wird bei **jedem** Render überschrieben — nicht die Quelle vom PDF Manager |
+| `export/publish_renders/<Snapshot-ID>/…pdf` | Dauerhaftes Archiv, eine Datei pro Render | **Nie** überschrieben — das ist, was im PDF Manager erscheint |
 
 Falls dein Buchprojekt beide Vorlagendateien für „(Pb) Paperback“ noch nicht hatte, legt das Studio sie beim ersten Paperback-Render automatisch an (siehe [Kapitel 6, Layout-Profile](#sec-speichern-rendern)) — kein manueller Schritt nötig.
 
@@ -1049,10 +1053,17 @@ Falls dein Buchprojekt beide Vorlagendateien für „(Pb) Paperback“ noch nich
 |--------|---------|
 | **Öffnen** | PDF im Standardprogramm öffnen |
 | **Anzeigename…** | Merknamen setzen/ändern |
+| **Quelle öffnen** | Lebendes Buchprojekt im Hauptfenster aktivieren — direkt weiterbearbeiten |
+| **Archiv-Quelle im Explorer** | Read-only: archivierten Quellstand dieses Renders ansehen |
 | **PDF im Explorer** | Explorer mit markierter PDF-Datei |
+| **Pfad kopieren** | Vollständigen PDF-Pfad in die Zwischenablage |
 | **Dateiname…** | PDF-Datei umbenennen (Map wird mitgezogen) |
-| **Löschen…** | PDF + Listeneintrag entfernen |
+| **Copy to configured folder** | Markierte PDF(s) in den konfigurierten Deploy-Ordner kopieren (früher „Deploy“) |
+| **Quelle wiederherstellen…** | Archivierten Quellstand ins lebende Projekt zurückschreiben (mit Sicherheits-Backup) |
+| **Löschen…** | PDF + Listeneintrag entfernen — fragt bei archivierter Quelle extra nach |
 | **Schließen** | Dialog schließen |
+
+Details zu den Quelle-Buttons: [Kapitel 21](#sec-neuerungen-2026-08-02).
 
 ### Datenmodell (`publish_map.json`)
 
@@ -1065,8 +1076,9 @@ publish_map.json
     ├── id, origin, import_path, book_title, provenance
     └── renders[]           ← Kinder pro erfolgreichem Render
         ├── format, template, layout_profile, profile_name
-        ├── notes           ← Anzeigename (Export-Dialog / Fertige PDFs)
+        ├── notes           ← Anzeigename (Export-Dialog / PDF Manager)
         ├── artifact_path   ← Pfad zur dauerhaften PDF-Kopie (export/publish_renders/…)
+        ├── source_archive_path ← Pfad zum archivierten Quellstand (Kapitel 21)
         └── metadata        ← Buch-Metadaten zum Render-Zeitpunkt
 ```
 
@@ -1075,7 +1087,7 @@ publish_map.json
 | `publish_record.json` | Chronologisches **Ereignis-Log** (Import, Doctor, Render) |
 | `publish_map.json` | **Strukturierte Zuordnung** Input-Snapshot → PDF-Ausgaben |
 
-Fehlt `publish_map.json` oder ist sie leer, kann sie aus `publish_record.json` **nachgebaut** werden (beim ersten Öffnen von Fertige PDFs).
+Fehlt `publish_map.json` oder ist sie leer, kann sie aus `publish_record.json` **nachgebaut** werden (beim ersten Öffnen des PDF Managers).
 
 ### Automatische Pflege
 
@@ -1093,7 +1105,7 @@ Du musst die Map **nicht manuell** pflegen — Plugin-Hooks schreiben bei:
 2. Nach **Template-/Layout-Profil-Wechseln** — z. B. BoD- und Paperback-Render derselben Produktionslinie direkt nebeneinander vergleichen
 3. Vor **Übergabe an Lektorat/Druckerei** — fehlende PDFs (`fehlt`) erkennen und neu rendern
 
-**Fertige PDFs ersetzt nicht Publish Readiness** — verwaltet Ausgaben und Herkunft, nicht Qualitätsbefunde.
+**Der PDF Manager ersetzt nicht Publish Readiness** — verwaltet Ausgaben und Herkunft, nicht Qualitätsbefunde.
 
 ---
 
@@ -1130,6 +1142,99 @@ So bleibt die Erklärung am Ort des Ordners und erscheint trotzdem in der Hilfe 
 
 ---
 
+## 21) Neuerungen 2026-08-02: PDF Manager-Ausbau, ISBN, Cover-Größe, Bleed {#sec-neuerungen-2026-08-02}
+
+Dieses Kapitel bündelt eine größere Reihe von Änderungen rund um die Amazon-KDP-Produktion — vom umbenannten PDF Manager bis zu zwei neuen, eigenständigen Werkzeugen. Details zu einzelnen Punkten stehen weiterhin in den jeweiligen Fachkapiteln; hier der Überblick, was neu ist und warum.
+
+### PDF Manager statt „Fertige PDFs“
+
+Der Dialog aus Kapitel 18 heißt jetzt **PDF Manager** (**Plugins → PDF Manager…**) — reine Umbenennung, gleiche Funktion wie bisher, plus die unten beschriebenen Erweiterungen.
+
+### Quelle öffnen — direkt weiterarbeiten
+
+Der Button **Quelle öffnen** aktiviert das Buchprojekt einer markierten Render-Zeile **in situ** im Hauptfenster (identisch dazu, es oben im Dropdown zu wählen) und schließt den PDF Manager — du landest direkt im Kapitelbaum und kannst sofort weiterbearbeiten, dann neu rendern (**F5**).
+
+**Wichtig:** Das zeigt immer den **aktuellen, lebenden** Stand des Buchprojekts — unabhängig davon, welche Render-Zeile markiert war. Für den Stand **zum Zeitpunkt eines bestimmten Renders** siehe die beiden nächsten Abschnitte.
+
+### Reproduzierbares Quelle-Artefakt-Mapping
+
+Seit 2026-08-02 archiviert jeder erfolgreiche Render zusätzlich zur PDF auch den **exakten Quellstand** (`content/`, `_quarto.yml`, `bookconfig/`, …), der zu genau diesem Render geführt hat — zeitstempel-eindeutig, im selben Archiv-Ordner wie die PDF (`export/publish_renders/<Snapshot-ID>/source_<Zeitstempel>/`).
+
+**Neue Spalte „Quelle“** in der PDF-Tabelle:
+
+| Anzeige | Bedeutung |
+|---------|-----------|
+| 🟢 grüner Punkt | Quellstand dieses Renders ist archiviert |
+| 🔴 roter Punkt | Kein archivierter Quellstand — entweder ein Render von **vor** dieser Änderung (nachträglich nicht rekonstruierbar) oder die Archivierung ist aus einem anderen Grund fehlgeschlagen |
+
+> Falls Book Studio beim Rendern gerade neu gestartet/aktualisiert wurde: die Quell-Archivierung braucht einen laufenden Prozess mit aktuellem Code — nach einem Update von Book Studio das Programm einmal neu starten, dann sind neue Renders wieder zuverlässig grün.
+
+### Archiv-Quelle im Explorer (read-only)
+
+Zeigt den archivierten Quellstand einer markierten Render-Zeile im Explorer — **read-only**, ändert nichts am lebenden Buchprojekt. Zum Nachsehen, Vergleichen oder manuellen Kopieren einzelner Dateien.
+
+### Quelle wiederherstellen…
+
+Überschreibt das **lebende** Buchprojekt mit dem archivierten Quellstand einer markierten Render-Zeile — z. B. um exakt zu dem Stand zurückzuspringen, mit dem eine bestimmte PDF entstanden ist.
+
+- Sichert **automatisch** den aktuellen Stand vorher unter `export/pre_restore_backups/` — ein Restore ist also selbst nie unwiderruflich.
+- Aktiviert danach das (jetzt wiederhergestellte) Buchprojekt im Hauptfenster und zeigt dort einen **gelben Hinweis-Banner** über der Buchstruktur („🔁 Wiederhergestellte Quelle — Stand vom Render …“), damit klar bleibt, dass du gerade einen alten Stand bearbeitest, nicht den zuletzt aktiven. Banner mit „✕“ ausblenden oder durch Wechsel des Buchs im Dropdown.
+- Fragt vorher explizit nach Bestätigung, da destruktiv.
+
+**„Quelle öffnen“ vs. „Quelle wiederherstellen…“** — leicht zu verwechseln:
+
+| Button | Zeigt/ändert … | Zeitbezug |
+|--------|-----------------|-----------|
+| **Quelle öffnen** | aktuellen, lebenden Stand | keiner — immer „jetzt“ |
+| **Quelle wiederherstellen…** | überschreibt lebenden Stand mit einem archivierten | gezielt: Stand einer bestimmten Render-Zeile |
+
+### Löschen fragt jetzt nach der Quelle
+
+Beim **Löschen…** einer PDF mit archiviertem Quellstand kommt eine zusätzliche, separate Abfrage: *„Auch den archivierten Quellstand löschen?“* — Default ist **Nein** (sicherer). Renders ohne archivierten Quellstand lösen diese Zusatzfrage nicht aus.
+
+### El Pitugrafo Quelle (früher „Produktionslinie“)
+
+Das Dropdown-Feld oben im PDF Manager heißt jetzt **„El Pitugrafo Quelle“** — es zeigt, aus welchem GrammarGraph-Import die darunter liegenden Renders stammen (in der Praxis entsteht der Buchinhalt immer so). Neuer Button daneben:
+
+**open production folder** — öffnet den tatsächlichen GrammarGraph-Export-Ordner dieser Quelle im Explorer (`bookconfig/publish_map.json` → `provenance.import_path`). Meldet klar, wenn kein Export-Ordner hinterlegt ist (rein lokale Bücher ohne GrammarGraph-Import) oder der Ordner nicht mehr existiert — im letzteren Fall gibt es einen Button **„copy folder to clipboard“**, um den Pfad z. B. in einem Backup wiederzufinden.
+
+### Copy to configured folder (früher „Deploy“)
+
+Reine Umbenennung des bisherigen „Deploy“-Buttons — kopiert markierte PDF(s) unverändert in den konfigurierten Ordner (`pdf_deploy_folder`, Kapitel 11).
+
+### Druck-Freigabe prüfen: volle Transparenz statt nur Befunde
+
+Der Dialog aus **Plugins → 🖨️ Druck-Freigabe prüfen…** (Kapitel 6/18 im Zusammenhang mit Layout-Profilen) zeigt jetzt **alle** durchgeführten Prüfungen mit ihrem tatsächlich gemessenen Wert — auch bestandene, nicht nur Befunde. „Keine Befunde“ allein sagte vorher nicht, *was* eigentlich geprüft wurde; jetzt siehst du z. B. „5 Schriftart(en) eingebettet: …“ oder „Innenrand 20,0mm reicht für 350 Seiten (Amazon KDP: mindestens 12,7mm nötig)“ auch wenn alles in Ordnung ist.
+
+### ISBN in „Bücher verwalten“
+
+**Plugins → Bücher verwalten…** hat eine neue Spalte **ISBN** und einen Button **ISBN…** (neben „Anzeigename…“):
+
+- Zeigt die ISBN aus `_quarto.yml` (Top-Level-Feld `isbn:`) oder grau **„(keine ISBN)“**, falls keine gesetzt ist.
+- **ISBN…** öffnet einen Eingabedialog (vorausgefüllt mit dem aktuellen Wert) und schreibt die ISBN gezielt in `_quarto.yml` — ohne den Rest der Datei anzufassen (Kommentare/Formatierung bleiben erhalten). Leer lassen + OK entfernt die ISBN wieder.
+- Danach einmal neu rendern, damit `#bs-isbn` sie ins Impressum übernimmt und die Druck-Freigabe-Prüfung den ISBN-Check tatsächlich durchführt (statt „übersprungen“).
+
+**Woher die ISBN nehmen?** Entweder Amazons kostenlose ISBN (wird beim Taschenbuch-Setup im KDP-Dashboard vergeben, bindet aber an Amazon als Verlag) oder eine selbst gekaufte, plattformunabhängige ISBN (in Deutschland über die MVB, [german-isbn.de](https://german-isbn.de/isbn/preise-und-pakete)).
+
+### Cover-Größe berechnen (neues Werkzeug)
+
+**Plugins → 📐 Cover-Größe berechnen…** — eigenständiger Rechner, kein aktives Buchprojekt nötig:
+
+- Eingabe: Seitenzahl, Papierart (Weiß/Cremefarben/Standard-/Premiumfarbe), Trimmgröße (alle 16 KDP-Standardgrößen oder benutzerdefiniert).
+- Ausgabe (live, ohne extra Klick): Buchrücken-Breite, Gesamt-Coverbreite/-höhe inkl. der von KDP verlangten Beschnittzugabe — in mm und Zoll.
+- **Werte kopieren** legt das Ergebnis in die Zwischenablage.
+- Ersetzt nicht den offiziellen [KDP-Coverrechner](https://kdp.amazon.com/de_DE/cover-calculator), hilft aber bei der Vorab-Planung, bevor das Cover gestaltet wird.
+
+### Bleed für randabfallende Bilder (neues Layout-Profil)
+
+KDP verlangt bei randabfallenden Bildern im **Buchinnenteil** (z. B. ein Deckblatt-Vollbild) eine Beschnittzugabe (+3,2mm Breite / +6,4mm Höhe) — und zwar für die **gesamte** Datei, sobald auch nur eine Seite so ein Bild hat.
+
+Neues Layout-Profil im Export-Dialog (Kapitel 6): **„(Pb) Paperback mit Bleed (randabfallende Bilder)“** — gleiche Maße wie „(Pb) Paperback“ (135×215mm, Bundsteg innen 20mm/außen 16mm), aber mit aktivierter Beschnittzugabe. Der Inhalt landet dabei an derselben Stelle relativ zur Trimmlinie wie ohne Bleed — nur der zusätzliche Rand für randabfallende Bilder kommt außen dazu.
+
+**Nutze dieses Profil, wenn** dein Buch eine Seite mit vollflächigem Bild hat (typisches Muster: `Deckblatt.md` mit `#page(margin: 0pt)[#image(…, width: 100%, height: 100%, fit: "cover")]`). Für Bücher ohne randabfallende Bilder bleibt „(Pb) Paperback“ ohne Bleed die richtige Wahl — beide Profile stehen unabhängig nebeneinander.
+
+---
+
 ## Anhang: Ordnerstruktur eines Buchprojekts {#sec-anhang-ordnerstruktur}
 
 ```
@@ -1149,7 +1254,8 @@ MeinBuch/
 │   └── reports/                   ← Doctor-/Readiness-Reports (JSON)
 ├── export/              ← Render-Ausgabe
 │   ├── _book/                     ← Komfort-Kopie, wird bei jedem Render überschrieben
-│   └── publish_renders/<Snapshot-ID>/   ← dauerhaftes Archiv, eine Datei pro Render (Fertige PDFs)
+│   └── publish_renders/<Snapshot-ID>/   ← dauerhaftes Archiv, eine Datei pro Render (PDF Manager)
+│       └── source_<Zeitstempel>/        ← archivierter Quellstand je Render (Kapitel 21)
 └── .backups/            ← Struktur-Snapshots (Time Machine: struct_*.json)
     └── file-fetch/      ← Sicherungen vor „Datei aus anderem Projekt holen“
 

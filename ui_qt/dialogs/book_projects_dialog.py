@@ -50,7 +50,10 @@ _KIND_GROUP = "group"
 
 _COL_DISPLAY = 0
 _COL_FOLDER = 1
-_COL_PATH = 2
+_COL_ISBN = 2
+_COL_PATH = 3
+
+_NO_ISBN_PLACEHOLDER = "(keine ISBN)"
 
 
 class BookProjectsQtDialog(QDialog):
@@ -104,7 +107,7 @@ class BookProjectsQtDialog(QDialog):
         books_l.addLayout(books_header)
 
         self.books_tree = QTreeWidget()
-        self.books_tree.setHeaderLabels(["Anzeigename", "Ordnername", "Pfad"])
+        self.books_tree.setHeaderLabels(["Anzeigename", "Ordnername", "ISBN", "Pfad"])
         self.books_tree.setUniformRowHeights(True)
         self.books_tree.setAlternatingRowColors(True)
         self.books_tree.setRootIsDecorated(True)
@@ -113,9 +116,11 @@ class BookProjectsQtDialog(QDialog):
         header.setStretchLastSection(True)
         header.setSectionResizeMode(_COL_DISPLAY, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(_COL_FOLDER, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(_COL_ISBN, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(_COL_PATH, QHeaderView.ResizeMode.Stretch)
         self.books_tree.setColumnWidth(_COL_DISPLAY, 280)
         self.books_tree.setColumnWidth(_COL_FOLDER, 340)
+        self.books_tree.setColumnWidth(_COL_ISBN, 170)
         self.books_tree.itemDoubleClicked.connect(self._on_book_double_clicked)
         self.books_tree.itemSelectionChanged.connect(self._sync_selection_from_books)
         books_l.addWidget(self.books_tree, stretch=1)
@@ -164,6 +169,13 @@ class BookProjectsQtDialog(QDialog):
         self.btn_label = QPushButton("Anzeigename…")
         self.btn_label.clicked.connect(self._edit_display_name)
         actions.addWidget(self.btn_label)
+
+        self.btn_isbn = QPushButton("ISBN…")
+        self.btn_isbn.setToolTip(
+            "ISBN setzen/ändern — wird als Top-Level-Feld in _quarto.yml geschrieben"
+        )
+        self.btn_isbn.clicked.connect(self._edit_isbn)
+        actions.addWidget(self.btn_isbn)
 
         self.btn_reveal = QPushButton("Buchordner")
         self.btn_reveal.setToolTip("Projektordner im Explorer öffnen")
@@ -234,6 +246,18 @@ class BookProjectsQtDialog(QDialog):
         blob = f"{info.display_name} {info.name} {info.path}".lower()
         return needle in blob
 
+    @staticmethod
+    def _isbn_display(info: BookInfo) -> tuple[str, bool]:
+        """ISBN-Anzeigetext für `info` + ob es ein Platzhalter (keine ISBN
+        hinterlegt) ist. Liest die SSOT direkt aus `_quarto.yml`
+        (Top-Level-Feld `isbn:`, siehe `tools.publisher_compliance.metadata`)."""
+        from tools.publisher_compliance.metadata import read_isbn_from_quarto_yml
+
+        isbn = read_isbn_from_quarto_yml(info.path / "_quarto.yml")
+        if isbn:
+            return isbn, False
+        return _NO_ISBN_PLACEHOLDER, True
+
     def _rebuild_books_tree(self) -> None:
         needle = self.filter_edit.text().strip().lower()
         active = self._active_book_path()
@@ -258,14 +282,14 @@ class BookProjectsQtDialog(QDialog):
             books = by_root.get(key, [])
             if needle and not books:
                 continue
-            group = QTreeWidgetItem([f"📁  {root.name}", "", str(root)])
+            group = QTreeWidgetItem([f"📁  {root.name}", "", "", str(root)])
             group.setData(0, _ROLE_KIND, _KIND_GROUP)
             group.setFlags(group.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             bold = group.font(0)
             bold.setBold(True)
             group.setFont(0, bold)
             group.setToolTip(0, str(root))
-            group.setToolTip(2, str(root))
+            group.setToolTip(_COL_PATH, str(root))
             self.books_tree.addTopLevelItem(group)
 
             def sort_key(b: BookInfo) -> tuple[str, str]:
@@ -277,7 +301,8 @@ class BookProjectsQtDialog(QDialog):
                 folder = info.name
                 if active is not None and info.path.resolve() == active:
                     folder = f"{info.name}  (aktiv)"
-                child = QTreeWidgetItem([label, folder, str(info.path)])
+                isbn_text, isbn_missing = self._isbn_display(info)
+                child = QTreeWidgetItem([label, folder, isbn_text, str(info.path)])
                 child.setData(0, _ROLE_KIND, _KIND_BOOK)
                 child.setData(0, _ROLE_PAYLOAD, info)
                 tip = str(info.path)
@@ -285,9 +310,14 @@ class BookProjectsQtDialog(QDialog):
                     tip = f"{label}\n{tip}"
                 child.setToolTip(0, tip)
                 child.setToolTip(1, tip)
-                child.setToolTip(2, tip)
+                child.setToolTip(_COL_PATH, tip)
+                if isbn_missing:
+                    child.setForeground(_COL_ISBN, Qt.GlobalColor.gray)
+                    child.setToolTip(_COL_ISBN, "Keine ISBN hinterlegt — Button „ISBN…“ verwenden")
+                else:
+                    child.setToolTip(_COL_ISBN, isbn_text)
                 if active is not None and info.path.resolve() == active:
-                    for col in range(3):
+                    for col in range(4):
                         mark = child.font(col)
                         mark.setBold(True)
                         child.setFont(col, mark)
@@ -298,16 +328,19 @@ class BookProjectsQtDialog(QDialog):
         orphans = [b for b in self._books if b.root.resolve() not in known]
         orphan_vis = [b for b in orphans if self._book_matches(b, needle)]
         if orphan_vis:
-            other = QTreeWidgetItem(["Weitere Bücher", "", ""])
+            other = QTreeWidgetItem(["Weitere Bücher", "", "", ""])
             other.setData(0, _ROLE_KIND, _KIND_GROUP)
             other.setFlags(other.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.books_tree.addTopLevelItem(other)
             for info in orphan_vis:
+                isbn_text, isbn_missing = self._isbn_display(info)
                 child = QTreeWidgetItem(
-                    [info.display_name or "", info.name, str(info.path)]
+                    [info.display_name or "", info.name, isbn_text, str(info.path)]
                 )
                 child.setData(0, _ROLE_KIND, _KIND_BOOK)
                 child.setData(0, _ROLE_PAYLOAD, info)
+                if isbn_missing:
+                    child.setForeground(_COL_ISBN, Qt.GlobalColor.gray)
                 other.addChild(child)
             other.setExpanded(True)
 
@@ -432,6 +465,42 @@ class BookProjectsQtDialog(QDialog):
         if self.studio is not None and hasattr(self.studio, "log"):
             label = text.strip() or "(entfernt)"
             self.studio.log(f"Anzeigename gesetzt: {info.name} → {label}", "info")
+
+    def _edit_isbn(self) -> None:
+        info = self._selected_book()
+        if info is None:
+            QMessageBox.information(self, "ISBN", "Bitte ein Buch wählen.")
+            return
+        from tools.publisher_compliance.metadata import (
+            read_isbn_from_quarto_yml,
+            write_isbn_to_quarto_yml,
+        )
+
+        quarto_yml = info.path / "_quarto.yml"
+        if not quarto_yml.is_file():
+            QMessageBox.warning(self, "ISBN", f"_quarto.yml fehlt:\n{quarto_yml}")
+            return
+        current = read_isbn_from_quarto_yml(quarto_yml) or ""
+        text, ok = QInputDialog.getText(
+            self,
+            "ISBN",
+            f"ISBN für:\n{info.name}\n\n"
+            "Wird als Top-Level-Feld in _quarto.yml geschrieben "
+            "(z. B. die von Amazon KDP vergebene ISBN).\n"
+            "(leer lassen und OK = ISBN entfernen)",
+            text=current,
+        )
+        if not ok:
+            return
+        try:
+            write_isbn_to_quarto_yml(quarto_yml, text)
+        except OSError as exc:
+            QMessageBox.warning(self, "ISBN", str(exc))
+            return
+        self._reload()
+        if self.studio is not None and hasattr(self.studio, "log"):
+            label = text.strip() or "(entfernt)"
+            self.studio.log(f"ISBN gesetzt: {info.name} → {label}", "info")
 
     def _reveal_selected(self) -> None:
         info = self._selected_book()

@@ -87,11 +87,17 @@ class MappingManagerQtDialog(QDialog):
         self.book_combo.currentIndexChanged.connect(self._on_book_combo_changed)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("Produktionslinie:"))
+        row.addWidget(QLabel("El Pitugrafo Quelle:"))
         self.snapshot_combo = QComboBox()
         self.snapshot_combo.setMinimumWidth(420)
         self.snapshot_combo.currentIndexChanged.connect(self._on_snapshot_changed)
         row.addWidget(self.snapshot_combo, stretch=1)
+        self.btn_production_folder = QPushButton("open production folder")
+        self.btn_production_folder.setToolTip(
+            "Öffnet den GrammarGraph-Export-Ordner dieser El Pitugrafo Quelle im Explorer"
+        )
+        self.btn_production_folder.clicked.connect(self._open_production_folder)
+        row.addWidget(self.btn_production_folder)
         refresh = QPushButton("Aktualisieren")
         refresh.clicked.connect(self._reload_snapshots)
         row.addWidget(refresh)
@@ -195,7 +201,7 @@ class MappingManagerQtDialog(QDialog):
         self.btn_rename.clicked.connect(self._rename_selected)
         actions.addWidget(self.btn_rename)
 
-        self.btn_deploy = QPushButton("Deploy")
+        self.btn_deploy = QPushButton("Copy to configured folder")
         self.btn_deploy.setToolTip(
             "Markierte PDF(s) in den konfigurierten Deploy-Ordner kopieren "
             "(Studio-Konfiguration: pdf_deploy_folder)"
@@ -356,7 +362,7 @@ class MappingManagerQtDialog(QDialog):
             self._all_renders = []
             self._renders = []
             self.table.setRowCount(0)
-            self.empty_label.setText("Keine Produktionslinie — zuerst rendern (F5).")
+            self.empty_label.setText("Keine El Pitugrafo Quelle — zuerst rendern (F5).")
             return
         target = 0
         if previous_id:
@@ -381,6 +387,50 @@ class MappingManagerQtDialog(QDialog):
             return
         self._all_renders = load_renders(self._book(), str(snap_id))
         self._apply_filter()
+
+    def _current_snapshot(self) -> Optional[SnapshotView]:
+        snap_id = self.snapshot_combo.currentData()
+        if not snap_id:
+            return None
+        for snap in self._snapshots:
+            if snap.id == snap_id:
+                return snap
+        return None
+
+    def _open_production_folder(self) -> None:
+        """Öffnet den GrammarGraph-Export-Ordner der gewählten
+        Produktionslinie im Explorer (`SnapshotView.production_folder`,
+        aus `snapshot["provenance"]["import_path"]` -- der tatsächliche
+        Quellordner, jede Produktionslinie entsteht in der Praxis aus
+        genau so einem GrammarGraph-Export)."""
+        snap = self._current_snapshot()
+        if snap is None:
+            QMessageBox.information(self, "PDF Manager", "Bitte eine El Pitugrafo Quelle wählen.")
+            return
+        if not snap.production_folder:
+            QMessageBox.information(
+                self,
+                "PDF Manager",
+                "Für diese El Pitugrafo Quelle ist kein GrammarGraph-Quellordner hinterlegt.",
+            )
+            return
+        folder = Path(snap.production_folder)
+        if not folder.is_dir():
+            box = QMessageBox(self)
+            box.setWindowTitle("PDF Manager")
+            box.setIcon(QMessageBox.Icon.Information)
+            box.setText(f"Ordner nicht gefunden:\n{folder}")
+            btn_ok = box.addButton(QMessageBox.StandardButton.Ok)
+            btn_copy = box.addButton("copy folder to clipboard", QMessageBox.ButtonRole.ActionRole)
+            box.setDefaultButton(btn_ok)
+            box.exec()
+            if box.clickedButton() is btn_copy:
+                QApplication.clipboard().setText(str(folder))
+            return
+        try:
+            reveal_in_explorer(folder)
+        except OSError as exc:
+            QMessageBox.critical(self, "PDF Manager", str(exc))
 
     def _apply_filter(self, _text: str = "") -> None:
         needle = self.filter_edit.text().strip().lower()

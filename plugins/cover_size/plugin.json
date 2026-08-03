@@ -1,0 +1,11 @@
+{
+  "name": "cover_size",
+  "label": "📐 Cover-Größe berechnen…",
+  "description": "Berechnet Buchrücken-Breite und Gesamt-Covermaße für ein KDP-Taschenbuch.",
+  "entrypoint": "plugins.cover_size:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 17,
+  "help_text": "Reiner Rechner (keine Datei-I/O): Seitenzahl + Papierart + Trimmgröße ergeben Buchrücken-Breite und Gesamt-Coverbreite/-höhe inkl. 3,2mm Beschnittzugabe. Formel und Werte gegen die KDP-Hilfe verifiziert (Stand 2026-08-02), siehe tools/cover_size/calculator.py. Ersetzt nicht den KDP-Coverrechner, hilft aber bei der Vorab-Planung."
+}

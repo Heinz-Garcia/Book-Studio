@@ -58,6 +58,10 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 - [services/studio_adapter.py](../services/studio_adapter.py) — Property-Delegation für Sub-Module
 - [services/constants.py](../services/constants.py) — `StatusFg`, `LogLevel`-Enum, Magic-String-Aliase
 
+## Feature Requests / Zurückgestellte Ideen
+
+- Autonomes eBook/EPUB-Export-Tool für Kindle (kein aktueller Bedarf, siehe Doku): [ebook-epub-autonomes-tool.md](ebook-epub-autonomes-tool.md)
+
 ## Vorlagen
 
 - Standardvorlage für neue Notizen: [doku_template.md](doku_template.md)

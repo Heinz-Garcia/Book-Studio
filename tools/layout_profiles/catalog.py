@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from tools.kdp_specs import BLEED_MM as KDP_BLEED_MM
+from tools.layout_profiles.units import format_length_mm, parse_length_mm
+
 
 @dataclass(frozen=True)
 class LineStretchOption:
@@ -42,6 +45,54 @@ def normalize_linestretch(value: Any, *, default: float = 1.2) -> float:
     return parsed
 
 
+# Bleed gilt nur für das gespiegelte Randschema (zweiseitiger Bundsteg) --
+# bei symmetrischen x/y-Profilen (Manuskript/Lektorat, "normseite-vgwort")
+# gibt es keine definierte "äußere" Kante, und diese Profile sind ohnehin
+# nicht für echten KDP-Druck gedacht.
+_MIRRORED_MARGIN_KEYS = ("inside", "outside", "top", "bottom")
+
+
+def _bleed_adjusted_page(
+    width_raw: str,
+    height_raw: str,
+    margin: dict[str, str],
+    bleed_mm: float,
+) -> Optional[tuple[str, str, dict[str, str]]]:
+    """Vergrößert Seitenbreite/-höhe um die Beschnittzugabe und passt die
+    außenliegenden Ränder (outside/top/bottom) entsprechend an, damit der
+    tatsächliche Inhalt exakt an der ursprünglichen Trimmlinie stehen
+    bleibt -- nur der zusätzliche Bleed-Rand kommt außen dazu.
+
+    KDP-Formel (siehe tools/kdp_specs.py): Breite +bleed_mm (nur Außenkante
+    -- die Bundsteg-/"inside"-Seite wird nie beschnitten, bleibt also
+    unverändert), Höhe +2×bleed_mm (oben UND unten).
+
+    Gibt `None` zurück, wenn `margin` nicht das vollständige gespiegelte
+    Schema hat oder eine Längenangabe nicht geparst werden konnte --
+    Aufrufer behält dann die unveränderten Werte (kein Bleed angewendet,
+    kein Fehler).
+    """
+    if not all(key in margin for key in _MIRRORED_MARGIN_KEYS):
+        return None
+    width_mm = parse_length_mm(width_raw)
+    height_mm = parse_length_mm(height_raw)
+    outside_mm = parse_length_mm(margin["outside"])
+    top_mm = parse_length_mm(margin["top"])
+    bottom_mm = parse_length_mm(margin["bottom"])
+    if None in (width_mm, height_mm, outside_mm, top_mm, bottom_mm):
+        return None
+
+    new_margin = dict(margin)
+    new_margin["outside"] = format_length_mm(outside_mm + bleed_mm)
+    new_margin["top"] = format_length_mm(top_mm + bleed_mm)
+    new_margin["bottom"] = format_length_mm(bottom_mm + bleed_mm)
+    return (
+        format_length_mm(width_mm + bleed_mm),
+        format_length_mm(height_mm + 2 * bleed_mm),
+        new_margin,
+    )
+
+
 @dataclass(frozen=True)
 class LayoutProfile:
     id: str
@@ -68,6 +119,19 @@ class LayoutProfile:
     # Berechnung, die diese Werte aus Papierformat/Schrift/Rand ableitet.
     lines_per_page: Optional[int] = None
     chars_per_line: Optional[int] = None
+    # Beschnittzugabe (bleed) in mm für randabfallende Bilder/Hintergründe
+    # im Buchinnenteil (z. B. ein Deckblatt-Vollbild, siehe
+    # tools/skeleton/library/*/content/Deckblatt.md) -- None (Default) heißt
+    # kein Bleed, Seite bleibt exakt auf Trimmgröße (unverändertes Verhalten
+    # aller Profile ohne dieses Feld). Gesetzt: format_options() vergrößert
+    # Seitenbreite/-höhe und die außenliegenden Ränder entsprechend, siehe
+    # `_bleed_adjusted_page`. Nur wirksam in Kombination mit Custom-Trimm
+    # (typst_page_width/-height) UND gespiegeltem inside/outside/top/bottom-
+    # Randschema -- KDP verlangt laut eigener Doku, dass bei Bleed-Bedarf
+    # die GESAMTE Datei (nicht nur einzelne Seiten) in der vergrößerten
+    # Seitengröße vorliegt; Typsts `#set page(...)` gilt ohnehin fürs ganze
+    # Dokument, das ist hier also automatisch erfüllt.
+    bleed_mm: Optional[float] = None
 
     def format_options(self, *, linestretch: Optional[float] = None) -> dict[str, Any]:
         stretch = normalize_linestretch(linestretch if linestretch is not None else self.linestretch)
@@ -79,11 +143,16 @@ class LayoutProfile:
             "orphans": self.orphans,
             "toc-depth": self.toc_depth,
         }
-        if self.typst_page_width and self.typst_page_height:
-            opts["typst-page-width"] = self.typst_page_width
-            opts["typst-page-height"] = self.typst_page_height
-        if self.page_margin:
-            opts["page-margin"] = dict(self.page_margin)
+        width, height, margin = self.typst_page_width, self.typst_page_height, self.page_margin
+        if self.bleed_mm and width and height and margin:
+            adjusted = _bleed_adjusted_page(width, height, margin, self.bleed_mm)
+            if adjusted is not None:
+                width, height, margin = adjusted
+        if width and height:
+            opts["typst-page-width"] = width
+            opts["typst-page-height"] = height
+        if margin:
+            opts["page-margin"] = dict(margin)
         return opts
 
 
@@ -127,6 +196,26 @@ LAYOUT_PROFILES: tuple[LayoutProfile, ...] = (
         page_margin={"inside": "20mm", "outside": "16mm", "top": "19mm", "bottom": "20mm"},
         lines_per_page=36,
         chars_per_line=62,
+    ),
+    LayoutProfile(
+        id="paperback-bleed",
+        label="(Pb) Paperback mit Bleed (randabfallende Bilder)",
+        description=(
+            "Wie „(Pb) Paperback“, aber mit KDP-Beschnittzugabe "
+            "(+3,2mm Breite / +6,4mm Höhe) für randabfallende Bilder, z. B. "
+            "ein Deckblatt-Vollbild (siehe content/Deckblatt.md). KDP verlangt "
+            "das für die GESAMTE Datei, sobald auch nur eine Seite ein "
+            "randabfallendes Element hat — Trimmgröße bleibt 135×215mm, nur "
+            "die gerenderte Seite wird um den Bleed größer; der Inhalt landet "
+            "unverändert an derselben Stelle relativ zur Trimmlinie."
+        ),
+        linestretch=1.2,
+        typst_page_width="135mm",
+        typst_page_height="215mm",
+        page_margin={"inside": "20mm", "outside": "16mm", "top": "19mm", "bottom": "20mm"},
+        lines_per_page=36,
+        chars_per_line=62,
+        bleed_mm=KDP_BLEED_MM,
     ),
     LayoutProfile(
         id="publisher-print",

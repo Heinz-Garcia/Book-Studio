@@ -13,7 +13,7 @@ from tools.publisher_compliance.catalog import (
     get_profile,
     min_inside_margin_mm,
 )
-from tools.publisher_compliance.metadata import read_isbn_from_quarto_yml
+from tools.publisher_compliance.metadata import read_isbn_from_quarto_yml, write_isbn_to_quarto_yml
 from tools.publisher_compliance.validators import (
     check_inside_margin,
     check_isbn_consistency,
@@ -154,6 +154,61 @@ def test_read_isbn_from_quarto_yml_ignores_nested_book_field(tmp_path):
         encoding="utf-8",
     )
     assert read_isbn_from_quarto_yml(yml) is None
+
+
+def test_write_isbn_to_quarto_yml_prepends_when_no_existing_line(tmp_path):
+    yml = tmp_path / "_quarto.yml"
+    yml.write_text("project:\n  type: book\n", encoding="utf-8")
+    write_isbn_to_quarto_yml(yml, "978-3-000000-00-0")
+    assert read_isbn_from_quarto_yml(yml) == "978-3-000000-00-0"
+    assert yml.read_text(encoding="utf-8").startswith('isbn: "978-3-000000-00-0"\n')
+
+
+def test_write_isbn_to_quarto_yml_uncomments_placeholder(tmp_path):
+    yml = tmp_path / "_quarto.yml"
+    yml.write_text('# isbn: "978-3-..."\nproject:\n  type: book\n', encoding="utf-8")
+    write_isbn_to_quarto_yml(yml, "978-3-111111-11-1")
+    text = yml.read_text(encoding="utf-8")
+    assert read_isbn_from_quarto_yml(yml) == "978-3-111111-11-1"
+    assert "#" not in text
+
+
+def test_write_isbn_to_quarto_yml_replaces_existing_value(tmp_path):
+    yml = tmp_path / "_quarto.yml"
+    yml.write_text('isbn: "978-3-000000-00-0"\nproject:\n  type: book\n', encoding="utf-8")
+    write_isbn_to_quarto_yml(yml, "978-3-222222-22-2")
+    assert read_isbn_from_quarto_yml(yml) == "978-3-222222-22-2"
+    assert yml.read_text(encoding="utf-8").count("isbn:") == 1
+
+
+def test_write_isbn_to_quarto_yml_empty_value_removes_line(tmp_path):
+    yml = tmp_path / "_quarto.yml"
+    yml.write_text('isbn: "978-3-000000-00-0"\nproject:\n  type: book\n', encoding="utf-8")
+    write_isbn_to_quarto_yml(yml, "")
+    assert read_isbn_from_quarto_yml(yml) is None
+    assert "isbn" not in yml.read_text(encoding="utf-8")
+
+
+def test_write_isbn_to_quarto_yml_never_touches_nested_book_field(tmp_path):
+    """Regression: eine fruehere Regex-Fassung (`#?\\s*isbn:`) hat die
+    eingerueckte `book.isbn`-Zeile faelschlich mitgetroffen, weil `\\s*`
+    beliebig viel fuehrenden Leerraum verschluckt hat."""
+    yml = tmp_path / "_quarto.yml"
+    yml.write_text(
+        'project:\n  type: book\nbook:\n  isbn: "978-3-999999-99-9"\n',
+        encoding="utf-8",
+    )
+    write_isbn_to_quarto_yml(yml, "978-3-333333-33-3")
+    text = yml.read_text(encoding="utf-8")
+    assert read_isbn_from_quarto_yml(yml) == "978-3-333333-33-3"
+    assert '  isbn: "978-3-999999-99-9"' in text
+
+
+def test_write_isbn_to_quarto_yml_strips_quote_characters(tmp_path):
+    yml = tmp_path / "_quarto.yml"
+    yml.write_text("project:\n  type: book\n", encoding="utf-8")
+    write_isbn_to_quarto_yml(yml, '978-3-000"000-00-0')
+    assert read_isbn_from_quarto_yml(yml) == "978-3-000000-00-0"
 
 
 # --- End-to-End mit echtem Render -------------------------------------------

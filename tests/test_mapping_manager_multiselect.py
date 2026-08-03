@@ -228,6 +228,109 @@ def test_selection_stays_correct_after_sorting(monkeypatch, tmp_path):
     dlg.close()
 
 
+# --- "open production folder": Sprung zum GrammarGraph-Export-Ordner ----
+
+
+def _make_book_with_provenance_import_path(tmp_path: Path, import_path: str) -> Path:
+    book = tmp_path / "Band"
+    cfg = book / "bookconfig"
+    cfg.mkdir(parents=True)
+    (book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    payload = {
+        "active_snapshot_id": "snap-a",
+        "snapshots": [
+            {
+                "id": "snap-a",
+                "origin": "grammargraph_import",
+                "created_at": "2026-07-27T20:54:26+00:00",
+                "provenance": {"import_path": import_path},
+                "renders": [],
+            }
+        ],
+    }
+    (cfg / "publish_map.json").write_text(json.dumps(payload), encoding="utf-8")
+    return book
+
+
+def test_open_production_folder_shows_info_without_provenance(monkeypatch, tmp_path):
+    """Rein lokale Produktionslinien ohne GrammarGraph-Import haben keinen
+    Export-Ordner -- muss klar kommuniziert werden, nicht crashen."""
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    _app, dlg, _book = _make_dialog(monkeypatch, tmp_path, count=1)
+
+    with patch.object(mod, "QMessageBox") as mock_box:
+        dlg._open_production_folder()
+        mock_box.information.assert_called_once()
+        args = mock_box.information.call_args[0]
+        assert "kein GrammarGraph-Quellordner" in args[2]
+
+
+def _mock_missing_folder_box(mock_box_cls, *, clicked="ok"):
+    """Richtet den QMessageBox-Mock fuer den 'Ordner nicht gefunden'-Dialog
+    ein (eigene QMessageBox-Instanz mit OK + 'copy folder to clipboard'-
+    Button, siehe `_open_production_folder`). `clicked` waehlt, welcher der
+    beiden Buttons als geklickt simuliert wird."""
+    instance = mock_box_cls.return_value
+    ok_btn = object()
+    copy_btn = object()
+    instance.addButton.side_effect = [ok_btn, copy_btn]
+    instance.clickedButton.return_value = copy_btn if clicked == "copy" else ok_btn
+    return instance, ok_btn, copy_btn
+
+
+def test_open_production_folder_shows_info_when_folder_missing(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    missing = str(tmp_path / "GrammarGraph" / "Publish" / "Publish_Demo_gone")
+    book = _make_book_with_provenance_import_path(tmp_path, missing)
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+
+    with patch.object(mod, "QMessageBox") as mock_box_cls:
+        instance, _ok_btn, _copy_btn = _mock_missing_folder_box(mock_box_cls, clicked="ok")
+        dlg._open_production_folder()
+        instance.setText.assert_called_once_with(f"Ordner nicht gefunden:\n{Path(missing)}")
+        instance.exec.assert_called_once()
+
+
+def test_open_production_folder_copy_to_clipboard_button(monkeypatch, tmp_path):
+    """Der zusaetzliche 'copy folder to clipboard'-Button im
+    'Ordner nicht gefunden'-Dialog kopiert den Pfad -- gedacht fuer den
+    Fall, dass der GrammarGraph-Export weg ist, aber per Backup an anderer
+    Stelle wiedergefunden werden soll."""
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    missing = str(tmp_path / "GrammarGraph" / "Publish" / "Publish_Demo_gone")
+    book = _make_book_with_provenance_import_path(tmp_path, missing)
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+
+    with patch.object(mod, "QMessageBox") as mock_box_cls:
+        _mock_missing_folder_box(mock_box_cls, clicked="copy")
+        dlg._open_production_folder()
+
+    assert QApplication.clipboard().text() == str(Path(missing))
+
+
+def test_open_production_folder_reveals_existing_folder(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    gg_export = tmp_path / "GrammarGraph" / "Publish" / "Publish_Demo_27.07.2026_22.53"
+    gg_export.mkdir(parents=True)
+    book = _make_book_with_provenance_import_path(tmp_path, str(gg_export))
+    _app, dlg = _make_dialog_for_book(monkeypatch, book)
+
+    revealed = []
+    with patch.object(mod, "reveal_in_explorer", side_effect=lambda p: revealed.append(p)):
+        dlg._open_production_folder()
+    assert revealed == [gg_export]
+
+
 # --- Archivierte Quelle: ansehen (read-only) / wiederherstellen (destruktiv) -
 
 

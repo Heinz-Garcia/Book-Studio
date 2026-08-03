@@ -119,6 +119,55 @@ Lint grün, App-Version 1.34 → 1.37 währenddessen hochgezählt.
 
 ---
 
+## Phase 4 — Cover-Größe & Bleed (2026-08-02)
+
+Zwei weitere KDP-Lücken identifiziert und geschlossen, siehe
+`.doc/ebook-epub-autonomes-tool.md` für das dabei etablierte
+Architektur-Muster ("autonomes Tool", hier für Cover-Größe angewendet):
+
+**Cover-Größe-Rechner** (`tools/cover_size/`, Plugin `plugins/cover_size/`,
+Dialog `ui_qt/dialogs/cover_size_dialog.py`): berechnet Buchrücken-Breite
+aus Seitenzahl + Papierart sowie Gesamt-Coverbreite/-höhe inkl.
+Beschnittzugabe, für alle 16 KDP-Standard-Trimmgrößen + benutzerdefiniert.
+Vollständig isoliert (kein Import aus `services/`, `export_manager.py`,
+`ui_qt/`-Kernmodulen; keine Änderung an bestehenden Core-Dateien — reine
+Plugin-Auto-Discovery).
+
+**Bleed als optionales Layout-Profil-Flag** (`LayoutProfile.bleed_mm` in
+`tools/layout_profiles/catalog.py`): KDP verlangt bei randabfallenden
+Bildern im Buchinnenteil (z. B. das Deckblatt-Vollbild-Muster aus
+`content/Deckblatt.md`, tatsächlich genutzt in `IFJN_Brustkrebs`) eine
+Beschnittzugabe von +3,2mm Breite / +6,4mm Höhe für die **gesamte** Datei,
+nicht nur die randabfallende Seite. Neues Profil `paperback-bleed` (Variante
+von `paperback` mit `bleed_mm` gesetzt) vergrößert Seitenbreite/-höhe und
+die außenliegenden Ränder (outside/top/bottom) entsprechend; der
+Bundsteg/"inside"-Rand bleibt unverändert, der Inhalt landet dadurch exakt
+an derselben Stelle relativ zur Trimmlinie wie ohne Bleed. Rein additiv:
+alle Profile ohne `bleed_mm` (Default `None`) verhalten sich exakt wie
+vorher, per Regressionstests gegen `tests/test_layout_profiles.py`
+abgesichert.
+
+SSOT-Konsolidierung dabei: `tools/kdp_specs.py` (neu) hält die verifizierte
+`BLEED_MM = 3.2`-Konstante als einzige Quelle für Cover-Rechner UND
+Bleed-Profil; `tools/layout_profiles/units.py` (neu) hält die
+Längen-Parse-/Format-Logik (`"135mm"` ↔ mm-Zahl), vorher als private Kopie
+in `tools/publisher_compliance/validators.py` dupliziert, jetzt dort nur
+noch importiert.
+
+Quellen (verifiziert 2026-08-02):
+
+- <https://kdp.amazon.com/de_DE/help/topic/GVBQ3CMEQW3W2VL6> (Format, Beschnitt und Ränder festlegen)
+- <https://kdp.amazon.com/de_DE/help/topic/G201953020> (Taschenbuchcover erstellen)
+- <https://kdp.amazon.com/de_DE/help/topic/G201834180> (Druckoptionen / Trimmgrößen)
+
+**Nicht gebaut (bewusst zurückgestellt):** eine automatische Erkennung, ob
+ein Buchprojekt randabfallende Inhalte hat, aber kein Bleed-Profil aktiv
+ist (würde Content-Parsing brauchen, ähnlich `ui_qt/markdown_preview.py`s
+`_is_typst_full_bleed_cover`-Erkennung — eigenständiges Feature, kein Teil
+dieser Änderung).
+
+---
+
 ## Offen für Phase 3 ("Strict PDF/X" — IngramSpark & ähnliche)
 
 Zurückgestellt, bis tatsächlich gebraucht. Bevor es losgehen kann, müssen
@@ -160,12 +209,16 @@ folgende Punkte geklärt/erledigt werden:
      Gegenprobe, nicht blind vertrauen.
    - UI: neues Dropdown "Ziel-Plattform" (KDP / Strict PDF/X) im
      Export-Dialog, unabhängig vom bestehenden Layout-Profil-Dropdown.
-5. **KDP-Randregeln aus Phase 2 gegenprüfen.** Die Mindest-Innenrand-
-   Tabelle in `tools/publisher_compliance/catalog.py` basiert auf zum
-   Umsetzungszeitpunkt bekannten KDP-Richtwerten — vor jedem
-   Praxis-Einsatz (nicht nur für Phase 3, gilt schon jetzt) gegen KDPs
-   aktuelle "Choosing Margins"-Dokumentation verifizieren, da sich solche
-   Richtlinien gelegentlich ändern.
+5. ~~**KDP-Randregeln aus Phase 2 gegenprüfen.**~~ **Erledigt (2026-08-02).**
+   Die Mindest-Innenrand-Tabelle in `tools/publisher_compliance/catalog.py`
+   wurde gegen KDPs aktuelle "Format, Beschnitt und Ränder festlegen"-Doku
+   (<https://kdp.amazon.com/de_DE/help/topic/GVBQ3CMEQW3W2VL6>) geprüft —
+   alle fünf Seitenzahl-Bereiche und Zoll-Werte stimmen exakt überein
+   (24–150: 0,375", 151–300: 0,5", 301–500: 0,625", 501–700: 0,75",
+   701–828: 0,875"; der Code rundet die mm-Werte nur präziser als KDPs
+   eigene Anzeige). Kein Code-Fix nötig. Diese Prüfung veraltet aber wieder,
+   sobald KDP die Richtlinien ändert — bei Zweifeln erneut gegen die
+   verlinkte Seite gegenchecken, nicht dauerhaft blind vertrauen.
 
 **Kurz:** Phase 3 ist konzeptionell fertig geplant (Ablauf, Modulzuschnitt,
 Artefakt-Handling stehen), aber technisch komplett ungebaut — es fehlt an

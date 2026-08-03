@@ -30,6 +30,7 @@ def load_snapshots(book_path: Path) -> list[SnapshotView]:
                 provenance_model=str(prov.get("llm_model") or ""),
                 created_at=str(snap.get("created_at") or ""),
                 render_count=len(renders),
+                production_folder=str(prov.get("import_path") or ""),
             )
         )
     return views

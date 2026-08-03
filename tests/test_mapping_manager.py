@@ -67,6 +67,45 @@ def test_load_snapshots_and_renders(tmp_path):
     assert renders[0].pdf_name == "demo.pdf"
 
 
+def test_load_snapshots_exposes_grammargraph_production_folder(tmp_path):
+    """Jede Produktionslinie entsteht in der Praxis aus genau einem
+    GrammarGraph-Export -- `production_folder` muss den ECHTEN Export-
+    Ordner liefern (`snapshot.provenance.import_path`), nicht das
+    gleichnamige, aber anders belegte Top-Level-Feld `import_path`."""
+    from tools.publish_map.store import ensure_map, write_map
+
+    book = tmp_path / "Band"
+    book.mkdir()
+    data = ensure_map(book)
+    data["snapshots"] = [
+        {
+            "id": "snap-gg",
+            "origin": "grammargraph_import",
+            "import_path": str(book),  # anderes Feld, absichtlich nicht das erwartete
+            "created_at": "2026-07-27T20:54:26+00:00",
+            "book_title": "Demo",
+            "provenance": {
+                "import_path": r"C:\GrammarGraph\Publish\Publish_Demo_27.07.2026_22.53",
+            },
+            "renders": [],
+        }
+    ]
+    write_map(book, data)
+
+    snapshots = load_snapshots(book)
+    assert len(snapshots) == 1
+    assert snapshots[0].production_folder == r"C:\GrammarGraph\Publish\Publish_Demo_27.07.2026_22.53"
+
+
+def test_load_snapshots_production_folder_empty_without_provenance(tmp_path):
+    book = tmp_path / "Band"
+    book.mkdir()
+    create_import_snapshot(book, import_path="/import", import_run_id="id-1")
+
+    snapshots = load_snapshots(book)
+    assert snapshots[0].production_folder == ""
+
+
 def test_load_renders_propagates_source_archive_path(tmp_path):
     book = tmp_path / "Band"
     book.mkdir()

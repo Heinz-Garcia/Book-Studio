@@ -18,6 +18,13 @@ class SnapshotView:
     provenance_model: str
     created_at: str
     render_count: int
+    # Tatsächlicher GrammarGraph-Export-Ordner dieser Produktionslinie
+    # (`snapshot["provenance"]["import_path"]`, siehe `tools.provenance.io`)
+    # -- NICHT dasselbe wie das gleichnamige Top-Level-Feld `import_path`
+    # oben, das etwas anderes speichert (den Buchprojekt-Pfad zum
+    # Import-Zeitpunkt). Leer, wenn keine Provenance vorliegt (z. B.
+    # rein lokale Produktionslinien ohne GrammarGraph-Import).
+    production_folder: str = ""
 
 
 @dataclass(frozen=True)

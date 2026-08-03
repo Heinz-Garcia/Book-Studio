@@ -13,13 +13,13 @@ from typing import Optional
 
 import fitz
 
+from tools.layout_profiles.units import MM_PER_INCH as _MM_PER_INCH, parse_length_mm
 from tools.publisher_compliance.catalog import (
     DEFAULT_PUBLISHER_PROFILE_ID,
     get_profile as get_publisher_profile,
     min_inside_margin_mm,
 )
 
-_MM_PER_INCH = 25.4
 # page.typ-Default (siehe tools/skeleton/library/standard/page.typ,
 # `else`-Zweig: margin: (x: 1.25in, y: 1.25in)) -- greift, wenn ein
 # Layout-Profil kein eigenes page_margin definiert (z. B. "Standard",
@@ -125,17 +125,6 @@ def check_isbn_consistency(pdf_path: Path, isbn: Optional[str]) -> list[Complian
     return _result_to_issues(_isbn_consistency_result(pdf_path, isbn))
 
 
-def _parse_length_mm(raw: str) -> Optional[float]:
-    text = raw.strip().lower()
-    for suffix, factor in (("mm", 1.0), ("cm", 10.0), ("in", _MM_PER_INCH), ("pt", _MM_PER_INCH / 72)):
-        if text.endswith(suffix):
-            try:
-                return float(text[: -len(suffix)]) * factor
-            except ValueError:
-                return None
-    return None
-
-
 def _resolve_inside_margin_mm(layout_profile) -> float:
     margin = layout_profile.page_margin
     if not margin:
@@ -143,7 +132,7 @@ def _resolve_inside_margin_mm(layout_profile) -> float:
     raw = margin.get("inside") or margin.get("x")
     if raw is None:
         return _DEFAULT_MARGIN_MM
-    parsed = _parse_length_mm(str(raw))
+    parsed = parse_length_mm(str(raw))
     return parsed if parsed is not None else _DEFAULT_MARGIN_MM
 
 
