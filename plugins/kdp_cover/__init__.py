@@ -1,9 +1,7 @@
-"""Cover-Größe — Plugin-Adapter.
+"""KDP Cover-Designer — Plugin-Adapter (Qt).
 
-Seit Einbettung in den KDP Cover-Designer nicht mehr im Plugins-Menü
-(``show_in_menu: false``). ``run`` öffnet den Designer (Maße = Schritt 1).
-Die reine Rechenlogik bleibt in ``tools.cover_size.calculator``;
-``CoverSizeQtDialog`` bleibt für Tests/Direktaufruf erhalten.
+Dünner UI-Einstieg: Domänenlogik in ``tools.kdp_cover``, Dialog in
+``ui_qt.dialogs.kdp_cover_dialog``. Keine eigene Geschäftslogik.
 """
 
 from __future__ import annotations

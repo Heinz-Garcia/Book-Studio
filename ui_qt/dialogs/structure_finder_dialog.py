@@ -27,6 +27,7 @@ _SKIP_BOOKCONFIG_NAMES = {
     "publish_map.json",
     "publish_record.json",
     "layout_profile.json",
+    "distribution.json",
     "grammargraph_export.json",
 }
 

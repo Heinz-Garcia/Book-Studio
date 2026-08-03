@@ -36,6 +36,7 @@ from tools.cover_size.calculator import (
     get_trim_size,
     inch_to_mm,
 )
+from tools.kdp_specs import format_bleed_note
 from ui_qt.widgets.help_bar import HelpBar
 
 _DEFAULT_PAGE_COUNT = 200
@@ -115,10 +116,7 @@ class CoverSizeQtDialog(QDialog):
         )
         layout.addWidget(self.result_label)
 
-        bleed_note = QLabel(
-            "Beschnittzugabe (3,2mm / 0.125in) ist in Gesamt-Coverbreite/-höhe "
-            "bereits eingerechnet."
-        )
+        bleed_note = QLabel(format_bleed_note())
         bleed_note.setStyleSheet("color:#5b6573; font-size:12px;")
         bleed_note.setWordWrap(True)
         layout.addWidget(bleed_note)

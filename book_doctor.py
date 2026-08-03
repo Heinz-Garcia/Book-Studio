@@ -213,6 +213,27 @@ class BookDoctor:
                 f"ℹ️ {unused_count} Dateien liegen im linken Pool und werden nicht gerendert — das ist in Ordnung."
             )
 
+        try:
+            from tools.kdp_cover.binding import (
+                doctor_missing_cover_warning,
+                resolve_cover_binding,
+            )
+
+            kdp_warn = doctor_missing_cover_warning(
+                resolve_cover_binding(self.current_book)
+            )
+            if kdp_warn:
+                warn.append(kdp_warn)
+                from tools.kdp_cover.model import default_project_path
+
+                rel = f"export/kdp_cover/{default_project_path(self.current_book).name}"
+                issues_by_path.setdefault(rel, []).append(kdp_warn)
+                issue_details_by_path.setdefault(rel, []).append(
+                    {"message": kdp_warn, "line_number": None}
+                )
+        except ImportError:
+            pass
+
         report = "\n\n".join(err)
         if warn:
             if err:

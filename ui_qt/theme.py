@@ -1,212 +1,132 @@
-"""Minimales Qt-Theme (Phase 1 Stub)."""
+"""Qt-Theme SSOT — El-Pitugrafo Look & Feel für die gesamte App."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ui_qt.pitugrafo_look import PITU_CORE_STYLESHEET
+
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
 
-# Neutral, kein „AI-Lila“ — klarer Desktop-Look als Platzhalter.
-_STYLESHEET = """
-QMainWindow, QWidget {
-    background-color: #f5f6f8;
-    color: #1a1d23;
-    font-size: 13px;
-}
+# App-spezifische Ergänzungen (ObjectNames / Hauptfenster-Struktur).
+# Kernfarben/Checkboxen/Buttons kommen aus PITU_CORE_STYLESHEET.
+_APP_EXTRAS = """
 QMenuBar {
-    background-color: #e8eaee;
+    background-color: #e9eefb;
     spacing: 4px;
+    color: #1c2740;
 }
 QMenuBar::item:selected {
-    background-color: #d0d5de;
+    background-color: #dce5f8;
 }
 QMenu {
     background-color: #ffffff;
-    border: 1px solid #9aa3b2;
+    border: 1px solid #c8d3ec;
     padding: 4px;
 }
 QMenu::item {
     padding: 6px 24px 6px 12px;
+    color: #1c2740;
 }
 QMenu::item:selected {
-    background-color: #d0d5de;
+    background-color: #dce5f8;
 }
 QMenu::separator {
     height: 1px;
-    background: #c5cad3;
+    background: #c8d3ec;
     margin: 4px 8px;
 }
 QStatusBar {
-    background-color: #e8eaee;
+    background-color: #e9eefb;
+    color: #1c2740;
 }
 QFrame#iconLegend {
-    background-color: #eef1f5;
-    border: 1px solid #c5cad3;
-    border-radius: 4px;
+    background-color: #eef1f8;
+    border: 1px solid #c8d3ec;
+    border-radius: 6px;
     margin-top: 12px;
     min-width: 240px;
 }
 QLabel#iconLegendTitle {
     font-weight: 600;
     font-size: 14px;
-    color: #1a1d23;
+    color: #1c2740;
     padding-bottom: 2px;
 }
 QLabel#iconLegendLine {
-    color: #334155;
+    color: #334b86;
     font-size: 13px;
 }
 QWidget#structureMidColumn QPushButton {
+    background: #e8eaee;
+    color: #1c2740;
+    border: 1px solid #c5cad3;
+    border-radius: 8px;
     font-size: 13px;
+    font-weight: 600;
     padding: 6px 12px;
     min-height: 32px;
+}
+QWidget#structureMidColumn QPushButton:hover {
+    background: #d8dde5;
+    color: #1c2740;
+}
+QWidget#structureMidColumn QPushButton:pressed {
+    background: #c5cad3;
+    color: #1c2740;
+}
+QWidget#structureMidColumn QPushButton:disabled {
+    background: #f0f1f4;
+    color: #8899bb;
+    border: 1px solid #d8dde5;
 }
 QLabel#structureColumnTitle {
     font-size: 13px;
     font-weight: 600;
-    color: #1a1d23;
+    color: #1c2740;
     padding-bottom: 0px;
 }
 QTreeWidget#structureTree {
     background-color: #ffffff;
-    border: 1px solid #c5cad3;
-    border-radius: 2px;
+    border: 1px solid #c8d3ec;
+    border-radius: 6px;
     show-decoration-selected: 1;
 }
 QTreeWidget#structureTree::item:selected {
     background-color: #d6e6f5;
-    color: #1a1d23;
+    color: #1c2740;
 }
-QDialog#bookProjectsDialog {
-    background-color: #f5f6f8;
-}
-QDialog#bookProjectsDialog QTreeWidget {
+QFrame#bookProjectsSection,
+QFrame#skeletonEditorSection,
+QFrame#assetManagerSection {
     background-color: #ffffff;
-    alternate-background-color: #f0f4f8;
-    color: #1a1d23;
-    border: 1px solid #c5cad3;
-    border-radius: 4px;
-    outline: none;
+    border: 1px solid #c8d3ec;
+    border-radius: 8px;
 }
-QDialog#bookProjectsDialog QTreeWidget::item {
-    color: #1a1d23;
-    padding: 4px 6px;
-}
-QDialog#bookProjectsDialog QTreeWidget::item:selected,
-QDialog#bookProjectsDialog QTreeWidget::item:selected:active,
-QDialog#bookProjectsDialog QTreeWidget::item:selected:!active {
-    background-color: #d6e6f5;
-    color: #1a1d23;
-}
-QDialog#bookProjectsDialog QTreeWidget::item:hover {
-    background-color: #e8f0f8;
-}
-QFrame#bookProjectsSection {
-    background-color: #ffffff;
-    border: 1px solid #c5cad3;
-    border-radius: 6px;
-}
-QLabel#bookProjectsSectionTitle {
+QLabel#bookProjectsSectionTitle,
+QLabel#skeletonEditorSectionTitle,
+QLabel#assetManagerSectionTitle {
     font-size: 14px;
     font-weight: 600;
-    color: #1a1d23;
+    color: #334b86;
 }
-QLabel#bookProjectsHint {
-    color: #5b6573;
+QLabel#bookProjectsHint,
+QLabel#assetManagerHint {
+    color: #5b6785;
     font-size: 12px;
 }
-QPushButton#bookProjectsPrimary {
-    background-color: #2f5d9f;
-    color: #ffffff;
-    border: none;
-    border-radius: 4px;
-    padding: 8px 16px;
-    font-weight: 600;
-}
-QPushButton#bookProjectsPrimary:hover {
-    background-color: #264a80;
-}
-QPushButton#bookProjectsDanger {
+QPushButton#bookProjectsDanger,
+QPushButton#finishedPdfsDanger,
+QPushButton#assetManagerDanger {
+    background: #fef2f2;
     color: #8b1e1e;
+    border: 1px solid #f3b3ab;
 }
-QDialog#finishedPdfsDialog {
-    background-color: #f5f6f8;
-}
-QDialog#finishedPdfsDialog QTableWidget {
-    background-color: #ffffff;
-    alternate-background-color: #f0f4f8;
-    color: #1a1d23;
-    border: 1px solid #c5cad3;
-    border-radius: 4px;
-    gridline-color: #d8dde5;
-}
-QDialog#finishedPdfsDialog QTableWidget::item:selected {
-    background-color: #d6e6f5;
-    color: #1a1d23;
-}
-QPushButton#finishedPdfsPrimary {
-    background-color: #2f5d9f;
-    color: #ffffff;
-    border: none;
-    border-radius: 4px;
-    padding: 8px 16px;
-    font-weight: 600;
-}
-QPushButton#finishedPdfsPrimary:hover {
-    background-color: #264a80;
-}
-QPushButton#finishedPdfsDanger {
-    color: #8b1e1e;
-}
-QDialog#skeletonEditorDialog {
-    background-color: #f5f6f8;
-}
-QDialog#skeletonEditorDialog QTreeWidget {
-    background-color: #ffffff;
-    alternate-background-color: #f0f4f8;
-    color: #1a1d23;
-    border: 1px solid #c5cad3;
-    border-radius: 4px;
-    outline: none;
-}
-QDialog#skeletonEditorDialog QTreeWidget::item {
-    color: #1a1d23;
-    padding: 3px 6px;
-}
-QDialog#skeletonEditorDialog QTreeWidget::item:selected,
-QDialog#skeletonEditorDialog QTreeWidget::item:selected:active,
-QDialog#skeletonEditorDialog QTreeWidget::item:selected:!active {
-    background-color: #d6e6f5;
-    color: #1a1d23;
-}
-QDialog#skeletonEditorDialog QTreeWidget::item:hover {
-    background-color: #e8f0f8;
-}
-QFrame#skeletonEditorSection {
-    background-color: #ffffff;
-    border: 1px solid #c5cad3;
-    border-radius: 6px;
-}
-QLabel#skeletonEditorSectionTitle {
-    font-size: 14px;
-    font-weight: 600;
-    color: #1a1d23;
-}
-QPushButton#skeletonEditorPrimary {
-    background-color: #2f5d9f;
-    color: #ffffff;
-    border: none;
-    border-radius: 4px;
-    padding: 8px 16px;
-    font-weight: 600;
-}
-QPushButton#skeletonEditorPrimary:hover {
-    background-color: #264a80;
-}
-QPushButton#skeletonEditorPrimary:disabled {
-    background-color: #c5cad3;
-    color: #7a7f88;
+QPushButton#bookProjectsDanger:hover,
+QPushButton#finishedPdfsDanger:hover,
+QPushButton#assetManagerDanger:hover {
+    background: #fee2e2;
 }
 QLabel#skeletonEditorStatus {
     color: #1a7f4b;
@@ -222,51 +142,9 @@ QLabel#skeletonEditorFrontmatterWarning {
     padding: 8px 10px;
     font-weight: 600;
 }
-QDialog#ggContentSwapDialog QTableWidget#ggSwapTable,
-QDialog#ggContentSwapDialog QListWidget#ggSwapExportList {
-    background-color: #ffffff;
-    alternate-background-color: #f0f4f8;
-    color: #1a1d23;
-    border: 1px solid #c5cad3;
-    border-radius: 4px;
-    outline: none;
-}
-QDialog#ggContentSwapDialog QTableWidget#ggSwapTable::item,
-QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item {
-    color: #1a1d23;
-}
-QDialog#ggContentSwapDialog QTableWidget#ggSwapTable::item:selected,
-QDialog#ggContentSwapDialog QTableWidget#ggSwapTable::item:selected:active,
-QDialog#ggContentSwapDialog QTableWidget#ggSwapTable::item:selected:!active,
-QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item:selected,
-QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item:selected:active,
-QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item:selected:!active {
-    background-color: #d6e6f5;
-    color: #1a1d23;
-}
-QDialog#ggContentSwapDialog QListWidget#ggSwapExportList::item:hover {
-    background-color: #e8f0f8;
-}
-QDialog#assetManagerDialog {
-    background-color: #f5f6f8;
-}
-QFrame#assetManagerSection {
-    background-color: #ffffff;
-    border: 1px solid #c5cad3;
-    border-radius: 8px;
-}
-QLabel#assetManagerSectionTitle {
-    font-size: 14px;
-    font-weight: 600;
-    color: #1a1d23;
-}
-QLabel#assetManagerHint {
-    color: #5b6573;
-    font-size: 12px;
-}
 QLabel#assetManagerBadgeUsed {
-    background-color: #e8f0f8;
-    color: #2f5d9f;
+    background-color: #e9eefb;
+    color: #2f5cc8;
     border-radius: 10px;
     padding: 2px 10px;
     font-size: 12px;
@@ -288,77 +166,25 @@ QLabel#assetManagerBadgePool {
     font-size: 12px;
     font-weight: 600;
 }
-QListWidget#assetManagerGrid {
-    background-color: #fafbfc;
-    border: 1px solid #d8dde5;
-    border-radius: 6px;
-    padding: 8px;
-    outline: none;
-}
-QListWidget#assetManagerGrid::item {
-    color: #1a1d23;
-    border-radius: 6px;
-    padding: 6px;
-    margin: 2px;
-}
-QListWidget#assetManagerGrid::item:selected,
-QListWidget#assetManagerGrid::item:selected:active,
-QListWidget#assetManagerGrid::item:selected:!active {
-    background-color: #d6e6f5;
-    color: #1a1d23;
-}
-QListWidget#assetManagerGrid::item:hover {
-    background-color: #e8f0f8;
-}
-QLabel#assetManagerPreview {
-    background-color: #0f172a;
-    border: 1px solid #c5cad3;
-    border-radius: 8px;
-    color: #94a3b8;
-}
-QPushButton#assetManagerPrimary {
-    background-color: #2f5d9f;
-    color: #ffffff;
-    border: none;
-    border-radius: 4px;
-    padding: 10px 16px;
-    font-weight: 600;
-}
-QPushButton#assetManagerPrimary:hover {
-    background-color: #264a80;
-}
-QPushButton#assetManagerPrimary:disabled {
-    background-color: #a8b7cb;
-    color: #eef2f7;
-}
-QPushButton#assetManagerDanger {
-    color: #8b1e1e;
-}
 QFrame#HelpBar {
     background-color: #eaf1fb;
     border: 1px solid #b9d3ef;
-    border-left: 4px solid #2f5d9f;
+    border-left: 4px solid #2f5cc8;
     border-radius: 6px;
     margin-bottom: 8px;
 }
 QLabel#HelpBarIcon {
     font-size: 16pt;
-    color: #2f5d9f;
+    color: #2f5cc8;
 }
 QLabel#HelpBarText {
-    color: #1a1d23;
+    color: #1c2740;
     font-size: 13px;
-}
-QPlainTextEdit#qtLog {
-    background-color: #1e2229;
-    color: #d7dde8;
-    font-family: Consolas, "Courier New", monospace;
-    font-size: 12px;
-    border: 1px solid #c5cad3;
 }
 """
 
 
 def apply_theme(app: "QApplication") -> None:
+    """Fusion + El-Pitugrafo-Kern + App-Extras — gilt für Hauptfenster und alle Dialoge."""
     app.setStyle("Fusion")
-    app.setStyleSheet(_STYLESHEET)
+    app.setStyleSheet(PITU_CORE_STYLESHEET + "\n" + _APP_EXTRAS)

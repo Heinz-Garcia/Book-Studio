@@ -101,11 +101,23 @@ def _configure_grid(widget: QListWidget) -> None:
 
 
 class AssetManagerQtDialog(QDialog):
-    def __init__(self, parent: Optional[QWidget], studio: Any) -> None:
+    def __init__(
+        self,
+        parent: Optional[QWidget],
+        studio: Any,
+        *,
+        pick_mode: bool = False,
+        pick_prompt: str | None = None,
+    ) -> None:
         super().__init__(parent)
         self.studio = studio
+        self._pick_mode = bool(pick_mode)
+        self.chosen_path: Path | None = None
         self.setObjectName("assetManagerDialog")
-        self.setWindowTitle("Asset Manager")
+        if self._pick_mode:
+            self.setWindowTitle(pick_prompt or "Bild wählen — Asset Manager")
+        else:
+            self.setWindowTitle("Asset Manager")
         self.setMinimumSize(1180, 700)
         self.resize(1360, 780)
 
@@ -139,6 +151,15 @@ class AssetManagerQtDialog(QDialog):
 
         HelpBar.create_and_prepend_for_plugin(root, "asset_manager", index=1)
 
+        if self._pick_mode:
+            pick_hint = QLabel(
+                "Bild in Pool oder Buch-img/ auswählen → „Übernehmen“ "
+                "(Doppelklick übernimmt direkt)."
+            )
+            pick_hint.setObjectName("assetManagerHint")
+            pick_hint.setWordWrap(True)
+            root.addWidget(pick_hint)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         root.addWidget(splitter, stretch=1)
@@ -158,12 +179,35 @@ class AssetManagerQtDialog(QDialog):
         legend.setObjectName("assetManagerHint")
         footer.addWidget(legend)
         footer.addStretch(1)
+        self._btn_kdp_cover = QPushButton("KDP-Wrap…")
+        self._btn_kdp_cover.setToolTip(
+            "KDP-Wrap-Cover (separat) öffnen — Upload-PDF "
+            "(Rückseite + Rücken + Vorderseite inkl. Bleed).\n"
+            "Unabhängig von Deckblatt.md / Innenwerk."
+        )
+        self._btn_kdp_cover.clicked.connect(self._open_kdp_cover)
+        footer.addWidget(self._btn_kdp_cover)
         refresh = QPushButton("Aktualisieren")
         refresh.clicked.connect(self._reload_all)
         footer.addWidget(refresh)
-        close_btn = QPushButton("Schließen")
-        close_btn.clicked.connect(self.accept)
-        footer.addWidget(close_btn)
+
+        if self._pick_mode:
+            self._btn_kdp_cover.hide()
+            self._pick_accept_btn = QPushButton("Übernehmen")
+            self._pick_accept_btn.setObjectName("assetManagerPrimary")
+            self._pick_accept_btn.setEnabled(False)
+            self._pick_accept_btn.setToolTip("Ausgewähltes Bild übernehmen")
+            self._pick_accept_btn.clicked.connect(self._accept_pick)
+            footer.addWidget(self._pick_accept_btn)
+            cancel_btn = QPushButton("Abbrechen")
+            cancel_btn.clicked.connect(self.reject)
+            footer.addWidget(cancel_btn)
+            # Im Pick-Modus: einzelne Pool-Auswahl (kein Multi-Copy-Flow nötig).
+            self._pool_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        else:
+            close_btn = QPushButton("Schließen")
+            close_btn.clicked.connect(self.accept)
+            footer.addWidget(close_btn)
         root.addLayout(footer)
 
         self._reload_all()
@@ -461,6 +505,7 @@ class AssetManagerQtDialog(QDialog):
             self._book_list.clearSelection()
         self._sync_copy_enabled()
         self._update_detail()
+        self._sync_pick_accept_enabled()
 
     def _on_book_selection(self) -> None:
         path = self._selected_book_path()
@@ -471,6 +516,16 @@ class AssetManagerQtDialog(QDialog):
             self._sync_copy_enabled()
         self._sync_book_delete_enabled()
         self._update_detail()
+        self._sync_pick_accept_enabled()
+
+    def _sync_pick_accept_enabled(self) -> None:
+        if not self._pick_mode:
+            return
+        btn = getattr(self, "_pick_accept_btn", None)
+        if btn is None:
+            return
+        path = self._selected_path
+        btn.setEnabled(bool(path and path.is_file()))
 
     def _sync_book_delete_enabled(self) -> None:
         path = self._selected_book_path()
@@ -679,13 +734,17 @@ class AssetManagerQtDialog(QDialog):
         self._reload_all()
 
     def _open_image_item(self, item: QListWidgetItem) -> None:
-        """Öffnet die Bilddatei mit der Windows-/OS-Dateizuordnung (registrierter Editor)."""
+        """Öffnet die Bilddatei — im Pick-Modus: Auswahl übernehmen."""
         raw = item.data(_ROLE_PATH) if item is not None else None
         if not raw:
             return
         path = Path(raw)
         if not path.is_file():
             QMessageBox.warning(self, "Asset Manager", f"Datei nicht gefunden:\n{path}")
+            return
+        if self._pick_mode:
+            self._selected_path = path
+            self._accept_pick()
             return
         try:
             open_path(path)
@@ -695,6 +754,18 @@ class AssetManagerQtDialog(QDialog):
                 "Asset Manager",
                 f"Bild konnte nicht geöffnet werden:\n{path}\n\n{exc}",
             )
+
+    def _accept_pick(self) -> None:
+        path = self._selected_path
+        if path is None or not path.is_file():
+            QMessageBox.information(
+                self,
+                "Asset Manager",
+                "Bitte zuerst ein Bild im Pool oder in Buch-img/ auswählen.",
+            )
+            return
+        self.chosen_path = path.resolve()
+        self.accept()
 
     def _open_ref_hit(self, item: QListWidgetItem) -> None:
         if self._book is None:
@@ -719,6 +790,12 @@ class AssetManagerQtDialog(QDialog):
         ).exec()
         self._reload_all()
 
+    def _open_kdp_cover(self) -> None:
+        """Dünner Launcher → ``tools.kdp_cover`` / Cover-Designer-Dialog."""
+        from ui_qt.dialogs.kdp_cover_dialog import open_kdp_cover_qt
+
+        open_kdp_cover_qt(self.studio, self)
+
 
 def open_asset_manager_qt(studio: Any = None, parent: Optional[QWidget] = None) -> int:
     book = _book_root(studio)
@@ -732,3 +809,31 @@ def open_asset_manager_qt(studio: Any = None, parent: Optional[QWidget] = None) 
         return 0
     dialog = AssetManagerQtDialog(parent or getattr(studio, "root", None), studio)
     return dialog.exec()
+
+
+def pick_asset_image_qt(
+    studio: Any = None,
+    parent: Optional[QWidget] = None,
+    *,
+    title: str | None = None,
+) -> Path | None:
+    """Modaler Picker: gewähltes Pool-/img-Bild als Pfad, oder ``None`` bei Abbruch."""
+    book = _book_root(studio)
+    host = parent or getattr(studio, "root", None)
+    if book is None:
+        QMessageBox.information(
+            host,
+            "Asset Manager",
+            "Kein aktives Buch. Bitte zuerst ein Buchprojekt wählen.",
+        )
+        return None
+    dialog = AssetManagerQtDialog(
+        host,
+        studio,
+        pick_mode=True,
+        pick_prompt=title,
+    )
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return None
+    chosen = dialog.chosen_path
+    return chosen if chosen is not None and chosen.is_file() else None

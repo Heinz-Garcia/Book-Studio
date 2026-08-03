@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from tools.kdp_specs import BLEED_MM as KDP_BLEED_MM
+from tools.kdp_specs import bleed_mm as kdp_bleed_mm
+from tools.kdp_specs import studio_paperback_preset, studio_taschenbuch_bod_preset
 from tools.layout_profiles.units import format_length_mm, parse_length_mm
 
 
@@ -40,15 +41,10 @@ def normalize_linestretch(value: Any, *, default: float = 1.2) -> float:
     except (TypeError, ValueError):
         return default
     if parsed not in LINE_STRETCH_VALUES:
-        # Nächstliegenden erlaubten Wert wählen
         return min(LINE_STRETCH_VALUES, key=lambda v: abs(v - parsed))
     return parsed
 
 
-# Bleed gilt nur für das gespiegelte Randschema (zweiseitiger Bundsteg) --
-# bei symmetrischen x/y-Profilen (Manuskript/Lektorat, "normseite-vgwort")
-# gibt es keine definierte "äußere" Kante, und diese Profile sind ohnehin
-# nicht für echten KDP-Druck gedacht.
 _MIRRORED_MARGIN_KEYS = ("inside", "outside", "top", "bottom")
 
 
@@ -58,20 +54,7 @@ def _bleed_adjusted_page(
     margin: dict[str, str],
     bleed_mm: float,
 ) -> Optional[tuple[str, str, dict[str, str]]]:
-    """Vergrößert Seitenbreite/-höhe um die Beschnittzugabe und passt die
-    außenliegenden Ränder (outside/top/bottom) entsprechend an, damit der
-    tatsächliche Inhalt exakt an der ursprünglichen Trimmlinie stehen
-    bleibt -- nur der zusätzliche Bleed-Rand kommt außen dazu.
-
-    KDP-Formel (siehe tools/kdp_specs.py): Breite +bleed_mm (nur Außenkante
-    -- die Bundsteg-/"inside"-Seite wird nie beschnitten, bleibt also
-    unverändert), Höhe +2×bleed_mm (oben UND unten).
-
-    Gibt `None` zurück, wenn `margin` nicht das vollständige gespiegelte
-    Schema hat oder eine Längenangabe nicht geparst werden konnte --
-    Aufrufer behält dann die unveränderten Werte (kein Bleed angewendet,
-    kein Fehler).
-    """
+    """Vergrößert Seite + Außenränder um die Beschnittzugabe (KDP)."""
     if not all(key in margin for key in _MIRRORED_MARGIN_KEYS):
         return None
     width_mm = parse_length_mm(width_raw)
@@ -104,33 +87,11 @@ class LayoutProfile:
     widows: int | str = 2
     orphans: int | str = 2
     toc_depth: int = 3
-    # Custom-Trimm (Seitenbreite/-höhe) statt Papierformat-Preset.
-    # "page-width"/"page-height" sind bereits von Quarto für docx/odt
-    # reserviert (anderer Typ) — eigene Metadaten-Schlüssel
-    # "typst-page-width"/"typst-page-height", siehe
-    # tools/skeleton/library/standard/page.typ.
     typst_page_width: Optional[str] = None
     typst_page_height: Optional[str] = None
-    # Quartos eigenes "margin"-Feld ist schema-validiert und lässt nur
-    # x/y/top/bottom/left/right zu (kein inside/outside für zweiseitigen
-    # Bundsteg) — daher eigener, nicht validierter Schlüssel "page-margin".
     page_margin: Optional[dict[str, str]] = None
-    # Rein informativ (UI-Beschreibung/Tests) — es gibt keine automatische
-    # Berechnung, die diese Werte aus Papierformat/Schrift/Rand ableitet.
     lines_per_page: Optional[int] = None
     chars_per_line: Optional[int] = None
-    # Beschnittzugabe (bleed) in mm für randabfallende Bilder/Hintergründe
-    # im Buchinnenteil (z. B. ein Deckblatt-Vollbild, siehe
-    # tools/skeleton/library/*/content/Deckblatt.md) -- None (Default) heißt
-    # kein Bleed, Seite bleibt exakt auf Trimmgröße (unverändertes Verhalten
-    # aller Profile ohne dieses Feld). Gesetzt: format_options() vergrößert
-    # Seitenbreite/-höhe und die außenliegenden Ränder entsprechend, siehe
-    # `_bleed_adjusted_page`. Nur wirksam in Kombination mit Custom-Trimm
-    # (typst_page_width/-height) UND gespiegeltem inside/outside/top/bottom-
-    # Randschema -- KDP verlangt laut eigener Doku, dass bei Bleed-Bedarf
-    # die GESAMTE Datei (nicht nur einzelne Seiten) in der vergrößerten
-    # Seitengröße vorliegt; Typsts `#set page(...)` gilt ohnehin fürs ganze
-    # Dokument, das ist hier also automatisch erfüllt.
     bleed_mm: Optional[float] = None
 
     def format_options(self, *, linestretch: Optional[float] = None) -> dict[str, Any]:
@@ -156,99 +117,130 @@ class LayoutProfile:
         return opts
 
 
-LAYOUT_PROFILES: tuple[LayoutProfile, ...] = (
-    LayoutProfile(
-        id="standard",
-        label="Standard",
-        description="Ausgewogenes A5-Layout, Zeilenabstand 1,0",
-        linestretch=1.0,
-    ),
-    LayoutProfile(
-        id="taschenbuch-bod",
-        label="Taschenbuch / Book on Demand",
-        description=(
-            "A5, 11 pt, Zeilenabstand 1,2 — typisch für POD. "
-            "Ränder innen 20mm / außen 16mm / oben 18mm / unten 20mm "
-            "(Bund größer als Außensteg wegen Bindung)."
-        ),
-        linestretch=1.2,
-        page_margin={
-            # Kompromiss A5/BoD (~150–300 S.): POD braucht Bund ≥ Außen;
-            # 14/17mm wirkte zu eng, ~1,25″-Default zu weit.
-            # Orientierung: Selfpublisher/BoD ~20/16/18/20 mm.
-            "inside": "20mm",
-            "outside": "16mm",
-            "top": "18mm",
-            "bottom": "20mm",
-        },
-    ),
-    LayoutProfile(
+def _margin_mm_to_page_margin(margin_mm: dict[str, Any]) -> dict[str, str]:
+    return {key: format_length_mm(float(val)) for key, val in margin_mm.items()}
+
+
+def _paperback_profiles() -> tuple[LayoutProfile, LayoutProfile]:
+    preset = studio_paperback_preset()
+    trim = preset.get("trim_mm") or {"width": 135, "height": 215}
+    margin = _margin_mm_to_page_margin(
+        preset.get("page_margin_mm")
+        or {"inside": 20, "outside": 16, "top": 19, "bottom": 20}
+    )
+    width = format_length_mm(float(trim.get("width", 135)))
+    height = format_length_mm(float(trim.get("height", 215)))
+    lines = preset.get("lines_per_page")
+    chars = preset.get("chars_per_line")
+    bleed = kdp_bleed_mm()
+    plain = LayoutProfile(
         id="paperback",
         label="(Pb) Paperback",
         description=(
-            "135×215mm mit Bundsteg (innen 20mm / außen 16mm), "
-            "36 Zeilen/Seite, 62 Zeichen/Zeile. Custom-Trimm wirkt nur mit "
-            "Template \"EXT: typstdoc\" oder gepatchtem page.typ (Standard-Skeleton)."
+            f"{trim.get('width')}×{trim.get('height')}mm mit Bundsteg "
+            f"(innen {margin.get('inside')} / außen {margin.get('outside')}), "
+            f"{lines or '?'} Zeilen/Seite, {chars or '?'} Zeichen/Zeile. "
+            "Custom-Trimm wirkt nur mit Template \"EXT: typstdoc\" oder "
+            "gepatchtem page.typ (Standard-Skeleton)."
         ),
         linestretch=1.2,
-        typst_page_width="135mm",
-        typst_page_height="215mm",
-        page_margin={"inside": "20mm", "outside": "16mm", "top": "19mm", "bottom": "20mm"},
-        lines_per_page=36,
-        chars_per_line=62,
-    ),
-    LayoutProfile(
+        typst_page_width=width,
+        typst_page_height=height,
+        page_margin=dict(margin),
+        lines_per_page=int(lines) if lines is not None else None,
+        chars_per_line=int(chars) if chars is not None else None,
+    )
+    bled = LayoutProfile(
         id="paperback-bleed",
         label="(Pb) Paperback mit Bleed (randabfallende Bilder)",
         description=(
-            "Wie „(Pb) Paperback“, aber mit KDP-Beschnittzugabe "
-            "(+3,2mm Breite / +6,4mm Höhe) für randabfallende Bilder, z. B. "
-            "ein Deckblatt-Vollbild (siehe content/Deckblatt.md). KDP verlangt "
-            "das für die GESAMTE Datei, sobald auch nur eine Seite ein "
-            "randabfallendes Element hat — Trimmgröße bleibt 135×215mm, nur "
-            "die gerenderte Seite wird um den Bleed größer; der Inhalt landet "
-            "unverändert an derselben Stelle relativ zur Trimmlinie."
+            f"Wie „(Pb) Paperback“, aber mit KDP-Beschnittzugabe "
+            f"(+{bleed:g}mm Breite / +{2 * bleed:g}mm Höhe) für randabfallende "
+            "Bilder. Trimmgröße bleibt "
+            f"{trim.get('width')}×{trim.get('height')}mm."
         ),
         linestretch=1.2,
-        typst_page_width="135mm",
-        typst_page_height="215mm",
-        page_margin={"inside": "20mm", "outside": "16mm", "top": "19mm", "bottom": "20mm"},
-        lines_per_page=36,
-        chars_per_line=62,
-        bleed_mm=KDP_BLEED_MM,
-    ),
-    LayoutProfile(
-        id="publisher-print",
-        label="Verlagsdruck",
-        description="A5, Schusterjungen/Hurenkinder 2, Zeilenabstand 1,15",
-        linestretch=1.15,
-    ),
-    LayoutProfile(
-        id="manuskript",
-        label="Manuskript / Lektorat",
-        description="Großzügiger Zeilenabstand 2,0 zum Korrekturlesen",
-        linestretch=2.0,
-        widows="auto",
-        orphans="auto",
-    ),
-    LayoutProfile(
-        id="normseite-vgwort",
-        label="Normseite (VG Wort, 55 Z./Zeile)",
-        description=(
-            "A5, 11 pt, Zeilenabstand 1,2 — Satzspiegel so bemessen, dass sich "
-            "im Schnitt 55 Anschläge/Zeile bei 30 Zeilen/Seite ergeben (VG-Wort-"
-            "/Übersetzer-Normseite, 1650 Anschläge/Seite). Symmetrische Ränder "
-            "30mm/32mm statt Bundsteg, da für Manuskript-/Lektoratszwecke "
-            "gedacht, nicht für zweiseitigen Druck."
-        ),
-        linestretch=1.2,
-        page_margin={"x": "30mm", "y": "32mm"},
-        lines_per_page=30,
-        chars_per_line=55,
-    ),
-)
+        typst_page_width=width,
+        typst_page_height=height,
+        page_margin=dict(margin),
+        lines_per_page=int(lines) if lines is not None else None,
+        chars_per_line=int(chars) if chars is not None else None,
+        bleed_mm=bleed,
+    )
+    return plain, bled
 
+
+def _taschenbuch_bod_profile() -> LayoutProfile:
+    preset = studio_taschenbuch_bod_preset()
+    margin = _margin_mm_to_page_margin(
+        preset.get("page_margin_mm")
+        or {"inside": 20, "outside": 16, "top": 18, "bottom": 20}
+    )
+    papersize = str(preset.get("papersize") or "a5")
+    return LayoutProfile(
+        id="taschenbuch-bod",
+        label="Taschenbuch / Book on Demand",
+        description=(
+            f"{papersize.upper()}, 11 pt, Zeilenabstand 1,2 — typisch für POD. "
+            f"Ränder innen {margin.get('inside')} / außen {margin.get('outside')} / "
+            f"oben {margin.get('top')} / unten {margin.get('bottom')} "
+            "(Bund größer als Außensteg wegen Bindung)."
+        ),
+        linestretch=1.2,
+        papersize=papersize,
+        page_margin=dict(margin),
+    )
+
+
+def _build_layout_profiles() -> tuple[LayoutProfile, ...]:
+    pb, pb_bleed = _paperback_profiles()
+    return (
+        LayoutProfile(
+            id="standard",
+            label="Standard",
+            description="Ausgewogenes A5-Layout, Zeilenabstand 1,0",
+            linestretch=1.0,
+        ),
+        _taschenbuch_bod_profile(),
+        pb,
+        pb_bleed,
+        LayoutProfile(
+            id="publisher-print",
+            label="Verlagsdruck",
+            description="A5, Schusterjungen/Hurenkinder 2, Zeilenabstand 1,15",
+            linestretch=1.15,
+        ),
+        LayoutProfile(
+            id="manuskript",
+            label="Manuskript / Lektorat",
+            description="Großzügiger Zeilenabstand 2,0 zum Korrekturlesen",
+            linestretch=2.0,
+            widows="auto",
+            orphans="auto",
+        ),
+        LayoutProfile(
+            id="normseite-vgwort",
+            label="Normseite (VG Wort, 55 Z./Zeile)",
+            description=(
+                "A5, 11 pt, Zeilenabstand 1,2 — VG-Wort-/Übersetzer-Normseite "
+                "(55 Anschläge/Zeile, 30 Zeilen). Symmetrische Ränder 30mm/32mm."
+            ),
+            linestretch=1.2,
+            page_margin={"x": "30mm", "y": "32mm"},
+            lines_per_page=30,
+            chars_per_line=55,
+        ),
+    )
+
+
+LAYOUT_PROFILES: tuple[LayoutProfile, ...] = _build_layout_profiles()
 DEFAULT_LAYOUT_PROFILE_ID = "taschenbuch-bod"
+
+
+def refresh_from_kdp_specs() -> None:
+    """Nach Reload/Save von ``kdp_specs.json`` KDP-abhängige Profile neu bauen."""
+    global LAYOUT_PROFILES
+    LAYOUT_PROFILES = _build_layout_profiles()
 
 
 def profile_ids() -> list[str]:
@@ -273,21 +265,8 @@ def profile_id_from_label(label: str) -> str:
     return DEFAULT_LAYOUT_PROFILE_ID
 
 
-# Typst-Partial-Overrides, die ein Custom-Trimm-Profil (page-width/page-
-# Quarto's eingebautes Buch-Rendering nutzt intern das orange-book-Paket und
-# ignoriert projektlokale `typst-show.typ` / `page.typ`, solange sie nicht als
-# `format.typst.template-partials` deklariert sind. Ohne diese Deklaration
-# scheitert z. B. Deckblatt.md ohne typst-show.typ (chapter-titles-visible /
-# früheres past-cover). `typst-show.typ` ersetzt den orange-book-Pfad durch den
-# generischen `article()`-Renderer; `page.typ` setzt Papiermaß/Rand (Preset
-# oder Custom-Trimm). Nur fuer das reine "typst"-Zielformat — Extension-
-# Formate (z. B. "typstdoc-typst") regeln Partials selbst ueber `_extension.yml`.
 TYPST_STANDARD_PARTIALS: tuple[str, ...] = ("typst-show.typ", "page.typ")
-# Alias (historisch): Custom-Trimm brauchte denselben Partial-Satz zuerst.
 TYPST_CUSTOM_TRIM_PARTIALS: tuple[str, ...] = TYPST_STANDARD_PARTIALS
-
-# Das Zielformat, für das obiger Automatismus greift (Quartos generisches,
-# extensionsloses Typst-Buchformat).
 _STANDARD_TYPST_TARGET_FMT = "typst"
 
 

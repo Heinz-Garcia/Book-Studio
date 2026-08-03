@@ -465,6 +465,13 @@ class CommandHost:
             self.w._facade.log("Studio-Konfiguration gespeichert.", "success")
             self.w._refresh_book_list()
 
+    def open_kdp_specs_editor(self) -> None:
+        from ui_qt.dialogs.kdp_specs_dialog import KdpSpecsDialog
+
+        dlg = KdpSpecsDialog(self.w, repo_root() / "kdp_specs.json")
+        if dlg.exec():
+            self.w._facade.log("KDP-Spezifikationen gespeichert.", "success")
+
     def open_sanitizer_config_editor(self) -> None:
         path = repo_root() / "sanitizer_config.toml"
         if not path.is_file():

@@ -85,19 +85,27 @@ MENU_VIEW = [
 
 
 # --- Tools --------------------------------------------------------------------
+# Thematische Blöcke mit Separatoren (wie Plugins: Skeleton | Rest).
 
 MENU_TOOLS = [
+    # Inhalt / Qualität
     MenuItem(label="🧹 Sanitizer", command="run_sanitizer_pipeline"),
+    MenuItem(label="🩺 Buch-Doktor", command="run_doctor"),
+    MenuItem(label="✨ Frontmatter ergänzen…", command="heal_frontmatter"),
+    MenuSeparator(),
+    # Konfiguration
     MenuItem(label="🧩 Studio-Konfiguration…", command="open_app_config_editor"),
+    MenuItem(label="📐 KDP-Spezifikationen…", command="open_kdp_specs_editor"),
     MenuItem(label="⚙️ Sanitizer-Konfiguration…", command="open_sanitizer_config_editor"),
     MenuItem(label="📘 Quarto.yml konfigurieren…", command="open_quarto_config_editor"),
     MenuItem(label="🔌 Plugin-Konfiguration…", command="open_plugin_config_editor"),
-    MenuItem(label="🩺 Buch-Doktor", command="run_doctor"),
-    MenuItem(label="✨ Frontmatter ergänzen…", command="heal_frontmatter"),
+    MenuSeparator(),
+    # Sicherung / Struktur
     MenuItem(label="📦 Backup", command="run_backup"),
     MenuItem(label="💾 Struktur-Snapshot speichern…", command="save_structure_snapshot"),
     MenuItem(label="⏪ Struktur-Snapshots", command="open_time_machine"),
     MenuSeparator(),
+    # Wartung
     MenuCascade(label="🛠️ Wartung", children=[
         MenuItem(label="⚠️ _quarto.yml hart zurücksetzen (Nuke)", command="reset_quarto_yml"),
     ]),

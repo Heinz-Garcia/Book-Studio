@@ -282,6 +282,18 @@ class TextEditorDialog(QDialog):
             self._btn_gg.clicked.connect(self._open_gg_swap)
             toolbar.addWidget(self._btn_gg)
 
+            toolbar.addSeparator()
+            self._add_toolbar_group_label(toolbar, "Cover")
+            self._btn_kdp_cover = QPushButton("KDP-Wrap…")
+            self._btn_kdp_cover.setCheckable(False)
+            self._btn_kdp_cover.setToolTip(
+                "KDP-Wrap (separat) — Upload-Cover-PDF "
+                "(Rückseite + Rücken + Vorderseite inkl. Bleed).\n"
+                "Unabhängig von Deckblatt.md / Innenwerk; ändert diese Datei nicht."
+            )
+            self._btn_kdp_cover.clicked.connect(self._open_kdp_cover)
+            toolbar.addWidget(self._btn_kdp_cover)
+
             self._btn_skeleton_sync: Optional[QPushButton] = None
             if self._find_skeleton_sync_targets():
                 self._btn_skeleton_sync = QPushButton("🧩")
@@ -776,6 +788,45 @@ class TextEditorDialog(QDialog):
             root=self,
         )
         open_gg_content_swap_qt(studio, self)
+
+    def _open_kdp_cover(self) -> None:
+        """KDP-Wrap-Cover-Designer (separates Upload-PDF, nicht Deckblatt.md)."""
+        from types import SimpleNamespace
+
+        from ui_qt.dialogs.kdp_cover_dialog import open_kdp_cover_qt
+
+        book = self.book_path
+        if book is None or not Path(book).is_dir():
+            cur = self.path.resolve().parent
+            book = None
+            for _ in range(6):
+                if (cur / "_quarto.yml").is_file():
+                    book = cur
+                    break
+                if cur.parent == cur:
+                    break
+                cur = cur.parent
+        if book is None:
+            QMessageBox.information(
+                self,
+                "KDP-Wrap",
+                "Kein Buchprojekt (_quarto.yml) zur Datei gefunden.\n"
+                "Der Cover-Designer kann trotzdem geöffnet werden — "
+                "Export-Pfad dann manuell wählen.",
+            )
+
+        parent_studio = self.parent()
+        log = getattr(parent_studio, "log", None) if parent_studio is not None else None
+        if not callable(log):
+            win = self.window()
+            facade = getattr(win, "_facade", None)
+            log = getattr(facade, "log", None) if facade is not None else None
+        studio = SimpleNamespace(
+            current_book=Path(book) if book else None,
+            log=log if callable(log) else (lambda *a, **k: None),
+            root=self,
+        )
+        open_kdp_cover_qt(studio, self)
 
     def _find_skeleton_sync_targets(self) -> list:
         """Gleichnamige Datei in einer nicht-geschuetzten Skeleton-Bibliothek?

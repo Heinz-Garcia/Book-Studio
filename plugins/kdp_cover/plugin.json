@@ -1,0 +1,11 @@
+{
+  "name": "kdp_cover",
+  "label": "📕 KDP Cover-Designer…",
+  "description": "Maße berechnen und KDP-konformes Wrap-Cover-PDF erzeugen (Rückseite + Rücken + Vorderseite inkl. Bleed).",
+  "entrypoint": "plugins.kdp_cover:run",
+  "version": "1.2.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 18,
+  "help_text": "Oben: Buch & KDP-Kanal (Flag → bookconfig/distribution.json, Bindung an export/kdp_cover/cover_project.json). Ablauf: (1) Maße; (2) Gestaltung — Titel/Autor nur Meta; (3) optional Frei-Offsets für Rücken. Separates Upload-Cover (nicht Deckblatt.md). Auch: Asset Manager / Markdown-Editor → „KDP-Wrap…“."
+}

@@ -1,0 +1,100 @@
+{
+  "meta": {
+    "verified": "2026-08-02",
+    "sources": [
+      "https://kdp.amazon.com/de_DE/help/topic/GVBQ3CMEQW3W2VL6",
+      "https://kdp.amazon.com/de_DE/help/topic/G201953020",
+      "https://kdp.amazon.com/de_DE/help/topic/G201834180"
+    ]
+  },
+  "mm_per_inch": 25.4,
+  "bleed_mm": 3.2,
+  "paperback": {
+    "min_page_count": 24,
+    "max_page_count": 828,
+    "min_outer_margin_in": 0.25
+  },
+  "paper_types": [
+    {
+      "id": "white_bw",
+      "label": "Weiß (Schwarz/Weiß-Druck)",
+      "mm_per_page": 0.0572
+    },
+    {
+      "id": "cream_bw",
+      "label": "Cremefarben (Schwarz/Weiß-Druck)",
+      "mm_per_page": 0.0635
+    },
+    {
+      "id": "standard_color",
+      "label": "Standardfarbe",
+      "mm_per_page": 0.0572
+    },
+    {
+      "id": "premium_color",
+      "label": "Premiumfarbe",
+      "mm_per_page": 0.0596
+    }
+  ],
+  "default_paper_type_id": "white_bw",
+  "trim_sizes_in": [
+    {"id": "5x8", "label": "5\" × 8\"", "width": 5.0, "height": 8.0},
+    {"id": "5.06x7.81", "label": "5,06\" × 7,81\"", "width": 5.06, "height": 7.81},
+    {"id": "5.25x8", "label": "5,25\" × 8\"", "width": 5.25, "height": 8.0},
+    {"id": "5.5x8.5", "label": "5,5\" × 8,5\"", "width": 5.5, "height": 8.5},
+    {
+      "id": "6x9",
+      "label": "6\" × 9\" (am weitesten verbreitet)",
+      "width": 6.0,
+      "height": 9.0
+    },
+    {"id": "6.14x9.21", "label": "6,14\" × 9,21\"", "width": 6.14, "height": 9.21},
+    {"id": "6.69x9.61", "label": "6,69\" × 9,61\"", "width": 6.69, "height": 9.61},
+    {"id": "7x10", "label": "7\" × 10\"", "width": 7.0, "height": 10.0},
+    {"id": "7.44x9.69", "label": "7,44\" × 9,69\"", "width": 7.44, "height": 9.69},
+    {"id": "7.5x9.25", "label": "7,5\" × 9,25\"", "width": 7.5, "height": 9.25},
+    {"id": "8x10", "label": "8\" × 10\"", "width": 8.0, "height": 10.0},
+    {"id": "8.25x6", "label": "8,25\" × 6\"", "width": 8.25, "height": 6.0},
+    {"id": "8.25x8.25", "label": "8,25\" × 8,25\"", "width": 8.25, "height": 8.25},
+    {"id": "8.5x8.5", "label": "8,5\" × 8,5\"", "width": 8.5, "height": 8.5},
+    {"id": "8.5x11", "label": "8,5\" × 11\"", "width": 8.5, "height": 11.0},
+    {"id": "8.27x11.69", "label": "8,27\" × 11,69\" (A4)", "width": 8.27, "height": 11.69}
+  ],
+  "custom_trim_in": {
+    "width_range": [4.0, 8.5],
+    "height_range": [6.0, 11.69]
+  },
+  "inside_margin_mm_by_max_pages": [
+    [150, 9.53],
+    [300, 12.7],
+    [500, 15.88],
+    [700, 19.05],
+    [828, 22.23]
+  ],
+  "typst_defaults": {
+    "margin_in": {"x": 1.25, "y": 1.25},
+    "fallback_papersize": "us-letter"
+  },
+  "studio_presets": {
+    "paperback": {
+      "trim_mm": {"width": 135, "height": 215},
+      "page_margin_mm": {
+        "inside": 20,
+        "outside": 16,
+        "top": 19,
+        "bottom": 20
+      },
+      "lines_per_page": 36,
+      "chars_per_line": 62
+    },
+    "taschenbuch_bod": {
+      "papersize": "a5",
+      "page_margin_mm": {
+        "inside": 20,
+        "outside": 16,
+        "top": 18,
+        "bottom": 20
+      }
+    }
+  }
+}

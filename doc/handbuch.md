@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** 30. Juli 2026 · **Version:** 1.31.6 („Skeleton Unleashed“)
+**Stand:** 3. August 2026 · **Version:** 1.38.7 („Skeleton Unleashed“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -43,6 +43,7 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 19. Asset Manager (Pool und Buch-img)
 20. Verzeichnisse (live aus README.md)
 21. Neuerungen 2026-08-02: PDF Manager-Ausbau, ISBN, Cover-Größe, Bleed
+22. KDP Cover-Designer (Wrap-PDF für Amazon)
 
 ---
 
@@ -498,6 +499,7 @@ Toolbar-Buttons (Auswahl):
 |--------|--------|
 | **YAML** | Gruppe mit Toggle-Buttons für alle Frontmatter-Bools: **📌** `required`, **H1** `print_title`, **#–** `unnumbered`, **☰–** `unlisted`, plus weitere true/false-Felder aus dem YAML. Tooltip nennt den Key. Speichern nicht vergessen. Details zu `print_title`: Abschnitt in Kapitel 6 |
 | 🧬 | GrammarGraph-Inhalt aktualisieren… (Body-Swap-Dialog; Kapitel 16) |
+| **KDP-Wrap…** | KDP Cover-Designer öffnen — separates Upload-Cover-PDF (Rückseite + Rücken + Vorderseite). **Ändert diese Markdown-Datei nicht** (auch nicht `Deckblatt.md`). Details: [Kapitel 22](#sec-kdp-cover) |
 | 🖼️ | Bild einfügen… — Markdown `![](/img/…)` oder Typst `#image("/img/…", width: …%)` (Dialog, Breite 1–100 %). Markdown-Bild + Zentrieren (↔/↕↔) wandelt automatisch nach `#image(…, width: 80%)` um |
 | 👁️ | Leservorschau — zeigt lokale Bilder an; Typst-Deckblätter als Vollseiten-Annäherung (A5, `object-fit: cover`) |
 
@@ -510,6 +512,13 @@ Beim Öffnen aus der Bildprüfung oder vom Buch-Doktor: Sprung zur gemeldeten Ze
 Konfigurationsdatei: **`app_config.json`** (im Book-Studio-Ordner)
 
 GUI: **Tools → Studio-Konfiguration...**
+
+Verwandte Tools-Einträge (Konfiguration, thematisch gruppiert):
+
+| Menüpunkt | Zweck |
+|-----------|--------|
+| **Tools → KDP-Spezifikationen…** | Zahlen für Bleed, Trim-Katalog, Papierarten, Studio-Paperback-Presets (`kdp_specs.json`) — Basis für Cover-Rechner und Cover-Designer |
+| **Tools → Sanitizer- / Quarto- / Plugin-Konfiguration…** | wie bisher (siehe unten) |
 
 | Eintrag | Bedeutung |
 |---------|-----------|
@@ -594,6 +603,12 @@ Meist hat `_quarto.yml` noch `format.typst.toc: true` — Quarto setzt dann ein 
 - sicherstellen, dass Deckblatt/Haupttitel **rechts im Buchbaum** vor dem IVZ stehen
 
 Details: Kapitel 6 (Typst: Deckblatt und Inhaltsverzeichnis).
+
+### KDP: Cover und Innenwerk verwechseln
+
+`Deckblatt.md` ist eine **Innenseite** im Buch-PDF. Amazons Taschenbuch-Cover (Umschlag) ist ein **anderes, separates PDF**.
+
+Abhilfe: **Plugins → KDP Cover-Designer…** → Wrap-PDF unter `export/kdp_cover/` erzeugen und bei KDP als Cover hochladen; das Buch-PDF (F5) bleibt das Manuskript. Bedienung: Kapitel 22.
 
 ### Skeleton: Dateien im Git-Panel
 
@@ -904,6 +919,10 @@ Nach erfolgreichem Render wird ein Eintrag in `publish_record.json` geschrieben 
 
 Details: Kapitel 18.
 
+### Phase 7 — KDP-Cover (Wrap-PDF)
+
+**Plugins → KDP Cover-Designer…** — separates Umschlag-PDF (Rückseite + Rücken + Vorderseite) für den KDP-Upload. Unabhängig von `Deckblatt.md`. Details: Kapitel 22.
+
 ### Merksätze
 
 | Frage | Antwort |
@@ -915,6 +934,7 @@ Details: Kapitel 18.
 | Wo steht, welches LLM exportiert hat? | `bookconfig/grammargraph_export.json` |
 | Wer behebt welchen Fehler? | **Plugins → Publish Readiness…** |
 | Wo sind meine PDFs zum Import? | **Plugins → PDF Manager…** oder 🗺️ (Kapitel 18) |
+| Wo ist das KDP-Umschlag-PDF? | **Plugins → KDP Cover-Designer…** → `export/kdp_cover/` (Kapitel 22) |
 
 Kurzreferenz auch in `doc/kickstart-grammargraph-skeleton.md`.
 
@@ -1132,6 +1152,10 @@ Du musst die Map **nicht manuell** pflegen — Plugin-Hooks schreiben bei:
 - Doppelklick auf einen **Referenz-Treffer** öffnet die Quelldatei im Studio-Editor
 - **Löschen** in `img/` nur bei **ungenutzten** Bildern (keine Referenzen). Pool-Dateien können unabhängig gelöscht werden
 
+### KDP-Wrap aus dem Asset Manager
+
+Footer-Button **KDP-Wrap…** öffnet den [KDP Cover-Designer](#sec-kdp-cover) für das aktive Buch — sinnvoll, wenn du gerade Cover-Bilder im Pool/`img/` verwaltest. Das erzeugte Wrap-PDF ist **nicht** die Innenwerk-`Deckblatt.md`, sondern ein separates Upload-Artefakt für Amazon KDP.
+
 ---
 
 ## 20) Verzeichnisse (live aus README.md) {#sec-verzeichnisse}
@@ -1216,14 +1240,12 @@ Der Dialog aus **Plugins → 🖨️ Druck-Freigabe prüfen…** (Kapitel 6/18 i
 
 **Woher die ISBN nehmen?** Entweder Amazons kostenlose ISBN (wird beim Taschenbuch-Setup im KDP-Dashboard vergeben, bindet aber an Amazon als Verlag) oder eine selbst gekaufte, plattformunabhängige ISBN (in Deutschland über die MVB, [german-isbn.de](https://german-isbn.de/isbn/preise-und-pakete)).
 
-### Cover-Größe berechnen (neues Werkzeug)
+### Cover-Größe berechnen → eingebettet im Cover-Designer
 
-**Plugins → 📐 Cover-Größe berechnen…** — eigenständiger Rechner, kein aktives Buchprojekt nötig:
+Die frühere Menüaktion **Cover-Größe berechnen…** ist **im KDP Cover-Designer aufgegangen** (Schritt „1. Maße festlegen“): Seitenzahl, Papierart, Trimmgröße → Live-Anzeige von Rückenbreite und Gesamt-Covermaßen inkl. Bleed, plus **Maße kopieren** für externe Tools.
 
-- Eingabe: Seitenzahl, Papierart (Weiß/Cremefarben/Standard-/Premiumfarbe), Trimmgröße (alle 16 KDP-Standardgrößen oder benutzerdefiniert).
-- Ausgabe (live, ohne extra Klick): Buchrücken-Breite, Gesamt-Coverbreite/-höhe inkl. der von KDP verlangten Beschnittzugabe — in mm und Zoll.
-- **Werte kopieren** legt das Ergebnis in die Zwischenablage.
-- Ersetzt nicht den offiziellen [KDP-Coverrechner](https://kdp.amazon.com/de_DE/cover-calculator), hilft aber bei der Vorab-Planung, bevor das Cover gestaltet wird.
+- Einstieg: **Plugins → 📕 KDP Cover-Designer…** — Bedienung: [Kapitel 22](#sec-kdp-cover)
+- Der Rechenkern (`tools/cover_size`) bleibt intern die SSOT; ein eigener Plugins-Menüpunkt entfällt.
 
 ### Bleed für randabfallende Bilder (neues Layout-Profil)
 
@@ -1232,6 +1254,117 @@ KDP verlangt bei randabfallenden Bildern im **Buchinnenteil** (z. B. ein Deckbla
 Neues Layout-Profil im Export-Dialog (Kapitel 6): **„(Pb) Paperback mit Bleed (randabfallende Bilder)“** — gleiche Maße wie „(Pb) Paperback“ (135×215mm, Bundsteg innen 20mm/außen 16mm), aber mit aktivierter Beschnittzugabe. Der Inhalt landet dabei an derselben Stelle relativ zur Trimmlinie wie ohne Bleed — nur der zusätzliche Rand für randabfallende Bilder kommt außen dazu.
 
 **Nutze dieses Profil, wenn** dein Buch eine Seite mit vollflächigem Bild hat (typisches Muster: `Deckblatt.md` mit `#page(margin: 0pt)[#image(…, width: 100%, height: 100%, fit: "cover")]`). Für Bücher ohne randabfallende Bilder bleibt „(Pb) Paperback“ ohne Bleed die richtige Wahl — beide Profile stehen unabhängig nebeneinander.
+
+> **Deckblatt.md ≠ KDP-Cover.** Das Deckblatt im Buchprojekt ist eine **Innenseite** (Schmuckseite nach dem Einband). Amazons Taschenbuch-Cover (Rückseite + Rücken + Vorderseite) ist ein **separates PDF** — siehe [Kapitel 22](#sec-kdp-cover).
+
+---
+
+## 22) KDP Cover-Designer (Wrap-PDF für Amazon) {#sec-kdp-cover}
+
+Für KDP-Taschenbücher brauchst du **zwei Uploads**:
+
+1. **Innenwerk** — das gerenderte Buch-PDF (F5), Trim-Größe, ggf. mit Bleed-Profil
+2. **Cover** — ein durchgehendes **Wrap-PDF** (Rückseite | Rücken | Vorderseite) inkl. Beschnitt
+
+Der **KDP Cover-Designer** erzeugt genau dieses Wrap-PDF. Er ändert **nicht** `content/Deckblatt.md` und hängt **nicht** an der Quarto/Typst-Buch-Pipeline.
+
+### Wo öffnen?
+
+| Einstieg | Menü / Ort |
+|----------|------------|
+| Primär | **Plugins → 📕 KDP Cover-Designer…** |
+| Aus Bildverwaltung | **Plugins → Asset Manager…** → Footer **KDP-Wrap…** |
+| Aus dem Editor | Markdown-Editor → Toolbar **Cover → KDP-Wrap…** (Tooltip: separat vom Innenwerk) |
+
+Voraussetzung für bequemen Export-Pfad: ein **aktives Buch** (Dropdown). Ohne Buch kannst du den Dialog trotzdem nutzen und den Speicherort manuell wählen.
+
+### KDP-Kanal am Buch
+
+Oben im Designer: **Buch & KDP-Kanal**.
+
+| Element | Bedeutung |
+|---------|-----------|
+| **Buch:** … | Aktives Buchprojekt (Tooltip = voller Pfad) |
+| Checkbox **KDP-Taschenbuch für dieses Buch** | Schreibt `bookconfig/distribution.json` → `channels.kdp_paperback` |
+| Statuszeile | Bindung an `export/kdp_cover/{Buchname}_kdp_cover.json` |
+
+Flag an heißt **nicht**, dass die Datei sofort angelegt wird. Fehlt sie bei aktivem Kanal, warnt der **Buch-Doktor** (Warning, kein Error). Speichern/Export legt das Cover-Layout an.
+
+```json
+{
+  "schema_version": 1,
+  "channels": {
+    "kdp_paperback": true
+  }
+}
+```
+
+### Typischer Ablauf (geführte Schritte)
+
+**Schritt 1 — Maße festlegen (KDP)** (eingebetteter Cover-Größen-Rechner)
+
+1. **Seitenzahl** der fertigen Innenwerk-PDF eintragen (bestimmt die Rückenbreite).
+2. **Papierart** wählen (wie später in KDP: Weiß / Cremefarben / Farbe).
+3. **Trimmgröße** — Default **Studio Paperback (135×215 mm)**; alternativ KDP-Standardgrößen oder benutzerdefiniert.
+4. Live-Anzeige: Buchrücken-Breite, Gesamt-Coverbreite/-höhe (mm und Zoll), Bleed/Safe-Zone.
+5. Optional **Maße kopieren** — Zwischenablage für Canva / [KDP Cover Creator](https://kdp.amazon.com/de_DE/cover-calculator).
+
+**Schritt 2 — Gestaltung & Inhalt**
+
+6. **Vorderseiten-Bild** wählen (hohe Auflösung; Prüfung grob ≥ 300 DPI). Text wie Titel/Untertitel gehört **in die Grafik** (nicht in die Formularfelder).
+7. Optional: Rückseiten-Bild oder Back-/Spine-Farbe; **Rücken-Text** (sichtbar, ab 79 Seiten).
+8. **Titel / Autor (Meta)** — nur PDF-Dokumentmetadaten und `cover_project.json`, **nicht** aufs Cover-Bild.
+9. Hilfslinien anlassen (Bleed / Trim / Safe / Rückenmitte).
+
+**Schritt 3 — Ampel & Export**
+
+10. Ampel prüfen:
+   - **grün** — Export bereit
+   - **gelb** — Warnungen; Export möglich nach Bestätigung
+   - **rot** — im Sicher-Modus ist Export gesperrt
+11. **PDF exportieren…** — Vorschlag: `{Buch}/export/kdp_cover/{Buchname}_kdp_wrap.pdf`
+
+Neben dem PDF entstehen:
+
+| Datei | Inhalt |
+|-------|--------|
+| `…_validation.json` | Validierungsbericht (Ampel-Details) |
+| `…_project.json` | Layout-Zwischenstand dieses Exports |
+| `export/kdp_cover/{Buchname}_kdp_cover.json` | kanonisches Cover-Layout (Autoload; Legacy: `cover_project.json`) |
+
+### Sicher vs. Frei
+
+| Modus | Verhalten |
+|-------|-----------|
+| **Sicher (empfohlen)** | Feste Text-Slots in der Safe-Zone; Export bei Fehlern gesperrt. Rücken-Text erst ab **79 Seiten** (KDP-Regel) — sonst Fehler. |
+| **Frei (Experte)** | mm-Offsets für Titel/Autor/Rücken, Titel-Skalierung. Beim Wechsel erscheint ein Hinweis. Export trotz Warnungen/Fehler nur nach **zweistufiger Bestätigung** (Liste lesen + Checkbox „Verantwortung“). |
+
+**Cover-Layout speichern… / laden…** sichert bzw. stellt den Dialogzustand wieder her (`{Buchname}_kdp_cover.json`). Mit aktivem KDP-Kanal ist der Speichern-Vorschlag immer der kanonische Pfad; Speichern außerhalb → Angebot, auch dorthin zu kopieren.
+
+### Maße und Specs
+
+- Schritt 1 im Designer **ist** der frühere Cover-Größen-Rechner (gleicher Kern wie `tools/cover_size`, Specs aus **Tools → KDP-Spezifikationen…**).
+- Bleed (Standard 3,2 mm) ist in der Wrap-Gesamtgröße bereits enthalten.
+- Ein eigener Plugins-Menüpunkt „Cover-Größe berechnen…“ entfällt.
+
+### CLI (ohne GUI)
+
+Für Tests oder Automatisierung:
+
+```text
+python -m tools.kdp_cover geometry --pages 200 --trim-width-mm 135 --trim-height-mm 215
+
+python -m tools.kdp_cover export --pages 120 --front pfad/zum/front.png ^
+  --title "Titel" --author "Autor" ^
+  --out export/kdp_cover/Cover-Wrap.pdf ^
+  --validation-json export/kdp_cover/cover_validation.json
+```
+
+### Was der Designer nicht ersetzt
+
+- Amazons [Cover Creator](https://kdp.amazon.com/de_DE/help/topic/G201953020) / Online-Vorlagen — du kannst das lokale Wrap-PDF dort hochladen oder weiterbearbeiten.
+- Das Innenwerk-PDF und die Druck-Freigabe-Prüfung (die prüft das **Buch**-PDF, nicht das Wrap).
+- Gestaltung wie in Canva (kein freies Vektorzeichnen) — Bilder + Textfelder + Farben reichen für den Druck-Upload-Pfad.
 
 ---
 
@@ -1251,11 +1384,14 @@ MeinBuch/
 │   ├── grammargraph_export.json   ← Provenance vom GrammarGraph-Import
 │   ├── publish_record.json        ← Projekt-Log (Import, Doctor, Render)
 │   ├── publish_map.json           ← Produktionslinien (Snapshot → PDFs)
+│   ├── distribution.json          ← Vertriebskanäle (z. B. kdp_paperback, Kapitel 22)
 │   └── reports/                   ← Doctor-/Readiness-Reports (JSON)
+├── img/                 ← Bilder für /img/…-Referenzen
 ├── export/              ← Render-Ausgabe
 │   ├── _book/                     ← Komfort-Kopie, wird bei jedem Render überschrieben
-│   └── publish_renders/<Snapshot-ID>/   ← dauerhaftes Archiv, eine Datei pro Render (PDF Manager)
-│       └── source_<Zeitstempel>/        ← archivierter Quellstand je Render (Kapitel 21)
+│   ├── publish_renders/<Snapshot-ID>/   ← dauerhaftes Archiv (PDF Manager)
+│   │   └── source_<Zeitstempel>/        ← archivierter Quellstand je Render (Kapitel 21)
+│   └── kdp_cover/                 ← Wrap-Cover-PDFs + {Buch}_kdp_cover.json (Kapitel 22)
 └── .backups/            ← Struktur-Snapshots (Time Machine: struct_*.json)
     └── file-fetch/      ← Sicherungen vor „Datei aus anderem Projekt holen“
 
