@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import tools.kdp_specs as kdp_specs
-from tools.kdp_cover.constants import MIN_IMAGE_DPI, MIN_SPINE_TEXT_PAGE_COUNT
+from tools.kdp_cover.constants import (
+    MIN_IMAGE_DPI,
+    MIN_SPINE_TEXT_PAGE_COUNT,
+    SPINE_EDGE_PADDING_MIN_MM,
+)
 from tools.kdp_cover.geometry import WrapGeometry, build_geometry
 from tools.kdp_cover.model import CoverLayout
 
@@ -177,20 +181,82 @@ def validate_layout(
                 )
             )
         else:
-            panel_w = geo.trim_width_mm + geo.bleed_mm
-            panel_h = geo.trim_height_mm + 2 * geo.bleed_mm
-            dpi = _image_dpi_for_panel(back_path, panel_w, panel_h)
-            if dpi is not None and dpi + 1e-6 < MIN_IMAGE_DPI:
+            from tools.kdp_cover.panel_images import (
+                barcode_reserve_mm,
+                compute_back_image_placement,
+                rect_contains,
+                rects_intersect,
+            )
+
+            try:
+                from PIL import Image as _PilImage
+
+                with _PilImage.open(back_path) as im:
+                    iw, ih = im.size
+            except OSError:
+                iw, ih = 0, 0
                 report.issues.append(
                     ValidationIssue(
-                        code="back_image_dpi",
-                        severity="warning",
-                        message=(
-                            f"Rückseiten-Bild erreicht nur ~{dpi:.0f} DPI "
-                            f"(empfohlen ≥ {MIN_IMAGE_DPI})."
-                        ),
+                        code="back_image_unreadable",
+                        severity="error",
+                        message=f"Rückseiten-Bild nicht lesbar: {back_path}",
                     )
                 )
+
+            if iw > 0 and ih > 0:
+                placement = compute_back_image_placement(
+                    layout, geo, image_width_px=iw, image_height_px=ih
+                )
+                if placement is not None:
+                    # Effektive DPI im gezeichneten Rechteck.
+                    dpi_eff = min(
+                        iw / (placement.image.width / 25.4),
+                        ih / (placement.image.height / 25.4),
+                    )
+                    if dpi_eff + 1e-6 < MIN_IMAGE_DPI:
+                        report.issues.append(
+                            ValidationIssue(
+                                code="back_image_dpi",
+                                severity="error",
+                                message=(
+                                    f"Rückseiten-Bild erreicht nur ~{dpi_eff:.0f} DPI "
+                                    f"im Layout (Mindestens {MIN_IMAGE_DPI} DPI)."
+                                ),
+                            )
+                        )
+                    if not rect_contains(geo.back_safe, placement.outer):
+                        report.issues.append(
+                            ValidationIssue(
+                                code="back_image_safe_zone",
+                                severity="error",
+                                message=(
+                                    "Rückseiten-Bild (inkl. Rahmen) verletzt die Safe-Zone. "
+                                    "Bitte verkleinern oder Rahmen reduzieren."
+                                ),
+                            )
+                        )
+                    barcode = barcode_reserve_mm(geo)
+                    if rects_intersect(placement.outer, barcode):
+                        report.issues.append(
+                            ValidationIssue(
+                                code="back_image_barcode",
+                                severity="error",
+                                message=(
+                                    "Rückseiten-Bild (inkl. Rahmen) überlappt die "
+                                    "KDP-Barcode-Zone (unten rechts). Bitte verkleinern."
+                                ),
+                            )
+                        )
+                if bool(getattr(layout, "back_image_frame", False)):
+                    fc = str(getattr(layout, "back_image_frame_color", "") or "")
+                    if _parse_hex_color(fc) is None:
+                        report.issues.append(
+                            ValidationIssue(
+                                code="back_image_frame_color",
+                                severity="error",
+                                message=f"Ungültige Rahmenfarbe: {fc!r}",
+                            )
+                        )
     else:
         if _parse_hex_color(layout.back_color) is None:
             report.issues.append(
@@ -200,6 +266,19 @@ def validate_layout(
                     message=f"Ungültige Rückseiten-Farbe: {layout.back_color!r}",
                 )
             )
+
+    try:
+        front_zoom = float(getattr(layout, "front_image_zoom", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        front_zoom = 1.0
+    if front_zoom + 1e-9 < 1.0:
+        report.issues.append(
+            ValidationIssue(
+                code="front_image_zoom",
+                severity="error",
+                message="Vorderseiten-Zoom muss ≥ 1,0 sein (nur Vergrößern).",
+            )
+        )
 
     if _parse_hex_color(layout.spine_color) is None:
         report.issues.append(
@@ -211,15 +290,49 @@ def validate_layout(
         )
 
     spine_text = layout.spine_text.strip()
-    if spine_text and layout.page_count < MIN_SPINE_TEXT_PAGE_COUNT:
+    spine_text_down = str(getattr(layout, "spine_text_down", "") or "").strip()
+    badge = getattr(layout, "spine_badge", None)
+    badge_active = bool(
+        badge is not None
+        and getattr(badge, "is_active", lambda: False)()
+    )
+    if badge_active:
+        badge_color = str(getattr(badge, "color", "") or "")
+        if _parse_hex_color(badge_color) is None:
+            report.issues.append(
+                ValidationIssue(
+                    code="spine_badge_color",
+                    severity="error",
+                    message=f"Ungültige Rücken-Badge-Farbe: {badge_color!r}",
+                )
+            )
+
+    spine_content = bool(spine_text or spine_text_down or badge_active)
+    if spine_content and layout.page_count < MIN_SPINE_TEXT_PAGE_COUNT:
         sev: Severity = "error" if layout.mode == "safe" else "warning"
         report.issues.append(
             ValidationIssue(
                 code="spine_text_too_few_pages",
                 severity=sev,
                 message=(
-                    f"Rücken-Text erst ab {MIN_SPINE_TEXT_PAGE_COUNT} Seiten "
+                    f"Rücken-Text/Badge erst ab {MIN_SPINE_TEXT_PAGE_COUNT} Seiten "
                     f"(aktuell {layout.page_count})."
+                ),
+            )
+        )
+
+    try:
+        pad_mm = float(getattr(layout, "spine_padding_mm", SPINE_EDGE_PADDING_MIN_MM))
+    except (TypeError, ValueError):
+        pad_mm = SPINE_EDGE_PADDING_MIN_MM
+    if spine_content and pad_mm + 1e-9 < SPINE_EDGE_PADDING_MIN_MM:
+        report.issues.append(
+            ValidationIssue(
+                code="spine_padding_low",
+                severity="warning",
+                message=(
+                    f"Rücken-Padding {pad_mm:.1f} mm unter KDP-Empfehlung "
+                    f"({SPINE_EDGE_PADDING_MIN_MM} mm vom Kopf-/Fußrand)."
                 ),
             )
         )

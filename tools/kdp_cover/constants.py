@@ -19,3 +19,14 @@ DEFAULT_EXPORT_DPI = 300
 
 # Mindest-DPI für eingebettete Bilder (KDP-Richtlinie).
 MIN_IMAGE_DPI = 300
+
+# Globale Badge-Skalierung (Text + Rechteck), Stufenindex 0 = 100 %.
+SPINE_BADGE_SCALE_STEPS: tuple[float, ...] = (1.0, 0.85, 0.7, 0.55, 0.4)
+
+# Mindest-Abstand der Rücken-Texte vom Kopf-/Fuß-Rand (KDP ~0.0625″).
+SPINE_EDGE_PADDING_MIN_MM = 1.6
+
+# KDP-Barcode-Reserve auf der Rückseite (unten rechts).
+BARCODE_WIDTH_IN = 2.0
+BARCODE_HEIGHT_IN = 1.2
+BARCODE_MARGIN_IN = 0.25

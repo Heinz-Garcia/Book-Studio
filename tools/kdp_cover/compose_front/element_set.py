@@ -49,6 +49,15 @@ def element_set_from_dict(data: dict[str, Any]) -> dict[str, Any]:
     """Extrahiert ``front_compose`` aus Elementset-JSON (oder nacktem Compose-Dict)."""
     if not isinstance(data, dict):
         raise ValueError("Elementset-JSON muss ein Objekt sein.")
+    if "ok_for_safe_export" in data and "issues" in data:
+        raise ValueError(
+            "Das ist ein Validierungsbericht, kein Elementset."
+        )
+    if "page_count" in data and "trim_width_mm" in data:
+        raise ValueError(
+            "Das ist ein Cover-Layout, kein Elementset. "
+            "Bitte „Cover-Layout laden…“ verwenden."
+        )
     if "front_compose" in data:
         raw = data.get("front_compose")
         if not isinstance(raw, dict):
@@ -60,7 +69,10 @@ def element_set_from_dict(data: dict[str, Any]) -> dict[str, Any]:
     # Nacktes Compose-Objekt (ohne Wrapper) — z. B. manuell kopiert.
     if "enabled" in data or "fade" in data or "band" in data or "titles" in data:
         return FrontComposeSpec.from_dict(data).to_dict()
-    raise ValueError("Keine front_compose-Daten im Elementset gefunden.")
+    raise ValueError(
+        "Keine Elementset-Daten gefunden. Erwartet: *_elementset.json "
+        f"mit kind={ELEMENT_SET_KIND!r}."
+    )
 
 
 def save_element_set(

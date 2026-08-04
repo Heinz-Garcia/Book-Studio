@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from tools.kdp_cover.compose_front import apply_to_front_panel
@@ -201,6 +202,48 @@ def test_element_set_roundtrip_and_title_filename(tmp_path: Path) -> None:
     assert "page_count" not in raw
     assert "front_image" not in raw
     assert "kdp_front_elementset" in raw
+
+
+def test_load_rejects_wrong_json_kinds(tmp_path: Path) -> None:
+    from tools.kdp_cover.compose_front import load_element_set, save_element_set
+    from tools.kdp_cover.compose_front.element_set import element_set_from_dict
+    from tools.kdp_cover.model import ensure_cover_layout_dict, load_layout, save_layout
+
+    cover_path = tmp_path / "book_kdp_cover.json"
+    save_layout(
+        CoverLayout(
+            page_count=120,
+            paper_type_id="white_bw",
+            trim_width_mm=135.0,
+            trim_height_mm=215.0,
+        ),
+        cover_path,
+    )
+    el_path = tmp_path / "title_elementset.json"
+    save_element_set({"enabled": True, "band": {"enabled": True, "text": "X"}}, el_path)
+    val_path = tmp_path / "book_kdp_wrap_validation.json"
+    val_path.write_text(
+        '{"ok_for_safe_export": false, "issues": [{"severity": "x"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Elementset"):
+        load_layout(el_path)
+    with pytest.raises(ValueError, match="Validierungsbericht"):
+        load_layout(val_path)
+    with pytest.raises(ValueError, match="Cover-Layout"):
+        load_element_set(cover_path)
+    with pytest.raises(ValueError, match="Validierungsbericht"):
+        element_set_from_dict(
+            {"ok_for_safe_export": True, "issues": []}
+        )
+    ensure_cover_layout_dict(
+        {
+            "page_count": 10,
+            "trim_width_mm": 135.0,
+            "trim_height_mm": 215.0,
+        }
+    )
 
 
 def test_titles_shared_size_and_accent_italic() -> None:

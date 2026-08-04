@@ -56,7 +56,42 @@ def _app_and_dialog(monkeypatch, tmp_path: Path | None = None, *, auto_yes_mode:
     return app, dlg, studio
 
 
-def test_dialog_is_resizable(monkeypatch):
+def test_overlay_checkbox_mentions_barcode(monkeypatch, tmp_path):
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    assert "Barcode" in dlg.show_overlays.text()
+    assert dlg.show_overlays.isChecked()
+    dlg.close()
+
+
+def test_draw_overlays_paints_barcode_placeholder(monkeypatch, tmp_path):
+    from PySide6.QtGui import QColor, QPixmap
+    from tools.kdp_cover.geometry import build_geometry
+    from tools.kdp_cover.panel_images import barcode_reserve_mm
+    from ui_qt.dialogs.kdp_cover_dialog import _draw_overlays
+
+    _app, _dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    geo = build_geometry(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+    )
+    dpi = 72.0
+    scale = dpi / 25.4
+    cw = max(1, int(round(geo.cover_width_mm * scale)))
+    ch = max(1, int(round(geo.cover_height_mm * scale)))
+    pix = QPixmap(cw, ch)
+    pix.fill(QColor(255, 255, 255))
+    out = _draw_overlays(pix, geo, dpi)
+    assert not out.isNull()
+    box = barcode_reserve_mm(geo)
+    # Pixel in der Barcode-Mitte darf nicht mehr reinweiß sein (Platzhalter).
+    mx = int((box.x + box.width / 2) * scale)
+    my = int((box.y + box.height / 2) * scale)
+    img = out.toImage()
+    color = img.pixelColor(mx, my)
+    assert color.red() < 255 or color.green() < 255 or color.blue() < 255
+    _dlg.close()
     from PySide6.QtCore import Qt
 
     _app, dlg, _ = _app_and_dialog(monkeypatch)
@@ -148,6 +183,22 @@ def test_suggested_elementset_path_uses_book_title(monkeypatch, tmp_path):
     assert start_name == "Diagnose_Brustkrebs_elementset.json"
     assert dlg.btn_save_elementset.text().startswith("Elementset speichern")
     assert dlg.btn_load_elementset.text().startswith("Elementset laden")
+    dlg.close()
+
+
+def test_load_dialogs_use_kind_filters(monkeypatch, tmp_path):
+    from ui_qt.dialogs import kdp_cover_dialog as mod
+
+    assert "*_elementset.json" in mod._ELEMENT_SET_FILTER
+    assert "*_kdp_cover.json" in mod._PROJECT_FILTER
+    assert "*_kdp_wrap_project.json" in mod._PROJECT_FILTER
+    assert "Alle Dateien" in mod._PROJECT_FILTER
+    assert "*_kdp_cover.json" in mod._PROJECT_SAVE_FILTER
+    assert "*_elementset.json" in mod._ELEMENT_SET_SAVE_FILTER
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    tip = dlg.btn_load_project.toolTip()
+    assert "Elementset" in tip or "*_kdp_cover" in tip
+    assert "*_elementset" in dlg.btn_load_elementset.toolTip()
     dlg.close()
 
 
@@ -309,6 +360,47 @@ def test_safe_mode_ignores_offsets_in_build(monkeypatch, tmp_path):
     layout = dlg._build_layout()
     assert layout.mode == "safe"
     assert layout.spine_offset_y_mm == 0.0
+    dlg.close()
+
+
+def test_spine_badge_ui_roundtrip(monkeypatch, tmp_path):
+    from tools.kdp_cover.model import SpineBadgeSpec
+
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    assert hasattr(dlg, "spine_badge_enabled")
+    assert hasattr(dlg, "spine_text_down_edit")
+    dlg.spine_text_edit.setText("Autor")
+    dlg.spine_text_down_edit.setText("Titel")
+    dlg.spine_badge_enabled.setChecked(True)
+    dlg.spine_badge_text.setText("MEDIZIN")
+    dlg.spine_badge_color.setText("#0A7A6E")
+    dlg.spine_badge_position.setCurrentIndex(
+        dlg.spine_badge_position.findData("after")
+    )
+    dlg.spine_badge_scale.setCurrentIndex(dlg.spine_badge_scale.findData(3))
+    dlg.spine_padding_spin.setValue(12.5)
+    built = dlg._build_layout()
+    assert built.spine_text == "Autor"
+    assert built.spine_text_down == "Titel"
+    assert built.spine_padding_mm == pytest.approx(12.5)
+    assert built.spine_badge.enabled is True
+    assert built.spine_badge.text == "MEDIZIN"
+    assert built.spine_badge.color == "#0A7A6E"
+    assert built.spine_badge.position == "after"
+    assert built.spine_badge.scale_step == 3
+
+    dlg._apply_spine_badge(
+        SpineBadgeSpec(
+            enabled=True,
+            text="POLITIK",
+            color="#112233",
+            position="before",
+            scale_step=1,
+        )
+    )
+    assert dlg.spine_badge_text.text() == "POLITIK"
+    assert dlg.spine_badge_position.currentData() == "before"
+    assert dlg.spine_badge_scale.currentData() == 1
     dlg.close()
 
 

@@ -281,3 +281,239 @@ def test_export_aborts_on_validation_error(tmp_path: Path):
     )
     with pytest.raises(ValueError, match="Validierung"):
         export_wrap_pdf(layout, tmp_path / "x.pdf", resolve_base=tmp_path)
+
+
+def test_spine_badge_roundtrip_json(tmp_path: Path):
+    from tools.kdp_cover.model import SpineBadgeSpec
+
+    path = tmp_path / "layout.json"
+    layout = CoverLayout(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        spine_text="Ich frage ja nur",
+        spine_text_down="Bandtitel",
+        spine_badge=SpineBadgeSpec(
+            enabled=True,
+            text="MEDIZIN",
+            color="#0D6E6E",
+            position="after",
+            scale_step=2,
+        ),
+    )
+    save_layout(layout, path)
+    loaded = load_layout(path)
+    assert loaded.spine_text == "Ich frage ja nur"
+    assert loaded.spine_text_down == "Bandtitel"
+    assert loaded.spine_badge.enabled is True
+    assert loaded.spine_badge.text == "MEDIZIN"
+    assert loaded.spine_badge.color == "#0D6E6E"
+    assert loaded.spine_badge.position == "after"
+    assert loaded.spine_badge.text_color == "#FFFFFF"
+    assert loaded.spine_badge.scale_step == 2
+    assert loaded.spine_badge.scale_factor() == pytest.approx(0.7)
+
+
+def test_spine_badge_validation_pages_and_color(tmp_path: Path):
+    from tools.kdp_cover.model import SpineBadgeSpec
+
+    layout = CoverLayout(
+        page_count=40,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        mode="safe",
+        front_image=str(_make_front(tmp_path)),
+        spine_badge=SpineBadgeSpec(enabled=True, text="POLITIK", color="not-a-color"),
+    )
+    report = validate_layout(layout, resolve_base=tmp_path)
+    assert any(i.code == "spine_text_too_few_pages" for i in report.errors)
+    assert any(i.code == "spine_badge_color" for i in report.errors)
+
+
+def test_spine_badge_render_before_after_differ(tmp_path: Path):
+    from tools.kdp_cover.export_pdf import render_wrap_image
+    from tools.kdp_cover.model import SpineBadgeSpec
+
+    front = _make_front(tmp_path)
+    common = dict(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+        spine_color="#222222",
+        spine_text_down="Titel Autor",
+    )
+    before = CoverLayout(
+        **common,
+        spine_badge=SpineBadgeSpec(
+            enabled=True, text="MEDIZIN", color="#CC0000", position="before"
+        ),
+    )
+    after = CoverLayout(
+        **common,
+        spine_badge=SpineBadgeSpec(
+            enabled=True, text="MEDIZIN", color="#CC0000", position="after"
+        ),
+    )
+    img_b = render_wrap_image(before, dpi=72, resolve_base=tmp_path)
+    img_a = render_wrap_image(after, dpi=72, resolve_base=tmp_path)
+    assert list(img_b.getdata()) != list(img_a.getdata())
+
+
+def test_spine_anchor_top_vs_bottom_differ(tmp_path: Path):
+    """Text nur oben vs. nur unten verankert müssen unterschiedliche Pixel erzeugen."""
+    from tools.kdp_cover.export_pdf import render_wrap_image
+
+    front = _make_front(tmp_path)
+    common = dict(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+        spine_color="#222222",
+    )
+    bottom_only = CoverLayout(**common, spine_text="UNTEN VERANKERT")
+    top_only = CoverLayout(**common, spine_text_down="OBEN VERANKERT")
+    img_b = render_wrap_image(bottom_only, dpi=72, resolve_base=tmp_path)
+    img_t = render_wrap_image(top_only, dpi=72, resolve_base=tmp_path)
+    assert list(img_b.getdata()) != list(img_t.getdata())
+
+
+def test_spine_badge_scale_steps_differ(tmp_path: Path):
+    from tools.kdp_cover.export_pdf import render_wrap_image
+    from tools.kdp_cover.model import SpineBadgeSpec
+
+    front = _make_front(tmp_path)
+    common = dict(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+        spine_color="#222222",
+        spine_text_down="Titel",
+    )
+    full = CoverLayout(
+        **common,
+        spine_badge=SpineBadgeSpec(
+            enabled=True, text="MEDIZIN", color="#CC0000", scale_step=0
+        ),
+    )
+    small = CoverLayout(
+        **common,
+        spine_badge=SpineBadgeSpec(
+            enabled=True, text="MEDIZIN", color="#CC0000", scale_step=4
+        ),
+    )
+    assert list(
+        render_wrap_image(full, dpi=72, resolve_base=tmp_path).getdata()
+    ) != list(render_wrap_image(small, dpi=72, resolve_base=tmp_path).getdata())
+
+
+def test_spine_padding_moves_blocks_together(tmp_path: Path):
+    from tools.kdp_cover.export_pdf import render_wrap_image
+
+    front = _make_front(tmp_path)
+    common = dict(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+        spine_color="#222222",
+        spine_text="UNTEN",
+        spine_text_down="OBEN",
+    )
+    tight = CoverLayout(**common, spine_padding_mm=1.6)
+    loose = CoverLayout(**common, spine_padding_mm=40.0)
+    assert list(
+        render_wrap_image(tight, dpi=72, resolve_base=tmp_path).getdata()
+    ) != list(render_wrap_image(loose, dpi=72, resolve_base=tmp_path).getdata())
+
+    path = tmp_path / "pad.json"
+    save_layout(loose, path)
+    assert load_layout(path).spine_padding_mm == pytest.approx(40.0)
+
+
+def test_front_zoom_and_offset_change_pixels(tmp_path: Path):
+    from PIL import ImageDraw
+    from tools.kdp_cover.export_pdf import render_wrap_image
+
+    front = tmp_path / "front_ asymmetric.png"
+    im = Image.new("RGB", (2400, 3600), (10, 20, 30))
+    ImageDraw.Draw(im).rectangle([0, 0, 400, 400], fill=(255, 0, 0))
+    im.save(front)
+    base = dict(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+    )
+    plain = CoverLayout(**base)
+    zoomed = CoverLayout(**base, front_image_zoom=2.0, front_image_offset_x_mm=10.0)
+    assert list(
+        render_wrap_image(plain, dpi=72, resolve_base=tmp_path).getdata()
+    ) != list(render_wrap_image(zoomed, dpi=72, resolve_base=tmp_path).getdata())
+
+
+def test_barcode_reserve_on_back_bottom_right():
+    from tools.cover_size.calculator import inch_to_mm
+    from tools.kdp_cover.constants import BARCODE_HEIGHT_IN, BARCODE_WIDTH_IN
+    from tools.kdp_cover.geometry import build_geometry
+    from tools.kdp_cover.panel_images import barcode_reserve_mm
+
+    geo = build_geometry(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+    )
+    box = barcode_reserve_mm(geo)
+    assert box.width == pytest.approx(inch_to_mm(BARCODE_WIDTH_IN))
+    assert box.height == pytest.approx(inch_to_mm(BARCODE_HEIGHT_IN))
+    assert box.right <= geo.back_panel.right + 1e-6
+    assert box.bottom <= geo.back_panel.bottom + 1e-6
+    assert box.x > geo.back_panel.x + geo.back_panel.width * 0.3
+    assert box.y > geo.back_panel.y + geo.back_panel.height * 0.5
+
+
+def test_back_image_scale_and_barcode_validation(tmp_path: Path):
+    from tools.kdp_cover.export_pdf import render_wrap_image
+    from tools.kdp_cover.validate import validate_layout
+
+    front = _make_front(tmp_path)
+    back = tmp_path / "author.png"
+    Image.new("RGB", (1200, 1600), (80, 80, 80)).save(back)
+    common = dict(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+        back_image=str(back),
+        back_color="#F5F0E8",
+    )
+    # Sehr groß → trifft Barcode-Zone.
+    huge = CoverLayout(**common, back_image_scale=1.0)
+    report_huge = validate_layout(huge, resolve_base=tmp_path)
+    assert any(i.code == "back_image_barcode" for i in report_huge.errors)
+
+    small = CoverLayout(**common, back_image_scale=0.25, back_image_frame=True)
+    report_small = validate_layout(small, resolve_base=tmp_path)
+    assert not any(
+        i.code in {"back_image_barcode", "back_image_safe_zone"} for i in report_small.errors
+    )
+    img_h = render_wrap_image(huge, dpi=72, resolve_base=tmp_path)
+    img_s = render_wrap_image(small, dpi=72, resolve_base=tmp_path)
+    assert list(img_h.getdata()) != list(img_s.getdata())
+
+    path = tmp_path / "img.json"
+    save_layout(small, path)
+    loaded = load_layout(path)
+    assert loaded.back_image_scale == pytest.approx(0.25)
+    assert loaded.back_image_frame is True

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap, QResizeEvent, QWheelEvent
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap, QResizeEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -55,11 +55,17 @@ from tools.kdp_cover.binding import (
     binding_status_label,
     resolve_cover_binding,
 )
-from tools.kdp_cover.constants import DEFAULT_EXPORT_DPI, SAFE_ZONE_IN
+from tools.kdp_cover.constants import (
+    DEFAULT_EXPORT_DPI,
+    SAFE_ZONE_IN,
+    SPINE_BADGE_SCALE_STEPS,
+    SPINE_EDGE_PADDING_MIN_MM,
+)
 from tools.kdp_cover.export_pdf import export_wrap_pdf, render_wrap_image
 from tools.kdp_cover.geometry import WrapGeometry, build_geometry
 from tools.kdp_cover.model import (
     CoverLayout,
+    SpineBadgeSpec,
     default_project_path,
     default_wrap_pdf_path,
     load_layout,
@@ -76,8 +82,15 @@ _PREVIEW_ZOOM_MIN = 0.25
 _PREVIEW_ZOOM_MAX = 4.0
 _PREVIEW_ZOOM_STEP = 1.15
 _IMAGE_FILTER = "Bilder (*.png *.jpg *.jpeg *.tif *.tiff *.webp);;Alle Dateien (*.*)"
-_PROJECT_FILTER = "Cover-Layout (*.json);;Alle Dateien (*.*)"
-_ELEMENT_SET_FILTER = "Elementset (*.json);;Alle Dateien (*.*)"
+_PROJECT_FILTER = (
+    "Cover-Layout (*_kdp_cover.json);;"
+    "Cover-Layout Wrap (*_kdp_wrap_project.json);;"
+    "Legacy (cover_project.json);;"
+    "Alle Dateien (*.*)"
+)
+_ELEMENT_SET_FILTER = "Elementset (*_elementset.json);;Alle Dateien (*.*)"
+_PROJECT_SAVE_FILTER = "Cover-Layout (*_kdp_cover.json);;Alle Dateien (*.*)"
+_ELEMENT_SET_SAVE_FILTER = "Elementset (*_elementset.json);;Alle Dateien (*.*)"
 
 
 def _book_root(studio: Any) -> Path | None:
@@ -132,6 +145,8 @@ def _pil_to_qpixmap(image) -> QPixmap:
 
 
 def _draw_overlays(pixmap: QPixmap, geo: WrapGeometry, dpi: float) -> QPixmap:
+    from tools.kdp_cover.panel_images import barcode_reserve_mm
+
     out = QPixmap(pixmap)
     painter = QPainter(out)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
@@ -158,6 +173,34 @@ def _draw_overlays(pixmap: QPixmap, geo: WrapGeometry, dpi: float) -> QPixmap:
     sx, sy, sw, sh = _rect(geo.spine_panel)
     cx = int(sx + sw / 2)
     painter.drawLine(cx, int(sy), cx, int(sy + sh))
+
+    # KDP-Barcode-Reserve (unten rechts auf der Rückseite) — Platzhalter.
+    barcode = barcode_reserve_mm(geo)
+    bx, by, bw, bh = _rect(barcode)
+    if bw > 2 and bh > 2:
+        painter.fillRect(
+            int(bx),
+            int(by),
+            int(bw),
+            int(bh),
+            QColor(250, 204, 21, 110),  # amber, semi-transparent
+        )
+        painter.setPen(QPen(QColor(180, 83, 9, 230), 2, Qt.PenStyle.DashLine))
+        painter.drawRect(int(bx), int(by), int(bw), int(bh))
+        painter.setPen(QColor(120, 53, 15, 240))
+        font = QFont()
+        font.setPointSize(max(7, int(round(min(bw, bh) / 8))))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(
+            int(bx),
+            int(by),
+            int(bw),
+            int(bh),
+            int(Qt.AlignmentFlag.AlignCenter),
+            "KDP-Barcode\n(freihalten)",
+        )
+
     painter.end()
     return out
 
@@ -375,9 +418,23 @@ class KdpCoverQtDialog(QDialog):
         btn_front.clicked.connect(self._browse_front)
         front_row.addWidget(btn_front)
         design.addRow("Vorderseite:", front_row)
+        self.front_zoom_spin = QDoubleSpinBox()
+        self.front_zoom_spin.setRange(1.0, 4.0)
+        self.front_zoom_spin.setDecimals(2)
+        self.front_zoom_spin.setSingleStep(0.05)
+        self.front_zoom_spin.setValue(1.0)
+        self.front_zoom_spin.setToolTip(
+            "Vergrößern über Cover-Fit (≥ 1,0). Danach Ausschnitt mit Offset verschieben."
+        )
+        design.addRow("Front-Zoom:", self.front_zoom_spin)
+        self.front_ox_spin = self._mm_spin()
+        self.front_oy_spin = self._mm_spin()
+        self.front_ox_spin.setToolTip("Ausschnitt horizontal verschieben (mm).")
+        self.front_oy_spin.setToolTip("Ausschnitt vertikal verschieben (mm).")
+        design.addRow("Front-Verschiebung:", self._pair(self.front_ox_spin, self.front_oy_spin))
 
         self.back_edit = QLineEdit()
-        self.back_edit.setPlaceholderText("optional — sonst Farbe")
+        self.back_edit.setPlaceholderText("optional — Autor:innenfoto o. Ä.")
         back_row = QHBoxLayout()
         back_row.addWidget(self.back_edit)
         btn_back_asset = QPushButton("Asset…")
@@ -392,6 +449,33 @@ class KdpCoverQtDialog(QDialog):
         btn_back.clicked.connect(self._browse_back)
         back_row.addWidget(btn_back)
         design.addRow("Rückseite:", back_row)
+        self.back_scale_spin = QDoubleSpinBox()
+        self.back_scale_spin.setRange(5.0, 100.0)
+        self.back_scale_spin.setDecimals(0)
+        self.back_scale_spin.setSingleStep(5.0)
+        self.back_scale_spin.setSuffix(" %")
+        self.back_scale_spin.setValue(100.0)
+        self.back_scale_spin.setToolTip(
+            "Verkleinern relativ zur maximalen Safe-Zone-Größe. "
+            "Immer zentriert; Rest = Back-Farbe. Muss die Barcode-Zone freilassen."
+        )
+        design.addRow("Back-Größe:", self.back_scale_spin)
+        self.back_frame_check = QCheckBox("Rahmen um Rückseiten-Bild")
+        design.addRow("", self.back_frame_check)
+        self.back_frame_mm_spin = QDoubleSpinBox()
+        self.back_frame_mm_spin.setRange(0.5, 20.0)
+        self.back_frame_mm_spin.setDecimals(1)
+        self.back_frame_mm_spin.setSingleStep(0.5)
+        self.back_frame_mm_spin.setSuffix(" mm")
+        self.back_frame_mm_spin.setValue(2.0)
+        design.addRow("Rahmenstärke:", self.back_frame_mm_spin)
+        frame_color_host, self.back_frame_color_edit = self._color_field(
+            "#000000", max_width=100, tooltip="Rahmenfarbe"
+        )
+        self.back_frame_color_host = frame_color_host
+        design.addRow("Rahmenfarbe:", frame_color_host)
+        self.back_frame_check.toggled.connect(self._sync_back_frame_controls)
+        self._sync_back_frame_controls()
 
         design.addRow("Back-/Spine-Farbe:", self._color_pair_row())
 
@@ -410,16 +494,74 @@ class KdpCoverQtDialog(QDialog):
         )
         design.addRow("Autor (Meta):", self.author_edit)
         self.spine_text_edit = QLineEdit()
-        self.spine_text_edit.setPlaceholderText("optional, ab 79 Seiten — wird gezeichnet")
-        self.spine_text_edit.setToolTip(
-            "Einziger Text, der auf dem Wrap erscheint (vertikal auf dem Rücken). "
-            "Titel/Autor bitte in die Cover-Grafik einarbeiten."
+        self.spine_text_edit.setPlaceholderText(
+            "unten verankert — Lesrichtung immer unten → oben"
         )
-        design.addRow("Rücken-Text:", self.spine_text_edit)
+        self.spine_text_edit.setToolTip(
+            "Rücken-Text 1: am Fuß des Rückens beginnend, Block wächst nach oben. "
+            "Lesrichtung immer von unten nach oben."
+        )
+        design.addRow("Rücken-Text 1 (unten):", self.spine_text_edit)
+        self.spine_text_down_edit = QLineEdit()
+        self.spine_text_down_edit.setPlaceholderText(
+            "oben verankert — Lesrichtung immer unten → oben"
+        )
+        self.spine_text_down_edit.setToolTip(
+            "Rücken-Text 2: am Kopf des Rückens beginnend, Block wächst nach unten. "
+            "Lesrichtung ebenfalls unten → oben. Badge vor/nach diesem Text."
+        )
+        design.addRow("Rücken-Text 2 (oben):", self.spine_text_down_edit)
+        self.spine_padding_spin = QDoubleSpinBox()
+        self.spine_padding_spin.setRange(0.0, 80.0)
+        self.spine_padding_spin.setDecimals(1)
+        self.spine_padding_spin.setSingleStep(1.0)
+        self.spine_padding_spin.setSuffix(" mm")
+        self.spine_padding_spin.setValue(SPINE_EDGE_PADDING_MIN_MM)
+        self.spine_padding_spin.setToolTip(
+            "Abstand vom Kopf- und Fußrand parallel. "
+            "Größer = beide Texte rücken zur Mitte zusammen; "
+            "kleiner = sie gehen auseinander zu den Rändern."
+        )
+        design.addRow("Rücken-Padding:", self.spine_padding_spin)
+
+        self.spine_badge_enabled = QCheckBox("Reihen-/Themen-Badge (an Text 2)")
+        self.spine_badge_enabled.setToolTip(
+            "Zusätzliches Rechteck mit weißem Text (z. B. MEDIZIN, POLITIK) "
+            "vor oder nach Textelement 2. Gleiche Lesrichtung (unten → oben)."
+        )
+        design.addRow("", self.spine_badge_enabled)
+        self.spine_badge_text = QLineEdit()
+        self.spine_badge_text.setPlaceholderText("z. B. MEDIZIN")
+        self.spine_badge_text.setToolTip("Weiße Schrift auf dem farbigen Rechteck.")
+        design.addRow("Badge-Text:", self.spine_badge_text)
+        badge_color_host, self.spine_badge_color = self._color_field(
+            "#9B2C3E",
+            max_width=100,
+            tooltip="Hintergrundfarbe des Badge-Rechtecks (frei wählbar).",
+        )
+        self.spine_badge_color_host = badge_color_host
+        design.addRow("Badge-Farbe:", badge_color_host)
+        self.spine_badge_position = QComboBox()
+        self.spine_badge_position.addItem("Vor Text 2 (Lesbeginn)", "before")
+        self.spine_badge_position.addItem("Nach Text 2 (Lesende)", "after")
+        self.spine_badge_position.setToolTip(
+            "Reihenfolge in Lesrichtung unten → oben: vor = näher am Fuß des Blocks."
+        )
+        design.addRow("Badge-Position:", self.spine_badge_position)
+        self.spine_badge_scale = QComboBox()
+        for i, factor in enumerate(SPINE_BADGE_SCALE_STEPS):
+            pct = int(round(factor * 100))
+            self.spine_badge_scale.addItem(f"{pct} %", i)
+        self.spine_badge_scale.setToolTip(
+            "Globale Verkleinerung von Badge-Text und Hintergrund in Stufen."
+        )
+        design.addRow("Badge-Größe:", self.spine_badge_scale)
+        self.spine_badge_enabled.toggled.connect(self._sync_spine_badge_controls)
         # title_color bleibt im Layout-Modell für Abwärtskompatibilität, UI entfällt.
         self.title_color_edit = QLineEdit("#FFFFFF")
         self.title_color_edit.hide()
         left.addWidget(design_box)
+        self._sync_spine_badge_controls()
 
         left.addWidget(self._build_compose_front_group())
 
@@ -446,8 +588,14 @@ class KdpCoverQtDialog(QDialog):
         left.addWidget(self.free_box)
         self.free_box.setEnabled(False)
 
-        self.show_overlays = QCheckBox("Hilfslinien (Bleed / Trim / Safe / Rückenmitte)")
+        self.show_overlays = QCheckBox(
+            "Hilfslinien (Bleed / Trim / Safe / Rückenmitte / Barcode-Zone)"
+        )
         self.show_overlays.setChecked(True)
+        self.show_overlays.setToolTip(
+            "Zeigt u. a. die KDP-Barcode-Reserve unten rechts auf der Rückseite "
+            "(gelber Platzhalter — dort nichts Wichtiges platzieren)."
+        )
         left.addWidget(self.show_overlays)
 
         persist_row = QHBoxLayout()
@@ -460,7 +608,8 @@ class KdpCoverQtDialog(QDialog):
         self.btn_save_project.clicked.connect(self._save_project)
         self.btn_load_project = QPushButton("Cover-Layout laden…")
         self.btn_load_project.setToolTip(
-            "Lädt aus <Buch>/export/kdp_cover/ (Ordner wird angelegt falls nötig)."
+            "Nur Cover-Layouts: *_kdp_cover.json / *_kdp_wrap_project.json "
+            "(keine Elementsets oder Validierungs-JSON)."
         )
         self.btn_load_project.clicked.connect(self._load_project)
         persist_row.addWidget(self.btn_save_project)
@@ -477,8 +626,8 @@ class KdpCoverQtDialog(QDialog):
         self.btn_save_elementset.clicked.connect(self._save_elementset)
         self.btn_load_elementset = QPushButton("Elementset laden…")
         self.btn_load_elementset.setToolTip(
-            "Elementset laden und auf das aktuelle Cover legen "
-            "(Maße/Bilder/Layout bleiben erhalten)."
+            "Nur Elementsets: *_elementset.json "
+            "(keine Cover-Layouts; Maße/Bilder bleiben erhalten)."
         )
         self.btn_load_elementset.clicked.connect(self._load_elementset)
         element_row.addWidget(self.btn_save_elementset)
@@ -614,10 +763,22 @@ class KdpCoverQtDialog(QDialog):
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.front_edit.editingFinished.connect(self._on_params_changed)
         self.back_edit.editingFinished.connect(self._on_params_changed)
+        self.front_zoom_spin.valueChanged.connect(self._on_params_changed)
+        self.front_ox_spin.valueChanged.connect(self._on_params_changed)
+        self.front_oy_spin.valueChanged.connect(self._on_params_changed)
+        self.back_scale_spin.valueChanged.connect(self._on_params_changed)
+        self.back_frame_check.toggled.connect(self._on_params_changed)
+        self.back_frame_mm_spin.valueChanged.connect(self._on_params_changed)
         # back/spine/compose-Farben: editingFinished bereits in _color_field verdrahtet
         self.title_edit.editingFinished.connect(self._on_params_changed)
         self.author_edit.editingFinished.connect(self._on_params_changed)
         self.spine_text_edit.editingFinished.connect(self._on_params_changed)
+        self.spine_text_down_edit.editingFinished.connect(self._on_params_changed)
+        self.spine_padding_spin.valueChanged.connect(self._on_params_changed)
+        self.spine_badge_enabled.toggled.connect(self._on_params_changed)
+        self.spine_badge_text.editingFinished.connect(self._on_params_changed)
+        self.spine_badge_position.currentIndexChanged.connect(self._on_params_changed)
+        self.spine_badge_scale.currentIndexChanged.connect(self._on_params_changed)
         self.title_color_edit.editingFinished.connect(self._on_params_changed)
         self._wire_compose_front_signals()
         self.trim_combo.currentIndexChanged.connect(self._on_trim_changed)
@@ -1314,6 +1475,61 @@ class KdpCoverQtDialog(QDialog):
             spin.setValue(0.0)
         self.title_scale.setValue(1.0)
 
+    def _sync_back_frame_controls(self) -> None:
+        on = bool(self.back_frame_check.isChecked())
+        self.back_frame_mm_spin.setEnabled(on)
+        self.back_frame_color_host.setEnabled(on)
+
+    def _sync_spine_badge_controls(self) -> None:
+        on = bool(self.spine_badge_enabled.isChecked())
+        for w in (
+            self.spine_badge_text,
+            self.spine_badge_color_host,
+            self.spine_badge_position,
+            self.spine_badge_scale,
+        ):
+            w.setEnabled(on)
+
+    def _collect_spine_badge(self) -> SpineBadgeSpec:
+        pos = str(self.spine_badge_position.currentData() or "before")
+        if pos not in ("before", "after"):
+            pos = "before"
+        try:
+            step = int(self.spine_badge_scale.currentData())
+        except (TypeError, ValueError):
+            step = 0
+        max_step = max(0, len(SPINE_BADGE_SCALE_STEPS) - 1)
+        step = max(0, min(max_step, step))
+        return SpineBadgeSpec(
+            enabled=bool(self.spine_badge_enabled.isChecked()),
+            text=self.spine_badge_text.text().strip(),
+            color=self.spine_badge_color.text().strip() or "#9B2C3E",
+            text_color="#FFFFFF",
+            position=pos,  # type: ignore[arg-type]
+            scale_step=step,
+        )
+
+    def _apply_spine_badge(self, badge: SpineBadgeSpec | dict[str, Any] | None) -> None:
+        spec = (
+            badge
+            if isinstance(badge, SpineBadgeSpec)
+            else SpineBadgeSpec.from_dict(badge if isinstance(badge, dict) else None)
+        )
+        self.spine_badge_enabled.setChecked(bool(spec.enabled))
+        self.spine_badge_text.setText(spec.text)
+        self.spine_badge_color.setText(spec.color or "#9B2C3E")
+        idx = self.spine_badge_position.findData(
+            "after" if spec.position == "after" else "before"
+        )
+        if idx >= 0:
+            self.spine_badge_position.setCurrentIndex(idx)
+        sidx = self.spine_badge_scale.findData(int(spec.scale_step))
+        if sidx >= 0:
+            self.spine_badge_scale.setCurrentIndex(sidx)
+        else:
+            self.spine_badge_scale.setCurrentIndex(0)
+        self._sync_spine_badge_controls()
+
     def _current_trim_mm(self) -> tuple[float, float]:
         trim_id = self.trim_combo.currentData()
         if trim_id == _STUDIO_PAPERBACK_ID:
@@ -1344,11 +1560,20 @@ class KdpCoverQtDialog(QDialog):
             mode=mode,  # type: ignore[arg-type]
             front_image=self.front_edit.text().strip(),
             back_image=self.back_edit.text().strip(),
+            front_image_zoom=float(self.front_zoom_spin.value()),
+            front_image_offset_x_mm=float(self.front_ox_spin.value()),
+            front_image_offset_y_mm=float(self.front_oy_spin.value()),
+            back_image_scale=max(0.05, min(1.0, float(self.back_scale_spin.value()) / 100.0)),
+            back_image_frame=bool(self.back_frame_check.isChecked()),
+            back_image_frame_mm=float(self.back_frame_mm_spin.value()),
+            back_image_frame_color=self.back_frame_color_edit.text().strip() or "#000000",
             back_color=self.back_color_edit.text().strip() or "#FFFFFF",
             spine_color=self.spine_color_edit.text().strip() or "#222222",
             title=self.title_edit.text().strip(),
             author=self.author_edit.text().strip(),
             spine_text=self.spine_text_edit.text().strip(),
+            spine_text_down=self.spine_text_down_edit.text().strip(),
+            spine_padding_mm=float(self.spine_padding_spin.value()),
             title_color=self.title_color_edit.text().strip() or "#FFFFFF",
             title_offset_x_mm=float(self.title_ox.value()),
             title_offset_y_mm=float(self.title_oy.value()),
@@ -1356,6 +1581,7 @@ class KdpCoverQtDialog(QDialog):
             author_offset_y_mm=float(self.author_oy.value()),
             spine_offset_y_mm=float(self.spine_oy.value()),
             title_scale=float(self.title_scale.value()),
+            spine_badge=self._collect_spine_badge(),
             front_compose=self._collect_front_compose(),
             wrap_pdf=getattr(self, "_wrap_pdf_rel", "") or "",
         )
@@ -1402,11 +1628,37 @@ class KdpCoverQtDialog(QDialog):
 
         self.front_edit.setText(layout.front_image)
         self.back_edit.setText(layout.back_image)
+        self.front_zoom_spin.setValue(
+            max(1.0, float(getattr(layout, "front_image_zoom", 1.0) or 1.0))
+        )
+        self.front_ox_spin.setValue(float(getattr(layout, "front_image_offset_x_mm", 0.0) or 0.0))
+        self.front_oy_spin.setValue(float(getattr(layout, "front_image_offset_y_mm", 0.0) or 0.0))
+        try:
+            bscale = float(getattr(layout, "back_image_scale", 1.0) or 1.0)
+        except (TypeError, ValueError):
+            bscale = 1.0
+        self.back_scale_spin.setValue(max(5.0, min(100.0, bscale * 100.0)))
+        self.back_frame_check.setChecked(bool(getattr(layout, "back_image_frame", False)))
+        self.back_frame_mm_spin.setValue(
+            max(0.5, float(getattr(layout, "back_image_frame_mm", 2.0) or 2.0))
+        )
+        self.back_frame_color_edit.setText(
+            str(getattr(layout, "back_image_frame_color", "") or "#000000")
+        )
+        self._sync_back_frame_controls()
         self.back_color_edit.setText(layout.back_color)
         self.spine_color_edit.setText(layout.spine_color)
         self.title_edit.setText(layout.title)
         self.author_edit.setText(layout.author)
         self.spine_text_edit.setText(layout.spine_text)
+        self.spine_text_down_edit.setText(
+            str(getattr(layout, "spine_text_down", "") or "")
+        )
+        try:
+            pad = float(getattr(layout, "spine_padding_mm", SPINE_EDGE_PADDING_MIN_MM))
+        except (TypeError, ValueError):
+            pad = SPINE_EDGE_PADDING_MIN_MM
+        self.spine_padding_spin.setValue(max(0.0, pad))
         self.title_color_edit.setText(layout.title_color)
         self.title_ox.setValue(layout.title_offset_x_mm)
         self.title_oy.setValue(layout.title_offset_y_mm)
@@ -1414,6 +1666,7 @@ class KdpCoverQtDialog(QDialog):
         self.author_oy.setValue(layout.author_offset_y_mm)
         self.spine_oy.setValue(layout.spine_offset_y_mm)
         self.title_scale.setValue(layout.title_scale if layout.title_scale > 0 else 1.0)
+        self._apply_spine_badge(getattr(layout, "spine_badge", None))
         self._apply_front_compose(getattr(layout, "front_compose", None))
         self._wrap_pdf_rel = str(getattr(layout, "wrap_pdf", "") or "")
         self._project_path = project_path
@@ -1494,15 +1747,34 @@ class KdpCoverQtDialog(QDialog):
         name = default_element_set_filename(title, book_folder_name="")
         return str(Path.cwd()), name
 
+    def _layout_validation_blocks_persist(
+        self, layout: CoverLayout
+    ) -> ValidationReport | None:
+        """Validiert vor Speichern; bei Fehlern Dialog und ``None``."""
+        report = validate_layout(layout, resolve_base=self._resolve_base())
+        if report.errors:
+            detail = "\n".join(f"• {i.message}" for i in report.errors)
+            QMessageBox.critical(
+                self,
+                "Speichern gesperrt — Vorgaben verletzt",
+                "Cover-Layout kann nicht gespeichert werden:\n\n"
+                f"{detail}\n\n"
+                "Bitte Safe-Zone, Barcode-Zone und Bildparameter korrigieren.",
+            )
+            return None
+        return report
+
     def _save_project(self) -> None:
         """Dialog im Buch-Ordner export/kdp_cover; Dateiname als änderbarer Vorschlag."""
         layout = self._build_layout()
+        if self._layout_validation_blocks_persist(layout) is None:
+            return
         start_dir, start_name = self._suggested_save_path()
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Cover-Layout speichern",
             str(Path(start_dir) / start_name),
-            _PROJECT_FILTER,
+            _PROJECT_SAVE_FILTER,
         )
         if not path:
             return
@@ -1545,7 +1817,7 @@ class KdpCoverQtDialog(QDialog):
             self,
             "Elementset speichern",
             str(Path(start_dir) / start_name),
-            _ELEMENT_SET_FILTER,
+            _ELEMENT_SET_SAVE_FILTER,
         )
         if not path:
             return
@@ -1787,6 +2059,27 @@ class KdpCoverQtDialog(QDialog):
 
     def _confirm_export(self, layout: CoverLayout, report: ValidationReport) -> bool:
         mode = layout.mode
+        hard_codes = {
+            "back_image_safe_zone",
+            "back_image_barcode",
+            "back_image_dpi",
+            "back_image_missing",
+            "back_image_unreadable",
+            "back_image_frame_color",
+            "front_image_zoom",
+            "front_image_missing",
+            "front_image_dpi",
+        }
+        hard = [i for i in report.errors if i.code in hard_codes]
+        if hard:
+            detail = "\n".join(f"• {i.message}" for i in hard)
+            QMessageBox.critical(
+                self,
+                "Export gesperrt — Vorgaben verletzt",
+                f"{detail}\n\nBitte korrigieren (Safe-Zone / Barcode / Bild).",
+            )
+            return False
+
         if mode == "safe" and not report.ok_for_safe_export:
             QMessageBox.warning(
                 self,
