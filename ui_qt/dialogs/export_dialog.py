@@ -123,6 +123,43 @@ class ExportDialog(QDialog):
         self.notes_edit.setClearButtonEnabled(True)
         form.addRow("Anzeigename:", self.notes_edit)
 
+        market_variant = ""
+        variant_system_prompt = ""
+        if self.book_path is not None:
+            try:
+                from tools.publish_map.metadata import provenance_summary
+
+                prov = provenance_summary(self.book_path)
+                market_variant = str(prov.get("market_variant") or "").strip()
+                variant_system_prompt = str(
+                    prov.get("variant_system_prompt_path") or ""
+                ).strip()
+            except (OSError, TypeError, ValueError, ImportError):
+                market_variant = ""
+                variant_system_prompt = ""
+
+        self.market_variant_label = QLabel("")
+        self.market_variant_label.setWordWrap(True)
+        if market_variant:
+            prompt_name = (
+                Path(variant_system_prompt).name if variant_system_prompt else "—"
+            )
+            self.market_variant_label.setText(
+                f"Marktvariante: {market_variant} · Systemprompt: {prompt_name}"
+            )
+            self.market_variant_label.setStyleSheet(
+                "QLabel { color: #166534; background: #ecfdf3; "
+                "border: 1px solid #bbf7d0; border-radius: 6px; padding: 6px 8px; }"
+            )
+        else:
+            self.market_variant_label.setText(
+                "Marktvariante: keine (Basisbuch / ohne Variantenkontext)"
+            )
+            self.market_variant_label.setStyleSheet("color: #5b6573;")
+        form.addRow("Provenance:", self.market_variant_label)
+        self._market_variant = market_variant
+        self._variant_system_prompt = variant_system_prompt
+
         layout.addLayout(form)
 
         self.hint = QLabel(initial_profile.description)
@@ -204,6 +241,20 @@ class ExportDialog(QDialog):
 
     def _confirm(self) -> None:
         stem = _normalize_pdf_stem(self.pdf_stem_edit.text())
+        if self._market_variant and not self._variant_system_prompt:
+            from PySide6.QtWidgets import QMessageBox
+
+            answer = QMessageBox.question(
+                self,
+                "Unvollständiger Variantenkontext",
+                f"Marktvariante „{self._market_variant}“ ist gesetzt, "
+                "aber kein Variantensystemprompt in der Provenance.\n\n"
+                "Trotzdem rendern?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         self.result = {
             "format": self.format_combo.currentText(),
             "template": self.template_combo.currentText(),
@@ -211,6 +262,7 @@ class ExportDialog(QDialog):
             "linestretch": self._selected_linestretch(),
             "notes": self.notes_edit.text().strip(),
             "pdf_stem": stem,
+            "market_variant": self._market_variant,
         }
         self.accept()
 

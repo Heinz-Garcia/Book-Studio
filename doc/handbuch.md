@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** 3. August 2026 · **Version:** 1.38.7 („Skeleton Unleashed“)
+**Stand:** 4. August 2026 · **Version:** 2.40.x („Skeleton Unleashed“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -44,6 +44,8 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 20. Verzeichnisse (live aus README.md)
 21. Neuerungen 2026-08-02: PDF Manager-Ausbau, ISBN, Cover-Größe, Bleed
 22. KDP Cover-Designer (Wrap-PDF für Amazon)
+
+In Kapitel 16: optionaler Abschnitt **Marktvarianten** (AT/CH u. Ä.) — siehe [§ Marktvarianten](#sec-marktvarianten).
 
 ---
 
@@ -258,6 +260,31 @@ Die **Icon-Legende** im mittleren Bereich erklärt die Symbole.
 3. **Export-Dialog** — Format (typst, pdf, html, docx) und Template
 4. **Temp-Klon** — Buch wird in eine temporäre Kopie kopiert; Pre-Processing und Quarto laufen nur dort
 5. **Quarto-Render** — Originalprojekt (`_quarto.yml`, `processed/`) bleibt unverändert
+6. **Production-UUID in PDF-Metadaten** — nach erfolgreichem PDF-Render schreibt das Studio per ExifTool das Custom-Feld **`UUID`** (siehe unten)
+
+### Production-UUID im gerenderten PDF {#sec-pdf-uuid}
+
+Jedes erfolgreiche **Innenwerk-PDF** (Typst/PDF-Render) erhält ein **benutzerdefiniertes Metadatenfeld** namens **`UUID`**:
+
+| Situation | Wert im Feld `UUID` |
+|-----------|---------------------|
+| Buch stammt aus einer GrammarGraph-Lieferung mit Production-UUID (`publish_meta.json`) | die UUID (z. B. `aaaaaaaa-bbbb-4ccc-…`) |
+| Keine UUID am Buch (ältere Projekte, manuell angelegte Bücher) | `n/a` — Feld ist trotzdem vorhanden |
+
+**Wo findest du das Feld?**
+
+1. **Adobe Acrobat / Reader:** Datei → Eigenschaften → Reiter **Benutzerdefiniert** (Custom) → Name **`UUID`**
+2. **ExifTool (Kommandozeile):**
+   ```powershell
+   C:\ExifTool\exiftool.exe -config tools\exiftool\BookStudio_ExifTool.config -PDF:UUID "PFAD\ZUM\Buch.pdf"
+   ```
+3. Nicht unter den Standardfeldern Titel/Autor/Stichwörter — nur unter **benutzerdefinierten** Eigenschaften bzw. `PDF:UUID`
+
+**Voraussetzung:** ExifTool unter **Tools → Studio-Konfiguration… → ExifTool-Pfad** (oder im System-`PATH`). Fehlt ExifTool, bleibt der Render erfolgreich; im Log erscheint eine Warnung, und das Feld wird nicht geschrieben.
+
+**Übersicht über Lieferungen:** **Tools → 🧬 UUID-Manager…** listet Production-UUIDs, optional die Spalte **Variante** (`market_variant`) und Abgleichshinweise.
+
+Die UUID wird in GrammarGraph bei **jeder Buchlieferung** erzeugt und über `publish_meta.json` / Provenance an Book Studio weitergereicht (Kapitel 16). Bei **Marktvarianten** gilt: jede produzierte Variante hat eine **eigene** Production-UUID und damit ein eigenes PDF (siehe [Marktvarianten](#sec-marktvarianten)).
 
 ### Typst: Deckblatt und Inhaltsverzeichnis
 
@@ -537,6 +564,8 @@ Verwandte Tools-Einträge (Konfiguration, thematisch gruppiert):
 | `skeleton_library_path` | Ordner mit Skeleton-Profilen (`tools/skeleton/library`) |
 | `skeleton_default_profile` | Standard-Profil beim Populate (z. B. `standard`) |
 | `asset_pool_path` | Zentraler Bild-Pool für **Plugins → Asset Manager…** (Default `assets/pool`) |
+| `exiftool_path` | Pfad zu `exiftool.exe` für Production-UUID im PDF (Custom-Feld `UUID`). Leer = System-`PATH`. Siehe [Kapitel 6](#sec-pdf-uuid) |
+| `pdf_deploy_folder` | Zielordner für „Copy to configured folder“ im PDF Manager |
 | `skeleton_on_conflict` | `ask` \| `skip` \| `replace` bei vorhandenen Dateien |
 | `skeleton_populate_mode` | `all` \| `missing_only` (nur fehlende Dateien kopieren) |
 
@@ -835,11 +864,37 @@ Nach dem Import (automatisch, ohne Menü):
 
 | Datei in `bookconfig/` | Inhalt |
 |------------------------|--------|
-| `grammargraph_export.json` | **Provenance** — Export-Zeitpunkt, Modell, Herkunft |
+| `grammargraph_export.json` | **Provenance** — Export-Zeitpunkt, Modell, Herkunft, optional `market_variant` |
 | `publish_record.json` | **Projekt-Log** — Import, Doctor- und Render-Ereignisse |
 | `publish_map.json` | **Produktionslinien** — Snapshots (Import) mit zugehörigen PDF-Renders (Kapitel 18) |
 
 Fehlt `grammargraph_export.json` im Publish-Ordner, wird ein Minimal-Manifest aus `_book_studio.toml` erzeugt.
+
+### Marktvarianten (optional) {#sec-marktvarianten}
+
+Manche Bücher teilen einen **gemeinsamen Basisinhalt**, während einzelne Gliederungsblöcke für Absatzmärkte (z. B. Österreich `at`, Schweiz `ch`) **abweichend** erzeugt werden. Das ist in GrammarGraph optional und wird in Book Studio nur **weitergetragen** — nicht neu erfunden.
+
+**Semantik**
+
+| Regel | Bedeutung |
+|-------|-----------|
+| 1 produzierte Variante | 1 Publish-Lieferung · 1 Production-UUID · 1 PDF |
+| Basis ohne Variantenwahl | unverändert lauffähig (keine Variantenmetadaten nötig) |
+| Variante aktiv | Provenance enthält `market_variant` (+ Anker-IDs / Systemprompt-Pfad) |
+
+**Wo du die Variante siehst**
+
+| Ort | Anzeige |
+|-----|---------|
+| Import / Provenance | `bookconfig/grammargraph_export.json` → `market_variant` |
+| Export-Dialog (`F5`) | Zeile **Provenance:** z. B. `Marktvariante: at · Systemprompt: …` |
+| Render-Log | `🧬 Marktvariante: at` |
+| Publish Map / Render-Metadaten | Feld `market_variant` am Render |
+| **Tools → 🧬 UUID-Manager…** | Spalte **Variante**, Filter und Hinweise |
+
+**Warnung im Export-Dialog:** Wenn eine Marktvariante gesetzt ist, aber der Variantensystemprompt in der Provenance fehlt, fragt das Studio nach, bevor der Render startet.
+
+**Praxis:** Für AT und CH jeweils einen **eigenen** GrammarGraph-Lauf mit `--market-variant at` bzw. `ch` exportieren, getrennt importieren/rendern — so entstehen zwei nachvollziehbare Produktionsketten mit zwei UUIDs.
 
 ### Phase 2 — Skeleton-Rahmen (optional)
 
@@ -908,10 +963,12 @@ Typische GrammarGraph-Themen (Bildpfade `/img/…`, `---` im Text, BOX-Syntax) s
 
 1. **F5** oder **Export → Buch rendern…**
 2. Render-Vorabcheck (Buch-Doktor) — bei ☠-Befunden: **F4** durch die Funde
-3. Export-Dialog (Format, Template)
+3. Export-Dialog (Format, Template) — zeigt ggf. die **Marktvariante** aus der Provenance
 4. Render läuft auf einer **Temp-Kopie** — dein Original-`_quarto.yml` bleibt unberührt
 
 Nach erfolgreichem Render wird ein Eintrag in `publish_record.json` geschrieben (`render_success`) und die **Publish Map** um den Render-Lauf ergänzt (Kapitel 18).
+
+Zusätzlich setzt das Studio im PDF das Custom-Metadatenfeld **`UUID`** (GrammarGraph-Production-ID oder `n/a`). Wo du es findest: [Kapitel 6 — Production-UUID](#sec-pdf-uuid).
 
 ### Phase 6 — PDF Manager
 
@@ -932,6 +989,9 @@ Details: Kapitel 18.
 | Neuer GG-Export, Struktur behalten? | **Export übernehmen…** im Dialog (Phase 3b) — ein `Publish_*`-Lauf |
 | Was ist 🧬 im Baum? | Automatisch erkannte GG-Nutzinhalt-Datei |
 | Wo steht, welches LLM exportiert hat? | `bookconfig/grammargraph_export.json` |
+| Wo steckt die Production-UUID im PDF? | Acrobat → Eigenschaften → **Benutzerdefiniert** → `UUID` ([Kapitel 6](#sec-pdf-uuid)) |
+| Was ist eine Marktvariante (AT/CH)? | Optionaler GG-Lauf pro Markt — eigene UUID/PDF ([Marktvarianten](#sec-marktvarianten)) |
+| Wo sehe ich die aktive Variante? | Export-Dialog, Provenance, UUID-Manager-Spalte **Variante** |
 | Wer behebt welchen Fehler? | **Plugins → Publish Readiness…** |
 | Wo sind meine PDFs zum Import? | **Plugins → PDF Manager…** oder 🗺️ (Kapitel 18) |
 | Wo ist das KDP-Umschlag-PDF? | **Plugins → KDP Cover-Designer…** → `export/kdp_cover/` (Kapitel 22) |
@@ -970,7 +1030,7 @@ Voraussetzung: ein **aktives Buchprojekt** im Dropdown.
 
 Oben im Dialog: **Zusammenfassung nach Owner** (z. B. „GrammarGraph: 12 · Book Studio: 3“).
 
-Wenn Provenance vorhanden ist, siehst du zusätzlich Export-Zeitpunkt und LLM-Modell aus `grammargraph_export.json`.
+Wenn Provenance vorhanden ist, siehst du zusätzlich Export-Zeitpunkt und LLM-Modell aus `grammargraph_export.json`. Ist eine **Marktvariante** gesetzt, gehört sie zur Herkunftskette (Feld `market_variant`) — siehe [Kapitel 16](#sec-marktvarianten).
 
 ### Owner-Kurzreferenz
 
@@ -1311,18 +1371,19 @@ Flag an heißt **nicht**, dass die Datei sofort angelegt wird. Fehlt sie bei akt
 
 **Schritt 2 — Gestaltung & Inhalt**
 
-6. **Vorderseiten-Bild** wählen (hohe Auflösung; Prüfung grob ≥ 300 DPI). Text wie Titel/Untertitel gehört **in die Grafik** (nicht in die Formularfelder).
-7. Optional: Rückseiten-Bild oder Back-/Spine-Farbe; **Rücken-Text** (sichtbar, ab 79 Seiten).
-8. **Titel / Autor (Meta)** — nur PDF-Dokumentmetadaten und `cover_project.json`, **nicht** aufs Cover-Bild.
-9. Hilfslinien anlassen (Bleed / Trim / Safe / Rückenmitte).
+6. **Vorderseiten-Bild** wählen (hohe Auflösung; Prüfung grob ≥ 300 DPI). **Front-Zoom** (≥ 1) und **Verschiebung** für den Ausschnitt. Text wie Titel/Untertitel gehört **in die Grafik**.
+7. Optional: **Rückseiten-Bild** (z. B. Autor:innenfoto) — **Back-Größe** (zentriert, Rest = Back-Farbe), optional **Rahmen**; Back-/Spine-Farbe. Speichern und Export **blockieren**, wenn Safe-Zone oder Barcode-Zone verletzt sind.
+8. **zwei Rücken-Texte** (ab 79 Seiten), beide Lesrichtung **unten→oben**: Text 1 **unten verankert**, Text 2 **oben verankert**. **Rücken-Padding** (mm) ändert parallel den Abstand oben/unten. Optional **Badge** an Text 2 (vor/nach), Farbe frei, Größe in Stufen (100 %…40 %).
+9. **Titel / Autor (Meta)** — nur PDF-Dokumentmetadaten und `cover_project.json`, **nicht** aufs Cover-Bild.
+10. Hilfslinien anlassen (Bleed / Trim / Safe / Rückenmitte / **Barcode-Zone** als gelber Platzhalter unten rechts auf der Rückseite).
 
 **Schritt 3 — Ampel & Export**
 
-10. Ampel prüfen:
+11. Ampel prüfen:
    - **grün** — Export bereit
    - **gelb** — Warnungen; Export möglich nach Bestätigung
-   - **rot** — im Sicher-Modus ist Export gesperrt
-11. **PDF exportieren…** — Vorschlag: `{Buch}/export/kdp_cover/{Buchname}_kdp_wrap.pdf`
+   - **rot** — im Sicher-Modus ist Export gesperrt (Safe-Zone/Barcode immer gesperrt)
+12. **PDF exportieren…** — Vorschlag: `{Buch}/export/kdp_cover/{Buchname}_kdp_wrap.pdf`
 
 Neben dem PDF entstehen:
 
@@ -1339,7 +1400,7 @@ Neben dem PDF entstehen:
 | **Sicher (empfohlen)** | Feste Text-Slots in der Safe-Zone; Export bei Fehlern gesperrt. Rücken-Text erst ab **79 Seiten** (KDP-Regel) — sonst Fehler. |
 | **Frei (Experte)** | mm-Offsets für Titel/Autor/Rücken, Titel-Skalierung. Beim Wechsel erscheint ein Hinweis. Export trotz Warnungen/Fehler nur nach **zweistufiger Bestätigung** (Liste lesen + Checkbox „Verantwortung“). |
 
-**Cover-Layout speichern… / laden…** sichert bzw. stellt den Dialogzustand wieder her (`{Buchname}_kdp_cover.json`). Mit aktivem KDP-Kanal ist der Speichern-Vorschlag immer der kanonische Pfad; Speichern außerhalb → Angebot, auch dorthin zu kopieren.
+**Cover-Layout speichern… / laden…** sichert bzw. stellt den Dialogzustand wieder her (`{Buchname}_kdp_cover.json`). Der Öffnen-Dialog filtert auf `*_kdp_cover.json` / `*_kdp_wrap_project.json` (plus Legacy `cover_project.json`); **Elementset laden…** nur auf `*_elementset.json`. Falsche JSON-Arten (z. B. Validierungsbericht als Layout) werden mit klarer Fehlermeldung abgewiesen. Mit aktivem KDP-Kanal ist der Speichern-Vorschlag immer der kanonische Pfad; Speichern außerhalb → Angebot, auch dorthin zu kopieren.
 
 ### Maße und Specs
 

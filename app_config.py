@@ -38,6 +38,45 @@ DEFAULTS: dict[str, Any] = {
     # Zielordner für „Deploy“ im PDF Manager (Kopie der markierten PDF).
     # Leer = Auto-Discovery unter ~/WEB.DE Online-Speicher/*/__Projekte/IFJN/PDF
     "pdf_deploy_folder": "",
+    # ExifTool für Production-UUID in PDF-Metadaten (Custom-Feld UUID). Leer = PATH.
+    "exiftool_path": "",
+    "uuid_manager_help_text": (
+        "Wähle links einen Statusfilter. Hier erscheint direkt die passende "
+        "Kurzorientierung zum aktuell sichtbaren Zustand."
+    ),
+    "uuid_manager_help_texts": {
+        "": (
+            "Zeigt alle UUID-Fälle im Überblick. Nutze den Filter, um gezielt "
+            "offene Importe, fehlende PDFs oder abweichende PDF-Metadaten einzugrenzen."
+        ),
+        "delivery_only": (
+            "Diese UUID liegt bisher nur als GrammarGraph-Lieferung vor. "
+            "Ein passendes Book-Studio-Buch wurde dazu noch nicht gefunden."
+        ),
+        "imported_no_render": (
+            "Das Buch ist bereits in Book Studio vorhanden. "
+            "Zu dieser UUID existiert aber noch kein gerendertes PDF."
+        ),
+        "rendered_pdf_present": (
+            "Ein PDF ist vorhanden, die PDF-UUID konnte jedoch noch nicht "
+            "verifiziert werden, etwa wegen fehlendem ExifTool oder nicht lesbarem Metadatenwert."
+        ),
+        "pdf_uuid_match": (
+            "Alles konsistent: Lieferung, Buch und PDF tragen dieselbe UUID."
+        ),
+        "pdf_uuid_mismatch": (
+            "Auffälligkeit: Das PDF ist vorhanden, aber seine `PDF:UUID` passt "
+            "nicht zur erwarteten UUID oder steht auf `n/a`."
+        ),
+        "orphan_book": (
+            "Zu diesem Buch wurde keine passende GrammarGraph-Lieferung mit "
+            "derselben UUID gefunden. Meist handelt es sich um lokalen oder älteren Bestand."
+        ),
+        "orphan_pdf": (
+            "Ein PDF mit UUID ist vorhanden, lässt sich aber keiner "
+            "sauberen Liefer- und Buchkette zuordnen."
+        ),
+    },
     # B-Fix (Code-Review 2026-07-03): frueher hier `False`, waehrend
     # `app_config_editor.DEFAULTS` und `ExportManager.
     # should_abort_on_first_preflight_error()` beide bereits `True` als

@@ -20,6 +20,8 @@ def _render_metadata(book: Path) -> dict[str, str]:
         "book_author": meta.get("author", ""),
         "provenance_exported_at": prov.get("exported_at", ""),
         "provenance_llm_model": prov.get("llm_model", ""),
+        "market_variant": prov.get("market_variant", ""),
+        "variant_system_prompt_path": prov.get("variant_system_prompt_path", ""),
     }
 
 
@@ -102,6 +104,7 @@ def on_after_render(studio: Optional[Any] = None, **kwargs) -> None:
         "template": str(kwargs.get("template") or ""),
         "layout_profile": str(kwargs.get("layout_profile") or ""),
         "profile_name": str(kwargs.get("profile_name") or ""),
+        "market_variant": str(kwargs.get("market_variant") or ""),
         "artifact_path": str(kwargs.get("artifact_path") or ""),
         "source_archive_path": str(kwargs.get("source_archive_path") or ""),
         "notes": str(kwargs.get("notes") or "").strip(),

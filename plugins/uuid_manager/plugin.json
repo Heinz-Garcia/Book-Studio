@@ -1,0 +1,11 @@
+{
+  "name": "uuid_manager",
+  "label": "🧬 UUID-Manager…",
+  "description": "GrammarGraph-Lieferung, Buch und PDF über dieselbe UUID korrelieren.",
+  "entrypoint": "plugins.uuid_manager:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 24,
+  "help_text": "Read-only Diagnose-Tool: zeigt UUID, Lieferordner, Buch, PDF und Verifikationsstatus. Keine Reparatur- oder Schreibaktionen."
+}

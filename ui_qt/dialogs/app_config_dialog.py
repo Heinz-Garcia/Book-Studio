@@ -1,7 +1,7 @@
 """Studio-Konfiguration — deklaratives Formular für app_config.json.
 
 Elegante Variante (kein JSON-Baum-Editor): Feldliste mit Typen
-(path / path_list / str / enum / bool / int / float), Ordner-Browse und
+(path / path_list / file / str / enum / bool / int / float), Ordner-/Datei-Browse und
 Gruppen. Nested Keys (frontmatter_requirements, editor_end_commands)
 bleiben bewusst aus dem Formular; Speichern merget in die geladene Config.
 """
@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
-FieldKind = Literal["path", "path_list", "str", "enum", "bool", "int", "float"]
+FieldKind = Literal["path", "path_list", "file", "str", "enum", "bool", "int", "float"]
 
 
 @dataclass(frozen=True)
@@ -46,6 +46,8 @@ class ConfigField:
     minimum: float = 0
     maximum: float = 1_000_000
     step: float = 1
+    # Nur kind=file: QFileDialog-Filter, z. B. "ExifTool (exiftool.exe)"
+    file_filter: str = ""
 
 
 def _layout_profile_choices() -> tuple[str, ...]:
@@ -93,6 +95,21 @@ FIELDS: tuple[ConfigField, ...] = (
         "path",
         "Pfade",
         tip="Ziel für „Deploy“ im PDF Manager. Leer = WEB.DE-Discovery.",
+    ),
+    ConfigField(
+        "exiftool_path",
+        "ExifTool-Pfad",
+        "file",
+        "Pfade",
+        tip="Pfad zu exiftool.exe für Production-UUID in PDF-Metadaten. Leer = PATH.",
+        file_filter="ExifTool (exiftool.exe exiftool);;Alle Dateien (*)",
+    ),
+    ConfigField(
+        "uuid_manager_help_text",
+        "UUID-Manager-Hilfe",
+        "str",
+        "Pfade",
+        tip="Kurzer Orientierungstext für das Hilfe-Badge im UUID-Manager.",
     ),
     ConfigField(
         "asset_pool_path",
@@ -247,18 +264,27 @@ def _path_list_to_text(value: Any) -> str:
 
 
 class _PathRow(QWidget):
-    """QLineEdit + Ordner… (setzt oder hängt an bei path_list)."""
+    """QLineEdit + Browse (Ordner oder Datei)."""
 
-    def __init__(self, *, append: bool = False, tip: str = "") -> None:
+    def __init__(
+        self,
+        *,
+        append: bool = False,
+        tip: str = "",
+        file_mode: bool = False,
+        file_filter: str = "",
+    ) -> None:
         super().__init__()
         self._append = append
+        self._file_mode = file_mode
+        self._file_filter = file_filter or "Alle Dateien (*)"
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         self.edit = QLineEdit()
         if tip:
             self.edit.setToolTip(tip)
             self.edit.setPlaceholderText(tip)
-        browse = QPushButton("Ordner…")
+        browse = QPushButton("Datei…" if file_mode else "Ordner…")
         browse.clicked.connect(self._browse)
         row.addWidget(self.edit, stretch=1)
         row.addWidget(browse)
@@ -282,6 +308,16 @@ class _PathRow(QWidget):
                     start = str(p.parent) if p.parent.is_dir() else ""
             except OSError:
                 start = ""
+        if self._file_mode:
+            chosen, _ = QFileDialog.getOpenFileName(
+                self,
+                "Datei wählen",
+                start or "",
+                self._file_filter,
+            )
+            if chosen:
+                self.edit.setText(chosen)
+            return
         chosen = QFileDialog.getExistingDirectory(self, "Ordner wählen", start or "")
         if not chosen:
             return
@@ -346,6 +382,15 @@ class AppConfigDialog(QDialog):
             row = _PathRow(append=False, tip=spec.tip)
             row.setText(str(value or ""))
             return row
+        if spec.kind == "file":
+            row = _PathRow(
+                append=False,
+                tip=spec.tip,
+                file_mode=True,
+                file_filter=spec.file_filter,
+            )
+            row.setText(str(value or ""))
+            return row
         if spec.kind == "path_list":
             row = _PathRow(append=True, tip=spec.tip)
             row.setText(_path_list_to_text(value))
@@ -389,7 +434,7 @@ class AppConfigDialog(QDialog):
         return w
 
     def _read_widget(self, spec: ConfigField, widget: Any) -> Any:
-        if spec.kind in ("path",):
+        if spec.kind in ("path", "file"):
             return widget.text().strip()
         if spec.kind == "path_list":
             text = widget.text().strip()

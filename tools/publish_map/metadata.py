@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -43,5 +43,12 @@ def provenance_summary(book_path: Path) -> dict[str, Any]:
         "llm_model": str(llm.get("model") or ""),
         "llm_provider": str(llm.get("provider") or ""),
         "import_path": str(content.get("export_dir") or ""),
+        "market_variant": str(
+            prov.get("market_variant")
+            or content.get("market_variant")
+            or ""
+        ),
+        "variant_system_prompt_path": str(content.get("variant_system_prompt_path") or ""),
+        "variant_anchor_ids": list(content.get("variant_anchor_ids") or []),
         "source": str(content.get("source") or ""),
     }

@@ -79,6 +79,38 @@ class ExportManager:
             or None,
         )
 
+    def _configured_exiftool_path(self) -> str:
+        try:
+            from pathlib import Path as _Path
+
+            import app_config as _app_config
+
+            root = getattr(self, "_root", None)
+            root_path = _Path(root()) if callable(root) else _Path(".")
+            cfg = _app_config.read_config(root_path / "app_config.json")
+            return str(cfg.get("exiftool_path") or "").strip()
+        except (OSError, TypeError, ValueError, ImportError):
+            return ""
+
+    def _apply_production_uuid_to_pdfs(self, *pdf_paths) -> None:
+        """Schreibt GrammarGraph-Production-UUID per ExifTool in PDF-Metadaten."""
+        book = self._current_book()
+        if not book:
+            return
+        paths = [p for p in pdf_paths if p]
+        if not paths:
+            return
+        try:
+            from tools.pdf_uuid_exiftool import apply_uuid_to_render_pdfs
+        except ImportError:
+            return
+        apply_uuid_to_render_pdfs(
+            book,
+            paths,
+            configured_exiftool=self._configured_exiftool_path(),
+            log=self._log,
+        )
+
     def _set_status(self, text, fg):
         self._adapter.update_status(text, fg)
 
@@ -966,6 +998,15 @@ class ExportManager:
             render_pdf_stem = str(selected.get("pdf_stem") or "").strip()
             if render_pdf_stem.lower().endswith(".pdf"):
                 render_pdf_stem = render_pdf_stem[:-4].rstrip()
+            market_variant = ""
+            try:
+                from tools.publish_map.metadata import provenance_summary
+
+                market_variant = str(
+                    provenance_summary(self._current_book()).get("market_variant") or ""
+                ).strip()
+            except (ImportError, OSError, ValueError, TypeError):
+                market_variant = ""
             self._pending_render_context = {
                 "format": base_fmt,
                 "template": selected_tpl,
@@ -976,6 +1017,7 @@ class ExportManager:
                 "snapshot_id": snapshot_id,
                 "notes": render_notes,
                 "pdf_stem": render_pdf_stem,
+                "market_variant": market_variant,
             }
             profile = None
             try:
@@ -992,6 +1034,8 @@ class ExportManager:
                 self._log(f"📄 Dateiname: {render_pdf_stem}.pdf", "info")
             if render_notes:
                 self._log(f"🏷️  Anzeigename: {render_notes}", "info")
+            if market_variant:
+                self._log(f"🧬 Marktvariante: {market_variant}", "info")
             self._start_render_log(target_fmt, selected_tpl)
 
             # Phase 2 / Schritt 2.3c-Mini: Render-Orchestrierung im RenderService.
@@ -1195,6 +1239,7 @@ class ExportManager:
                         str(source_archive.resolve()) if source_archive is not None else ""
                     )
                     self._fire_after_render_hook(output_fmt, hook_path)
+                    self._apply_production_uuid_to_pdfs(path, hook_path)
                     self._run_publisher_compliance_guard(path)
                     notes = str(
                         (getattr(self, "_pending_render_context", None) or {}).get("notes")
@@ -1232,6 +1277,7 @@ class ExportManager:
                         str(source_archive.resolve()) if source_archive is not None else ""
                     )
                     self._fire_after_render_hook(output_fmt, hook_path)
+                    self._apply_production_uuid_to_pdfs(hook_path)
                     self._run_publisher_compliance_guard(hook_path)
                     ui_hooks.ask_post_render_action(
                         artifact_path=hook_path or "",

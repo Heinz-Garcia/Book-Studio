@@ -16,11 +16,19 @@ def test_important_path_keys_are_in_gui():
     for required in (
         "content_root_path",
         "pdf_deploy_folder",
+        "exiftool_path",
         "prep_dest_folder",
         "indexer_target_folder",
         "asset_pool_path",
     ):
         assert required in keys
+
+
+def test_exiftool_path_is_file_field():
+    """ExifTool muss als Datei wählbar sein (nicht nur Ordner)."""
+    field = next(f for f in FIELDS if f.key == "exiftool_path")
+    assert field.kind == "file"
+    assert "exiftool" in field.file_filter.casefold()
 
 
 def test_path_list_to_text_joins_lists():

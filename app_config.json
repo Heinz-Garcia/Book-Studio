@@ -50,5 +50,7 @@
     "skeleton_default_profile": "standard",
     "skeleton_on_conflict": "ask",
     "skeleton_populate_mode": "missing_only",
-    "handbuch_pdf_format": "typst"
+    "handbuch_pdf_format": "typst",
+    "exiftool_path": "C:\\ExifTool\\exiftool.exe",
+    "asset_pool_path": "assets/pool"
 }
