@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap, QResizeEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLayout,
@@ -74,13 +73,19 @@ from tools.kdp_cover.model import (
 )
 from tools.kdp_cover.validate import ValidationReport, validate_layout
 from tools.kdp_specs import format_bleed_note, studio_paperback_preset
+from ui_qt.widgets.collapsible_section import CollapsibleSection
 from ui_qt.widgets.help_bar import HelpBar
+from ui_qt.widgets.resize_grip import attach_resize_grip
 
 _STUDIO_PAPERBACK_ID = "studio_paperback"
-_PREVIEW_DPI = 72.0
+# Bildschirm-Vorschau (Export bleibt DEFAULT_EXPORT_DPI / clamp_print_dpi ≥ 300).
+# 300 DPI hier → mehrfaches Smooth-Skalieren bei jedem resizeEvent = sichtbares Gezucke.
+_PREVIEW_DPI = 120.0
 _PREVIEW_ZOOM_MIN = 0.25
 _PREVIEW_ZOOM_MAX = 4.0
 _PREVIEW_ZOOM_STEP = 1.15
+_PREVIEW_DEBOUNCE_MS = 120
+_PREVIEW_FIT_DEBOUNCE_MS = 60
 _IMAGE_FILTER = "Bilder (*.png *.jpg *.jpeg *.tif *.tiff *.webp);;Alle Dateien (*.*)"
 _PROJECT_FILTER = (
     "Cover-Layout (*_kdp_cover.json);;"
@@ -242,9 +247,19 @@ class KdpCoverQtDialog(QDialog):
         self._studio = studio
         self._book = _book_root(studio)
         self._mode_guard = False
+        self._params_guard = True  # bis Init fertig — kein Preview-Sturm
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(_PREVIEW_DEBOUNCE_MS)
+        self._preview_timer.timeout.connect(self._refresh_preview)
+        self._fit_timer = QTimer(self)
+        self._fit_timer.setSingleShot(True)
+        self._fit_timer.setInterval(_PREVIEW_FIT_DEBOUNCE_MS)
+        self._fit_timer.timeout.connect(self._fit_preview_to_viewport)
         self._project_path: Path | None = None
         self._preview_full: QPixmap | None = None
         self._preview_zoom: float = 1.0
+        self._preview_fit_size: tuple[int, int] | None = None
         self._wrap_pdf_rel: str = ""
         self._kdp_flag_guard = False
         if self._book:
@@ -260,9 +275,10 @@ class KdpCoverQtDialog(QDialog):
             | Qt.WindowType.WindowMaximizeButtonHint
             | Qt.WindowType.WindowCloseButtonHint
         )
-        self.setSizeGripEnabled(True)
+        self.setSizeGripEnabled(False)
         self.setMinimumSize(1280, 720)
         self.resize(1540, 920)
+        self._size_grip = attach_resize_grip(self)
 
         root = QVBoxLayout(self)
         root.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
@@ -299,12 +315,13 @@ class KdpCoverQtDialog(QDialog):
 
         self._build_book_banner(left)
 
-        form_box = QGroupBox("1. Maße festlegen (KDP)")
-        form = QFormLayout(form_box)
+        form_box = CollapsibleSection("1. Maße festlegen (KDP)", expanded=True)
+        form = QFormLayout()
         form.setSpacing(8)
         form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
         )
+        form_box.body_layout().addLayout(form)
 
         self.pages_spin = QSpinBox()
         self.pages_spin.setRange(MIN_PAGE_COUNT, MAX_PAGE_COUNT)
@@ -393,14 +410,37 @@ class KdpCoverQtDialog(QDialog):
         form.addRow(self.btn_copy_size)
         left.addWidget(form_box)
 
-        design_box = QGroupBox("2. Gestaltung & Inhalt")
-        design = QFormLayout(design_box)
-        design.setSpacing(8)
+        # --- Allgemein / Vorderseite / Rücken / Rückseite (einklappbar) ---
+        general_sec = CollapsibleSection("2. Allgemein", expanded=True)
+        general = QFormLayout()
+        general.setSpacing(8)
+        general_sec.body_layout().addLayout(general)
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("Sicher (empfohlen)", "safe")
         self.mode_combo.addItem("Frei (Experte)", "free")
-        design.addRow("Modus:", self.mode_combo)
+        general.addRow("Modus:", self.mode_combo)
+
+        self.title_edit = QLineEdit()
+        self.title_edit.setPlaceholderText("nur PDF-/Projekt-Metadaten, nicht aufs Bild")
+        self.title_edit.setToolTip(
+            "Wird im Cover-Layout und als PDF-Dokumenttitel gespeichert — "
+            "nicht auf das Cover-Bild gezeichnet (Text gehört in die Cover-Grafik)."
+        )
+        general.addRow("Titel (Meta):", self.title_edit)
+        self.author_edit = QLineEdit()
+        self.author_edit.setPlaceholderText("nur PDF-/Projekt-Metadaten, nicht aufs Bild")
+        self.author_edit.setToolTip(
+            "Wird im Cover-Layout und als PDF-Autor gespeichert — "
+            "nicht auf das Cover-Bild gezeichnet."
+        )
+        general.addRow("Autor (Meta):", self.author_edit)
+        left.addWidget(general_sec)
+
+        front_sec = CollapsibleSection("3. Vorderseite (Cover)", expanded=True)
+        design_front = QFormLayout()
+        design_front.setSpacing(8)
+        front_sec.body_layout().addLayout(design_front)
 
         self.front_edit = QLineEdit()
         self.front_edit.setPlaceholderText("Vorderseiten-Bild…")
@@ -417,7 +457,7 @@ class KdpCoverQtDialog(QDialog):
         btn_front.setToolTip("Datei im Dateisystem wählen")
         btn_front.clicked.connect(self._browse_front)
         front_row.addWidget(btn_front)
-        design.addRow("Vorderseite:", front_row)
+        design_front.addRow("Vorderseite:", front_row)
         self.front_zoom_spin = QDoubleSpinBox()
         self.front_zoom_spin.setRange(1.0, 4.0)
         self.front_zoom_spin.setDecimals(2)
@@ -426,12 +466,105 @@ class KdpCoverQtDialog(QDialog):
         self.front_zoom_spin.setToolTip(
             "Vergrößern über Cover-Fit (≥ 1,0). Danach Ausschnitt mit Offset verschieben."
         )
-        design.addRow("Front-Zoom:", self.front_zoom_spin)
+        design_front.addRow("Front-Zoom:", self.front_zoom_spin)
         self.front_ox_spin = self._mm_spin()
         self.front_oy_spin = self._mm_spin()
         self.front_ox_spin.setToolTip("Ausschnitt horizontal verschieben (mm).")
         self.front_oy_spin.setToolTip("Ausschnitt vertikal verschieben (mm).")
-        design.addRow("Front-Verschiebung:", self._pair(self.front_ox_spin, self.front_oy_spin))
+        design_front.addRow(
+            "Front-Verschiebung:", self._pair(self.front_ox_spin, self.front_oy_spin)
+        )
+        left.addWidget(front_sec)
+
+        spine_sec = CollapsibleSection("4. Rücken", expanded=True)
+        design_spine = QFormLayout()
+        design_spine.setSpacing(8)
+        spine_sec.body_layout().addLayout(design_spine)
+
+        spine_color_host, self.spine_color_edit = self._color_field(
+            "#222222", max_width=100, tooltip="Rückenfarbe"
+        )
+        design_spine.addRow("Rückenfarbe:", spine_color_host)
+
+        self.spine_text_edit = QLineEdit()
+        self.spine_text_edit.setPlaceholderText(
+            "unten verankert — Lesrichtung immer unten → oben"
+        )
+        self.spine_text_edit.setToolTip(
+            "Rücken-Text 1: am Fuß des Rückens beginnend, Block wächst nach oben. "
+            "Lesrichtung immer von unten nach oben."
+        )
+        design_spine.addRow("Rücken-Text 1 (unten):", self.spine_text_edit)
+        self.spine_text_down_edit = QLineEdit()
+        self.spine_text_down_edit.setPlaceholderText(
+            "oben verankert — Lesrichtung immer unten → oben"
+        )
+        self.spine_text_down_edit.setToolTip(
+            "Rücken-Text 2: am Kopf des Rückens beginnend, Block wächst nach unten. "
+            "Lesrichtung ebenfalls unten → oben. Badge vor/nach diesem Text."
+        )
+        design_spine.addRow("Rücken-Text 2 (oben):", self.spine_text_down_edit)
+        self.spine_padding_spin = QDoubleSpinBox()
+        self.spine_padding_spin.setRange(0.0, 80.0)
+        self.spine_padding_spin.setDecimals(1)
+        self.spine_padding_spin.setSingleStep(1.0)
+        self.spine_padding_spin.setSuffix(" mm")
+        self.spine_padding_spin.setValue(SPINE_EDGE_PADDING_MIN_MM)
+        self.spine_padding_spin.setToolTip(
+            "Abstand vom Kopf- und Fußrand parallel. "
+            "Größer = beide Texte rücken zur Mitte zusammen; "
+            "kleiner = sie gehen auseinander zu den Rändern."
+        )
+        design_spine.addRow("Rücken-Padding:", self.spine_padding_spin)
+
+        self.spine_badge_enabled = QCheckBox("Reihen-/Themen-Badge (an Text 2)")
+        self.spine_badge_enabled.setToolTip(
+            "Zusätzliches Rechteck mit weißem Text (z. B. MEDIZIN, POLITIK) "
+            "vor oder nach Textelement 2. Gleiche Lesrichtung (unten → oben)."
+        )
+        design_spine.addRow("", self.spine_badge_enabled)
+        self.spine_badge_text = QLineEdit()
+        self.spine_badge_text.setPlaceholderText("z. B. MEDIZIN")
+        self.spine_badge_text.setToolTip("Weiße Schrift auf dem farbigen Rechteck.")
+        design_spine.addRow("Badge-Text:", self.spine_badge_text)
+        badge_color_host, self.spine_badge_color = self._color_field(
+            "#9B2C3E",
+            max_width=100,
+            tooltip="Hintergrundfarbe des Badge-Rechtecks (frei wählbar).",
+        )
+        self.spine_badge_color_host = badge_color_host
+        design_spine.addRow("Badge-Farbe:", badge_color_host)
+        self.spine_badge_position = QComboBox()
+        self.spine_badge_position.addItem("Vor Text 2 (Lesbeginn)", "before")
+        self.spine_badge_position.addItem("Nach Text 2 (Lesende)", "after")
+        self.spine_badge_position.setToolTip(
+            "Reihenfolge in Lesrichtung unten → oben: vor = näher am Fuß des Blocks."
+        )
+        design_spine.addRow("Badge-Position:", self.spine_badge_position)
+        self.spine_badge_scale = QComboBox()
+        for i, factor in enumerate(SPINE_BADGE_SCALE_STEPS):
+            pct = int(round(factor * 100))
+            self.spine_badge_scale.addItem(f"{pct} %", i)
+        self.spine_badge_scale.setToolTip(
+            "Globale Verkleinerung von Badge-Text und Hintergrund in Stufen."
+        )
+        design_spine.addRow("Badge-Größe:", self.spine_badge_scale)
+        self.spine_badge_enabled.toggled.connect(self._sync_spine_badge_controls)
+        # title_color bleibt im Layout-Modell für Abwärtskompatibilität, UI entfällt.
+        self.title_color_edit = QLineEdit("#FFFFFF")
+        self.title_color_edit.hide()
+        left.addWidget(spine_sec)
+        self._sync_spine_badge_controls()
+
+        back_sec = CollapsibleSection("5. Rückseite", expanded=True)
+        design_back = QFormLayout()
+        design_back.setSpacing(8)
+        back_sec.body_layout().addLayout(design_back)
+
+        back_color_host, self.back_color_edit = self._color_field(
+            "#F5F0E8", max_width=100, tooltip="Rückseiten-Hintergrundfarbe"
+        )
+        design_back.addRow("Back-Farbe:", back_color_host)
 
         self.back_edit = QLineEdit()
         self.back_edit.setPlaceholderText("optional — Autor:innenfoto o. Ä.")
@@ -448,7 +581,7 @@ class KdpCoverQtDialog(QDialog):
         btn_back.setToolTip("Datei im Dateisystem wählen")
         btn_back.clicked.connect(self._browse_back)
         back_row.addWidget(btn_back)
-        design.addRow("Rückseite:", back_row)
+        design_back.addRow("Rückseite:", back_row)
         self.back_scale_spin = QDoubleSpinBox()
         self.back_scale_spin.setRange(5.0, 100.0)
         self.back_scale_spin.setDecimals(0)
@@ -459,115 +592,33 @@ class KdpCoverQtDialog(QDialog):
             "Verkleinern relativ zur maximalen Safe-Zone-Größe. "
             "Immer zentriert; Rest = Back-Farbe. Muss die Barcode-Zone freilassen."
         )
-        design.addRow("Back-Größe:", self.back_scale_spin)
+        design_back.addRow("Back-Größe:", self.back_scale_spin)
         self.back_frame_check = QCheckBox("Rahmen um Rückseiten-Bild")
-        design.addRow("", self.back_frame_check)
+        design_back.addRow("", self.back_frame_check)
         self.back_frame_mm_spin = QDoubleSpinBox()
         self.back_frame_mm_spin.setRange(0.5, 20.0)
         self.back_frame_mm_spin.setDecimals(1)
         self.back_frame_mm_spin.setSingleStep(0.5)
         self.back_frame_mm_spin.setSuffix(" mm")
         self.back_frame_mm_spin.setValue(2.0)
-        design.addRow("Rahmenstärke:", self.back_frame_mm_spin)
+        design_back.addRow("Rahmenstärke:", self.back_frame_mm_spin)
         frame_color_host, self.back_frame_color_edit = self._color_field(
             "#000000", max_width=100, tooltip="Rahmenfarbe"
         )
         self.back_frame_color_host = frame_color_host
-        design.addRow("Rahmenfarbe:", frame_color_host)
+        design_back.addRow("Rahmenfarbe:", frame_color_host)
         self.back_frame_check.toggled.connect(self._sync_back_frame_controls)
         self._sync_back_frame_controls()
-
-        design.addRow("Back-/Spine-Farbe:", self._color_pair_row())
-
-        self.title_edit = QLineEdit()
-        self.title_edit.setPlaceholderText("nur PDF-/Projekt-Metadaten, nicht aufs Bild")
-        self.title_edit.setToolTip(
-            "Wird im Cover-Layout und als PDF-Dokumenttitel gespeichert — "
-            "nicht auf das Cover-Bild gezeichnet (Text gehört in die Cover-Grafik)."
-        )
-        design.addRow("Titel (Meta):", self.title_edit)
-        self.author_edit = QLineEdit()
-        self.author_edit.setPlaceholderText("nur PDF-/Projekt-Metadaten, nicht aufs Bild")
-        self.author_edit.setToolTip(
-            "Wird im Cover-Layout und als PDF-Autor gespeichert — "
-            "nicht auf das Cover-Bild gezeichnet."
-        )
-        design.addRow("Autor (Meta):", self.author_edit)
-        self.spine_text_edit = QLineEdit()
-        self.spine_text_edit.setPlaceholderText(
-            "unten verankert — Lesrichtung immer unten → oben"
-        )
-        self.spine_text_edit.setToolTip(
-            "Rücken-Text 1: am Fuß des Rückens beginnend, Block wächst nach oben. "
-            "Lesrichtung immer von unten nach oben."
-        )
-        design.addRow("Rücken-Text 1 (unten):", self.spine_text_edit)
-        self.spine_text_down_edit = QLineEdit()
-        self.spine_text_down_edit.setPlaceholderText(
-            "oben verankert — Lesrichtung immer unten → oben"
-        )
-        self.spine_text_down_edit.setToolTip(
-            "Rücken-Text 2: am Kopf des Rückens beginnend, Block wächst nach unten. "
-            "Lesrichtung ebenfalls unten → oben. Badge vor/nach diesem Text."
-        )
-        design.addRow("Rücken-Text 2 (oben):", self.spine_text_down_edit)
-        self.spine_padding_spin = QDoubleSpinBox()
-        self.spine_padding_spin.setRange(0.0, 80.0)
-        self.spine_padding_spin.setDecimals(1)
-        self.spine_padding_spin.setSingleStep(1.0)
-        self.spine_padding_spin.setSuffix(" mm")
-        self.spine_padding_spin.setValue(SPINE_EDGE_PADDING_MIN_MM)
-        self.spine_padding_spin.setToolTip(
-            "Abstand vom Kopf- und Fußrand parallel. "
-            "Größer = beide Texte rücken zur Mitte zusammen; "
-            "kleiner = sie gehen auseinander zu den Rändern."
-        )
-        design.addRow("Rücken-Padding:", self.spine_padding_spin)
-
-        self.spine_badge_enabled = QCheckBox("Reihen-/Themen-Badge (an Text 2)")
-        self.spine_badge_enabled.setToolTip(
-            "Zusätzliches Rechteck mit weißem Text (z. B. MEDIZIN, POLITIK) "
-            "vor oder nach Textelement 2. Gleiche Lesrichtung (unten → oben)."
-        )
-        design.addRow("", self.spine_badge_enabled)
-        self.spine_badge_text = QLineEdit()
-        self.spine_badge_text.setPlaceholderText("z. B. MEDIZIN")
-        self.spine_badge_text.setToolTip("Weiße Schrift auf dem farbigen Rechteck.")
-        design.addRow("Badge-Text:", self.spine_badge_text)
-        badge_color_host, self.spine_badge_color = self._color_field(
-            "#9B2C3E",
-            max_width=100,
-            tooltip="Hintergrundfarbe des Badge-Rechtecks (frei wählbar).",
-        )
-        self.spine_badge_color_host = badge_color_host
-        design.addRow("Badge-Farbe:", badge_color_host)
-        self.spine_badge_position = QComboBox()
-        self.spine_badge_position.addItem("Vor Text 2 (Lesbeginn)", "before")
-        self.spine_badge_position.addItem("Nach Text 2 (Lesende)", "after")
-        self.spine_badge_position.setToolTip(
-            "Reihenfolge in Lesrichtung unten → oben: vor = näher am Fuß des Blocks."
-        )
-        design.addRow("Badge-Position:", self.spine_badge_position)
-        self.spine_badge_scale = QComboBox()
-        for i, factor in enumerate(SPINE_BADGE_SCALE_STEPS):
-            pct = int(round(factor * 100))
-            self.spine_badge_scale.addItem(f"{pct} %", i)
-        self.spine_badge_scale.setToolTip(
-            "Globale Verkleinerung von Badge-Text und Hintergrund in Stufen."
-        )
-        design.addRow("Badge-Größe:", self.spine_badge_scale)
-        self.spine_badge_enabled.toggled.connect(self._sync_spine_badge_controls)
-        # title_color bleibt im Layout-Modell für Abwärtskompatibilität, UI entfällt.
-        self.title_color_edit = QLineEdit("#FFFFFF")
-        self.title_color_edit.hide()
-        left.addWidget(design_box)
-        self._sync_spine_badge_controls()
+        left.addWidget(back_sec)
 
         left.addWidget(self._build_compose_front_group())
 
         # Frei-Modus: nur Rücken-Text verschieben (Titel/Autor sind Meta, nicht gezeichnet)
-        self.free_box = QGroupBox("3. Frei-Modus: Rücken-Text (mm-Offset)")
-        free_form = QFormLayout(self.free_box)
+        self.free_box = CollapsibleSection(
+            "6. Frei-Modus: Rücken-Text (mm-Offset)", expanded=False
+        )
+        free_form = QFormLayout()
+        self.free_box.body_layout().addLayout(free_form)
         self.title_ox = self._mm_spin()
         self.title_oy = self._mm_spin()
         self.author_ox = self._mm_spin()
@@ -619,7 +670,7 @@ class KdpCoverQtDialog(QDialog):
         element_row = QHBoxLayout()
         self.btn_save_elementset = QPushButton("Elementset speichern…")
         self.btn_save_elementset.setToolTip(
-            "Nur die platzierten Vorderseiten-Elemente (Fade/Band/Titel/Fuß/Badge) "
+            "Nur die platzierten Vorderseiten-Elemente (Fade/Band/Titel/Fuß/Ecken-Banner/Badge) "
             "speichern — wiederverwendbar und weiter editierbar in einem anderen Buch.\n"
             "Vorschlagsname: {Buchtitel}_elementset.json unter export/kdp_cover/."
         )
@@ -680,6 +731,13 @@ class KdpCoverQtDialog(QDialog):
         self.btn_zoom_fit.setToolTip("Auf Viewport einpassen (100 %)")
         self.btn_zoom_fit.clicked.connect(self._zoom_fit)
         zoom_row.addWidget(self.btn_zoom_fit)
+        self.preview_print_dpi = QCheckBox("300 DPI")
+        self.preview_print_dpi.setChecked(False)
+        self.preview_print_dpi.setToolTip(
+            "Vorschau in KDP-Druckauflösung rendern (langsamer, schärfer — "
+            "z. B. zum Prüfen des Ecken-Banners). Export ist immer ≥ 300 DPI."
+        )
+        zoom_row.addWidget(self.preview_print_dpi)
         zoom_row.addStretch(1)
         right.addLayout(zoom_row)
 
@@ -746,6 +804,7 @@ class KdpCoverQtDialog(QDialog):
             self.custom_width_spin,
             self.custom_height_spin,
             self.show_overlays,
+            self.preview_print_dpi,
             self.title_ox,
             self.title_oy,
             self.author_ox,
@@ -793,12 +852,13 @@ class KdpCoverQtDialog(QDialog):
                 except (OSError, ValueError, TypeError, KeyError):
                     pass
         self._refresh_binding_ui()
+        # Einmalige Vorschau nach kompletter Init (Signale waren geblockt).
+        self._params_guard = False
         self._on_params_changed()
 
     def _build_book_banner(self, parent_layout: QVBoxLayout) -> None:
-        banner = QGroupBox("Buch & KDP-Kanal")
-        banner_layout = QVBoxLayout(banner)
-        banner_layout.setSpacing(8)
+        section = CollapsibleSection("Buch & KDP-Kanal", expanded=True)
+        banner_layout = section.body_layout()
 
         if self._book:
             self.book_name_label = QLabel(f"Buch: {self._book.name}")
@@ -838,7 +898,7 @@ class KdpCoverQtDialog(QDialog):
         self.btn_open_cover_dir.setEnabled(bool(self._book))
         banner_layout.addWidget(self.btn_open_cover_dir)
 
-        parent_layout.addWidget(banner)
+        parent_layout.addWidget(section)
 
     def _refresh_binding_ui(self) -> None:
         if not self._book:
@@ -969,34 +1029,29 @@ class KdpCoverQtDialog(QDialog):
         _sync_swatch()
         return host, edit
 
-    def _color_pair_row(self) -> QWidget:
-        host = QWidget()
-        row = QHBoxLayout(host)
-        row.setContentsMargins(0, 0, 0, 0)
-        back_host, self.back_color_edit = self._color_field("#F5F0E8", max_width=100)
-        spine_host, self.spine_color_edit = self._color_field("#222222", max_width=100)
-        row.addWidget(QLabel("Back"))
-        row.addWidget(back_host)
-        row.addWidget(QLabel("Spine"))
-        row.addWidget(spine_host)
-        row.addStretch(1)
-        return host
-
-    def _build_compose_front_group(self) -> QGroupBox:
-        """Experimentelle Vorderseiten-Layer (wegwerfbar mit compose_front-Paket)."""
-        box = QGroupBox("Vorderseite gestalten (Experiment)")
-        box.setToolTip(
-            "Optionale Layer über dem Vorderseiten-Foto (Fade oben/unten, Band, Titel, Fuß, Badge). "
-            "Ausgeschaltet oder ohne Modul: Export wie bisher."
-        )
-        form = QFormLayout(box)
+    def _nested_form(self, section: CollapsibleSection) -> QFormLayout:
+        form = QFormLayout()
         form.setSpacing(6)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        section.body_layout().addLayout(form)
+        return form
+
+    def _build_compose_front_group(self) -> CollapsibleSection:
+        """Experimentelle Vorderseiten-Layer (wegwerfbar mit compose_front-Paket)."""
+        box = CollapsibleSection("7. Vorderseite gestalten (Layer)", expanded=False)
+        box.setToolTip(
+            "Optionale Layer über dem Vorderseiten-Foto "
+            "(Fade, Band, Titel, Fuß, Ecken-Banner, Badge). "
+            "Ausgeschaltet oder ohne Modul: Export wie bisher."
+        )
+        top = self._nested_form(box)
 
         self.compose_enabled = QCheckBox("Layer aktiv")
         self.compose_enabled.setChecked(False)
-        form.addRow(self.compose_enabled)
+        top.addRow(self.compose_enabled)
 
+        fade_sec = CollapsibleSection("Fade (oben / unten)", expanded=False)
+        fade_form = self._nested_form(fade_sec)
         self.compose_fade_enabled = QCheckBox("Fade oben")
         self.compose_fade_enabled.setChecked(True)
         self.compose_fade_enabled.setToolTip(
@@ -1012,8 +1067,8 @@ class KdpCoverQtDialog(QDialog):
         self.compose_fade_opacity.setSingleStep(0.05)
         self.compose_fade_opacity.setDecimals(2)
         self.compose_fade_opacity.setValue(0.92)
-        form.addRow(self.compose_fade_enabled)
-        form.addRow(
+        fade_form.addRow(self.compose_fade_enabled)
+        fade_form.addRow(
             "Oben Farbe/Höhe/α:",
             self._pair(
                 fade_color_host,
@@ -1038,8 +1093,8 @@ class KdpCoverQtDialog(QDialog):
         self.compose_fade_bottom_opacity.setSingleStep(0.05)
         self.compose_fade_bottom_opacity.setDecimals(2)
         self.compose_fade_bottom_opacity.setValue(0.85)
-        form.addRow(self.compose_fade_bottom_enabled)
-        form.addRow(
+        fade_form.addRow(self.compose_fade_bottom_enabled)
+        fade_form.addRow(
             "Unten Farbe/Höhe/α:",
             self._pair(
                 fade_bottom_color_host,
@@ -1049,7 +1104,10 @@ class KdpCoverQtDialog(QDialog):
                 ),
             ),
         )
+        box.body_layout().addWidget(fade_sec)
 
+        band_sec = CollapsibleSection("Band", expanded=False)
+        band_form = self._nested_form(band_sec)
         self.compose_band_enabled = QCheckBox("Band")
         self.compose_band_y = QDoubleSpinBox()
         self.compose_band_y.setRange(0.0, 100.0)
@@ -1076,22 +1134,25 @@ class KdpCoverQtDialog(QDialog):
         self.compose_band_text_size.setToolTip(
             "Schriftgröße relativ zur Bandhöhe (100 % = Bandhöhe)."
         )
-        form.addRow(self.compose_band_enabled)
-        form.addRow(
+        band_form.addRow(self.compose_band_enabled)
+        band_form.addRow(
             "Band Farbe/Pos:",
             self._pair(
                 band_color_host,
                 self._pair(self.compose_band_y, self.compose_band_h),
             ),
         )
-        form.addRow(
+        band_form.addRow(
             "Band-Text:",
             self._pair(
                 self.compose_band_text,
                 self._pair(band_text_color_host, self.compose_band_text_size),
             ),
         )
+        box.body_layout().addWidget(band_sec)
 
+        titles_sec = CollapsibleSection("Titelzeilen", expanded=False)
+        titles_form = self._nested_form(titles_sec)
         self.compose_titles_enabled = QCheckBox("Titelzeilen")
         self.compose_titles_enabled.setChecked(True)
         self.compose_series = QLineEdit()
@@ -1143,25 +1204,25 @@ class KdpCoverQtDialog(QDialog):
         self.compose_accent_bold.setToolTip("Akzent-Text fett darstellen")
         self.compose_accent_italic = QCheckBox("Kursiv")
         self.compose_accent_italic.setToolTip("Akzent-Text kursiv darstellen")
-        form.addRow(self.compose_titles_enabled)
-        form.addRow("Position 1+2:", self.compose_titles_top)
-        form.addRow(
+        titles_form.addRow(self.compose_titles_enabled)
+        titles_form.addRow("Position 1+2:", self.compose_titles_top)
+        titles_form.addRow(
             "Titelzeile 1:",
             self._pair(self.compose_series, series_color_host),
         )
-        form.addRow(
+        titles_form.addRow(
             "Titelzeile 2:",
             self._pair(self.compose_main, main_color_host),
         )
-        form.addRow(
+        titles_form.addRow(
             "Größe 1+2:",
             self._pair(self.compose_lines_size, self.compose_lines_bold),
         )
-        form.addRow(
+        titles_form.addRow(
             "Akzent:",
             self._pair(self.compose_accent, accent_color_host),
         )
-        form.addRow(
+        titles_form.addRow(
             "Akzent Pos/Größe:",
             self._pair(
                 self.compose_accent_top,
@@ -1171,7 +1232,10 @@ class KdpCoverQtDialog(QDialog):
                 ),
             ),
         )
+        box.body_layout().addWidget(titles_sec)
 
+        footer_sec = CollapsibleSection("Fußzeile", expanded=False)
+        footer_form = self._nested_form(footer_sec)
         self.compose_footer_enabled = QCheckBox("Fußzeile")
         self.compose_footer_line1 = QLineEdit()
         self.compose_footer_line1.setPlaceholderText("Fußzeile 1")
@@ -1187,68 +1251,194 @@ class KdpCoverQtDialog(QDialog):
         self.compose_footer_bottom.setToolTip(
             "Abstand der Fußzeile vom unteren Rand (% der Front-Höhe)."
         )
-        form.addRow(self.compose_footer_enabled)
-        form.addRow("Fußzeile 1:", self.compose_footer_line1)
-        form.addRow("Fußzeile 2:", self.compose_footer_line2)
-        form.addRow(
+        footer_form.addRow(self.compose_footer_enabled)
+        footer_form.addRow("Fußzeile 1:", self.compose_footer_line1)
+        footer_form.addRow("Fußzeile 2:", self.compose_footer_line2)
+        footer_form.addRow(
             "Farbe / Position:",
             self._pair(footer_color_host, self.compose_footer_bottom),
         )
+        box.body_layout().addWidget(footer_sec)
 
+        corner_sec = CollapsibleSection("Ecken-Banner", expanded=False)
+        corner_form = self._nested_form(corner_sec)
+        self.compose_corner_enabled = QCheckBox("Ecken-Banner")
+        self.compose_corner_enabled.setToolTip(
+            "Dreieckige Ecken-Markierung mit Download-Icon und konfigurierbarem Text."
+        )
+        self.compose_corner_text = QLineEdit("Inkl. Bonus-Material")
+        self.compose_corner_text.setPlaceholderText("z. B. Inkl. Bonus-Material")
+        self.compose_corner_text.setToolTip(
+            "Wird zweizeilig zentriert gesetzt: „Inkl. Bonus“ / „Material“. "
+            "Eigenen Umbruch mit \\n möglich."
+        )
+        corner_color_host, self.compose_corner_color = self._color_field(
+            "#3DBDB0",
+            tooltip="Farbe der Ecken-Markierung",
+        )
+        corner_text_color_host, self.compose_corner_text_color = self._color_field(
+            "#FFFFFF",
+            tooltip="Farbe von Icon und Schriftzug",
+        )
+        self.compose_corner_size = QDoubleSpinBox()
+        self.compose_corner_size.setRange(8.0, 35.0)
+        self.compose_corner_size.setDecimals(1)
+        self.compose_corner_size.setValue(13.0)
+        self.compose_corner_size.setSuffix(" %")
+        self.compose_corner_size.setToolTip(
+            "Schenkel-Länge relativ zur kürzeren Cover-Kante (kleiner = dezenter)."
+        )
+        self.compose_corner_font = QDoubleSpinBox()
+        self.compose_corner_font.setRange(50.0, 250.0)
+        self.compose_corner_font.setDecimals(0)
+        self.compose_corner_font.setSingleStep(10.0)
+        self.compose_corner_font.setValue(100.0)
+        self.compose_corner_font.setSuffix(" %")
+        self.compose_corner_font.setToolTip(
+            "Schriftgröße im Banner (nur Größe — Ausrichtung bleibt unverändert). "
+            "120- und 300-DPI-Vorschau sollen dieselbe relative Größe zeigen; "
+            "hier gezielt nachjustieren."
+        )
+        self.compose_corner_pos = QComboBox()
+        self.compose_corner_pos.addItem("Oben rechts", "top_right")
+        self.compose_corner_pos.addItem("Unten rechts", "bottom_right")
+        self.compose_corner_pos.setToolTip("Platzierung der Ecken-Markierung")
+        self.compose_corner_icon = QCheckBox("Download-Icon")
+        self.compose_corner_icon.setChecked(True)
+        self.compose_corner_icon.setToolTip("Weißes Download-Symbol im Banner anzeigen")
+        corner_form.addRow(self.compose_corner_enabled)
+        corner_form.addRow("Banner-Text:", self.compose_corner_text)
+        corner_form.addRow(
+            "Banner-Farbe / Textfarbe:",
+            self._pair(corner_color_host, corner_text_color_host),
+        )
+        corner_form.addRow(
+            "Banner-Größe / Position:",
+            self._pair(self.compose_corner_size, self.compose_corner_pos),
+        )
+        corner_form.addRow("Schriftgröße:", self.compose_corner_font)
+        corner_form.addRow("", self.compose_corner_icon)
+        box.body_layout().addWidget(corner_sec)
+
+        badge_sec = CollapsibleSection("Badge / Stempel", expanded=False)
+        badge_form = self._nested_form(badge_sec)
         self.compose_badge_enabled = QCheckBox("Badge/Stempel")
-        self.compose_badge_image = QLineEdit()
-        self.compose_badge_image.setPlaceholderText("PNG-Overlay…")
-        btn_badge_asset = QPushButton("Asset…")
-        btn_badge_asset.setToolTip("Badge-Bild aus dem Asset Manager wählen")
-        btn_badge_asset.clicked.connect(lambda: self._pick_image_via_asset("badge"))
-        btn_badge = QPushButton("…")
-        btn_badge.setFixedWidth(32)
-        btn_badge.clicked.connect(self._browse_compose_badge)
-        badge_img_row = QWidget()
-        badge_img_l = QHBoxLayout(badge_img_row)
-        badge_img_l.setContentsMargins(0, 0, 0, 0)
-        badge_img_l.addWidget(self.compose_badge_image)
-        badge_img_l.addWidget(btn_badge_asset)
-        badge_img_l.addWidget(btn_badge)
-        self.compose_badge_text = QLineEdit()
-        self.compose_badge_text.setPlaceholderText("Stempel-Text")
-        badge_text_color_host, self.compose_badge_text_color = self._color_field(
+        self._add_compose_badge_rows(
+            badge_form,
+            enabled_cb=self.compose_badge_enabled,
+            image_attr="compose_badge_image",
+            text_attr="compose_badge_text",
+            text_color_attr="compose_badge_text_color",
+            bold_attr="compose_badge_bold",
+            x_attr="compose_badge_x",
+            y_attr="compose_badge_y",
+            scale_attr="compose_badge_scale",
+            rot_attr="compose_badge_rot",
+            asset_key="badge",
+            default_x=70.0,
+            default_y=75.0,
+        )
+
+        self.compose_badge2_enabled = QCheckBox("Badge/Stempel 2")
+        self._add_compose_badge_rows(
+            badge_form,
+            enabled_cb=self.compose_badge2_enabled,
+            image_attr="compose_badge2_image",
+            text_attr="compose_badge2_text",
+            text_color_attr="compose_badge2_text_color",
+            bold_attr="compose_badge2_bold",
+            x_attr="compose_badge2_x",
+            y_attr="compose_badge2_y",
+            scale_attr="compose_badge2_scale",
+            rot_attr="compose_badge2_rot",
+            asset_key="badge2",
+            default_x=30.0,
+            default_y=75.0,
+        )
+        box.body_layout().addWidget(badge_sec)
+
+        return box
+
+    def _add_compose_badge_rows(
+        self,
+        form: QFormLayout,
+        *,
+        enabled_cb: QCheckBox,
+        image_attr: str,
+        text_attr: str,
+        text_color_attr: str,
+        bold_attr: str,
+        x_attr: str,
+        y_attr: str,
+        scale_attr: str,
+        rot_attr: str,
+        asset_key: str,
+        default_x: float,
+        default_y: float,
+    ) -> None:
+        """Gemeinsame Badge/Stempel-Zeilen (identische Steuerelemente)."""
+        image_edit = QLineEdit()
+        image_edit.setPlaceholderText("PNG-Overlay…")
+        setattr(self, image_attr, image_edit)
+
+        btn_asset = QPushButton("Asset…")
+        btn_asset.setToolTip("Badge-Bild aus dem Asset Manager wählen")
+        btn_asset.clicked.connect(lambda: self._pick_image_via_asset(asset_key))
+        btn_browse = QPushButton("…")
+        btn_browse.setFixedWidth(32)
+        btn_browse.clicked.connect(lambda: self._browse_compose_badge(asset_key))
+        img_row = QWidget()
+        img_l = QHBoxLayout(img_row)
+        img_l.setContentsMargins(0, 0, 0, 0)
+        img_l.addWidget(image_edit)
+        img_l.addWidget(btn_asset)
+        img_l.addWidget(btn_browse)
+
+        text_edit = QLineEdit()
+        text_edit.setPlaceholderText("Stempel-Text")
+        setattr(self, text_attr, text_edit)
+        text_color_host, text_color_edit = self._color_field(
             "#1E3A5F",
             tooltip="Farbe des Badge-/Stempel-Texts",
         )
-        self.compose_badge_bold = QCheckBox("Fett")
-        self.compose_badge_bold.setToolTip("Badge-Text fett darstellen")
-        self.compose_badge_x = QDoubleSpinBox()
-        self.compose_badge_x.setRange(0.0, 100.0)
-        self.compose_badge_x.setValue(70.0)
-        self.compose_badge_x.setSuffix(" %X")
-        self.compose_badge_y = QDoubleSpinBox()
-        self.compose_badge_y.setRange(0.0, 100.0)
-        self.compose_badge_y.setValue(75.0)
-        self.compose_badge_y.setSuffix(" %Y")
-        self.compose_badge_scale = QDoubleSpinBox()
-        self.compose_badge_scale.setRange(5.0, 80.0)
-        self.compose_badge_scale.setValue(25.0)
-        self.compose_badge_scale.setSuffix(" %")
-        self.compose_badge_rot = QDoubleSpinBox()
-        self.compose_badge_rot.setRange(-90.0, 90.0)
-        self.compose_badge_rot.setValue(-18.0)
-        self.compose_badge_rot.setSuffix(" °")
-        form.addRow(self.compose_badge_enabled)
-        form.addRow("Badge-Bild:", badge_img_row)
+        setattr(self, text_color_attr, text_color_edit)
+        bold_cb = QCheckBox("Fett")
+        bold_cb.setToolTip("Badge-Text fett darstellen")
+        setattr(self, bold_attr, bold_cb)
+
+        x_spin = QDoubleSpinBox()
+        x_spin.setRange(0.0, 100.0)
+        x_spin.setDecimals(2)
+        x_spin.setValue(default_x)
+        x_spin.setSuffix(" %X")
+        setattr(self, x_attr, x_spin)
+        y_spin = QDoubleSpinBox()
+        y_spin.setRange(0.0, 100.0)
+        y_spin.setDecimals(2)
+        y_spin.setValue(default_y)
+        y_spin.setSuffix(" %Y")
+        setattr(self, y_attr, y_spin)
+        scale_spin = QDoubleSpinBox()
+        scale_spin.setRange(5.0, 80.0)
+        scale_spin.setDecimals(2)
+        scale_spin.setValue(25.0)
+        scale_spin.setSuffix(" %")
+        setattr(self, scale_attr, scale_spin)
+        rot_spin = QDoubleSpinBox()
+        rot_spin.setRange(-90.0, 90.0)
+        rot_spin.setDecimals(2)
+        rot_spin.setValue(-18.0)
+        rot_spin.setSuffix(" °")
+        setattr(self, rot_attr, rot_spin)
+
+        form.addRow(enabled_cb)
+        form.addRow("Badge-Bild:", img_row)
         form.addRow(
             "Badge-Text:",
-            self._pair(
-                self.compose_badge_text,
-                self._pair(badge_text_color_host, self.compose_badge_bold),
-            ),
+            self._pair(text_edit, self._pair(text_color_host, bold_cb)),
         )
-        form.addRow("Badge X/Y:", self._pair(self.compose_badge_x, self.compose_badge_y))
-        form.addRow(
-            "Badge Größe/Drehung:",
-            self._pair(self.compose_badge_scale, self.compose_badge_rot),
-        )
-        return box
+        form.addRow("Badge X/Y:", self._pair(x_spin, y_spin))
+        form.addRow("Badge Größe/Drehung:", self._pair(scale_spin, rot_spin))
 
     def _wire_compose_front_signals(self) -> None:
         for w in (
@@ -1258,8 +1448,12 @@ class KdpCoverQtDialog(QDialog):
             self.compose_band_enabled,
             self.compose_titles_enabled,
             self.compose_footer_enabled,
+            self.compose_corner_enabled,
+            self.compose_corner_icon,
             self.compose_badge_enabled,
             self.compose_badge_bold,
+            self.compose_badge2_enabled,
+            self.compose_badge2_bold,
             self.compose_accent_italic,
             self.compose_accent_bold,
             self.compose_lines_bold,
@@ -1278,12 +1472,19 @@ class KdpCoverQtDialog(QDialog):
             self.compose_accent_size,
             self.compose_accent_top,
             self.compose_footer_bottom,
+            self.compose_corner_size,
+            self.compose_corner_font,
             self.compose_badge_x,
             self.compose_badge_y,
             self.compose_badge_scale,
             self.compose_badge_rot,
+            self.compose_badge2_x,
+            self.compose_badge2_y,
+            self.compose_badge2_scale,
+            self.compose_badge2_rot,
         ):
             w.valueChanged.connect(self._on_params_changed)
+        self.compose_corner_pos.currentIndexChanged.connect(self._on_params_changed)
         for w in (
             self.compose_band_text,
             self.compose_series,
@@ -1291,17 +1492,26 @@ class KdpCoverQtDialog(QDialog):
             self.compose_accent,
             self.compose_footer_line1,
             self.compose_footer_line2,
+            self.compose_corner_text,
             self.compose_badge_image,
             self.compose_badge_text,
+            self.compose_badge2_image,
+            self.compose_badge2_text,
         ):
             w.editingFinished.connect(self._on_params_changed)
 
-    def _browse_compose_badge(self) -> None:
+    def _browse_compose_badge(self, asset_key: str = "badge") -> None:
         start = str(self._book / "img") if self._book else ""
-        path, _ = QFileDialog.getOpenFileName(self, "Badge-/Overlay-Bild", start, _IMAGE_FILTER)
-        if path:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Badge-/Overlay-Bild", start, _IMAGE_FILTER
+        )
+        if not path:
+            return
+        if asset_key == "badge2":
+            self.compose_badge2_image.setText(path)
+        else:
             self.compose_badge_image.setText(path)
-            self._on_params_changed()
+        self._on_params_changed()
 
     def _collect_front_compose(self) -> dict[str, Any]:
         from tools.kdp_cover.compose_front.model import FrontComposeSpec
@@ -1359,6 +1569,16 @@ class KdpCoverQtDialog(QDialog):
                 "color": self.compose_footer_color.text().strip() or "#FFFFFF",
                 "bottom_pct": float(self.compose_footer_bottom.value()),
             },
+            "corner_ribbon": {
+                "enabled": self.compose_corner_enabled.isChecked(),
+                "text": self.compose_corner_text.text().strip(),
+                "color": self.compose_corner_color.text().strip() or "#3DBDB0",
+                "text_color": self.compose_corner_text_color.text().strip() or "#FFFFFF",
+                "size_pct": float(self.compose_corner_size.value()),
+                "font_scale": float(self.compose_corner_font.value()) / 100.0,
+                "show_icon": self.compose_corner_icon.isChecked(),
+                "corner": str(self.compose_corner_pos.currentData() or "top_right"),
+            },
             "badge": {
                 "enabled": self.compose_badge_enabled.isChecked(),
                 "image": self.compose_badge_image.text().strip(),
@@ -1370,57 +1590,94 @@ class KdpCoverQtDialog(QDialog):
                 "scale_pct": float(self.compose_badge_scale.value()),
                 "rotation_deg": float(self.compose_badge_rot.value()),
             },
+            "badge2": {
+                "enabled": self.compose_badge2_enabled.isChecked(),
+                "image": self.compose_badge2_image.text().strip(),
+                "text": self.compose_badge2_text.text().strip(),
+                "text_color": self.compose_badge2_text_color.text().strip() or "#1E3A5F",
+                "bold": self.compose_badge2_bold.isChecked(),
+                "x_pct": float(self.compose_badge2_x.value()),
+                "y_pct": float(self.compose_badge2_y.value()),
+                "scale_pct": float(self.compose_badge2_scale.value()),
+                "rotation_deg": float(self.compose_badge2_rot.value()),
+            },
         }
         return FrontComposeSpec.from_dict(raw).to_dict()
 
     def _apply_front_compose(self, data: dict[str, Any] | None) -> None:
         from tools.kdp_cover.compose_front.model import FrontComposeSpec
 
-        spec = FrontComposeSpec.from_dict(data if isinstance(data, dict) else None)
-        self.compose_enabled.setChecked(spec.enabled)
-        self.compose_fade_enabled.setChecked(spec.fade.enabled)
-        self.compose_fade_color.setText(spec.fade.color)
-        self.compose_fade_height.setValue(spec.fade.height_pct)
-        self.compose_fade_opacity.setValue(spec.fade.opacity)
-        self.compose_fade_bottom_enabled.setChecked(spec.fade_bottom.enabled)
-        self.compose_fade_bottom_color.setText(spec.fade_bottom.color)
-        self.compose_fade_bottom_height.setValue(spec.fade_bottom.height_pct)
-        self.compose_fade_bottom_opacity.setValue(spec.fade_bottom.opacity)
-        self.compose_band_enabled.setChecked(spec.band.enabled)
-        self.compose_band_y.setValue(spec.band.y_pct)
-        self.compose_band_h.setValue(spec.band.height_pct)
-        self.compose_band_color.setText(spec.band.color)
-        self.compose_band_text.setText(spec.band.text)
-        self.compose_band_text_color.setText(spec.band.text_color)
-        self.compose_band_text_size.setValue(spec.band.text_size_pct)
-        self.compose_titles_enabled.setChecked(spec.titles.enabled)
-        self.compose_titles_top.setValue(spec.titles.top_pct)
-        self.compose_series.setText(spec.titles.series.text)
-        self.compose_series_color.setText(spec.titles.series.color)
-        self.compose_main.setText(spec.titles.main.text)
-        self.compose_main_color.setText(spec.titles.main.color)
-        self.compose_lines_size.setValue(spec.titles.lines_size_pct)
-        self.compose_lines_bold.setChecked(spec.titles.lines_bold)
-        self.compose_accent.setText(spec.titles.accent.text)
-        self.compose_accent_color.setText(spec.titles.accent.color)
-        self.compose_accent_size.setValue(spec.titles.accent.size_pct)
-        self.compose_accent_top.setValue(spec.titles.accent_top_pct)
-        self.compose_accent_bold.setChecked(spec.titles.accent.bold)
-        self.compose_accent_italic.setChecked(spec.titles.accent.italic)
-        self.compose_footer_enabled.setChecked(spec.footer.enabled)
-        self.compose_footer_line1.setText(spec.footer.line1)
-        self.compose_footer_line2.setText(spec.footer.line2)
-        self.compose_footer_color.setText(spec.footer.color)
-        self.compose_footer_bottom.setValue(spec.footer.bottom_pct)
-        self.compose_badge_enabled.setChecked(spec.badge.enabled)
-        self.compose_badge_image.setText(spec.badge.image)
-        self.compose_badge_text.setText(spec.badge.text)
-        self.compose_badge_text_color.setText(spec.badge.text_color)
-        self.compose_badge_bold.setChecked(spec.badge.bold)
-        self.compose_badge_x.setValue(spec.badge.x_pct)
-        self.compose_badge_y.setValue(spec.badge.y_pct)
-        self.compose_badge_scale.setValue(spec.badge.scale_pct)
-        self.compose_badge_rot.setValue(spec.badge.rotation_deg)
+        was_guarded = self._params_guard
+        self._params_guard = True
+        try:
+            spec = FrontComposeSpec.from_dict(data if isinstance(data, dict) else None)
+            self.compose_enabled.setChecked(spec.enabled)
+            self.compose_fade_enabled.setChecked(spec.fade.enabled)
+            self.compose_fade_color.setText(spec.fade.color)
+            self.compose_fade_height.setValue(spec.fade.height_pct)
+            self.compose_fade_opacity.setValue(spec.fade.opacity)
+            self.compose_fade_bottom_enabled.setChecked(spec.fade_bottom.enabled)
+            self.compose_fade_bottom_color.setText(spec.fade_bottom.color)
+            self.compose_fade_bottom_height.setValue(spec.fade_bottom.height_pct)
+            self.compose_fade_bottom_opacity.setValue(spec.fade_bottom.opacity)
+            self.compose_band_enabled.setChecked(spec.band.enabled)
+            self.compose_band_y.setValue(spec.band.y_pct)
+            self.compose_band_h.setValue(spec.band.height_pct)
+            self.compose_band_color.setText(spec.band.color)
+            self.compose_band_text.setText(spec.band.text)
+            self.compose_band_text_color.setText(spec.band.text_color)
+            self.compose_band_text_size.setValue(spec.band.text_size_pct)
+            self.compose_titles_enabled.setChecked(spec.titles.enabled)
+            self.compose_titles_top.setValue(spec.titles.top_pct)
+            self.compose_series.setText(spec.titles.series.text)
+            self.compose_series_color.setText(spec.titles.series.color)
+            self.compose_main.setText(spec.titles.main.text)
+            self.compose_main_color.setText(spec.titles.main.color)
+            self.compose_lines_size.setValue(spec.titles.lines_size_pct)
+            self.compose_lines_bold.setChecked(spec.titles.lines_bold)
+            self.compose_accent.setText(spec.titles.accent.text)
+            self.compose_accent_color.setText(spec.titles.accent.color)
+            self.compose_accent_size.setValue(spec.titles.accent.size_pct)
+            self.compose_accent_top.setValue(spec.titles.accent_top_pct)
+            self.compose_accent_bold.setChecked(spec.titles.accent.bold)
+            self.compose_accent_italic.setChecked(spec.titles.accent.italic)
+            self.compose_footer_enabled.setChecked(spec.footer.enabled)
+            self.compose_footer_line1.setText(spec.footer.line1)
+            self.compose_footer_line2.setText(spec.footer.line2)
+            self.compose_footer_color.setText(spec.footer.color)
+            self.compose_footer_bottom.setValue(spec.footer.bottom_pct)
+            self.compose_corner_enabled.setChecked(spec.corner_ribbon.enabled)
+            self.compose_corner_text.setText(spec.corner_ribbon.text)
+            self.compose_corner_color.setText(spec.corner_ribbon.color)
+            self.compose_corner_text_color.setText(spec.corner_ribbon.text_color)
+            self.compose_corner_size.setValue(spec.corner_ribbon.size_pct)
+            self.compose_corner_font.setValue(
+                float(getattr(spec.corner_ribbon, "font_scale", 1.0) or 1.0) * 100.0
+            )
+            self.compose_corner_icon.setChecked(spec.corner_ribbon.show_icon)
+            cidx = self.compose_corner_pos.findData(spec.corner_ribbon.corner)
+            if cidx >= 0:
+                self.compose_corner_pos.setCurrentIndex(cidx)
+            self.compose_badge_enabled.setChecked(spec.badge.enabled)
+            self.compose_badge_image.setText(spec.badge.image)
+            self.compose_badge_text.setText(spec.badge.text)
+            self.compose_badge_text_color.setText(spec.badge.text_color)
+            self.compose_badge_bold.setChecked(spec.badge.bold)
+            self.compose_badge_x.setValue(spec.badge.x_pct)
+            self.compose_badge_y.setValue(spec.badge.y_pct)
+            self.compose_badge_scale.setValue(spec.badge.scale_pct)
+            self.compose_badge_rot.setValue(spec.badge.rotation_deg)
+            self.compose_badge2_enabled.setChecked(spec.badge2.enabled)
+            self.compose_badge2_image.setText(spec.badge2.image)
+            self.compose_badge2_text.setText(spec.badge2.text)
+            self.compose_badge2_text_color.setText(spec.badge2.text_color)
+            self.compose_badge2_bold.setChecked(spec.badge2.bold)
+            self.compose_badge2_x.setValue(spec.badge2.x_pct)
+            self.compose_badge2_y.setValue(spec.badge2.y_pct)
+            self.compose_badge2_scale.setValue(spec.badge2.scale_pct)
+            self.compose_badge2_rot.setValue(spec.badge2.rotation_deg)
+        finally:
+            self._params_guard = was_guarded
 
     def _on_trim_changed(self, *_args: Any) -> None:
         is_custom = self.trim_combo.currentData() == CUSTOM_TRIM_SIZE_ID
@@ -1590,91 +1847,100 @@ class KdpCoverQtDialog(QDialog):
         return layout
 
     def _apply_layout(self, layout: CoverLayout, *, project_path: Path | None = None) -> None:
+        was_guarded = self._params_guard
+        self._params_guard = True
         self._mode_guard = True
-        self.pages_spin.setValue(layout.page_count)
-        pidx = self.paper_combo.findData(layout.paper_type_id)
-        if pidx >= 0:
-            self.paper_combo.setCurrentIndex(pidx)
+        try:
+            self.pages_spin.setValue(layout.page_count)
+            pidx = self.paper_combo.findData(layout.paper_type_id)
+            if pidx >= 0:
+                self.paper_combo.setCurrentIndex(pidx)
 
-        preset = studio_paperback_preset().get("trim_mm") or {}
-        sw = float(preset.get("width", 135))
-        sh = float(preset.get("height", 215))
-        if abs(layout.trim_width_mm - sw) < 0.05 and abs(layout.trim_height_mm - sh) < 0.05:
-            idx = self.trim_combo.findData(_STUDIO_PAPERBACK_ID)
-            if idx >= 0:
-                self.trim_combo.setCurrentIndex(idx)
-        else:
-            matched = False
-            for t in TRIM_SIZES:
-                if abs(inch_to_mm(t.width_in) - layout.trim_width_mm) < 0.15 and abs(
-                    inch_to_mm(t.height_in) - layout.trim_height_mm
-                ) < 0.15:
-                    idx = self.trim_combo.findData(t.id)
-                    if idx >= 0:
-                        self.trim_combo.setCurrentIndex(idx)
-                        matched = True
-                        break
-            if not matched:
-                idx = self.trim_combo.findData(CUSTOM_TRIM_SIZE_ID)
+            preset = studio_paperback_preset().get("trim_mm") or {}
+            sw = float(preset.get("width", 135))
+            sh = float(preset.get("height", 215))
+            if abs(layout.trim_width_mm - sw) < 0.05 and abs(layout.trim_height_mm - sh) < 0.05:
+                idx = self.trim_combo.findData(_STUDIO_PAPERBACK_ID)
                 if idx >= 0:
                     self.trim_combo.setCurrentIndex(idx)
-                self.custom_width_spin.setValue(mm_to_inch(layout.trim_width_mm))
-                self.custom_height_spin.setValue(mm_to_inch(layout.trim_height_mm))
+            else:
+                matched = False
+                for t in TRIM_SIZES:
+                    if abs(inch_to_mm(t.width_in) - layout.trim_width_mm) < 0.15 and abs(
+                        inch_to_mm(t.height_in) - layout.trim_height_mm
+                    ) < 0.15:
+                        idx = self.trim_combo.findData(t.id)
+                        if idx >= 0:
+                            self.trim_combo.setCurrentIndex(idx)
+                            matched = True
+                            break
+                if not matched:
+                    idx = self.trim_combo.findData(CUSTOM_TRIM_SIZE_ID)
+                    if idx >= 0:
+                        self.trim_combo.setCurrentIndex(idx)
+                    self.custom_width_spin.setValue(mm_to_inch(layout.trim_width_mm))
+                    self.custom_height_spin.setValue(mm_to_inch(layout.trim_height_mm))
 
-        midx = self.mode_combo.findData(layout.mode)
-        if midx >= 0:
-            self.mode_combo.setCurrentIndex(midx)
-        self._mode_guard = False
+            midx = self.mode_combo.findData(layout.mode)
+            if midx >= 0:
+                self.mode_combo.setCurrentIndex(midx)
 
-        self.front_edit.setText(layout.front_image)
-        self.back_edit.setText(layout.back_image)
-        self.front_zoom_spin.setValue(
-            max(1.0, float(getattr(layout, "front_image_zoom", 1.0) or 1.0))
-        )
-        self.front_ox_spin.setValue(float(getattr(layout, "front_image_offset_x_mm", 0.0) or 0.0))
-        self.front_oy_spin.setValue(float(getattr(layout, "front_image_offset_y_mm", 0.0) or 0.0))
-        try:
-            bscale = float(getattr(layout, "back_image_scale", 1.0) or 1.0)
-        except (TypeError, ValueError):
-            bscale = 1.0
-        self.back_scale_spin.setValue(max(5.0, min(100.0, bscale * 100.0)))
-        self.back_frame_check.setChecked(bool(getattr(layout, "back_image_frame", False)))
-        self.back_frame_mm_spin.setValue(
-            max(0.5, float(getattr(layout, "back_image_frame_mm", 2.0) or 2.0))
-        )
-        self.back_frame_color_edit.setText(
-            str(getattr(layout, "back_image_frame_color", "") or "#000000")
-        )
-        self._sync_back_frame_controls()
-        self.back_color_edit.setText(layout.back_color)
-        self.spine_color_edit.setText(layout.spine_color)
-        self.title_edit.setText(layout.title)
-        self.author_edit.setText(layout.author)
-        self.spine_text_edit.setText(layout.spine_text)
-        self.spine_text_down_edit.setText(
-            str(getattr(layout, "spine_text_down", "") or "")
-        )
-        try:
-            pad = float(getattr(layout, "spine_padding_mm", SPINE_EDGE_PADDING_MIN_MM))
-        except (TypeError, ValueError):
-            pad = SPINE_EDGE_PADDING_MIN_MM
-        self.spine_padding_spin.setValue(max(0.0, pad))
-        self.title_color_edit.setText(layout.title_color)
-        self.title_ox.setValue(layout.title_offset_x_mm)
-        self.title_oy.setValue(layout.title_offset_y_mm)
-        self.author_ox.setValue(layout.author_offset_x_mm)
-        self.author_oy.setValue(layout.author_offset_y_mm)
-        self.spine_oy.setValue(layout.spine_offset_y_mm)
-        self.title_scale.setValue(layout.title_scale if layout.title_scale > 0 else 1.0)
-        self._apply_spine_badge(getattr(layout, "spine_badge", None))
-        self._apply_front_compose(getattr(layout, "front_compose", None))
-        self._wrap_pdf_rel = str(getattr(layout, "wrap_pdf", "") or "")
-        self._project_path = project_path
-        if project_path:
-            self.project_path_label.setText(f"Cover-Layout: {project_path}")
-        self._on_trim_changed()
-        self._sync_free_controls()
-        self._refresh_binding_ui()
+            self.front_edit.setText(layout.front_image)
+            self.back_edit.setText(layout.back_image)
+            self.front_zoom_spin.setValue(
+                max(1.0, float(getattr(layout, "front_image_zoom", 1.0) or 1.0))
+            )
+            self.front_ox_spin.setValue(
+                float(getattr(layout, "front_image_offset_x_mm", 0.0) or 0.0)
+            )
+            self.front_oy_spin.setValue(
+                float(getattr(layout, "front_image_offset_y_mm", 0.0) or 0.0)
+            )
+            try:
+                bscale = float(getattr(layout, "back_image_scale", 1.0) or 1.0)
+            except (TypeError, ValueError):
+                bscale = 1.0
+            self.back_scale_spin.setValue(max(5.0, min(100.0, bscale * 100.0)))
+            self.back_frame_check.setChecked(bool(getattr(layout, "back_image_frame", False)))
+            self.back_frame_mm_spin.setValue(
+                max(0.5, float(getattr(layout, "back_image_frame_mm", 2.0) or 2.0))
+            )
+            self.back_frame_color_edit.setText(
+                str(getattr(layout, "back_image_frame_color", "") or "#000000")
+            )
+            self._sync_back_frame_controls()
+            self.back_color_edit.setText(layout.back_color)
+            self.spine_color_edit.setText(layout.spine_color)
+            self.title_edit.setText(layout.title)
+            self.author_edit.setText(layout.author)
+            self.spine_text_edit.setText(layout.spine_text)
+            self.spine_text_down_edit.setText(
+                str(getattr(layout, "spine_text_down", "") or "")
+            )
+            try:
+                pad = float(getattr(layout, "spine_padding_mm", SPINE_EDGE_PADDING_MIN_MM))
+            except (TypeError, ValueError):
+                pad = SPINE_EDGE_PADDING_MIN_MM
+            self.spine_padding_spin.setValue(max(0.0, pad))
+            self.title_color_edit.setText(layout.title_color)
+            self.title_ox.setValue(layout.title_offset_x_mm)
+            self.title_oy.setValue(layout.title_offset_y_mm)
+            self.author_ox.setValue(layout.author_offset_x_mm)
+            self.author_oy.setValue(layout.author_offset_y_mm)
+            self.spine_oy.setValue(layout.spine_offset_y_mm)
+            self.title_scale.setValue(layout.title_scale if layout.title_scale > 0 else 1.0)
+            self._apply_spine_badge(getattr(layout, "spine_badge", None))
+            self._apply_front_compose(getattr(layout, "front_compose", None))
+            self._wrap_pdf_rel = str(getattr(layout, "wrap_pdf", "") or "")
+            self._project_path = project_path
+            if project_path:
+                self.project_path_label.setText(f"Cover-Layout: {project_path}")
+            self._on_trim_changed()
+            self._sync_free_controls()
+            self._refresh_binding_ui()
+        finally:
+            self._mode_guard = False
+            self._params_guard = was_guarded
 
     def _browse_front(self) -> None:
         start = str(self._book / "img") if self._book else ""
@@ -1698,6 +1964,7 @@ class KdpCoverQtDialog(QDialog):
             "front": "Vorderseiten-Bild wählen",
             "back": "Rückseiten-Bild wählen",
             "badge": "Badge-/Overlay-Bild wählen",
+            "badge2": "Badge-/Overlay-Bild 2 wählen",
         }
         chosen = pick_asset_image_qt(
             self._studio,
@@ -1713,6 +1980,8 @@ class KdpCoverQtDialog(QDialog):
             self.back_edit.setText(text)
         elif target == "badge":
             self.compose_badge_image.setText(text)
+        elif target == "badge2":
+            self.compose_badge2_image.setText(text)
         self._on_params_changed()
 
     def _suggested_save_path(self) -> tuple[str, str]:
@@ -1911,6 +2180,8 @@ class KdpCoverQtDialog(QDialog):
         return True
 
     def _on_params_changed(self, *_args: Any) -> None:
+        if self._params_guard:
+            return
         if not self._update_size_panel():
             self.status_label.setText("● Fehler in den Maßen")
             self.status_label.setStyleSheet("color:#b91c1c; font-weight:600;")
@@ -1936,7 +2207,19 @@ class KdpCoverQtDialog(QDialog):
         report = validate_layout(layout, geometry=geo, resolve_base=self._resolve_base())
         self._set_status(report)
         if layout.front_image:
-            self._refresh_preview()
+            # Debounce: viele Spinbox-Signale sonst → Dutzende Vollrenders (UI-Freeze).
+            self._preview_timer.start()
+        else:
+            self._preview_timer.stop()
+            self._preview_full = None
+            self.preview_label.setText("Bitte Vorderseiten-Bild wählen.")
+            self.preview_label.setPixmap(QPixmap())
+
+    def _effective_preview_dpi(self) -> float:
+        """Bildschirm-Vorschau (120) oder wahlweise Druckauflösung (300)."""
+        if getattr(self, "preview_print_dpi", None) is not None and self.preview_print_dpi.isChecked():
+            return float(DEFAULT_EXPORT_DPI)
+        return float(_PREVIEW_DPI)
 
     def _refresh_preview(self) -> None:
         layout = self._build_layout()
@@ -1945,6 +2228,7 @@ class KdpCoverQtDialog(QDialog):
             self.preview_label.setText("Bitte Vorderseiten-Bild wählen.")
             self.preview_label.setPixmap(QPixmap())
             return
+        dpi = self._effective_preview_dpi()
         try:
             geo = build_geometry(
                 page_count=layout.page_count,
@@ -1955,7 +2239,7 @@ class KdpCoverQtDialog(QDialog):
             image = render_wrap_image(
                 layout,
                 geometry=geo,
-                dpi=_PREVIEW_DPI,
+                dpi=dpi,
                 resolve_base=self._resolve_base(),
             )
         except (OSError, ValueError) as exc:
@@ -1966,8 +2250,9 @@ class KdpCoverQtDialog(QDialog):
 
         pix = _pil_to_qpixmap(image)
         if self.show_overlays.isChecked():
-            pix = _draw_overlays(pix, geo, _PREVIEW_DPI)
+            pix = _draw_overlays(pix, geo, dpi)
         self._preview_full = pix
+        self._preview_fit_size = None
         self._fit_preview_to_viewport()
 
     def _fit_preview_to_viewport(self) -> None:
@@ -1978,21 +2263,31 @@ class KdpCoverQtDialog(QDialog):
         viewport = self._preview_scroll.viewport().size()
         avail_w = max(200, viewport.width() - 16)
         avail_h = max(160, viewport.height() - 16)
-        fit = full.scaled(
-            avail_w,
-            avail_h,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
         zoom = max(_PREVIEW_ZOOM_MIN, min(_PREVIEW_ZOOM_MAX, float(self._preview_zoom)))
-        target_w = max(1, int(round(fit.width() * zoom)))
-        target_h = max(1, int(round(fit.height() * zoom)))
-        scaled = full.scaled(
-            target_w,
-            target_h,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
+        key = (avail_w, avail_h, int(round(zoom * 1000)), int(full.cacheKey()))
+        if self._preview_fit_size == key and not self.preview_label.pixmap().isNull():
+            return
+        if abs(zoom - 1.0) < 1e-9:
+            scaled = full.scaled(
+                avail_w,
+                avail_h,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        else:
+            fit = full.scaled(
+                avail_w,
+                avail_h,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.FastTransformation,
+            )
+            scaled = full.scaled(
+                max(1, int(round(fit.width() * zoom))),
+                max(1, int(round(fit.height() * zoom))),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.FastTransformation,
+            )
+        self._preview_fit_size = key
         # Bei Zoom > 1 Scrollbalken erlauben, sonst einpassen.
         self._preview_scroll.setWidgetResizable(zoom <= 1.0 + 1e-9)
         self.preview_label.setPixmap(scaled)
@@ -2039,7 +2334,8 @@ class KdpCoverQtDialog(QDialog):
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
-        self._fit_preview_to_viewport()
+        # Debounce: Beim Öffnen feuern Dutzende resizeEvents — sonst Gezucke.
+        self._fit_timer.start()
 
     def _default_export_dir(self) -> Path:
         """KDP-Artefakte: Layout, Elementset und Wrap-PDF am selben Ort."""

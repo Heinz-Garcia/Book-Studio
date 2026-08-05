@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 from pathlib import Path
 from typing import Optional, Union
 
@@ -10,6 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 from tools.kdp_cover.compose_front.model import (
     BadgeSpec,
     BandSpec,
+    CornerRibbonSpec,
     FadeSpec,
     FooterSpec,
     FrontComposeSpec,
@@ -128,6 +131,10 @@ def apply_to_front_panel(
         panel = _draw_footer(panel, parsed.footer)
     if parsed.badge.enabled:
         panel = _draw_badge(panel, parsed.badge, base)
+    if parsed.badge2.enabled:
+        panel = _draw_badge(panel, parsed.badge2, base)
+    if parsed.corner_ribbon.enabled:
+        panel = _draw_corner_ribbon(panel, parsed.corner_ribbon)
 
     return panel.convert("RGB")
 
@@ -325,6 +332,289 @@ def _draw_badge(panel: Image.Image, badge: BadgeSpec, resolve_base: Path) -> Ima
         out = Image.alpha_composite(out, layer)
 
     return out
+
+
+def _blend_hex(color: str, toward: tuple[int, int, int], amount: float) -> str:
+    """Mischt ``color`` mit ``toward`` (0=unverändert, 1=toward)."""
+    r, g, b, _ = _hex_to_rgba(color, fallback=(61, 189, 176))
+    tr, tg, tb = toward
+    amount = max(0.0, min(1.0, amount))
+    nr = int(round(r + (tr - r) * amount))
+    ng = int(round(g + (tg - g) * amount))
+    nb = int(round(b + (tb - b) * amount))
+    return f"#{nr:02X}{ng:02X}{nb:02X}"
+
+
+def _draw_download_icon(
+    canvas: Image.Image,
+    *,
+    cx: int,
+    cy: int,
+    size: int,
+    color: tuple[int, int, int, int],
+) -> None:
+    """Download: Kreis, Pfeil nach unten, offener Behälter (dünnes U — kein dicker Achsen-Strich)."""
+    draw = ImageDraw.Draw(canvas)
+    r = max(3, size // 2)
+    width = max(1, size // 10)
+    r = max(2, r - max(1, width // 2))
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=color, width=width)
+
+    shaft_top = cy - int(r * 0.52)
+    shaft_bot = cy + int(r * 0.08)
+    draw.line([(cx, shaft_top), (cx, shaft_bot)], fill=color, width=width)
+    head = max(2, int(r * 0.34))
+    draw.polygon(
+        [
+            (cx, shaft_bot + head),
+            (cx - head, shaft_bot),
+            (cx + head, shaft_bot),
+        ],
+        fill=color,
+    )
+
+    # Behälter: schlankes U (Seiten + Boden), Strichbreite wie der Kreis — keine „Eisenbahnachse“
+    tray_top = cy + int(r * 0.38)
+    tray_bot = cy + int(r * 0.62)
+    tray_half = int(r * 0.42)
+    draw.line(
+        [(cx - tray_half, tray_top), (cx - tray_half, tray_bot)],
+        fill=color,
+        width=width,
+    )
+    draw.line(
+        [(cx + tray_half, tray_top), (cx + tray_half, tray_bot)],
+        fill=color,
+        width=width,
+    )
+    draw.line(
+        [(cx - tray_half, tray_bot), (cx + tray_half, tray_bot)],
+        fill=color,
+        width=width,
+    )
+
+
+def _text_width(font: ImageFont.ImageFont | ImageFont.FreeTypeFont, text: str) -> int:
+    try:
+        gb = font.getbbox(text)
+        return max(1, gb[2] - gb[0])
+    except (AttributeError, OSError, TypeError, ValueError):
+        bb = ImageDraw.Draw(Image.new("RGBA", (1, 1))).textbbox((0, 0), text, font=font)
+        return max(1, bb[2] - bb[0])
+
+
+def _wrap_ribbon_lines(
+    text: str,
+    font: ImageFont.ImageFont | ImageFont.FreeTypeFont,
+    max_width: int,
+) -> list[str]:
+    """Zeilenumbruch fürs Ecken-Banner — max. 2 Zeilen."""
+    del max_width  # Breite steuert die Schriftgröße, nicht zusätzliche Zeilen
+    raw = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not raw:
+        return []
+    if "\n" in raw:
+        parts = [ln.strip() for ln in raw.split("\n") if ln.strip()]
+        if len(parts) <= 2:
+            return parts
+        return [" ".join(parts[:-1]), parts[-1]]
+
+    # Kanonisch: „… Bonus-Material“ → „… Bonus“ / „Material“
+    m = re.match(r"^(?P<head>.*?)\s*Bonus-Material\s*$", raw, flags=re.IGNORECASE)
+    if m is not None:
+        head = (m.group("head") or "").strip()
+        line1 = f"{head} Bonus".strip() if head else "Bonus"
+        return [line1, "Material"]
+
+    words = raw.split()
+    if len(words) <= 1:
+        if "-" in raw:
+            left, right = raw.rsplit("-", 1)
+            left, right = left.strip(), right.strip()
+            if left and right:
+                return [left, right]
+        return [raw]
+    if len(words) == 2:
+        return [words[0], words[1]]
+    # 3+ Wörter: erste Hälfte / Rest (weiterhin genau 2 Zeilen)
+    break_at = max(1, len(words) // 2)
+    return [" ".join(words[:break_at]), " ".join(words[break_at:])]
+
+
+def _draw_corner_ribbon(
+    panel: Image.Image, ribbon: CornerRibbonSpec
+) -> Image.Image:
+    """Ecken-Banner: Dreieck; Icon in der Spitze; Text zentriert im Band."""
+    w, h = panel.size
+    s = max(18, int(round(min(w, h) * ribbon.size_pct / 100.0)))
+    bottom = ribbon.corner == "bottom_right"
+    main_rgba = _hex_to_rgba(ribbon.color, fallback=(61, 189, 176))
+    text_rgba = _hex_to_rgba(ribbon.text_color, fallback=(255, 255, 255))
+
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # Hypotenuse A→B; tip = rechte Ecke; tip_n = Spitze → innen
+    if bottom:
+        tip = (float(w), float(h))
+        tip_n = (-1.0 / math.sqrt(2.0), -1.0 / math.sqrt(2.0))
+        tri = [(w - s, h), (w, h), (w, h - s)]
+        ax, ay = float(w - s), float(h)
+        bx, by = float(w), float(h - s)
+        fold_n = tip_n
+        tri_n = (1.0 / math.sqrt(2.0), 1.0 / math.sqrt(2.0))
+        rot_deg = 45.0
+    else:
+        tip = (float(w), 0.0)
+        tip_n = (-1.0 / math.sqrt(2.0), 1.0 / math.sqrt(2.0))
+        tri = [(w - s, 0), (w, 0), (w, s)]
+        ax, ay = float(w - s), 0.0
+        bx, by = float(w), float(s)
+        fold_n = tip_n
+        tri_n = (1.0 / math.sqrt(2.0), -1.0 / math.sqrt(2.0))
+        # −45°: bewährte Ausrichtung (Schrift entlang Hypotenuse, Icon mitrotiert).
+        # Nicht auf +45° drehen — das verdreht Text und Pfeil gegenüber dem Design.
+        rot_deg = -45.0
+
+    draw.polygon(tri, fill=main_rgba)
+
+    fold_hex = (ribbon.fold_color or "").strip()
+    if fold_hex:
+        fold_rgba = _hex_to_rgba(fold_hex, fallback=(160, 200, 220))
+        fw = max(2, int(round(s * 0.07)))
+        draw.polygon(
+            [
+                (int(ax), int(ay)),
+                (int(bx), int(by)),
+                (int(bx + fold_n[0] * fw), int(by + fold_n[1] * fw)),
+                (int(ax + fold_n[0] * fw), int(ay + fold_n[1] * fw)),
+            ],
+            fill=fold_rgba,
+        )
+
+    altitude = s / math.sqrt(2.0)
+    hyp_len = s * math.sqrt(2.0)
+    # Schwerpunkt = optische Mitte der Dreiecksfläche
+    centroid = (
+        (tri[0][0] + tri[1][0] + tri[2][0]) / 3.0,
+        (tri[0][1] + tri[1][1] + tri[2][1]) / 3.0,
+    )
+
+    # --- Icon: vollständig innerhalb der Spitze (Abstand zu beiden Schenkeln) ---
+    icon_size = 0
+    if ribbon.show_icon:
+        icon_size = max(14, int(round(min(altitude * 0.50, s * 0.24))))
+        # Kreisradius; nach expand-Rotation ~√2 größer — großzügig einrücken
+        inset = icon_size * 1.15
+        icx = tip[0] + tip_n[0] * inset
+        icy = tip[1] + tip_n[1] * inset
+        # Harte Klammer: Mittelpunkt mind. radius+2 von Panel-Rand
+        radius = icon_size / 2.0 + 2.0
+        icx = min(float(w) - radius, max(radius, icx))
+        icy = min(float(h) - radius, max(radius, icy))
+        pad_i = 4
+        side = icon_size + pad_i * 2
+        icon_img = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+        _draw_download_icon(
+            icon_img,
+            cx=side // 2,
+            cy=side // 2,
+            size=icon_size,
+            color=text_rgba,
+        )
+        rot_icon = icon_img.rotate(
+            rot_deg, expand=True, resample=Image.Resampling.BICUBIC
+        )
+        overlay.paste(
+            rot_icon,
+            (
+                int(round(icx - rot_icon.width / 2.0)),
+                int(round(icy - rot_icon.height / 2.0)),
+            ),
+            rot_icon,
+        )
+
+    # --- Text zweizeilig; font_scale steuert die Größe (Ausrichtung unverändert) ---
+    font_scale = max(0.5, min(2.5, float(getattr(ribbon, "font_scale", 1.0) or 1.0)))
+    # Mehr Bandbreite bei größerer Schrift — sonst frisst die Breiten-Korrektur den Scale
+    max_strip = max(24, int(round(hyp_len * min(0.72, 0.48 + 0.12 * font_scale))))
+    band_h = max(18, int(round(altitude * min(0.72, 0.42 + 0.14 * font_scale))))
+    pad = max(2, int(round(band_h * 0.10)))
+    usable_h = max(8, band_h - 2 * pad)
+
+    text = (ribbon.text or "").strip()
+    target_font = max(8, int(round(usable_h * 0.48 * font_scale)))
+    font_size = target_font
+    font = _load_font(font_size, bold=True)
+    gap = max(2, font_size // 5)
+    text_budget = max(12, max_strip - gap * 2)
+    lines = _wrap_ribbon_lines(text, font, text_budget) if text else []
+
+    # Nur minimal nach unten; Floor ≈ 88 % der Zielgröße → Regler bleibt spürbar
+    floor_font = max(7, int(round(target_font * 0.88)))
+    for _ in range(24):
+        if not lines:
+            break
+        widest = max(_text_width(font, ln) for ln in lines)
+        if widest <= text_budget or font_size <= floor_font:
+            break
+        font_size -= 1
+        font = _load_font(font_size, bold=True)
+        lines = _wrap_ribbon_lines(text, font, text_budget)
+
+    if not lines:
+        return Image.alpha_composite(panel, overlay)
+
+    line_gap = max(1, int(round(font_size * 0.08)))
+    try:
+        asc, desc = font.getmetrics()
+        line_h = max(1, asc + desc)
+    except (AttributeError, OSError, TypeError, ValueError):
+        line_h = font_size + 2
+    text_block_h = len(lines) * line_h + (len(lines) - 1) * line_gap
+    text_block_w = max(_text_width(font, ln) for ln in lines)
+
+    content_h = max(1, text_block_h + pad * 2)
+    content_w = max(1, text_block_w + gap * 2)
+
+    content = Image.new("RGBA", (content_w, content_h), (0, 0, 0, 0))
+    cdraw = ImageDraw.Draw(content)
+    mid_x = content_w / 2.0
+    mid_y = content_h / 2.0
+    y0 = mid_y - text_block_h / 2.0
+    for i, ln in enumerate(lines):
+        ty = y0 + i * (line_h + line_gap) + line_h / 2.0
+        try:
+            cdraw.text((mid_x, ty), ln, font=font, fill=text_rgba, anchor="mm")
+        except (TypeError, ValueError):
+            bb = cdraw.textbbox((0, 0), ln, font=font)
+            tw = bb[2] - bb[0]
+            th = bb[3] - bb[1]
+            cdraw.text(
+                (int(mid_x - tw / 2 - bb[0]), int(ty - th / 2 - bb[1])),
+                ln,
+                font=font,
+                fill=text_rgba,
+            )
+
+    rotated = content.rotate(rot_deg, expand=True, resample=Image.Resampling.BICUBIC)
+
+    # Text im Schwerpunkt; bei Icon leicht zur Hypotenuse (tip_n = innen von Spitze)
+    tc_x, tc_y = centroid[0], centroid[1]
+    if icon_size > 0:
+        tc_x += tip_n[0] * (icon_size * 0.35)
+        tc_y += tip_n[1] * (icon_size * 0.35)
+
+    overlay.paste(
+        rotated,
+        (
+            int(round(tc_x - rotated.width / 2.0)),
+            int(round(tc_y - rotated.height / 2.0)),
+        ),
+        rotated,
+    )
+
+    return Image.alpha_composite(panel, overlay)
 
 
 __all__ = ["apply_to_front_panel"]

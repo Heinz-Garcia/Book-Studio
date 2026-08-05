@@ -101,7 +101,8 @@ def test_draw_overlays_paints_barcode_placeholder(monkeypatch, tmp_path):
     assert dlg.minimumHeight() >= 600
     # Layout darf die Größe nicht fixieren.
     assert dlg.layout().sizeConstraint() == dlg.layout().SizeConstraint.SetNoConstraint
-    assert dlg.isSizeGripEnabled() is True
+    assert dlg.isSizeGripEnabled() is False
+    assert hasattr(dlg, "_size_grip")
     dlg.close()
 
 
@@ -401,6 +402,106 @@ def test_spine_badge_ui_roundtrip(monkeypatch, tmp_path):
     assert dlg.spine_badge_text.text() == "POLITIK"
     assert dlg.spine_badge_position.currentData() == "before"
     assert dlg.spine_badge_scale.currentData() == 1
+    dlg.close()
+
+
+def test_compose_badge2_ui_roundtrip(monkeypatch, tmp_path):
+    """Zweites Vorderseiten-Badge: gleiche Controls, Collect/Apply."""
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    assert hasattr(dlg, "compose_badge2_enabled")
+    assert hasattr(dlg, "_size_grip")
+
+    dlg.compose_enabled.setChecked(True)
+    dlg.compose_badge_enabled.setChecked(True)
+    dlg.compose_badge_text.setText("Eins")
+    dlg.compose_badge2_enabled.setChecked(True)
+    dlg.compose_badge2_text.setText("Für Patientinnen in der Schweiz")
+    dlg.compose_badge2_text_color.setText("#1E3A5F")
+    dlg.compose_badge2_bold.setChecked(True)
+    dlg.compose_badge2_x.setValue(8.0)
+    dlg.compose_badge2_y.setValue(74.0)
+    dlg.compose_badge2_scale.setValue(27.0)
+    dlg.compose_badge2_rot.setValue(90.0)
+
+    raw = dlg._collect_front_compose()
+    assert raw["badge"]["text"] == "Eins"
+    assert raw["badge2"]["enabled"] is True
+    assert raw["badge2"]["text"] == "Für Patientinnen in der Schweiz"
+    assert raw["badge2"]["x_pct"] == pytest.approx(8.0)
+    assert raw["badge2"]["y_pct"] == pytest.approx(74.0)
+    assert raw["badge2"]["scale_pct"] == pytest.approx(27.0)
+    assert raw["badge2"]["rotation_deg"] == pytest.approx(90.0)
+    assert raw["badge2"]["bold"] is True
+
+    dlg._apply_front_compose(
+        {
+            "enabled": True,
+            "badge": {"enabled": False},
+            "badge2": {
+                "enabled": True,
+                "text": "Zweiter",
+                "text_color": "#AABBCC",
+                "x_pct": 12.5,
+                "y_pct": 33.0,
+                "scale_pct": 40.0,
+                "rotation_deg": -10.0,
+                "bold": False,
+            },
+        }
+    )
+    assert dlg.compose_badge2_text.text() == "Zweiter"
+    assert dlg.compose_badge2_text_color.text() == "#AABBCC"
+    assert dlg.compose_badge2_x.value() == pytest.approx(12.5)
+    assert dlg.compose_badge2_rot.value() == pytest.approx(-10.0)
+    dlg.close()
+
+
+def test_compose_corner_ribbon_ui_roundtrip(monkeypatch, tmp_path):
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    assert hasattr(dlg, "compose_corner_enabled")
+
+    dlg.compose_enabled.setChecked(True)
+    dlg.compose_corner_enabled.setChecked(True)
+    dlg.compose_corner_text.setText("Inkl. Bonus-Material")
+    dlg.compose_corner_color.setText("#2EC4B6")
+    dlg.compose_corner_text_color.setText("#FFFFFF")
+    dlg.compose_corner_size.setValue(32.0)
+    dlg.compose_corner_font.setValue(140.0)
+    dlg.compose_corner_icon.setChecked(True)
+    dlg.compose_corner_pos.setCurrentIndex(
+        dlg.compose_corner_pos.findData("bottom_right")
+    )
+
+    raw = dlg._collect_front_compose()
+    assert raw["corner_ribbon"]["enabled"] is True
+    assert raw["corner_ribbon"]["text"] == "Inkl. Bonus-Material"
+    assert raw["corner_ribbon"]["color"] == "#2EC4B6"
+    assert raw["corner_ribbon"]["size_pct"] == pytest.approx(32.0)
+    assert raw["corner_ribbon"]["font_scale"] == pytest.approx(1.4)
+    assert raw["corner_ribbon"]["show_icon"] is True
+    assert raw["corner_ribbon"]["corner"] == "bottom_right"
+
+    dlg._apply_front_compose(
+        {
+            "enabled": True,
+            "corner_ribbon": {
+                "enabled": True,
+                "text": "Nur Online",
+                "color": "#FF6600",
+                "text_color": "#111111",
+                "size_pct": 22.5,
+                "font_scale": 0.8,
+                "show_icon": False,
+                "corner": "top_right",
+            },
+        }
+    )
+    assert dlg.compose_corner_text.text() == "Nur Online"
+    assert dlg.compose_corner_color.text() == "#FF6600"
+    assert dlg.compose_corner_size.value() == pytest.approx(22.5)
+    assert dlg.compose_corner_font.value() == pytest.approx(80.0)
+    assert dlg.compose_corner_icon.isChecked() is False
+    assert dlg.compose_corner_pos.currentData() == "top_right"
     dlg.close()
 
 

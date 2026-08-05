@@ -315,6 +315,163 @@ def test_badge_text_color_renders(tmp_path: Path) -> None:
     assert greens, "erwartete Badge-Textfarbe (grün) fehlt"
 
 
+def test_badge2_roundtrip_and_render(tmp_path: Path) -> None:
+    """Zweites Badge wird geladen, gespeichert und gezeichnet."""
+    spec = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "fade": {"enabled": False},
+            "band": {"enabled": False},
+            "titles": {"enabled": False},
+            "footer": {"enabled": False},
+            "badge": {
+                "enabled": True,
+                "text": "A",
+                "text_color": "#FF0000",
+                "x_pct": 25.0,
+                "y_pct": 40.0,
+                "rotation_deg": 0.0,
+                "text_size_pct": 10.0,
+            },
+            "badge2": {
+                "enabled": True,
+                "text": "B",
+                "text_color": "#0000FF",
+                "x_pct": 75.0,
+                "y_pct": 60.0,
+                "rotation_deg": 0.0,
+                "text_size_pct": 10.0,
+            },
+        }
+    )
+    assert spec.badge2.enabled is True
+    assert spec.badge2.text == "B"
+    roundtrip = FrontComposeSpec.from_dict(spec.to_dict())
+    assert roundtrip.badge2.text == "B"
+    assert roundtrip.badge2.x_pct == pytest.approx(75.0)
+
+    base = Image.new("RGB", (200, 200), (255, 255, 255))
+    out = apply_to_front_panel(base, spec)
+    assert out is not None
+    assert list(out.getdata()) != list(base.getdata())
+
+
+def test_corner_ribbon_roundtrip_and_paints_top_right() -> None:
+    """Ecken-Banner: JSON-Roundtrip und Pixel oben rechts (nicht unten links)."""
+    spec = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "fade": {"enabled": False},
+            "band": {"enabled": False},
+            "titles": {"enabled": False},
+            "footer": {"enabled": False},
+            "corner_ribbon": {
+                "enabled": True,
+                "text": "Inkl. Bonus-Material",
+                "color": "#00FF00",
+                "text_color": "#FFFFFF",
+                "size_pct": 35.0,
+                "show_icon": True,
+                "corner": "top_right",
+            },
+        }
+    )
+    assert spec.corner_ribbon.enabled is True
+    assert spec.corner_ribbon.text == "Inkl. Bonus-Material"
+    assert spec.corner_ribbon.corner == "top_right"
+    assert FrontComposeSpec.from_dict(spec.to_dict()).corner_ribbon.color == "#00FF00"
+
+    base = Image.new("RGB", (200, 200), (10, 10, 40))
+    out = apply_to_front_panel(base, spec)
+    assert out is not None
+    # Grüne Dreiecksfläche (nicht Spitzen-Icon): entlang der oberen Kante innen
+    tr = out.getpixel((145, 5))
+    assert tr[1] > 150 and tr[0] < 80, f"erwartete grüne Ecke, bekam {tr}"
+    # Untere linke Ecke unverändert dunkel
+    bl = out.getpixel((5, 195))
+    assert bl == (10, 10, 40), f"untere linke Ecke verändert: {bl}"
+
+
+def test_corner_ribbon_font_scale_roundtrip() -> None:
+    spec = FrontComposeSpec.from_dict(
+        {"corner_ribbon": {"font_scale": 1.5, "enabled": True}}
+    )
+    assert spec.corner_ribbon.font_scale == pytest.approx(1.5)
+    assert FrontComposeSpec.from_dict(spec.to_dict()).corner_ribbon.font_scale == pytest.approx(
+        1.5
+    )
+
+
+def test_corner_ribbon_wraps_bonus_material_centered() -> None:
+    """„Inkl. Bonus-Material“ → zwei zentrierte Zeilen „Inkl. Bonus“ / „Material“."""
+    from tools.kdp_cover.compose_front.render import _load_font, _wrap_ribbon_lines
+
+    font = _load_font(20, bold=True)
+    lines = _wrap_ribbon_lines("Inkl. Bonus-Material", font, max_width=400)
+    assert lines == ["Inkl. Bonus", "Material"]
+    lines_nl = _wrap_ribbon_lines("Inkl. Bonus\nMaterial", font, max_width=400)
+    assert lines_nl == ["Inkl. Bonus", "Material"]
+
+
+def test_corner_ribbon_icon_near_tip() -> None:
+    """Download-Icon sitzt in der Dreiecksspitze (oben rechts), nicht mittig im Band."""
+    spec = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "fade": {"enabled": False},
+            "band": {"enabled": False},
+            "titles": {"enabled": False},
+            "footer": {"enabled": False},
+            "corner_ribbon": {
+                "enabled": True,
+                "text": "X",
+                "color": "#008080",
+                "text_color": "#FFFFFF",
+                "size_pct": 40.0,
+                "show_icon": True,
+                "corner": "top_right",
+            },
+        }
+    )
+    # Reines Türkis-Dreieck ohne Text wäre zu ähnlich — Icon ist weiß.
+    base = Image.new("RGB", (200, 200), (10, 10, 40))
+    out = apply_to_front_panel(base, spec)
+    assert out is not None
+    # Spitzen-Region (nahe w,0): muss helle Icon-Pixel enthalten
+    tip_region = [out.getpixel((x, y)) for x in range(175, 200) for y in range(0, 25)]
+    assert any(p[0] > 200 and p[1] > 200 and p[2] > 200 for p in tip_region), (
+        "erwartete weiße Icon-Pixel in der Spitze"
+    )
+
+
+def test_corner_ribbon_bottom_right() -> None:
+    spec = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "fade": {"enabled": False},
+            "band": {"enabled": False},
+            "titles": {"enabled": False},
+            "footer": {"enabled": False},
+            "corner_ribbon": {
+                "enabled": True,
+                "color": "#00FF00",
+                "size_pct": 30.0,
+                "corner": "bottom_right",
+                "show_icon": False,
+                "text": "",
+            },
+        }
+    )
+    assert spec.corner_ribbon.corner == "bottom_right"
+    base = Image.new("RGB", (200, 200), (10, 10, 40))
+    out = apply_to_front_panel(base, spec)
+    assert out is not None
+    br = out.getpixel((195, 195))
+    assert br[1] > 150 and br[0] < 80, f"erwartete grüne Ecke unten rechts, bekam {br}"
+    tl = out.getpixel((5, 5))
+    assert tl == (10, 10, 40)
+
+
 def test_front_compose_roundtrip_json(tmp_path: Path) -> None:
     layout = CoverLayout(
         page_count=120,

@@ -196,6 +196,48 @@ class BadgeSpec:
 
 
 @dataclass
+class CornerRibbonSpec:
+    """Dreieckige Ecken-Markierung mit Download-Icon + Text.
+
+    Farbe und Schriftzug konfigurierbar; Icon ist fest (Download).
+    ``corner``: ``top_right`` oder ``bottom_right``.
+    """
+
+    enabled: bool = False
+    text: str = "Inkl. Bonus-Material"
+    color: str = "#3DBDB0"
+    # Leer = keine Faltkante (früher Auto-Saum wirkte störend).
+    fold_color: str = ""
+    text_color: str = "#FFFFFF"
+    # Schenkel-Länge relativ zur kürzeren Front-Kante (%).
+    size_pct: float = 13.0
+    # Schriftgröße relativ zur Auto-Größe (1.0 = Standard; ändert nicht die Ausrichtung).
+    font_scale: float = 1.0
+    show_icon: bool = True
+    corner: str = "top_right"  # top_right | bottom_right
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> CornerRibbonSpec:
+        d = data if isinstance(data, dict) else {}
+        corner = str(d.get("corner") or "top_right").strip().lower()
+        if corner not in ("top_right", "bottom_right"):
+            corner = "top_right"
+        return cls(
+            enabled=bool(d.get("enabled", False)),
+            text=str(
+                d.get("text") if d.get("text") is not None else "Inkl. Bonus-Material"
+            ),
+            color=str(d.get("color") or "#3DBDB0"),
+            fold_color=str(d.get("fold_color") or ""),
+            text_color=str(d.get("text_color") or "#FFFFFF"),
+            size_pct=_clamp(_float(d.get("size_pct"), 13.0), 8.0, 35.0),
+            font_scale=_clamp(_float(d.get("font_scale"), 1.0), 0.5, 2.5),
+            show_icon=bool(d.get("show_icon", True)),
+            corner=corner,
+        )
+
+
+@dataclass
 class FrontComposeSpec:
     """Experimentelle Vorderseiten-Gestaltung (Feature-Flag ``enabled``)."""
 
@@ -209,6 +251,8 @@ class FrontComposeSpec:
     titles: TitlesSpec = field(default_factory=TitlesSpec)
     footer: FooterSpec = field(default_factory=FooterSpec)
     badge: BadgeSpec = field(default_factory=BadgeSpec)
+    badge2: BadgeSpec = field(default_factory=BadgeSpec)
+    corner_ribbon: CornerRibbonSpec = field(default_factory=CornerRibbonSpec)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -234,6 +278,14 @@ class FrontComposeSpec:
             badge=BadgeSpec.from_dict(
                 data.get("badge") if isinstance(data.get("badge"), dict) else {}
             ),
+            badge2=BadgeSpec.from_dict(
+                data.get("badge2") if isinstance(data.get("badge2"), dict) else {}
+            ),
+            corner_ribbon=CornerRibbonSpec.from_dict(
+                data.get("corner_ribbon")
+                if isinstance(data.get("corner_ribbon"), dict)
+                else {}
+            ),
         )
 
 
@@ -251,5 +303,6 @@ __all__ = [
     "TitlesSpec",
     "FooterSpec",
     "BadgeSpec",
+    "CornerRibbonSpec",
     "FrontComposeSpec",
 ]

@@ -242,11 +242,47 @@ def ensure_typst_template_partials(
             shutil.copy2(src, dest)
 
 
+def normalize_pdf_stem_from_display(raw: str) -> str:
+    """Dateiname-Stem aus einem Anzeigenamen (dateisystemtauglich).
+
+    Leerzeichen → ``_``, Pfadtrenner und Windows-verbotene Zeichen → ``_``,
+    optionaler ``.pdf``-Suffix wird entfernt. Umlaute bleiben erhalten.
+    """
+    stem = str(raw or "").strip()
+    if stem.lower().endswith(".pdf"):
+        stem = stem[:-4].rstrip()
+    for ch in '/\\:*?"<>|':
+        stem = stem.replace(ch, "_")
+    stem = "_".join(part for part in stem.split() if part)
+    while "__" in stem:
+        stem = stem.replace("__", "_")
+    return stem.strip("._")
+
+
+def default_export_display_name(book_path: Path) -> str:
+    """Anzeigename-Vorbelegung für den Export-Dialog.
+
+    ``bookconfig/project_label.json`` wenn gesetzt, sonst Buchordnername.
+    """
+    book_path = Path(book_path)
+    try:
+        from tools.book_projects.label import read_display_name
+
+        label = read_display_name(book_path)
+    except (OSError, TypeError, ValueError, ImportError):
+        label = ""
+    return (label or book_path.name).strip() or book_path.name
+
+
 def resolve_preferred_pdf_stem(book_path: Path) -> str:
     """Bevorzugter PDF-Dateiname (ohne Suffix): neueste ``Publish_*.json``.
 
     Fallback: Buchordnername. Dateiname wird fürs Dateisystem bereinigt
     (keine Pfadtrenner).
+
+    Wird noch für Post-Render-Rename genutzt, wenn kein Dialog-Stem gesetzt ist.
+    Der Export-Dialog leitet den Stem aus dem Anzeigenamen ab
+    (``default_export_display_name`` / ``normalize_pdf_stem_from_display``).
 
     Wichtig (Windows): ``Path.glob("Publish_*.json")`` ist case-insensitive und
     trifft sonst auch ``publish_map.json`` / ``publish_record.json``. Deshalb
@@ -266,8 +302,7 @@ def resolve_preferred_pdf_stem(book_path: Path) -> str:
         stem = newest.stem
     else:
         stem = book_path.name
-    cleaned = str(stem).strip().replace("/", "_").replace("\\", "_")
-    return cleaned or book_path.name
+    return normalize_pdf_stem_from_display(stem) or book_path.name
 
 
 def rename_render_pdf(path: Path, stem: str, *, overwrite: bool = True) -> Path:
@@ -321,6 +356,8 @@ __all__ = [
     "archive_render_source",
     "restore_source_archive",
     "ensure_typst_template_partials",
+    "normalize_pdf_stem_from_display",
+    "default_export_display_name",
     "resolve_preferred_pdf_stem",
     "rename_render_pdf",
 ]

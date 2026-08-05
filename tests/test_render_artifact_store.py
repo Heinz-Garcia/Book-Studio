@@ -16,7 +16,9 @@ from render_artifact_store import (
     archive_render_artifacts,
     archive_render_source,
     copy_render_artifacts,
+    default_export_display_name,
     ensure_typst_template_partials,
+    normalize_pdf_stem_from_display,
     read_output_dir,
     rename_render_pdf,
     resolve_preferred_pdf_stem,
@@ -261,6 +263,26 @@ def test_ensure_typst_template_partials_ignores_other_target_fmt(tmp_path):
 
 
 # --- PDF-Stem / Rename (Publish_*.json) ---------------------------------
+
+
+def test_normalize_pdf_stem_from_display():
+    assert normalize_pdf_stem_from_display("Brustkrebs Probe rev.07") == (
+        "Brustkrebs_Probe_rev.07"
+    )
+    assert normalize_pdf_stem_from_display("A:B/C\\D?.pdf") == "A_B_C_D"
+    assert normalize_pdf_stem_from_display("  Über  Prüfung  ") == "Über_Prüfung"
+    assert normalize_pdf_stem_from_display("") == ""
+
+
+def test_default_export_display_name_uses_label_then_folder(tmp_path):
+    book = tmp_path / "IFJN_Brustkrebs"
+    book.mkdir()
+    assert default_export_display_name(book) == "IFJN_Brustkrebs"
+
+    from tools.book_projects.label import write_display_name
+
+    write_display_name(book, "Mein Anzeigename")
+    assert default_export_display_name(book) == "Mein Anzeigename"
 
 
 def test_resolve_preferred_pdf_stem_uses_newest_publish_json(tmp_path):

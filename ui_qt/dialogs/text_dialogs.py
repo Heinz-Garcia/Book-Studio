@@ -201,6 +201,9 @@ class TextEditorDialog(QDialog):
         end_commands: Optional[Sequence[dict[str, Any]]] = None,
         on_save: Optional[Callable[[], None]] = None,
         initial_line: Optional[int] = None,
+        initial_find_term: Optional[str] = None,
+        initial_find_whole_word: bool = False,
+        initial_find_case_sensitive: bool = False,
         book_path: Optional[Path] = None,
     ) -> None:
         super().__init__(parent)
@@ -211,8 +214,11 @@ class TextEditorDialog(QDialog):
         self._is_markdown = self.path.suffix.lower() == ".md"
         self._preview_dirty = True
         self._pdf_preview_dirty = True
+        # Inherited from book-global structure search (no duplicate UI here).
+        self._find_whole_word = bool(initial_find_whole_word)
+        self._find_case_sensitive = bool(initial_find_case_sensitive)
         self.setWindowTitle(f"{title} — {self.path.name}")
-        self.resize(1500, 720)
+        self.resize(1600, 720)
         layout = QVBoxLayout(self)
 
         # Zwei Zeilen statt einer: die volle Formatier-Toolbar braucht in einer
@@ -222,12 +228,26 @@ class TextEditorDialog(QDialog):
         # Mathe. Zeile 2: Struktur (Überschrift/Listen/Einfügen) + Umbruch/Ende/Verlauf.
         toolbar = QToolBar()
         toolbar.setMovable(False)
-        toolbar.setStyleSheet("QToolBar QPushButton { font-size: 13px; }")
+        toolbar.setStyleSheet(
+            "QToolBar QPushButton {"
+            "  font-size: 13px;"
+            "  padding: 2px 6px;"
+            "  margin: 0px;"
+            "  min-height: 26px;"
+            "}"
+        )
         layout.addWidget(toolbar)
 
         toolbar2 = QToolBar()
         toolbar2.setMovable(False)
-        toolbar2.setStyleSheet("QToolBar QPushButton { font-size: 13px; }")
+        toolbar2.setStyleSheet(
+            "QToolBar QPushButton {"
+            "  font-size: 13px;"
+            "  padding: 2px 6px;"
+            "  margin: 0px;"
+            "  min-height: 26px;"
+            "}"
+        )
         layout.addWidget(toolbar2)
 
         if self._is_markdown:
@@ -368,7 +388,10 @@ class TextEditorDialog(QDialog):
             self._add_toolbar_group_label(toolbar2, "Suche")
             btn_find = QPushButton("🔍")
             btn_find.setFixedWidth(34)
-            btn_find.setToolTip("Suchen (Strg+F) - Enter: nächster Treffer, Esc: schließen")
+            btn_find.setToolTip(
+                "Suchen / Ersetzen (Strg+F / Strg+H)\n"
+                "Enter: nächster Treffer, Esc: schließen"
+            )
             btn_find.clicked.connect(self._show_find_bar)
             toolbar2.addWidget(btn_find)
 
@@ -389,6 +412,7 @@ class TextEditorDialog(QDialog):
         self._find_bar = QWidget()
         find_layout = QHBoxLayout(self._find_bar)
         find_layout.setContentsMargins(4, 2, 4, 2)
+        find_layout.setSpacing(4)
         find_layout.addWidget(QLabel("🔍"))
         self._find_input = QLineEdit()
         self._find_input.setPlaceholderText("Suchen…")
@@ -404,6 +428,35 @@ class TextEditorDialog(QDialog):
         btn_find_next.setToolTip("Nächster Treffer")
         btn_find_next.clicked.connect(self._find_next)
         find_layout.addWidget(btn_find_next)
+
+        self._replace_input: Optional[QLineEdit] = None
+        self._find_replace_status: Optional[QLabel] = None
+        if self._is_markdown:
+            find_layout.addWidget(QLabel("→"))
+            self._replace_input = QLineEdit()
+            self._replace_input.setPlaceholderText("Ersetzen durch…")
+            self._replace_input.returnPressed.connect(self._replace_and_find_next)
+            find_layout.addWidget(self._replace_input, stretch=1)
+
+            btn_replace = QPushButton("Ersetzen")
+            btn_replace.setToolTip("Aktuellen Treffer ersetzen")
+            btn_replace.clicked.connect(self._replace_current)
+            find_layout.addWidget(btn_replace)
+
+            btn_replace_next = QPushButton("Ersetzen & weiter")
+            btn_replace_next.setToolTip("Ersetzen und zum nächsten Treffer springen")
+            btn_replace_next.clicked.connect(self._replace_and_find_next)
+            find_layout.addWidget(btn_replace_next)
+
+            btn_replace_all = QPushButton("Alle ersetzen")
+            btn_replace_all.setToolTip("Alle Treffer in dieser Datei ersetzen")
+            btn_replace_all.clicked.connect(self._replace_all)
+            find_layout.addWidget(btn_replace_all)
+
+            self._find_replace_status = QLabel("")
+            self._find_replace_status.setStyleSheet("color:#5b6573; min-width: 5em;")
+            find_layout.addWidget(self._find_replace_status)
+
         btn_find_close = QPushButton("✕")
         btn_find_close.setFixedWidth(28)
         btn_find_close.setToolTip("Suche schließen (Esc)")
@@ -415,6 +468,13 @@ class TextEditorDialog(QDialog):
             QKeySequence(Qt.Key.Key_Escape), self._find_input, self._hide_find_bar,
             context=Qt.ShortcutContext.WidgetShortcut,
         )
+        if self._replace_input is not None:
+            QShortcut(
+                QKeySequence(Qt.Key.Key_Escape),
+                self._replace_input,
+                self._hide_find_bar,
+                context=Qt.ShortcutContext.WidgetShortcut,
+            )
 
         self._stack = QStackedWidget()
         self.editor = QPlainTextEdit()
@@ -422,6 +482,8 @@ class TextEditorDialog(QDialog):
             self.editor.setPlainText(self.path.read_text(encoding="utf-8"))
         except OSError as exc:
             self.editor.setPlainText(f"# Lesefehler\n{exc}")
+        self._saved_snapshot = self.editor.toPlainText()
+        self._content_dirty = False
         self.editor.textChanged.connect(self._on_text_changed)
         if self._is_markdown:
             self._btn_undo.clicked.connect(self.editor.undo)
@@ -475,6 +537,10 @@ class TextEditorDialog(QDialog):
                 self.editor.setTextCursor(cursor)
                 self.editor.centerCursor()
 
+        find_seed = str(initial_find_term or "").strip()
+        if find_seed and self._is_markdown:
+            self._apply_initial_find(find_seed)
+
         status_row = QHBoxLayout()
         self._status = QLabel("Codeansicht aktiv")
         self._status.setStyleSheet("color: #64748b;")
@@ -507,6 +573,11 @@ class TextEditorDialog(QDialog):
         find_shortcut.setShortcut(QKeySequence.StandardKey.Find)
         find_shortcut.triggered.connect(self._show_find_bar)
         self.addAction(find_shortcut)
+        if self._is_markdown:
+            replace_shortcut = QAction(self)
+            replace_shortcut.setShortcut(QKeySequence.StandardKey.Replace)
+            replace_shortcut.triggered.connect(self._show_replace_bar)
+            self.addAction(replace_shortcut)
 
     def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt-Override
         worker = getattr(self, "_pdf_worker", None)
@@ -541,13 +612,37 @@ class TextEditorDialog(QDialog):
         label.setStyleSheet("color: #8b8f98; font-size: 12px; padding: 0 3px;")
         toolbar.addWidget(label)
 
+    @staticmethod
+    def _fit_toolbar_button(
+        btn: QPushButton, *, min_width: int = 34, fit_text: bool = False
+    ) -> None:
+        """Kompaktes Padding (Theme hat 8+12px — das schnitt H1 bei 34px ab)."""
+        btn.setStyleSheet(
+            "QPushButton {"
+            "  font-size: 13px;"
+            "  font-weight: 600;"
+            "  padding: 2px 5px;"
+            "  margin: 0px;"
+            "  min-height: 26px;"
+            "  border-radius: 6px;"
+            "}"
+        )
+        if fit_text:
+            text_w = btn.fontMetrics().horizontalAdvance(btn.text())
+            btn.setFixedWidth(max(min_width, text_w + 14))
+        else:
+            btn.setFixedWidth(min_width)
+        btn.setMinimumHeight(26)
+
     def _add_wrap_buttons(
         self, toolbar: QToolBar, commands: tuple[tuple[str, str, str, str], ...], width: int = 34
     ) -> None:
         for icon, tooltip, before, after in commands:
             btn = QPushButton(icon)
-            btn.setFixedWidth(width)
             btn.setToolTip(tooltip)
+            # Mehrzeichen-Labels (A+, H1, …) an Textbreite; reine Icons fest
+            fit = len(icon) >= 2 and icon.isascii()
+            self._fit_toolbar_button(btn, min_width=width, fit_text=fit)
             btn.clicked.connect(lambda _c=False, b=before, a=after: self._wrap_selection(b, a))
             toolbar.addWidget(btn)
 
@@ -571,8 +666,8 @@ class TextEditorDialog(QDialog):
         self._add_toolbar_group_label(toolbar, "Mathe")
         self._add_wrap_buttons(toolbar, (_MATH_INLINE_COMMAND,))
         math_block_btn = QPushButton("∫")
-        math_block_btn.setFixedWidth(34)
         math_block_btn.setToolTip("Mathe-Block ($$Formel$$)")
+        self._fit_toolbar_button(math_block_btn, min_width=34)
         math_block_btn.clicked.connect(self._insert_math_block)
         toolbar.addWidget(math_block_btn)
 
@@ -581,8 +676,8 @@ class TextEditorDialog(QDialog):
         self._add_toolbar_group_label(toolbar, "Überschrift")
         for icon, tooltip, level in _HEADING_COMMANDS:
             btn = QPushButton(icon)
-            btn.setFixedWidth(34)
             btn.setToolTip(tooltip)
+            self._fit_toolbar_button(btn, min_width=40, fit_text=True)
             btn.clicked.connect(lambda _c=False, lvl=level: self._set_heading_level(lvl))
             toolbar.addWidget(btn)
         toolbar.addSeparator()
@@ -590,8 +685,10 @@ class TextEditorDialog(QDialog):
         self._add_toolbar_group_label(toolbar, "Listen")
         for icon, tooltip, marker_for_index in _LINE_PREFIX_COMMANDS:
             btn = QPushButton(icon)
-            btn.setFixedWidth(34)
             btn.setToolTip(tooltip)
+            self._fit_toolbar_button(
+                btn, min_width=36, fit_text=icon.isascii() and len(icon) >= 2
+            )
             btn.clicked.connect(lambda _c=False, m=marker_for_index: self._apply_line_prefix(m))
             toolbar.addWidget(btn)
         toolbar.addSeparator()
@@ -607,8 +704,10 @@ class TextEditorDialog(QDialog):
         )
         for icon, tooltip, handler in insert_buttons:
             btn = QPushButton(icon)
-            btn.setFixedWidth(34)
             btn.setToolTip(tooltip)
+            self._fit_toolbar_button(
+                btn, min_width=36, fit_text=icon.isascii() and len(icon) >= 2
+            )
             btn.clicked.connect(handler)
             toolbar.addWidget(btn)
 
@@ -634,12 +733,29 @@ class TextEditorDialog(QDialog):
         self._status.setText(message)
         self._status.setStyleSheet(f"color: {colors.get(level, '#64748b')};")
 
+    def _mark_content_saved(self) -> None:
+        """Baseline nach Speichern / Laden — kein Dirty-Hinweis."""
+        self._saved_snapshot = self.editor.toPlainText()
+        self._content_dirty = False
+
+    def _refresh_content_dirty_status(self) -> None:
+        """Statuszeile: rot bei ungespeicherten Änderungen."""
+        if not hasattr(self, "editor") or not hasattr(self, "_saved_snapshot"):
+            return
+        dirty = self.editor.toPlainText() != self._saved_snapshot
+        if dirty:
+            self._set_status("Ungespeicherte Änderungen", "error")
+        elif self._content_dirty:
+            self._set_status("Keine ungespeicherten Änderungen.", "dim")
+        self._content_dirty = dirty
+
     def _on_text_changed(self) -> None:
         self._preview_dirty = True
         self._pdf_preview_dirty = True
         if self._yaml_toggle_host is not None:
             self._rebuild_yaml_toggles(force=False)
             self._sync_yaml_toggles()
+        self._refresh_content_dirty_status()
 
     def _rebuild_yaml_toggles(self, *, force: bool = False) -> None:
         """Baut YAML-Toggle-Buttons neu, wenn sich die Bool-Key-Menge ändert."""
@@ -709,12 +825,41 @@ class TextEditorDialog(QDialog):
     def _show_find_bar(self) -> None:
         self._ensure_code_view()
         self._find_bar.setVisible(True)
+        self._set_find_replace_status("")
         self._find_input.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self._find_input.selectAll()
+
+    def _show_replace_bar(self) -> None:
+        """Strg+H: Suchleiste öffnen und Fokus auf Ersetzen-Feld."""
+        if self._replace_input is None:
+            self._show_find_bar()
+            return
+        self._ensure_code_view()
+        self._find_bar.setVisible(True)
+        self._set_find_replace_status("")
+        self._replace_input.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self._replace_input.selectAll()
+
+    def _apply_initial_find(self, term: str) -> None:
+        """Open find bar with ``term`` and jump to the first match (from structure search)."""
+        self._ensure_code_view()
+        self._find_bar.setVisible(True)
+        self._set_find_replace_status("")
+        self._find_input.setText(term)
+        cursor = self.editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.editor.setTextCursor(cursor)
+        self._find_next()
+        self._find_input.setFocus(Qt.FocusReason.OtherFocusReason)
         self._find_input.selectAll()
 
     def _hide_find_bar(self) -> None:
         self._find_bar.setVisible(False)
         self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _set_find_replace_status(self, message: str) -> None:
+        if self._find_replace_status is not None:
+            self._find_replace_status.setText(message)
 
     def _find_next(self) -> None:
         self._find(backward=False)
@@ -722,17 +867,30 @@ class TextEditorDialog(QDialog):
     def _find_previous(self) -> None:
         self._find(backward=True)
 
-    def _find(self, *, backward: bool) -> None:
+    def _find_flags(self, *, backward: bool) -> QTextDocument.FindFlag:
+        flags = QTextDocument.FindFlag(0)
+        if backward:
+            flags |= QTextDocument.FindFlag.FindBackward
+        if self._find_whole_word:
+            flags |= QTextDocument.FindFlag.FindWholeWords
+        if self._find_case_sensitive:
+            flags |= QTextDocument.FindFlag.FindCaseSensitively
+        return flags
+
+    def _find(self, *, backward: bool) -> bool:
         """Sucht ab der aktuellen Cursorposition, läuft am Dokumentende (bzw.
         -anfang bei Rückwärtssuche) einmal um, statt dort einfach aufzugeben -
-        wie man es von Strg+F in Editoren/Browsern erwartet."""
+        wie man es von Strg+F in Editoren/Browsern erwartet.
+
+        Returns True if a match was selected.
+        """
         term = self._find_input.text()
         if not term:
-            return
-        flags = QTextDocument.FindFlag.FindBackward if backward else QTextDocument.FindFlag(0)
+            return False
+        flags = self._find_flags(backward=backward)
         if self.editor.find(term, flags):
             self._find_input.setStyleSheet("")
-            return
+            return True
         cursor = self.editor.textCursor()
         cursor.movePosition(
             QTextCursor.MoveOperation.End if backward else QTextCursor.MoveOperation.Start
@@ -740,8 +898,89 @@ class TextEditorDialog(QDialog):
         self.editor.setTextCursor(cursor)
         if self.editor.find(term, flags):
             self._find_input.setStyleSheet("")
-        else:
+            return True
+        self._find_input.setStyleSheet("background-color: #fde2e1;")
+        return False
+
+    def _selection_matches_find_term(self) -> bool:
+        term = self._find_input.text()
+        if not term:
+            return False
+        selected = self.editor.textCursor().selectedText()
+        if not selected:
+            return False
+        if self._find_case_sensitive:
+            if selected != term:
+                return False
+        elif selected.casefold() != term.casefold():
+            return False
+        if not self._find_whole_word:
+            return True
+        # Re-validate via document find at selection start (honours FindWholeWords).
+        cursor = self.editor.textCursor()
+        start = min(cursor.selectionStart(), cursor.selectionEnd())
+        flags = self._find_flags(backward=False)
+        found = self.editor.document().find(term, start, flags)
+        return (
+            not found.isNull()
+            and found.selectionStart() == start
+            and found.selectedText() == selected
+        )
+
+    def _replace_current(self) -> bool:
+        """Replace the current selection if it matches the find term."""
+        if self._replace_input is None:
+            return False
+        term = self._find_input.text()
+        if not term:
+            self._set_find_replace_status("kein Suchbegriff")
+            return False
+        if not self._selection_matches_find_term():
+            if not self._find(backward=False):
+                self._set_find_replace_status("keine Treffer")
+                return False
+            if not self._selection_matches_find_term():
+                self._set_find_replace_status("keine Treffer")
+                return False
+        cursor = self.editor.textCursor()
+        cursor.insertText(self._replace_input.text())
+        self._set_find_replace_status("1 ersetzt")
+        return True
+
+    def _replace_and_find_next(self) -> None:
+        if self._replace_current():
+            self._find(backward=False)
+
+    def _replace_all(self) -> None:
+        if self._replace_input is None:
+            return
+        term = self._find_input.text()
+        if not term:
+            self._set_find_replace_status("kein Suchbegriff")
+            return
+        replacement = self._replace_input.text()
+        flags = self._find_flags(backward=False)
+        doc = self.editor.document()
+        cursor = self.editor.textCursor()
+        cursor.beginEditBlock()
+        count = 0
+        pos = 0
+        while True:
+            found = doc.find(term, pos, flags)
+            if found.isNull():
+                break
+            found.insertText(replacement)
+            count += 1
+            pos = found.position()
+        cursor.endEditBlock()
+        if count == 0:
             self._find_input.setStyleSheet("background-color: #fde2e1;")
+            self._set_find_replace_status("keine Treffer")
+        else:
+            self._find_input.setStyleSheet("")
+            self._set_find_replace_status(
+                f"{count} ersetzt" if count != 1 else "1 ersetzt"
+            )
 
     def _open_gg_swap(self) -> None:
         from types import SimpleNamespace
@@ -862,6 +1101,7 @@ class TextEditorDialog(QDialog):
         cursor.setPosition(min(pos, len(new_text)))
         self.editor.setTextCursor(cursor)
         self._preview_dirty = True
+        self._refresh_content_dirty_status()
 
     def _on_mode_changed(self, mode_id: int) -> None:
         if mode_id == 1:
@@ -1281,6 +1521,7 @@ class TextEditorDialog(QDialog):
                 self._on_save()
             except Exception:  # noqa: BLE001 — Speichern soll nicht wegen Refresh scheitern
                 pass
+        self._mark_content_saved()
         self._set_status("Gespeichert.", level="ok")
 
     def _save_as(self) -> None:

@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QDragMoveEvent, QDropEvent, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QTreeWidget,
@@ -21,7 +25,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from search_filter import normalize_search_term
 from ui_qt.file_markers import ICON_LEGEND_LINES, ICON_LEGEND_TITLE
+from ui_qt.structure_search import (
+    DEFAULT_STRUCTURE_SEARCH_MODE,
+    DEFAULT_STRUCTURE_SEARCH_SCOPE,
+    SEARCH_MODE_FULLTEXT,
+    SEARCH_MODE_TITLE_PATH,
+    SEARCH_SCOPE_BOTH,
+    SEARCH_SCOPE_LEFT,
+    SEARCH_SCOPE_RIGHT,
+    applies_to_left,
+    applies_to_right,
+    is_fulltext_mode,
+    path_matches_search,
+)
 
 if TYPE_CHECKING:
     from ui_qt.book_workspace import StructureSession
@@ -103,6 +121,10 @@ class StructurePanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._session: Optional[StructureSession] = None
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(200)
+        self._search_timer.timeout.connect(self._apply_search_filter)
         self._build()
 
     def _build(self) -> None:
@@ -115,12 +137,43 @@ class StructurePanel(QWidget):
         root.setColumnStretch(1, 0)
         root.setColumnStretch(2, 1)
 
-        label_left = QLabel("Nicht zugeordnete Kapitel")
-        label_right = QLabel("Buchstruktur")
-        label_left.setObjectName("structureColumnTitle")
-        label_right.setObjectName("structureColumnTitle")
-        root.addWidget(label_left, 0, 0)
-        root.addWidget(label_right, 0, 2)
+        # Suchleiste als eigenes Widget (Shell platziert sie in der Top-Zeile)
+        self.search_bar = self._build_search_bar()
+
+        title_left = QHBoxLayout()
+        title_left.setContentsMargins(0, 0, 0, 0)
+        title_left.setSpacing(8)
+        self.label_left = QLabel("Nicht zugeordnete Kapitel")
+        self.label_left.setObjectName("structureColumnTitle")
+        title_left.addWidget(self.label_left)
+        self.filter_badge_left = QLabel("")
+        self.filter_badge_left.setObjectName("structureFilterBadge")
+        self.filter_badge_left.setVisible(False)
+        title_left.addWidget(self.filter_badge_left)
+        title_left.addStretch(1)
+        title_left_wrap = QWidget()
+        title_left_wrap.setLayout(title_left)
+        root.addWidget(title_left_wrap, 0, 0)
+
+        title_right = QHBoxLayout()
+        title_right.setContentsMargins(0, 0, 0, 0)
+        title_right.setSpacing(8)
+        self.label_right = QLabel("Buchstruktur")
+        self.label_right.setObjectName("structureColumnTitle")
+        title_right.addWidget(self.label_right)
+        self.filter_badge_right = QLabel("")
+        self.filter_badge_right.setObjectName("structureFilterBadge")
+        self.filter_badge_right.setVisible(False)
+        title_right.addWidget(self.filter_badge_right)
+        self.btn_clear_filter = QPushButton("Filter aus")
+        self.btn_clear_filter.setToolTip("Suchfilter leeren und alle Kapitel wieder anzeigen")
+        self.btn_clear_filter.setVisible(False)
+        self.btn_clear_filter.clicked.connect(self._clear_search_filter)
+        title_right.addWidget(self.btn_clear_filter)
+        title_right.addStretch(1)
+        title_right_wrap = QWidget()
+        title_right_wrap.setLayout(title_right)
+        root.addWidget(title_right_wrap, 0, 2)
 
         self.avail_tree = QTreeWidget()
         self.avail_tree.setObjectName("structureTree")
@@ -213,6 +266,122 @@ class StructurePanel(QWidget):
         redo_shortcut.triggered.connect(self._on_redo)
         self.addAction(redo_shortcut)
 
+    def _build_search_bar(self) -> QWidget:
+        """Suchleiste für die Shell-Top-Zeile (nicht im Structure-Grid)."""
+        bar = QWidget()
+        search_row = QHBoxLayout(bar)
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.setSpacing(6)
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Suche in Kapiteln…")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setMinimumWidth(120)
+        search_row.addWidget(self.search_edit, stretch=1)
+
+        self.search_mode = QComboBox()
+        self.search_mode.addItems([SEARCH_MODE_TITLE_PATH, SEARCH_MODE_FULLTEXT])
+        self.search_mode.setCurrentText(DEFAULT_STRUCTURE_SEARCH_MODE)
+        self.search_mode.setToolTip(
+            "Titel/Pfad: nur Anzeigename und Dateipfad.\n"
+            "Volltext: zusätzlich Markdown-Inhalt aller Kapiteldateien."
+        )
+        search_row.addWidget(QLabel("Modus:"))
+        search_row.addWidget(self.search_mode)
+
+        self.search_scope = QComboBox()
+        self.search_scope.addItems(
+            [SEARCH_SCOPE_LEFT, SEARCH_SCOPE_RIGHT, SEARCH_SCOPE_BOTH]
+        )
+        self.search_scope.setCurrentText(DEFAULT_STRUCTURE_SEARCH_SCOPE)
+        self.search_scope.setToolTip(
+            "Links: nur Pool „Nicht zugeordnet“.\n"
+            "Rechts: nur Buchstruktur.\n"
+            "Beide: beide Listen."
+        )
+        search_row.addWidget(QLabel("Scope:"))
+        search_row.addWidget(self.search_scope)
+
+        self.search_whole_word = QCheckBox("Nur ganzes Wort")
+        self.search_whole_word.setToolTip(
+            "Treffer nur, wenn der Suchbegriff als ganzes Wort vorkommt "
+            "(nicht als Teil eines längeren Wortes)."
+        )
+        search_row.addWidget(self.search_whole_word)
+
+        self.search_case_sensitive = QCheckBox("case-sensitiv")
+        self.search_case_sensitive.setToolTip(
+            "Groß-/Kleinschreibung beachten."
+        )
+        search_row.addWidget(self.search_case_sensitive)
+
+        self.search_hits_label = QLabel("")
+        self.search_hits_label.setObjectName("structureSearchHits")
+        self.search_hits_label.setStyleSheet("color:#5b6573;")
+        search_row.addWidget(self.search_hits_label)
+
+        self.search_edit.textChanged.connect(self._schedule_search_filter)
+        self.search_mode.currentIndexChanged.connect(self._apply_search_filter)
+        self.search_scope.currentIndexChanged.connect(self._apply_search_filter)
+        self.search_whole_word.toggled.connect(self._apply_search_filter)
+        self.search_case_sensitive.toggled.connect(self._apply_search_filter)
+        return bar
+
+    def _clear_search_filter(self) -> None:
+        self.search_edit.clear()
+        self._apply_search_filter()
+
+    def _update_filter_badges(
+        self,
+        *,
+        term: str,
+        filter_left: bool,
+        filter_right: bool,
+        left_hits: int,
+        left_total: int,
+        right_hits: int,
+        right_total: int,
+    ) -> None:
+        """Sichtbarer Hinweis, dass die Listen eingeschränkt sind (kein „fehlendes Buch“)."""
+        badge_css = (
+            "background:#fef3c7; color:#92400e; font-weight:600; "
+            "padding:2px 8px; border-radius:4px; border:1px solid #f59e0b;"
+        )
+        active = bool(term) and (filter_left or filter_right)
+        self.btn_clear_filter.setVisible(active)
+
+        if filter_left and term:
+            self.filter_badge_left.setText(
+                f"🔍 Filter „{term}“ — {left_hits}/{left_total} sichtbar"
+            )
+            self.filter_badge_left.setStyleSheet(badge_css)
+            self.filter_badge_left.setVisible(True)
+            self.label_left.setText("Nicht zugeordnete Kapitel (gefiltert)")
+        else:
+            self.filter_badge_left.clear()
+            self.filter_badge_left.setVisible(False)
+            self.label_left.setText("Nicht zugeordnete Kapitel")
+
+        if filter_right and term:
+            self.filter_badge_right.setText(
+                f"🔍 Filter „{term}“ — {right_hits}/{right_total} sichtbar"
+            )
+            self.filter_badge_right.setStyleSheet(badge_css)
+            self.filter_badge_right.setVisible(True)
+            self.label_right.setText("Buchstruktur (gefiltert)")
+        else:
+            self.filter_badge_right.clear()
+            self.filter_badge_right.setVisible(False)
+            self.label_right.setText("Buchstruktur")
+
+        if active:
+            self.search_edit.setStyleSheet(
+                "QLineEdit { border: 2px solid #f59e0b; background: #fffbeb; }"
+            )
+            self.search_hits_label.setStyleSheet("color:#92400e; font-weight:600;")
+        else:
+            self.search_edit.setStyleSheet("")
+            self.search_hits_label.setStyleSheet("color:#5b6573;")
+
     @staticmethod
     def _add_button_pair_row(layout: QVBoxLayout, *buttons: QPushButton) -> None:
         row = QHBoxLayout()
@@ -295,6 +464,139 @@ class StructurePanel(QWidget):
                 item.setExpanded(True)
 
         add_nodes(None, self._session.book_nodes)
+        self._apply_search_filter()
+
+    def _schedule_search_filter(self) -> None:
+        self._search_timer.start()
+
+    def _content_lookup(self, path: str) -> str:
+        if self._session is None:
+            return ""
+        lookup = getattr(self._session, "content_lookup_text", None)
+        if callable(lookup):
+            return lookup(path)
+        return self._session.content_lookup_lowered(path)
+
+    def _apply_search_filter(self) -> None:
+        """Hide/show tree items according to search term, mode and scope."""
+        case_sensitive = self.search_case_sensitive.isChecked()
+        whole_word = self.search_whole_word.isChecked()
+        term = normalize_search_term(
+            self.search_edit.text(), case_sensitive=case_sensitive
+        )
+        mode = self.search_mode.currentText()
+        scope = self.search_scope.currentText()
+        is_ft = is_fulltext_mode(mode)
+        filter_left = bool(term) and applies_to_left(scope)
+        filter_right = bool(term) and applies_to_right(scope)
+
+        left_hits = 0
+        left_total = self.avail_tree.topLevelItemCount()
+        for i in range(left_total):
+            item = self.avail_tree.topLevelItem(i)
+            if item is None:
+                continue
+            if not filter_left:
+                item.setHidden(False)
+                left_hits += 1
+                continue
+            path = str(item.data(0, Qt.ItemDataRole.UserRole) or "")
+            title = item.text(0)
+            content = self._content_lookup(path) if is_ft else ""
+            matched = path_matches_search(
+                search_term=term,
+                title=title,
+                path=path,
+                is_fulltext=is_ft,
+                content_text=content,
+                case_sensitive=case_sensitive,
+                whole_word=whole_word,
+            )
+            item.setHidden(not matched)
+            if matched:
+                left_hits += 1
+
+        right_hits = 0
+
+        def walk_book(item: QTreeWidgetItem) -> bool:
+            nonlocal right_hits
+            child_visible = False
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child is not None and walk_book(child):
+                    child_visible = True
+            if not filter_right:
+                item.setHidden(False)
+                right_hits += 1
+                return True
+            path = str(item.data(0, Qt.ItemDataRole.UserRole) or "")
+            title = item.text(0)
+            content = self._content_lookup(path) if is_ft else ""
+            self_match = path_matches_search(
+                search_term=term,
+                title=title,
+                path=path,
+                is_fulltext=is_ft,
+                content_text=content,
+                case_sensitive=case_sensitive,
+                whole_word=whole_word,
+            )
+            visible = self_match or child_visible
+            item.setHidden(not visible)
+            if visible:
+                right_hits += 1
+                if child_visible and not self_match:
+                    item.setExpanded(True)
+            return visible
+
+        for i in range(self.book_tree.topLevelItemCount()):
+            top = self.book_tree.topLevelItem(i)
+            if top is not None:
+                walk_book(top)
+
+        if not term:
+            self.search_hits_label.setText("")
+            self._update_filter_badges(
+                term="",
+                filter_left=False,
+                filter_right=False,
+                left_hits=left_total,
+                left_total=left_total,
+                right_hits=0,
+                right_total=0,
+            )
+        else:
+            parts: list[str] = []
+            right_total = 0
+
+            def count_all(item: QTreeWidgetItem) -> int:
+                n = 1
+                for j in range(item.childCount()):
+                    child = item.child(j)
+                    if child is not None:
+                        n += count_all(child)
+                return n
+
+            for i in range(self.book_tree.topLevelItemCount()):
+                top = self.book_tree.topLevelItem(i)
+                if top is not None:
+                    right_total += count_all(top)
+
+            if applies_to_left(scope):
+                parts.append(f"Links {left_hits}/{left_total}")
+            if applies_to_right(scope):
+                parts.append(f"Rechts {right_hits}/{right_total}")
+            self.search_hits_label.setText(" · ".join(parts))
+            display_term = self.search_edit.text().strip()
+            self._update_filter_badges(
+                term=display_term,
+                filter_left=filter_left,
+                filter_right=filter_right,
+                left_hits=left_hits,
+                left_total=left_total,
+                right_hits=right_hits,
+                right_total=right_total,
+            )
 
     def _select_book_paths(self, paths: list[str]) -> None:
         """Restore selection + focus after a full tree rebuild."""
@@ -449,8 +751,43 @@ class StructurePanel(QWidget):
             return
         self._session.save(snapshot_label=label)
 
+    def _confirm_load_despite_filter(self) -> bool:
+        """Warn if search hides chapters — common reason for unnecessary snapshot reloads."""
+        term = self.search_edit.text().strip()
+        if not term:
+            return True
+        scope = self.search_scope.currentText()
+        if not (applies_to_left(scope) or applies_to_right(scope)):
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Suchfilter aktiv")
+        box.setText(
+            f"Die Listen sind aktuell gefiltert (Suchbegriff: „{term}“).\n\n"
+            "Ausgeblendete Kapitel fehlen nicht in der Buchstruktur — "
+            "sie sind nur durch die Suche versteckt.\n\n"
+            "Trotzdem einen Snapshot laden?"
+        )
+        clear_btn = box.addButton(
+            "Filter aus & laden", QMessageBox.ButtonRole.AcceptRole
+        )
+        keep_btn = box.addButton(
+            "Trotzdem laden", QMessageBox.ButtonRole.ActionRole
+        )
+        box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is clear_btn:
+            self._clear_search_filter()
+            return True
+        if clicked is keep_btn:
+            return True
+        return False
+
     def _on_load(self) -> None:
         if not self._session:
+            return
+        if not self._confirm_load_despite_filter():
             return
         from ui_qt import structure_ops as ops
         from ui_qt.dialogs.structure_load_dialog import (
@@ -518,6 +855,7 @@ class StructurePanel(QWidget):
         def _after_save() -> None:
             if self._session is None:
                 return
+            self._session.invalidate_content_search_cache()
             self._session._refresh_file_state_registry()
             self._session._refresh_avail()
             self.reload_from_session()
@@ -528,6 +866,9 @@ class StructurePanel(QWidget):
             title="Markdown-Editor",
             book_path=self._session.book_path,
             on_save=_after_save,
+            initial_find_term=self.search_edit.text().strip() or None,
+            initial_find_whole_word=self.search_whole_word.isChecked(),
+            initial_find_case_sensitive=self.search_case_sensitive.isChecked(),
         ).exec()
 
     def _avail_context_menu(self, pos) -> None:

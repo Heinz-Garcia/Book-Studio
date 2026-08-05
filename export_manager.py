@@ -873,17 +873,23 @@ class ExportManager:
             export_initial = {**self._last_export_options(), **layout_defaults}
             if self._current_profile_name():
                 export_initial["profile_name"] = self._current_profile_name()
-            # Stem immer vom aktuellen Buch (neuestes Publish_*.json), nicht
-            # von einem anderen Buch aus last_export_options übernehmen.
+            # Anzeigename + Dateiname immer vom aktuellen Buch ableiten —
+            # keine Fremdwerte aus last_export_options / Publish_*.json.
             if self._current_book():
                 try:
-                    from render_artifact_store import resolve_preferred_pdf_stem
-
-                    export_initial["pdf_stem"] = resolve_preferred_pdf_stem(
-                        Path(self._current_book())
+                    from render_artifact_store import (
+                        default_export_display_name,
+                        normalize_pdf_stem_from_display,
                     )
+
+                    book = Path(self._current_book())
+                    display = default_export_display_name(book)
+                    export_initial["notes"] = display
+                    export_initial["pdf_stem"] = normalize_pdf_stem_from_display(display)
                 except (OSError, ValueError, TypeError):
-                    export_initial["pdf_stem"] = Path(self._current_book()).name
+                    book = Path(self._current_book())
+                    export_initial["notes"] = book.name
+                    export_initial["pdf_stem"] = book.name
             selected = ui_hooks.ask_export_options(
                 self._root(),
                 templates,

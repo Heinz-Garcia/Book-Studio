@@ -35,6 +35,13 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Optional, Protocol
 
+from search_filter import (
+    matches_title_path as _sf_matches_title_path,
+    matches_tree_node as _sf_matches_tree_node,
+    normalize_search_term as _sf_normalize_search_term,
+    should_include_available_item as _sf_should_include_available_item,
+)
+
 
 # Default-Werte, wenn die UI-Variable noch nicht initialisiert wurde.
 DEFAULT_FILE_STATE_FILTER = "Alle"
@@ -67,9 +74,11 @@ class UiStateLike(Protocol):
     def refresh_log_view(self) -> None: ...
 
 
-def _normalize_search_term(value: Any) -> str:
-    """Identisch zu `search_filter.normalize_search_term`."""
-    return str(value or "").strip().lower()
+def _normalize_search_term(
+    value: Any, *, case_sensitive: bool = False
+) -> str:
+    """Delegiert an `search_filter.normalize_search_term`."""
+    return _sf_normalize_search_term(value, case_sensitive=case_sensitive)
 
 
 def _matches_tree_node(
@@ -79,30 +88,39 @@ def _matches_tree_node(
     raw_title: str,
     content_text: str,
     is_fulltext: bool,
+    *,
+    case_sensitive: bool = False,
+    whole_word: bool = False,
 ) -> bool:
-    """Identisch zu `search_filter.matches_tree_node`."""
-    if not search_term:
-        return True
-    node_text = str(node_text or "").lower()
-    path_text = str(path_text or "").lower()
-    raw_title = str(raw_title or "").lower()
-    content_text = str(content_text or "").lower()
-    if is_fulltext:
-        return (
-            (search_term in raw_title)
-            or (search_term in path_text)
-            or (search_term in content_text)
-        )
-    return (search_term in node_text) or (search_term in path_text)
+    """Delegiert an `search_filter.matches_tree_node`."""
+    return _sf_matches_tree_node(
+        search_term,
+        node_text,
+        path_text,
+        raw_title,
+        content_text,
+        is_fulltext,
+        case_sensitive=case_sensitive,
+        whole_word=whole_word,
+    )
 
 
-def _matches_title_path(search_term: str, title: str, path: str) -> bool:
-    """Identisch zu `search_filter.matches_title_path`."""
-    if not search_term:
-        return True
-    title_text = str(title or "").lower()
-    path_text = str(path or "").lower()
-    return (search_term in title_text) or (search_term in path_text)
+def _matches_title_path(
+    search_term: str,
+    title: str,
+    path: str,
+    *,
+    case_sensitive: bool = False,
+    whole_word: bool = False,
+) -> bool:
+    """Delegiert an `search_filter.matches_title_path`."""
+    return _sf_matches_title_path(
+        search_term,
+        title,
+        path,
+        case_sensitive=case_sensitive,
+        whole_word=whole_word,
+    )
 
 
 class UiStateService:
@@ -199,6 +217,8 @@ class UiStateService:
         node_text: str = "",
         raw_title: str = "",
         content_text: str = "",
+        case_sensitive: bool = False,
+        whole_word: bool = False,
     ) -> tuple[bool, bool, bool, bool, bool]:
         """Berechnet die Sichtbarkeit eines Tree-Knotens.
 
@@ -224,16 +244,18 @@ class UiStateService:
         state_ok = UiStateService.path_matches_file_state_filter(
             file_state, file_state_filter
         )
-        # Search
-        path_text = str(path or "").lower() if path else ""
+        # Search (casing/whole-word handled inside search_filter)
+        path_text = str(path or "")
         has_search_term = bool(search_term)
         self_match = has_search_term and _matches_tree_node(
-            search_term=search_term,
-            node_text=node_text,
-            path_text=path_text,
-            raw_title=raw_title,
-            content_text=content_text,
-            is_fulltext=is_fulltext,
+            search_term,
+            node_text,
+            path_text,
+            raw_title,
+            content_text,
+            is_fulltext,
+            case_sensitive=case_sensitive,
+            whole_word=whole_word,
         )
         search_ok = (not has_search_term) or self_match or child_visible
 
@@ -278,6 +300,8 @@ class UiStateService:
         is_fulltext: bool = False,
         content_lookup: Optional[Any] = None,
         order_meta_for_path: Optional[Any] = None,
+        case_sensitive: bool = False,
+        whole_word: bool = False,
     ) -> list[tuple[str, str]]:
         """Berechnet die sortierte Liste der "nicht zugeordneten Kapitel".
 
@@ -301,12 +325,14 @@ class UiStateService:
             search_term: aktiver Such-Term.
             apply_left_search: True, wenn Links/Beide-Scope aktiv ist.
             is_fulltext: True, wenn Volltext-Modus aktiv.
-            content_lookup: Optional callable `path -> lowered str`
+            content_lookup: Optional callable `path -> str`
                 fuer Volltextsuche. Wenn `None` und `is_fulltext`
                 True, wird Content ignoriert (nur Titel/Pfad-Match).
             order_meta_for_path: Optional callable `path -> (sort_key, group)`
                 (wie `yaml_engine.get_required_order`). Wenn gesetzt,
                 sortiert der Pool nach Frontmatter-`order`, sonst nach Titel.
+            case_sensitive: Gross-/Kleinschreibung beachten.
+            whole_word: Nur ganze Woerter matchen.
 
         Returns: Liste von `(path, title)`-Tupeln, sortiert nach order/Titel.
         """
@@ -322,16 +348,19 @@ class UiStateService:
                 ):
                     continue
             if apply_left_search and search_term:
-                if is_fulltext:
-                    content_text = (
-                        content_lookup(path) if callable(content_lookup) else ""
-                    )
-                    matched = _matches_title_path(
-                        search_term, title, path
-                    ) or (search_term in str(content_text or "").lower())
-                else:
-                    matched = _matches_title_path(search_term, title, path)
-                if not matched:
+                content_text = ""
+                if is_fulltext and callable(content_lookup):
+                    content_text = content_lookup(path)
+                if not _sf_should_include_available_item(
+                    search_term,
+                    True,
+                    is_fulltext,
+                    title,
+                    path,
+                    content_text,
+                    case_sensitive=case_sensitive,
+                    whole_word=whole_word,
+                ):
                     continue
             out.append((path, title))
         out.sort(

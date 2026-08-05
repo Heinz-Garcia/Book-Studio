@@ -20,6 +20,18 @@ DEFAULT_EXPORT_DPI = 300
 # Mindest-DPI für eingebettete Bilder (KDP-Richtlinie).
 MIN_IMAGE_DPI = 300
 
+
+def clamp_print_dpi(dpi: float) -> float:
+    """Erzwingt mindestens KDP-Druckauflösung (``MIN_IMAGE_DPI``)."""
+    try:
+        value = float(dpi)
+    except (TypeError, ValueError):
+        return float(DEFAULT_EXPORT_DPI)
+    if value < float(MIN_IMAGE_DPI):
+        return float(MIN_IMAGE_DPI)
+    return value
+
+
 # Globale Badge-Skalierung (Text + Rechteck), Stufenindex 0 = 100 %.
 SPINE_BADGE_SCALE_STEPS: tuple[float, ...] = (1.0, 0.85, 0.7, 0.55, 0.4)
 

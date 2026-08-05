@@ -8,7 +8,7 @@ from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
-from tools.kdp_cover.constants import DEFAULT_EXPORT_DPI
+from tools.kdp_cover.constants import DEFAULT_EXPORT_DPI, clamp_print_dpi
 from tools.kdp_cover.geometry import RectMm, WrapGeometry, build_geometry
 from tools.kdp_cover.model import CoverLayout, SpineBadgeSpec
 from tools.kdp_cover.validate import ValidationReport, validate_layout
@@ -481,6 +481,7 @@ def export_wrap_pdf(
 
     output_pdf = Path(output_pdf)
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
+    dpi = clamp_print_dpi(dpi)
     image = render_wrap_image(layout, geometry=geo, dpi=dpi, resolve_base=base)
     rgb = image.convert("RGB")
     save_kwargs: dict = {"resolution": float(dpi)}

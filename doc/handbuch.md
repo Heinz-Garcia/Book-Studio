@@ -192,16 +192,20 @@ Im Time-Machine-Dialog:
 
 ## 4) Suche und Filter {#sec-suche-filter}
 
+Über den Listen **Nicht zugeordnete Kapitel** und **Buchstruktur** liegt die Suchzeile (Qt): Suchfeld, **Modus** und **Scope**. Die Suche filtert sichtbare Einträge — Doppelklick öffnet weiter den Editor.
+
+**Wichtig:** Ein aktiver Suchbegriff blendet Kapitel nur aus — sie sind nicht aus der Struktur entfernt. Bei aktivem Filter erscheinen gelbe Badges an den Spaltenüberschriften und der Button **Filter aus**. Beim Laden eines Snapshots warnt die App, falls noch gefiltert wird.
+
 ### Suchmodus
 
 | Modus | Sucht in … |
 |-------|------------|
 | **Titel/Pfad** | Kapitelname und Dateipfad |
-| **Volltext** | zusätzlich im Markdown-Inhalt |
+| **Volltext** (Standard) | zusätzlich im Markdown-Inhalt **aller** Kapiteldateien (md-übergreifend) |
 
 ### Such-Scope
 
-**Links**, **Rechts** oder **Beide** — steuert, in welcher Liste gesucht wird.
+**Links**, **Rechts** oder **Beide** (Standard) — steuert, in welcher Liste gefiltert wird. Elternknoten in der Buchstruktur bleiben sichtbar, wenn ein Kind matched.
 
 ### Statusfilter (linke Liste)
 
@@ -396,7 +400,11 @@ Im Export-Dialog wählst du neben Format und Template auch ein **Layout-Profil**
 
 Der **Zeilenabstand** lässt sich unabhängig vom gewählten Profil per eigenem Dropdown feinjustieren.
 
-**Anzeigename (optional):** Im gleichen Dialog kannst du einen kurzen Namen vergeben (z. B. `Paperback Probe rev.5`). Er landet im **PDF Manager** und macht den Render wiederfindbar — auch später dort editierbar.
+**Anzeigename** und **Dateiname** im Export-Dialog:
+
+- **Anzeigename** ist vorbelegt aus dem Buchprojekt (`bookconfig/project_label.json`, sonst Ordnername). Er landet im **PDF Manager** und macht den Render wiederfindbar — auch später dort editierbar.
+- **Dateiname** wird daraus normalisiert abgeleitet (Leerzeichen → `_`, ungültige Zeichen bereinigt). Ändert du den Anzeigenamen, folgt der Dateiname mit — bis du den Dateinamen manuell überschreibst.
+- Reihenfolge im Dialog: Anzeigename → Dateiname → Pfad.
 
 **„(Pb) Paperback“ — funktioniert ohne Zusatzschritt.** Anders als die übrigen Profile setzt Paperback ein **exaktes** Seitenformat statt nur ein Papierformat-Preset. Das Studio richtet die dafür nötigen Vorlagendateien beim Rendern **automatisch** ein:
 

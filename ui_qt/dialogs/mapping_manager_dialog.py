@@ -37,6 +37,7 @@ from tools.mapping_manager.deploy import deploy_pdf, resolve_pdf_deploy_folder
 from tools.mapping_manager.loader import load_renders, load_snapshots
 from tools.mapping_manager.models import RenderView, SnapshotView, layout_profile_label
 from tools.publish_map.store import read_map, remove_render, update_render_fields
+from ui_qt.widgets.resize_grip import attach_resize_grip
 
 _COL_DATE = 0
 _COL_LAYOUT = 1
@@ -225,6 +226,11 @@ class MappingManagerQtDialog(QDialog):
         self.btn_close = QPushButton("Schließen")
         self.btn_close.clicked.connect(self.accept)
         actions.addWidget(self.btn_close)
+        # Platz rechts unten fuer den Resize-Griff in der Fenster-Ecke
+        actions.addSpacing(26)
+
+        # Sichtbarer Resize-Griff (diagonale Punkte) unten rechts
+        self._size_grip = attach_resize_grip(self)
         layout.addLayout(actions)
 
         tip = QLabel(

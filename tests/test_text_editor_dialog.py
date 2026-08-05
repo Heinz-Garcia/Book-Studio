@@ -7,6 +7,54 @@ from pathlib import Path
 import pytest
 
 
+def test_unsaved_changes_status_turns_red_on_edit(tmp_path: Path, monkeypatch):
+    """Statuszeile: nach Edit rot „Ungespeicherte Änderungen“, nach Save wieder ok."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.text_dialogs import TextEditorDialog
+
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "x.md"
+    path.write_text("---\ntitle: X\n---\n\nHallo.\n", encoding="utf-8")
+    dlg = TextEditorDialog(None, path)
+    assert dlg._status.text() != "Ungespeicherte Änderungen"
+    dlg.editor.setPlainText(dlg.editor.toPlainText() + "Mehr Text.\n")
+    assert dlg._status.text() == "Ungespeicherte Änderungen"
+    assert "#b91c1c" in dlg._status.styleSheet()
+    dlg._save()
+    assert dlg._status.text() == "Gespeichert."
+    assert dlg._content_dirty is False
+    dlg.close()
+    _ = app
+
+
+def test_initial_find_term_opens_bar_and_selects_match(tmp_path: Path, monkeypatch):
+    """Structure-search term must seed the editor find bar and jump to first hit."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.text_dialogs import TextEditorDialog
+
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "chapter.md"
+    path.write_text(
+        "---\ntitle: X\n---\n\nVorwort.\nDie Rezeptorstatus sind wichtig.\nSchluss.\n",
+        encoding="utf-8",
+    )
+    dlg = TextEditorDialog(None, path, initial_find_term="Rezeptorstatus")
+    assert not dlg._find_bar.isHidden()
+    assert dlg._find_input.text() == "Rezeptorstatus"
+    selected = dlg.editor.textCursor().selectedText()
+    assert "Rezeptorstatus" in selected
+    dlg.close()
+    _ = app
+
+
 def test_insert_hard_line_break_appends_backslash_at_line_end(tmp_path: Path, monkeypatch):
     """Regression: Der Button muss den harten Zeilenumbruch ("\\", Pandocs
     eigene Hard-Break-Syntax) ans Ende der Zeile setzen, in der der Cursor
@@ -204,17 +252,20 @@ def test_formatting_toolbar_groups_are_separated(tmp_path: Path, monkeypatch):
 
     groups = _toolbar_groups(dlg)
 
-    # Erste zwei Gruppen: Modus-Umschalter, dann 📌/🧬 (Zeile 1).
-    formatting_groups = groups[2:2 + 7]
-    assert formatting_groups == [
-        ["𝐁", "𝐼", "S̶", "x²", "x₂", "</>"],
-        ["↔", "↕↔"],
-        ["A+", "A-"],
-        ["∑", "∫"],
-        ["H1", "H2", "H3"],
-        ["❝", "•", "1."],
-        ["―", "{ }", "▦", "🔗", "🖼️", "¹"],
-    ]
+    # Formatier-Blöcke über Inhalt suchen (davor: Ansicht/YAML/Inhalt/Cover …).
+    def _find_group(start_btn: str) -> list[str]:
+        for g in groups:
+            if g and g[0] == start_btn:
+                return g
+        raise AssertionError(f"Gruppe beginnend mit {start_btn!r} fehlt: {groups}")
+
+    assert _find_group("𝐁") == ["𝐁", "𝐼", "S̶", "x²", "x₂", "</>"]
+    assert _find_group("↔") == ["↔", "↕↔"]
+    assert _find_group("A+") == ["A+", "A-"]
+    assert _find_group("∑") == ["∑", "∫"]
+    assert _find_group("H1") == ["H1", "H2", "H3"]
+    assert _find_group("❝") == ["❝", "•", "1."]
+    assert _find_group("―") == ["―", "{ }", "▦", "🔗", "🖼️", "¹"]
     # Letzte Gruppe: Undo/Redo, wie gewünscht ganz am Ende (Zeile 2).
     assert groups[-1] == ["↶", "↷"]
 
@@ -237,6 +288,7 @@ def test_formatting_toolbar_groups_have_labels(tmp_path: Path, monkeypatch):
         "Ansicht",
         "YAML",
         "Inhalt",
+        "Cover",
         "Format",
         "Ausrichtung",
         "Größe",
@@ -264,18 +316,57 @@ def test_toolbar_rows_fit_within_dialog_width_without_overflow(tmp_path: Path, m
 
     app = QApplication.instance() or QApplication([])
     dlg = _make_dialog(tmp_path, "Text\n")
+    dlg.resize(1700, 720)
     dlg.show()
     app.processEvents()
 
+    # Kritisch: Überschriften + Undo/Redo dürfen nicht in den »-Overflow wandern.
+    # Zeile 1 ist mit Cover/KDP bewusst dicht — einzelne Mathe-Icons dort sind ok.
+    must_remain_visible = {"H1", "H2", "H3", "↶", "↷"}
+    visible: set[str] = set()
     for toolbar in dlg.findChildren(QToolBar):
-        buttons = [
-            w for a in toolbar.actions() if isinstance(w := toolbar.widgetForAction(a), QPushButton)
-        ]
-        assert buttons, "Toolbar-Zeile ohne Buttons?"
-        assert all(b.isVisible() for b in buttons), (
-            "Mindestens ein Button ist unsichtbar (Overflow) - Dialog/Toolbar zu schmal."
-        )
+        for a in toolbar.actions():
+            w = toolbar.widgetForAction(a)
+            if isinstance(w, QPushButton) and w.isVisible():
+                visible.add(w.text())
+    missing = must_remain_visible - visible
+    assert not missing, (
+        "Toolbar-Overflow: diese Buttons sind unsichtbar: "
+        f"{sorted(missing)}"
+    )
 
+    dlg.close()
+    _ = app
+
+
+def test_heading_toolbar_buttons_are_not_clipped(tmp_path: Path, monkeypatch):
+    """H1/H2/H3 müssen breiter sein als der reine Glyph + kleines Padding."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QPushButton, QToolBar
+
+    app = QApplication.instance() or QApplication([])
+    dlg = _make_dialog(tmp_path, "Text\n")
+    # Nur die Format-Toolbar-Zeile mit Überschriften (nicht andere Dialog-Buttons).
+    heads: list[QPushButton] = []
+    for toolbar in dlg.findChildren(QToolBar):
+        row = [
+            w
+            for a in toolbar.actions()
+            if isinstance(w := toolbar.widgetForAction(a), QPushButton)
+        ]
+        texts = [b.text() for b in row]
+        if texts[:3] == ["H1", "H2", "H3"] or (
+            "H1" in texts and "H2" in texts and "H3" in texts
+        ):
+            heads = [b for b in row if b.text() in ("H1", "H2", "H3")]
+            break
+    assert len(heads) == 3, f"H1/H2/H3 nicht gefunden; Toolbars={[t for t in dlg.findChildren(QToolBar)]}"
+    for btn in heads:
+        glyph = btn.fontMetrics().horizontalAdvance(btn.text())
+        assert btn.width() >= glyph + 10, (
+            f"{btn.text()}: Breite {btn.width()} < Text {glyph}+10 (abgeschnitten)"
+        )
     dlg.close()
     _ = app
 
@@ -426,6 +517,145 @@ def test_insert_footnote_appends_definition_at_document_end(tmp_path: Path, monk
     dlg._insert_footnote()
 
     assert dlg.editor.toPlainText() == "Satz mit Fussnote hier.[^1]\n\n[^1]: "
+    dlg.close()
+    _ = app
+
+
+def test_find_whole_word_skips_embedded_match(tmp_path: Path, monkeypatch):
+    """Inherited whole-word flag must skip „du“ inside „Entscheidung“."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.text_dialogs import TextEditorDialog
+
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "chapter.md"
+    path.write_text(
+        "sodass keine Perspektive vergessen wird\n"
+        "**Ein paar Tipps für die Entscheidung**\n"
+        "Du entscheidest selbst.\n",
+        encoding="utf-8",
+    )
+    dlg = TextEditorDialog(None, path, initial_find_whole_word=True)
+    dlg._find_input.setText("du")
+    dlg._find_next()
+    selected = dlg.editor.textCursor().selectedText()
+    assert selected.lower() == "du"
+    assert "Entscheidung" not in selected
+    dlg.close()
+    _ = app
+
+
+def test_initial_find_inherits_whole_word_flag(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.text_dialogs import TextEditorDialog
+
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "chapter.md"
+    path.write_text("Durch…\nNur Du hier.\n", encoding="utf-8")
+    dlg = TextEditorDialog(
+        None,
+        path,
+        initial_find_term="Du",
+        initial_find_whole_word=True,
+        initial_find_case_sensitive=True,
+    )
+    assert dlg._find_whole_word is True
+    assert dlg._find_case_sensitive is True
+    assert dlg.editor.textCursor().selectedText() == "Du"
+    dlg.close()
+    _ = app
+
+
+def test_replace_current_and_status(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    dlg = _make_dialog(tmp_path, "Hallo Welt. Hallo Team.\n")
+    dlg._find_input.setText("Hallo")
+    dlg._replace_input.setText("Hi")
+    dlg._find_next()
+    assert dlg._replace_current() is True
+    assert dlg.editor.toPlainText().startswith("Hi Welt.")
+    assert dlg._find_replace_status.text() == "1 ersetzt"
+    dlg.close()
+    _ = app
+
+
+def test_replace_and_find_next(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    dlg = _make_dialog(tmp_path, "alpha beta alpha gamma\n")
+    dlg._find_input.setText("alpha")
+    dlg._replace_input.setText("ALPHA")
+    dlg._find_next()
+    dlg._replace_and_find_next()
+    assert dlg.editor.toPlainText().startswith("ALPHA beta")
+    assert dlg.editor.textCursor().selectedText() == "alpha"
+    dlg.close()
+    _ = app
+
+
+def test_replace_all_reports_count(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    dlg = _make_dialog(tmp_path, "foo bar foo baz foo\n")
+    dlg._find_input.setText("foo")
+    dlg._replace_input.setText("qux")
+    dlg._replace_all()
+    assert dlg.editor.toPlainText() == "qux bar qux baz qux\n"
+    assert dlg._find_replace_status.text() == "3 ersetzt"
+    dlg.close()
+    _ = app
+
+
+def test_replace_all_honours_whole_word(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.text_dialogs import TextEditorDialog
+
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "chapter.md"
+    path.write_text("Du und Durch und Du.\n", encoding="utf-8")
+    dlg = TextEditorDialog(None, path, initial_find_whole_word=True)
+    dlg._find_input.setText("Du")
+    dlg._replace_input.setText("Sie")
+    dlg._replace_all()
+    assert dlg.editor.toPlainText() == "Sie und Durch und Sie.\n"
+    assert dlg._find_replace_status.text() == "2 ersetzt"
+    dlg.close()
+    _ = app
+
+
+def test_replace_all_zero_matches(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    dlg = _make_dialog(tmp_path, "nichts hier\n")
+    dlg._find_input.setText("fehlt")
+    dlg._replace_input.setText("x")
+    dlg._replace_all()
+    assert dlg.editor.toPlainText() == "nichts hier\n"
+    assert dlg._find_replace_status.text() == "keine Treffer"
     dlg.close()
     _ = app
 

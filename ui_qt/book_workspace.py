@@ -59,17 +59,48 @@ class StructureSession:
         self.redo_stack: list[dict[str, Any]] = []
         self.dirty = False
         self._log = log or (lambda _m, _l: None)
+        from services.search_cache import SearchCache
+
+        self._content_search_cache = SearchCache()
 
     def load(self) -> None:
         self.title_registry = self.engine.build_title_registry()
         raw = self.engine.parse_chapters()
         self.book_nodes = ops.chapters_to_display_tree(raw, self.title_registry)
+        self.invalidate_content_search_cache()
         self._refresh_file_state_registry()
         self._refresh_avail()
         self.undo_stack.clear()
         self.redo_stack.clear()
         self.dirty = False
         self._log(f"Projekt geladen: {self.book_path.name}", "success")
+
+    def invalidate_content_search_cache(self) -> None:
+        """Clear MD content cache used by Volltext search."""
+        cache = getattr(self, "_content_search_cache", None)
+        if cache is not None and hasattr(cache, "clear"):
+            cache.clear()
+
+    def content_lookup_text(self, rel_path: str) -> str:
+        """Return original file text for ``rel_path`` (cached)."""
+        key = str(rel_path or "").replace("\\", "/")
+        if not key:
+            return ""
+        cache = self._content_search_cache
+        hit = cache.get(key)
+        if hit is not None:
+            return str(hit)
+        abs_path = self.book_path / key
+        try:
+            text = abs_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            text = ""
+        cache.put(key, text)
+        return text
+
+    def content_lookup_lowered(self, rel_path: str) -> str:
+        """Return lowered file text for ``rel_path`` (cached original + lower)."""
+        return self.content_lookup_text(rel_path).lower()
 
     def _editor_end_commands(self) -> list[dict[str, Any]]:
         try:
@@ -124,6 +155,7 @@ class StructureSession:
         Änderungen (oder eine frische GUI-Struktur) unsichtbar machen.
         """
         self.title_registry = self.engine.build_title_registry()
+        self.invalidate_content_search_cache()
         self._refresh_file_state_registry()
         self._refresh_avail()
         self._log(
