@@ -66,3 +66,7 @@ implementation_plan.md
 orchestrator.py
 pipelines/
 specifications.md
+
+# UUID-Backfill-Lauf-Report (tools/uuid_manager/backfill.py) - lokales
+# Laufzeit-Artefakt mit absoluten Maschinenpfaden, kein Quellcode.
+uuid_backfill_report.json
