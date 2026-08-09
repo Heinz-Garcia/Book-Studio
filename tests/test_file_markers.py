@@ -13,7 +13,7 @@ from ui_qt.file_markers import (
 
 def test_legend_is_complete():
     text = "\n".join(ICON_LEGEND_LINES)
-    for symbol in ("📌", "🧭", "↵", "🖼", "☠"):
+    for symbol in ("📌", "🧭", "↵", "🖼", "☠", "🚫K"):
         assert symbol in text
 
 
@@ -37,6 +37,42 @@ def test_decorate_title_no_duplicate_suffixes():
         file_state={"pdf_pagebreak_end": True},
     )
     assert once.count("↵") == 1
+
+
+def test_decorate_title_kdp_excluded_suffix():
+    titled = decorate_title(
+        "Deckblatt",
+        "content/Deckblatt.md",
+        kdp_excluded_paths=["content/Deckblatt.md"],
+    )
+    assert titled == "Deckblatt 🚫K"
+
+
+def test_decorate_title_kdp_excluded_backslash_normalized():
+    titled = decorate_title(
+        "Deckblatt",
+        "content/Deckblatt.md",
+        kdp_excluded_paths=["content\\Deckblatt.md"],
+    )
+    assert "🚫K" in titled
+
+
+def test_decorate_title_kdp_excluded_no_duplicate_on_restrip():
+    once = decorate_title(
+        "Titel 🚫K",
+        "a.md",
+        kdp_excluded_paths=["a.md"],
+    )
+    assert once.count("🚫K") == 1
+
+
+def test_decorate_title_not_excluded_no_suffix():
+    titled = decorate_title(
+        "Kapitel",
+        "content/chapter.md",
+        kdp_excluded_paths=["content/Deckblatt.md"],
+    )
+    assert "🚫K" not in titled
 
 
 def test_build_file_state_registry(tmp_path: Path):

@@ -912,6 +912,17 @@ class StructurePanel(QWidget):
         act_fetch = menu.addAction("📥 Version aus anderem Projekt holen…")
         act_explorer = menu.addAction("📂 Im Explorer anzeigen")
         act_images = menu.addAction("🖼 Fehlende Bilder anzeigen")
+        act_kdp_exclude = None
+        is_part_node = str(path).startswith("PART:")
+        if not is_part_node and self._session.is_kdp_channel_active():
+            act_kdp_exclude = menu.addAction("🚫 Nicht im KDP-Interior")
+            act_kdp_exclude.setCheckable(True)
+            act_kdp_exclude.setChecked(self._session.is_kdp_chapter_excluded(str(path)))
+            act_kdp_exclude.setToolTip(
+                "Schließt dieses Kapitel nur beim KDP-Interior-Render aus "
+                "(export_dialog: Ziel-Kanal „Amazon KDP“) — Standard-Render "
+                "und _quarto.yml bleiben unverändert."
+            )
         chosen = menu.exec(self.book_tree.viewport().mapToGlobal(pos))
         from ui_qt.dialogs.missing_images_dialog import (
             open_book_file_in_explorer,
@@ -926,6 +937,17 @@ class StructurePanel(QWidget):
             open_book_file_in_explorer(self, self._session.book_path, str(path))
         elif chosen is act_images:
             show_missing_images_for_path(self, self._session.book_path, str(path))
+        elif act_kdp_exclude is not None and chosen is act_kdp_exclude:
+            self._toggle_kdp_chapter_excluded(str(path))
+
+    def _toggle_kdp_chapter_excluded(self, path: str) -> None:
+        if self._session is None:
+            return
+        excluded = not self._session.is_kdp_chapter_excluded(path)
+        self._session.set_kdp_chapter_excluded(path, excluded)
+        self.reload_from_session()
+        state = "ausgeschlossen" if excluded else "wieder eingeschlossen"
+        self._session._log(f"🚫 KDP-Interior: {path} {state}.", "info")
 
     def _fetch_file_version(self, rel_path: str) -> None:
         if self._session is None:

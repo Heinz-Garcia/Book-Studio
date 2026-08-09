@@ -112,9 +112,47 @@ def test_uuid_manager_dialog_renders_records(monkeypatch: pytest.MonkeyPatch) ->
     app = QApplication.instance() or QApplication([])
     apply_theme(app)
     dlg = UuidManagerDialog(book_studio_repo=Path.cwd(), parent=None)
+    # Default Status „Keine“: no rows, no scan side-effects on open.
+    assert dlg.status_combo.currentData() == "__none__"
+    assert dlg.table.rowCount() == 0
+    assert "Kein Scan" in dlg.help_banner.text() or "Keine" in dlg.summary_label.text()
+    # Switch to „Alle“ → loads records.
+    alle_index = next(
+        i for i in range(dlg.status_combo.count()) if dlg.status_combo.itemData(i) == ""
+    )
+    dlg.status_combo.setCurrentIndex(alle_index)
     assert dlg.table.rowCount() == 1
     assert dlg.table.item(0, 1).text() == rec.uuid
     assert dlg.help_banner.text() == "Alle-Hilfe"
-    dlg.status_combo.setCurrentIndex(1)
+    delivery_index = next(
+        i
+        for i in range(dlg.status_combo.count())
+        if dlg.status_combo.itemData(i) == "delivery_only"
+    )
+    dlg.status_combo.setCurrentIndex(delivery_index)
     assert dlg.help_banner.text() == "Nur-Lieferung-Hilfe"
     dlg.close()
+
+
+def test_uuid_manager_main_importable_as_script(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: script launch must put the repo root on ``sys.path``.
+
+    GrammarGraph starts ``tools/uuid_manager/main.py`` via ``python -u <path>``.
+    That puts the tool folder — not the Book-Studio root — on ``sys.path[0]``,
+    which previously caused ``ModuleNotFoundError: No module named 'tools'``.
+    """
+    import runpy
+    import sys
+
+    repo_root = Path(__file__).resolve().parents[1]
+    tool_dir = repo_root / "tools" / "uuid_manager"
+    # Simulate ``python tools/uuid_manager/main.py`` path semantics.
+    monkeypatch.setattr(sys, "path", [str(tool_dir), *sys.path])
+    monkeypatch.setattr(sys, "argv", ["main.py", "--help"])
+
+    with pytest.raises(SystemExit) as exited:
+        runpy.run_path(str(tool_dir / "main.py"), run_name="__main__")
+    assert exited.value.code == 0
+    assert str(repo_root.resolve()) in {Path(p).resolve().as_posix() for p in sys.path} or any(
+        Path(p).resolve() == repo_root.resolve() for p in sys.path
+    )

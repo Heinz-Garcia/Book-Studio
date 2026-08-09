@@ -45,6 +45,22 @@ def list_image_files(directory: Path) -> list[Path]:
     return sorted(files, key=lambda p: p.name.lower())
 
 
+def list_pool_subdirs(directory: Path) -> list[Path]:
+    """Alle Unterordner (rekursiv, versteckte ausgenommen) unter ``directory``.
+
+    Liefert Pfade relativ zu ``directory``, sortiert nach Anzeigepfad.
+    """
+    folder = Path(directory)
+    if not folder.is_dir():
+        return []
+    subdirs = [
+        p.relative_to(folder)
+        for p in folder.rglob("*")
+        if p.is_dir() and not any(part.startswith(".") for part in p.relative_to(folder).parts)
+    ]
+    return sorted(subdirs, key=lambda p: p.as_posix().casefold())
+
+
 def _config_path(repo_root: Path) -> Path:
     return Path(repo_root) / "app_config.json"
 

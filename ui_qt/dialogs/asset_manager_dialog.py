@@ -10,6 +10,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 from tools.asset_manager.pool import (
     ensure_pool_dir,
     list_image_files,
+    list_pool_subdirs,
     read_configured_pool_path,
     write_configured_pool_path,
 )
@@ -123,6 +125,7 @@ class AssetManagerQtDialog(QDialog):
 
         self._repo = _repo_root()
         self._pool_dir = ensure_pool_dir(read_configured_pool_path(self._repo))
+        self._pool_active_dir = self._pool_dir
         self._book = _book_root(studio)
         self._ref_index: dict[Path, list[RefHit]] = {}
         self._active_side: str = "pool"
@@ -238,6 +241,13 @@ class AssetManagerQtDialog(QDialog):
         self._pool_path_label.setObjectName("assetManagerHint")
         self._pool_path_label.setWordWrap(True)
         layout.addWidget(self._pool_path_label)
+
+        self._pool_subdir_combo = QComboBox()
+        self._pool_subdir_combo.setToolTip(
+            "Unterordner wählen — zeigt nur die Bilder, die direkt darin liegen"
+        )
+        self._pool_subdir_combo.currentIndexChanged.connect(self._on_pool_subdir_changed)
+        layout.addWidget(self._pool_subdir_combo)
 
         self._pool_filter = QLineEdit()
         self._pool_filter.setPlaceholderText("Pool filtern…")
@@ -395,9 +405,8 @@ class AssetManagerQtDialog(QDialog):
         layout.addWidget(tip)
         return frame
 
-    def _reload_all(self) -> None:
-        self._pool_path_label.setText(f"{_elide_path(self._pool_dir)}")
-        self._pool_path_label.setToolTip(str(self._pool_dir))
+    def _reload_all(self, *, reset_subdir: bool = False) -> None:
+        self._populate_pool_subdir_combo(reset=reset_subdir)
         self._ref_index = (
             build_image_ref_index(self._book) if self._book is not None else {}
         )
@@ -406,6 +415,31 @@ class AssetManagerQtDialog(QDialog):
         self._update_detail()
         self._sync_copy_enabled()
 
+    def _populate_pool_subdir_combo(self, *, reset: bool = False) -> None:
+        previous = None if reset else self._pool_subdir_combo.currentData()
+        self._pool_subdir_combo.blockSignals(True)
+        self._pool_subdir_combo.clear()
+        self._pool_subdir_combo.addItem("(Pool-Wurzel)", "")
+        for rel in list_pool_subdirs(self._pool_dir):
+            label = rel.as_posix()
+            self._pool_subdir_combo.addItem(label, label)
+        index = self._pool_subdir_combo.findData(previous) if previous else 0
+        if index < 0:
+            index = 0
+        self._pool_subdir_combo.setCurrentIndex(index)
+        self._pool_subdir_combo.blockSignals(False)
+        self._apply_pool_active_dir()
+
+    def _on_pool_subdir_changed(self, _index: int) -> None:
+        self._apply_pool_active_dir()
+        self._reload_pool_list()
+
+    def _apply_pool_active_dir(self) -> None:
+        rel = self._pool_subdir_combo.currentData()
+        self._pool_active_dir = (self._pool_dir / rel) if rel else self._pool_dir
+        self._pool_path_label.setText(_elide_path(self._pool_active_dir))
+        self._pool_path_label.setToolTip(str(self._pool_active_dir))
+
     def _reload_pool_list(self) -> None:
         selected = {
             item.data(_ROLE_PATH)
@@ -413,7 +447,7 @@ class AssetManagerQtDialog(QDialog):
         }
         needle = self._pool_filter.text().strip().casefold()
         self._pool_list.clear()
-        files = list_image_files(self._pool_dir)
+        files = list_image_files(self._pool_active_dir)
         shown = 0
         for path in files:
             if needle and needle not in path.name.casefold():
@@ -605,11 +639,11 @@ class AssetManagerQtDialog(QDialog):
             self._set_preview(self._selected_path)
 
     def _add_to_pool(self) -> None:
-        ensure_pool_dir(self._pool_dir)
+        target_dir = ensure_pool_dir(self._pool_active_dir)
         paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Bilder in den Pool kopieren",
-            str(self._pool_dir),
+            str(target_dir),
             IMAGE_FILTER,
         )
         if not paths:
@@ -618,12 +652,12 @@ class AssetManagerQtDialog(QDialog):
             source = Path(raw)
             if not source.is_file():
                 continue
-            dest = self._pool_dir / source.name
+            dest = target_dir / source.name
             if dest.exists() and dest.resolve() != source.resolve():
                 stem, suffix = source.stem, source.suffix
                 n = 1
                 while dest.exists():
-                    dest = self._pool_dir / f"{stem}_{n}{suffix}"
+                    dest = target_dir / f"{stem}_{n}{suffix}"
                     n += 1
             if dest.resolve() != source.resolve():
                 shutil.copy2(source, dest)
@@ -662,7 +696,7 @@ class AssetManagerQtDialog(QDialog):
         if not chosen:
             return
         self._pool_dir = ensure_pool_dir(Path(chosen))
-        self._reload_all()
+        self._reload_all(reset_subdir=True)
 
     def _save_pool_as_default(self) -> None:
         try:
@@ -676,8 +710,7 @@ class AssetManagerQtDialog(QDialog):
             "Asset Manager",
             f"Standard-Pool gespeichert:\n{saved}",
         )
-        self._pool_path_label.setText(_elide_path(self._pool_dir))
-        self._pool_path_label.setToolTip(str(self._pool_dir))
+        self._apply_pool_active_dir()
 
     def _copy_pool_to_book(self) -> None:
         if self._book is None:

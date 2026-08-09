@@ -91,6 +91,7 @@ SAFE_RENDER_ARG_TO = "--to"
 SAFE_RENDER_ARG_PROFILE = "--profile-name"
 SAFE_RENDER_ARG_EXTRA_OPTS = "--extra-format-options-json"
 SAFE_RENDER_ARG_ARCHIVE_DIR = "--archive-dir"
+SAFE_RENDER_ARG_CHANNEL = "--render-channel"
 
 
 # Log-Status-Werte, die `execute_render` an die `finalize_render_log`-
@@ -299,13 +300,15 @@ class RenderService:
         profile_name: Optional[str] = None,
         extra_format_options: Optional[dict] = None,
         archive_dir: Optional[Path] = None,
+        render_channel: Optional[str] = None,
     ) -> list:
         """Baut die argv-Liste fuer den sicheren Render-Subprocess.
 
         Aufbau:
         `[executable, str(safe_script), str(book), "--to", target_fmt]`
         plus optional `--profile-name <name>`,
-        `--extra-format-options-json <json>` und `--archive-dir <path>`.
+        `--extra-format-options-json <json>`, `--archive-dir <path>` und
+        `--render-channel <id>`.
 
         Die Funktion ist *pur* (kein Subprocess-Aufruf, kein I/O).
         `extra_format_options` wird via `json.dumps(..., ensure_ascii=False,
@@ -329,6 +332,8 @@ class RenderService:
             ])
         if archive_dir:
             cmd.extend([SAFE_RENDER_ARG_ARCHIVE_DIR, str(archive_dir)])
+        if render_channel:
+            cmd.extend([SAFE_RENDER_ARG_CHANNEL, str(render_channel)])
         return cmd
 
     # --- Processed-Tree-Mapping (Phase 2 / 2.3b) -----------------------
@@ -453,6 +458,26 @@ class RenderService:
     # --- Render-Artifact-Aufloesung (Phase 2 / 2.3c voll) -------------
 
     @staticmethod
+    def compose_channel_profile_name(
+        profile_name: Optional[str], render_channel: Optional[str]
+    ) -> str:
+        """SSOT fuer den effektiven `profile_name` bei Ziel-Kanal-Renders.
+
+        Haengt `render_channel` (z. B. `"kdp_paperback"`) als Suffix an
+        `profile_name` an, damit ein Kanal-Render (z. B. KDP-Interior ohne
+        Deckblatt) in einem eigenen `export/_book_...`-Ordner landet und
+        nicht die Convenience-Kopie eines Standard-Renders ueberschreibt
+        (siehe `build_render_out_dir`). Von `ExportManager._do_export` und
+        `ExportDialog._out_dir` genutzt, damit beide exakt denselben
+        effektiven Namen berechnen.
+        """
+        base = str(profile_name or "")
+        channel = str(render_channel or "")
+        if channel and base:
+            return f"{base}_{channel}"
+        return channel or base
+
+    @staticmethod
     def build_render_out_dir(book: Path, profile_name: Optional[str]) -> Path:
         """Berechnet das Render-Output-Verzeichnis.
 
@@ -570,6 +595,7 @@ class RenderService:
         popen_killer: Optional[PopenKiller] = None,
         on_safe_command_built: Optional[Callable[[list], None]] = None,
         archive_dir: Optional[Path] = None,
+        render_channel: Optional[str] = None,
     ) -> tuple:
         """Kapselt den Subprocess-Aufruf von `quarto_render_safe.py`.
 
@@ -635,6 +661,7 @@ class RenderService:
             profile_name=profile_name,
             extra_format_options=extra_format_options,
             archive_dir=archive_dir,
+            render_channel=render_channel,
         )
         if on_safe_command_built is not None:
             try:

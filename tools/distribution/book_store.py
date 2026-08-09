@@ -21,7 +21,24 @@ def distribution_path(book_path: Path) -> Path:
 
 
 def _empty_payload() -> dict[str, Any]:
-    return {"schema_version": SCHEMA_VERSION, "channels": {}}
+    return {"schema_version": SCHEMA_VERSION, "channels": {}, "chapter_overrides": {}}
+
+
+def _clean_chapter_overrides(raw: Any) -> dict[str, dict[str, Any]]:
+    """Normalisiert ``chapter_overrides`` — tolerant gegenüber fehlenden/kaputten Daten."""
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: dict[str, dict[str, Any]] = {}
+    for channel_id, override in raw.items():
+        if not isinstance(override, dict):
+            continue
+        exclude_paths = override.get("exclude_paths")
+        if not isinstance(exclude_paths, list):
+            continue
+        paths = sorted({str(p) for p in exclude_paths if str(p).strip()})
+        if paths:
+            cleaned[str(channel_id)] = {"exclude_paths": paths}
+    return cleaned
 
 
 def read_distribution(book_path: Path) -> dict[str, Any]:
@@ -43,7 +60,11 @@ def read_distribution(book_path: Path) -> dict[str, Any]:
         schema_version = int(version)
     except (TypeError, ValueError):
         schema_version = SCHEMA_VERSION
-    return {"schema_version": schema_version, "channels": dict(channels)}
+    return {
+        "schema_version": schema_version,
+        "channels": dict(channels),
+        "chapter_overrides": _clean_chapter_overrides(data.get("chapter_overrides")),
+    }
 
 
 def write_distribution(book_path: Path, payload: dict[str, Any]) -> Path:
@@ -52,12 +73,17 @@ def write_distribution(book_path: Path, payload: dict[str, Any]) -> Path:
     channels = payload.get("channels") if isinstance(payload, dict) else {}
     if not isinstance(channels, dict):
         channels = {}
+    chapter_overrides = _clean_chapter_overrides(
+        payload.get("chapter_overrides") if isinstance(payload, dict) else None
+    )
     out = {
         "schema_version": int(payload.get("schema_version") or SCHEMA_VERSION)
         if isinstance(payload, dict)
         else SCHEMA_VERSION,
         "channels": dict(channels),
     }
+    if chapter_overrides:
+        out["chapter_overrides"] = chapter_overrides
     dest.write_text(
         json.dumps(out, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -95,6 +121,40 @@ def set_kdp_paperback(book_path: Path, enabled: bool) -> Path:
     return set_channel_enabled(book_path, CHANNEL_KDP_PAPERBACK, enabled)
 
 
+def list_excluded_chapters(book_path: Path, channel_id: str) -> list[str]:
+    """Kapitel-Pfade, die für ``channel_id`` vom Render ausgeschlossen sind."""
+    data = read_distribution(book_path)
+    override = data.get("chapter_overrides", {}).get(channel_id, {})
+    return list(override.get("exclude_paths", []))
+
+
+def is_chapter_excluded(book_path: Path, channel_id: str, rel_path: str) -> bool:
+    normalized = str(rel_path).replace("\\", "/")
+    return normalized in {
+        p.replace("\\", "/") for p in list_excluded_chapters(book_path, channel_id)
+    }
+
+
+def set_chapter_excluded(
+    book_path: Path, channel_id: str, rel_path: str, excluded: bool
+) -> Path:
+    """Markiert/entmarkiert ein Kapitel als für ``channel_id`` ausgeschlossen."""
+    normalized = str(rel_path).replace("\\", "/")
+    data = read_distribution(book_path)
+    overrides = dict(data.get("chapter_overrides") or {})
+    current = set(overrides.get(channel_id, {}).get("exclude_paths", []))
+    if excluded:
+        current.add(normalized)
+    else:
+        current.discard(normalized)
+    if current:
+        overrides[channel_id] = {"exclude_paths": sorted(current)}
+    else:
+        overrides.pop(channel_id, None)
+    data["chapter_overrides"] = overrides
+    return write_distribution(book_path, data)
+
+
 def read_book_distribution_override(book_path: Path) -> Optional[dict[str, Any]]:
     """Legacy-ähnlicher Name: None wenn Datei fehlt (nicht bei leerem Schema)."""
     path = distribution_path(book_path)
@@ -117,4 +177,7 @@ __all__ = [
     "is_kdp_paperback",
     "set_kdp_paperback",
     "read_book_distribution_override",
+    "list_excluded_chapters",
+    "is_chapter_excluded",
+    "set_chapter_excluded",
 ]

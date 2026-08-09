@@ -22,6 +22,8 @@ from render_artifact_store import (
     ensure_typst_template_partials,
     read_output_dir,
 )
+from tools.distribution.book_store import list_excluded_chapters
+from tools.distribution.render_filter import filter_tree_for_channel
 from yaml_engine import QuartoYamlEngine
 
 
@@ -282,6 +284,7 @@ def run_safe_render(
     profile_name: str | None = None,
     extra_format_options: dict | None = None,
     archive_dir: Path | None = None,
+    render_channel: str | None = None,
 ) -> int:
     """Rendert ein Quarto-Buch in einer temporären Spiegelung.
 
@@ -295,6 +298,14 @@ def run_safe_render(
     archive_render_artifacts`. Der feste Convenience-Pfad
     (`copy_render_artifacts`) bleibt davon unberührt und wird weiterhin
     bei jedem Render überschrieben.
+
+    `render_channel`: optionale Vertriebskanal-ID (z. B. `"kdp_paperback"`),
+    gegen die in `bookconfig/distribution.json` (SSOT, siehe
+    `tools.distribution.book_store`) markierte Kapitel-Ausschlüsse
+    aufgelöst werden — die Ausschlussliste wird vom **Original**
+    `book_path` gelesen (nicht vom Temp-Klon) und nur auf den
+    Render-internen `tree_data`-Baum angewandt; `_quarto.yml` im Original
+    bleibt unverändert.
     """
     project_root = Path(__file__).resolve().parent
     original_output_dir = read_output_dir(book_path)
@@ -305,6 +316,9 @@ def run_safe_render(
 
         engine = QuartoYamlEngine(temp_book)
         tree_data = engine.parse_chapters()
+        if render_channel:
+            excluded = list_excluded_chapters(book_path, render_channel)
+            tree_data = filter_tree_for_channel(tree_data, excluded)
         processor = PreProcessor(
             temp_book,
             output_format=output_format,
@@ -394,6 +408,11 @@ def main() -> int:
         help="Optionaler dauerhafter Ordner (pro Publish-Input), in den das Render-Ergebnis "
         "zusätzlich mit zeitstempel-eindeutigem Dateinamen kopiert wird.",
     )
+    parser.add_argument(
+        "--render-channel",
+        help="Optionale Vertriebskanal-ID (z. B. kdp_paperback) — filtert Kapitel, "
+        "die in bookconfig/distribution.json für diesen Kanal ausgeschlossen sind.",
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent
@@ -419,6 +438,7 @@ def main() -> int:
         profile_name=args.profile_name,
         extra_format_options=extra_format_options,
         archive_dir=Path(args.archive_dir).resolve() if args.archive_dir else None,
+        render_channel=args.render_channel,
     )
 
 

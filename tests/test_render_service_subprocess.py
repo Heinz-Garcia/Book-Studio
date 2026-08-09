@@ -239,6 +239,35 @@ def test_run_safe_render_safe_command_callback_receives_argv(tmp_path):
     assert "--extra-format-options-json" in argv
 
 
+def test_run_safe_render_passes_render_channel_into_argv(tmp_path):
+    """`render_channel` landet als `--render-channel <id>` in der argv-Liste."""
+    safe_script = tmp_path / "quarto_render_safe.py"
+    safe_script.write_text("# stub", encoding="utf-8")
+
+    popen = _popen_factory_for([], returncode=0)
+    captured = []
+
+    def _on_cmd(cmd):
+        captured.append(list(cmd))
+
+    RenderService().run_safe_render(
+        target_fmt="typst",
+        profile_name=None,
+        extra_format_options=None,
+        book=tmp_path,
+        safe_script=safe_script,
+        executable=tmp_path / "python.exe",
+        on_safe_command_built=_on_cmd,
+        popen_factory=popen,
+        render_channel="kdp_paperback",
+    )
+
+    assert len(captured) == 1
+    argv = captured[0]
+    assert "--render-channel" in argv
+    assert "kdp_paperback" in argv
+
+
 def test_run_safe_render_logs_when_command_built_hook_raises(tmp_path):
     """B-Fix (Code-Review 2026-07-03): ein fehlerhafter `on_safe_command_built`
     Hook darf den Render nicht crashen, muss aber ueber `on_log_line`

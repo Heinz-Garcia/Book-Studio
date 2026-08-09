@@ -10,6 +10,7 @@ from tools.asset_manager.pool import (
     DEFAULT_POOL_REL,
     ensure_pool_dir,
     list_image_files,
+    list_pool_subdirs,
     read_configured_pool_path,
     resolve_pool_path,
     write_configured_pool_path,
@@ -79,6 +80,18 @@ def test_pool_resolve_and_persist(tmp_path: Path):
     cfg = app_config.load_validated_config(repo / "app_config.json")
     assert Path(cfg["asset_pool_path"]).name == "custom_pool"
     assert read_configured_pool_path(repo) == custom.resolve()
+
+
+def test_list_pool_subdirs_recursive_sorted_no_hidden(tmp_path: Path):
+    pool = tmp_path / "pool"
+    (pool / "charaktere" / "nebenfiguren").mkdir(parents=True)
+    (pool / "orte").mkdir(parents=True)
+    (pool / ".git").mkdir(parents=True)
+    (pool / "orte" / "a.png").write_bytes(b"x")
+
+    subdirs = [p.as_posix() for p in list_pool_subdirs(pool)]
+    assert subdirs == ["charaktere", "charaktere/nebenfiguren", "orte"]
+    assert list_pool_subdirs(tmp_path / "missing") == []
 
 
 def test_import_image_for_markdown_from_pool(tmp_path: Path):

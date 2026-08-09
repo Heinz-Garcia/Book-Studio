@@ -1,6 +1,6 @@
 # Quarto Book Studio — Handbuch
 
-Stand: März 2026
+Stand: August 2026
 
 Dieses Handbuch beschreibt die tägliche Arbeit mit dem Book Studio, die wichtigsten Workflows und die erweiterten Qualitätsfunktionen (insbesondere Bildreferenzen in Markdown).
 
@@ -130,6 +130,7 @@ Hinweis: Die tatsächliche Wirkung von `widows`/`orphans` hängt von der verwend
 ### Export-Dialog
 
 - Öffnet vor dem Rendern die Export-Optionen (`Format`, `Template`, `Notenmodus`)
+- Feld **Ziel-Kanal**: `Standard` oder — nur bei aktiviertem KDP-Taschenbuch-Kanal — `Amazon KDP (Interior, ohne Cover-Seiten)`; Details siehe Kapitel **7) Speichern, Rendern, Doctor > KDP-Interior-Render**
 - Bei geänderten Werten erscheint im Dialogtitel ein `*` als Dirty-Indikator
 - Beim Schließen über `Abbrechen` oder Fenster-`X` wird bei ungespeicherten Änderungen eine Sicherheitsabfrage angezeigt
 
@@ -169,6 +170,7 @@ Hinweis: Volltext nutzt einen Cache pro geladenem Buch und ist deshalb bei sehr 
 - **↵**: PDF-Seitenumbruch am Dateiende erkannt.
 - **🖼**: Fehlende Bildreferenzen erkannt.
 - **☠**: Buch-Doktor hat einen kritischen Befund für diese Datei gefunden.
+- **🚫K**: Kapitel ist als "Nicht im KDP-Interior" markiert (siehe Kapitel **7) Speichern, Rendern, Doctor > KDP-Interior-Render**). Erscheint nur bei Büchern mit aktivem KDP-Taschenbuch-Kanal.
 
 Marker erscheinen direkt am Kapitelnamen und helfen bei der schnellen Sichtprüfung ohne extra Reports.
 
@@ -242,6 +244,28 @@ Das ist der schnellste Weg, um konkrete Probleme direkt zu korrigieren.
 - Selektiert nach einem Lauf automatisch den ersten problematischen Eintrag.
 - `F4` / `Shift+F4` navigieren durch die markierten Doctor-Funde.
 - `Enter` oder Doppelklick auf einen `☠`-Eintrag öffnet direkt die erste bekannte Problemstelle im Markdown-Editor.
+
+### KDP-Interior-Render (Amazon KDP ohne Cover-Seiten)
+
+Amazon KDP verlangt für Taschenbücher ein reines Innenleben-PDF ohne Coverseite — das eigentliche Cover läuft separat über den KDP-Wrap-Cover-Designer (`Tools > 🖨️ KDP-Wrap...`). Ein im Buch enthaltenes Deckblatt-Kapitel (z. B. `content/Deckblatt.md`) lässt sich deshalb gezielt aus **diesem einen** Render herausnehmen, ohne die normale Buchstruktur oder `_quarto.yml` zu verändern.
+
+**Voraussetzung:** Der KDP-Taschenbuch-Kanal muss für das Buch aktiv sein (`bookconfig/distribution.json`, siehe KDP-Cover-Designer). Erst dann erscheinen die folgenden Bedienelemente.
+
+**Kapitel markieren:**
+
+1. Rechtsklick auf das Kapitel in der Buchstruktur (rechts), z. B. `Deckblatt.md`.
+2. **🚫 Nicht im KDP-Interior** anklicken (Checkbox-Eintrag).
+3. Das Kapitel bekommt den Marker `🚫K` hinter dem Titel.
+4. Erneuter Rechtsklick + Klick hebt die Markierung wieder auf.
+
+**Kanal beim Export wählen:**
+
+1. Export-Dialog öffnen (`F5` bzw. **Export > Buch rendern...**).
+2. Feld **Ziel-Kanal**: `Standard` (alle Kapitel) oder `Amazon KDP (Interior, ohne Cover-Seiten)`.
+3. Der Hinweistext darunter zeigt die für den gewählten Kanal aktuell ausgeschlossenen Kapitel — oder erinnert daran, noch keins markiert zu haben.
+4. Exportieren wie gewohnt.
+
+Ein KDP-Interior-Render landet in einem eigenen Ausgabeordner und überschreibt nicht die Convenience-Kopie eines Standard-Renders — beide PDFs bleiben nebeneinander erhalten.
 
 ## 8) Required-Dateien und feste Reihenfolgen
 

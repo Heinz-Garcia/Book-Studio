@@ -9,6 +9,12 @@ from typing import Any, Callable, Optional
 import app_config as _app_config
 from services.ui_state_service import UiStateService
 from services.workspace_service import WorkspaceService
+from tools.distribution.book_store import (
+    CHANNEL_KDP_PAPERBACK,
+    is_kdp_paperback,
+    list_excluded_chapters,
+    set_chapter_excluded,
+)
 from ui_qt import structure_ops as ops
 from ui_qt.file_markers import build_file_state_registry, decorate_title
 from ui_qt.markdown_headings import shift_markdown_file
@@ -53,6 +59,7 @@ class StructureSession:
         self.title_registry: dict[str, str] = {}
         self.file_state_registry: dict[str, dict[str, Any]] = {}
         self.doctor_issue_registry: dict[str, list] = {}
+        self.kdp_excluded_registry: set[str] = set()
         self.book_nodes: ops.Tree = []
         self.avail: list[tuple[str, str]] = []
         self.undo_stack: list[dict[str, Any]] = []
@@ -69,11 +76,34 @@ class StructureSession:
         self.book_nodes = ops.chapters_to_display_tree(raw, self.title_registry)
         self.invalidate_content_search_cache()
         self._refresh_file_state_registry()
+        self._refresh_kdp_excluded_registry()
         self._refresh_avail()
         self.undo_stack.clear()
         self.redo_stack.clear()
         self.dirty = False
         self._log(f"Projekt geladen: {self.book_path.name}", "success")
+
+    def is_kdp_channel_active(self) -> bool:
+        """Ob das Buch fuer den KDP-Taschenbuch-Kanal opted-in ist (SSOT:
+        bookconfig/distribution.json). Steuert, ob der "Nicht im KDP-Interior"-
+        Kontextmenue-Eintrag ueberhaupt sichtbar ist."""
+        return is_kdp_paperback(self.book_path)
+
+    def is_kdp_chapter_excluded(self, path: str) -> bool:
+        return str(path).replace("\\", "/") in self.kdp_excluded_registry
+
+    def set_kdp_chapter_excluded(self, path: str, excluded: bool) -> None:
+        set_chapter_excluded(self.book_path, CHANNEL_KDP_PAPERBACK, path, excluded)
+        self._refresh_kdp_excluded_registry()
+
+    def _refresh_kdp_excluded_registry(self) -> None:
+        if not is_kdp_paperback(self.book_path):
+            self.kdp_excluded_registry = set()
+            return
+        self.kdp_excluded_registry = {
+            p.replace("\\", "/")
+            for p in list_excluded_chapters(self.book_path, CHANNEL_KDP_PAPERBACK)
+        }
 
     def invalidate_content_search_cache(self) -> None:
         """Clear MD content cache used by Volltext search."""
@@ -135,6 +165,7 @@ class StructureSession:
             path,
             file_state=self.file_state_registry.get(path),
             doctor_issue_paths=self.doctor_issue_registry.keys(),
+            kdp_excluded_paths=self.kdp_excluded_registry,
         )
 
     def _refresh_avail(self) -> None:
@@ -157,6 +188,7 @@ class StructureSession:
         self.title_registry = self.engine.build_title_registry()
         self.invalidate_content_search_cache()
         self._refresh_file_state_registry()
+        self._refresh_kdp_excluded_registry()
         self._refresh_avail()
         self._log(
             "Pool aktualisiert (neue Dateien links) — Buchstruktur rechts unverändert.",

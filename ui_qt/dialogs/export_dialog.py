@@ -20,6 +20,7 @@ from render_artifact_store import (
     default_export_display_name,
     normalize_pdf_stem_from_display,
 )
+from tools.distribution.book_store import CHANNEL_KDP_PAPERBACK, is_kdp_paperback, list_excluded_chapters
 from tools.layout_profiles.catalog import (
     LINE_STRETCH_OPTIONS,
     get_profile,
@@ -28,6 +29,13 @@ from tools.layout_profiles.catalog import (
     profile_id_from_label,
     profile_labels,
 )
+
+_CHANNEL_STANDARD_LABEL = "Standard"
+_CHANNEL_KDP_LABEL = "Amazon KDP (Interior, ohne Cover-Seiten)"
+_CHANNEL_LABEL_TO_ID = {
+    _CHANNEL_STANDARD_LABEL: "",
+    _CHANNEL_KDP_LABEL: CHANNEL_KDP_PAPERBACK,
+}
 
 
 def _default_display_name(book_path: Optional[Path], initial: dict[str, Any]) -> str:
@@ -121,6 +129,23 @@ class ExportDialog(QDialog):
         self.linestretch_combo.addItems([opt.label for opt in LINE_STRETCH_OPTIONS])
         self.linestretch_combo.setCurrentText(linestretch_label(initial_linestretch))
         form.addRow("Zeilenabstand:", self.linestretch_combo)
+
+        self._kdp_channel_available = bool(
+            self.book_path is not None and is_kdp_paperback(self.book_path)
+        )
+        self.channel_combo = QComboBox()
+        channel_labels = [_CHANNEL_STANDARD_LABEL]
+        if self._kdp_channel_available:
+            channel_labels.append(_CHANNEL_KDP_LABEL)
+        self.channel_combo.addItems(channel_labels)
+        initial_channel_id = str(initial.get("render_channel") or "").strip()
+        if initial_channel_id == CHANNEL_KDP_PAPERBACK and self._kdp_channel_available:
+            self.channel_combo.setCurrentText(_CHANNEL_KDP_LABEL)
+        form.addRow("Ziel-Kanal:", self.channel_combo)
+
+        self.channel_hint = QLabel("")
+        self.channel_hint.setWordWrap(True)
+        form.addRow("", self.channel_hint)
 
         self.notes_edit = QLineEdit()
         self.notes_edit.setText(initial_display)
@@ -218,6 +243,30 @@ class ExportDialog(QDialog):
         self.notes_edit.textChanged.connect(self._on_notes_changed)
         self.pdf_stem_edit.textChanged.connect(self._on_stem_changed)
         self.format_combo.currentTextChanged.connect(self._refresh_path_preview)
+        self.channel_combo.currentTextChanged.connect(self._on_channel_changed)
+        self._on_channel_changed()
+
+    def _selected_render_channel_id(self) -> str:
+        return _CHANNEL_LABEL_TO_ID.get(self.channel_combo.currentText(), "")
+
+    def _on_channel_changed(self, _text: str = "") -> None:
+        channel_id = self._selected_render_channel_id()
+        if not channel_id:
+            self.channel_hint.setText(
+                "Standard: enthält alle Kapitel der Buchstruktur (inkl. Deckblatt)."
+            )
+        elif self.book_path is not None:
+            excluded = list_excluded_chapters(self.book_path, channel_id)
+            if excluded:
+                self.channel_hint.setText(
+                    "Ausgeschlossen für diesen Kanal: " + ", ".join(excluded)
+                )
+            else:
+                self.channel_hint.setText(
+                    "Kein Kapitel als Interior-Ausschluss markiert — per Rechtsklick "
+                    "im Struktur-Panel auf ein Kapitel (z. B. Deckblatt) markieren, "
+                    "falls es nicht ins KDP-Interior soll."
+                )
         self._refresh_path_preview()
 
     def _artifact_suffix(self) -> str:
@@ -235,7 +284,10 @@ class ExportDialog(QDialog):
             return None
         from services.render_service import RenderService
 
-        return RenderService.build_render_out_dir(self.book_path, self._profile_name)
+        effective_profile_name = RenderService.compose_channel_profile_name(
+            self._profile_name, self._selected_render_channel_id()
+        )
+        return RenderService.build_render_out_dir(self.book_path, effective_profile_name)
 
     def _on_notes_changed(self, *_args: Any) -> None:
         if self._stem_linked:
@@ -302,6 +354,7 @@ class ExportDialog(QDialog):
             "notes": self.notes_edit.text().strip(),
             "pdf_stem": stem,
             "market_variant": self._market_variant,
+            "render_channel": self._selected_render_channel_id(),
         }
         self.accept()
 

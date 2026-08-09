@@ -97,9 +97,12 @@ class UuidManagerDialog(QDialog):
         top = QHBoxLayout()
         top.addWidget(QLabel("Status:"))
         self.status_combo = QComboBox()
+        # Default "Keine": Fenster öffnet ohne teuren Vollscan.
+        self.status_combo.addItem("Keine", "__none__")
         self.status_combo.addItem("Alle", "")
         for status in UuidStatus:
             self.status_combo.addItem(uuid_status_label(status), status.value)
+        self.status_combo.setCurrentIndex(0)
         self.status_combo.currentIndexChanged.connect(self._on_status_changed)
         top.addWidget(self.status_combo)
         self.help_banner = QLabel("")
@@ -119,7 +122,7 @@ class UuidManagerDialog(QDialog):
         self.filter_edit.setMinimumWidth(340)
         top.addWidget(self.filter_edit)
         refresh = QPushButton("Aktualisieren")
-        refresh.clicked.connect(self.reload)
+        refresh.clicked.connect(lambda: self.reload(force_scan=True))
         top.addWidget(refresh)
         layout.addLayout(top)
 
@@ -179,7 +182,7 @@ class UuidManagerDialog(QDialog):
         actions.addWidget(close)
         layout.addLayout(actions)
 
-        self.reload()
+        self.reload(force_scan=False)
 
     def _log(self, message: str, level: str = "info") -> None:
         log = getattr(self._studio, "log", None)
@@ -202,17 +205,53 @@ class UuidManagerDialog(QDialog):
             if str(value).strip()
         }
         out.setdefault("", fallback)
+        out.setdefault(
+            "__none__",
+            "Kein Scan beim Öffnen. Wähle „Alle“ oder einen Status, "
+            "oder klicke „Aktualisieren“, um UUID-Fälle zu laden.",
+        )
         return out
 
     def _help_text_for_selected_status(self) -> str:
         key = str(self.status_combo.currentData() or "")
         return self._help_texts.get(key) or self._help_texts.get("") or ""
 
+    def _status_is_none(self) -> bool:
+        return str(self.status_combo.currentData() or "") == "__none__"
+
     def _on_status_changed(self) -> None:
         self.help_banner.setText(self._help_text_for_selected_status())
+        if self._status_is_none():
+            self._records = []
+            self._apply_filter()
+            return
+        # Leaving "Keine" → load once (or refresh if already loaded).
+        if not self._records:
+            self.reload(force_scan=True)
+            return
         self._apply_filter()
 
-    def reload(self) -> None:
+    def reload(self, *, force_scan: bool = True) -> None:
+        """Load UUID records.
+
+        With Status „Keine“ and ``force_scan=False`` (window open), skip the
+        expensive filesystem scan so the dialog appears immediately.
+        """
+        if self._status_is_none() and not force_scan:
+            self._records = []
+            self.help_banner.setText(self._help_text_for_selected_status())
+            self._apply_filter()
+            return
+        if self._status_is_none() and force_scan:
+            # User clicked Aktualisieren while "Keine" is selected — still
+            # load into memory but keep the empty filter until they pick a status.
+            self._records = collect_uuid_records(
+                book_studio_repo=self._book_studio_repo,
+                grammargraph_repo=self._grammargraph_repo,
+            )
+            self.help_banner.setText(self._help_text_for_selected_status())
+            self._apply_filter()
+            return
         self._records = collect_uuid_records(
             book_studio_repo=self._book_studio_repo,
             grammargraph_repo=self._grammargraph_repo,
@@ -234,6 +273,20 @@ class UuidManagerDialog(QDialog):
         )
 
     def _apply_filter(self) -> None:
+        if self._status_is_none():
+            self._filtered = []
+            if self._records:
+                self.summary_label.setText(
+                    f"Status „Keine“ — {len(self._records)} Fälle geladen, "
+                    "aber nicht angezeigt. Wähle „Alle“ oder einen Status."
+                )
+            else:
+                self.summary_label.setText(
+                    "Status „Keine“ — noch kein Scan. "
+                    "Wähle „Alle“/Status oder „Aktualisieren“."
+                )
+            self._fill_table()
+            return
         needle = self.filter_edit.text().strip().casefold()
         wanted = str(self.status_combo.currentData() or "")
         self._filtered = []

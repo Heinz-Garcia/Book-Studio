@@ -45,6 +45,10 @@ DEFAULTS: dict[str, Any] = {
         "Kurzorientierung zum aktuell sichtbaren Zustand."
     ),
     "uuid_manager_help_texts": {
+        "__none__": (
+            "Kein Scan beim Öffnen. Wähle „Alle“ oder einen Status, "
+            "oder klicke „Aktualisieren“, um UUID-Fälle zu laden."
+        ),
         "": (
             "Zeigt alle UUID-Fälle im Überblick. Nutze den Filter, um gezielt "
             "offene Importe, fehlende PDFs oder abweichende PDF-Metadaten einzugrenzen."

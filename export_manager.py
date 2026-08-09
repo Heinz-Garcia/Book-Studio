@@ -328,7 +328,9 @@ class ExportManager:
             self._log(f"⚠️ Render-Log konnte nicht angelegt werden: {error}", "warning")
             return
 
-        profile_name = self._current_profile_name()
+        profile_name = (
+            self._pending_render_context.get("profile_name") or self._current_profile_name()
+        )
         self._write_active_render_log("=== Quarto Book Studio Render Log ===")
         self._write_active_render_log(f"started_at={datetime.now().isoformat(timespec='seconds')}")
         self._write_active_render_log(f"book={book_root}")
@@ -1013,17 +1015,28 @@ class ExportManager:
                 ).strip()
             except (ImportError, OSError, ValueError, TypeError):
                 market_variant = ""
+            # Ziel-Kanal (z. B. "kdp_paperback"): filtert Kapitel, die in
+            # bookconfig/distribution.json fuer diesen Kanal ausgeschlossen
+            # sind (siehe tools.distribution.book_store/render_filter).
+            # Der effektive profile_name bekommt den Kanal als Suffix, damit
+            # die Convenience-Kopie in einem eigenen export/_book_...-Ordner
+            # landet und nicht mit dem Standard-Render kollidiert.
+            render_channel = str(selected.get("render_channel") or "").strip()
+            effective_profile_name = _RenderService.compose_channel_profile_name(
+                self._current_profile_name(), render_channel
+            )
             self._pending_render_context = {
                 "format": base_fmt,
                 "template": selected_tpl,
                 "target_format": target_fmt,
-                "profile_name": self._current_profile_name() or "",
+                "profile_name": effective_profile_name,
                 "layout_profile": layout_profile,
                 "linestretch": linestretch,
                 "snapshot_id": snapshot_id,
                 "notes": render_notes,
                 "pdf_stem": render_pdf_stem,
                 "market_variant": market_variant,
+                "render_channel": render_channel,
             }
             profile = None
             try:
@@ -1042,6 +1055,8 @@ class ExportManager:
                 self._log(f"🏷️  Anzeigename: {render_notes}", "info")
             if market_variant:
                 self._log(f"🧬 Marktvariante: {market_variant}", "info")
+            if render_channel:
+                self._log(f"📦 Ziel-Kanal: {render_channel}", "info")
             self._start_render_log(target_fmt, selected_tpl)
 
             # Phase 2 / Schritt 2.3c-Mini: Render-Orchestrierung im RenderService.
@@ -1058,7 +1073,7 @@ class ExportManager:
                 try:
                     _RenderService.execute_render(
                         target_fmt=target_fmt,
-                        profile_name=self._current_profile_name(),
+                        profile_name=effective_profile_name,
                         extra_format_options=extra_opts,
                         run_safe_render=self._run_safe_render,
                         finalize_render_log=self._finalize_render_log,
@@ -1134,6 +1149,7 @@ class ExportManager:
             on_abort_requested=_on_abort_requested,
             on_safe_command_built=_on_safe_command_built,
             archive_dir=archive_dir,
+            render_channel=self._pending_render_context.get("render_channel") or None,
         )
 
     # =========================================================================
@@ -1195,8 +1211,15 @@ class ExportManager:
     def _handle_render_success(self, fmt):
         try:
             # Phase 2 / 2.3c voll: out_dir-Berechnung im RenderService.
+            # Bewusst der fuer DIESEN Render tatsaechlich verwendete
+            # profile_name aus _pending_render_context (nicht erneut
+            # self._current_profile_name() gelesen) -- sonst zeigt der
+            # Erfolgs-Handler bei einem Ziel-Kanal-Render (Kanal-Suffix im
+            # effektiven profile_name, siehe _do_export) auf den falschen
+            # Ordner.
             out_dir = _RenderService.build_render_out_dir(
-                self._current_book(), self._current_profile_name()
+                self._current_book(),
+                self._pending_render_context.get("profile_name") or self._current_profile_name(),
             )
 
             # B1/R3: Nur whitelisted Suffixe öffnen, nicht alle `*{ext}`.

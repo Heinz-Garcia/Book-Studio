@@ -254,6 +254,51 @@ def test_build_command_empty_profile_name_is_falsy():
     assert "--profile-name" not in cmd
 
 
+def test_build_command_with_render_channel():
+    cmd = RenderService.build_safe_render_command(
+        executable="python",
+        safe_script=Path("/s/q.py"),
+        book=Path("/b/A"),
+        target_fmt="typst",
+        render_channel="kdp_paperback",
+    )
+    assert "--render-channel" in cmd
+    idx = cmd.index("--render-channel") + 1
+    assert cmd[idx] == "kdp_paperback"
+
+
+def test_compose_channel_profile_name_both_set():
+    assert RenderService.compose_channel_profile_name("taschenbuch-bod", "kdp_paperback") == (
+        "taschenbuch-bod_kdp_paperback"
+    )
+
+
+def test_compose_channel_profile_name_only_channel():
+    assert RenderService.compose_channel_profile_name("", "kdp_paperback") == "kdp_paperback"
+    assert RenderService.compose_channel_profile_name(None, "kdp_paperback") == "kdp_paperback"
+
+
+def test_compose_channel_profile_name_only_base():
+    assert RenderService.compose_channel_profile_name("MyProfile", "") == "MyProfile"
+    assert RenderService.compose_channel_profile_name("MyProfile", None) == "MyProfile"
+
+
+def test_compose_channel_profile_name_neither_set():
+    assert RenderService.compose_channel_profile_name("", "") == ""
+    assert RenderService.compose_channel_profile_name(None, None) == ""
+
+
+def test_build_command_empty_render_channel_is_falsy():
+    cmd = RenderService.build_safe_render_command(
+        executable="python",
+        safe_script=Path("/s/q.py"),
+        book=Path("/b/A"),
+        target_fmt="html",
+        render_channel="",
+    )
+    assert "--render-channel" not in cmd
+
+
 # --- extract_processed_source_path --------------------------------------
 
 

@@ -42,6 +42,7 @@ def synthesize_from_book_studio_toml(source_dir: Path) -> dict[str, Any]:
     title = Path(source_dir).name
     author = ""
     production_uuid = ""
+    run_uuid = ""
     market_variant = ""
     variant_anchor_ids: list[str] = []
     variant_system_prompt_path = ""
@@ -53,10 +54,14 @@ def synthesize_from_book_studio_toml(source_dir: Path) -> dict[str, Any]:
                 title = str(book.get("title", title) or title)
                 author = str(book.get("author", author) or "")
                 production_uuid = str(book.get("uuid") or "").strip()
-            if not production_uuid and isinstance(raw, dict):
+                run_uuid = str(book.get("run_uuid") or "").strip()
+            if isinstance(raw, dict):
                 meta = raw.get("metadata")
                 if isinstance(meta, dict):
-                    production_uuid = str(meta.get("uuid") or "").strip()
+                    if not production_uuid:
+                        production_uuid = str(meta.get("uuid") or "").strip()
+                    if not run_uuid:
+                        run_uuid = str(meta.get("run_uuid") or "").strip()
                     market_variant = str(meta.get("market_variant") or "").strip()
                     variant_system_prompt_path = str(
                         meta.get("variant_system_prompt_path") or ""
@@ -68,7 +73,7 @@ def synthesize_from_book_studio_toml(source_dir: Path) -> dict[str, Any]:
                     ]
         except (OSError, tomllib.TOMLDecodeError):
             pass
-    # publish_meta.json hat Vorrang für die Production-UUID
+    # publish_meta.json hat Vorrang für Production-UUID und run_uuid-Lineage
     meta_file = Path(source_dir) / "publish_meta.json"
     if meta_file.is_file():
         try:
@@ -77,6 +82,9 @@ def synthesize_from_book_studio_toml(source_dir: Path) -> dict[str, Any]:
                 from_meta = str(meta.get("uuid") or "").strip()
                 if from_meta:
                     production_uuid = from_meta
+                from_run = str(meta.get("run_uuid") or "").strip()
+                if from_run:
+                    run_uuid = from_run
                 market_variant = str(meta.get("market_variant") or market_variant).strip()
                 variant_system_prompt_path = str(
                     meta.get("variant_system_prompt_path") or variant_system_prompt_path
@@ -96,6 +104,8 @@ def synthesize_from_book_studio_toml(source_dir: Path) -> dict[str, Any]:
     }
     if production_uuid:
         content["uuid"] = production_uuid
+    if run_uuid:
+        content["run_uuid"] = run_uuid
     if market_variant:
         content["market_variant"] = market_variant
     if variant_anchor_ids:
@@ -115,6 +125,8 @@ def synthesize_from_book_studio_toml(source_dir: Path) -> dict[str, Any]:
     }
     if production_uuid:
         out["uuid"] = production_uuid
+    if run_uuid:
+        out["run_uuid"] = run_uuid
     if market_variant:
         out["market_variant"] = market_variant
     return out
@@ -133,10 +145,16 @@ def _normalize_manifest(data: dict[str, Any], *, source_path: Optional[Path]) ->
         content.setdefault("manifest_path", str(source_path.resolve()))
         if "source" not in content:
             content["source"] = "grammargraph_export"
-    # UUID aus publish_meta am Import-Root nachziehen, falls Manifest sie nicht hat
+    # UUID / run_uuid aus publish_meta am Import-Root nachziehen, falls Manifest sie nicht hat
     top_uuid = str(out.get("uuid") or "").strip()
     content_uuid = str(content.get("uuid") or "").strip()
-    if not top_uuid and not content_uuid and source_path is not None:
+    top_run_uuid = str(out.get("run_uuid") or "").strip()
+    content_run_uuid = str(content.get("run_uuid") or "").strip()
+    meta_for_ids: dict[str, Any] | None = None
+    if source_path is not None and (
+        (not top_uuid and not content_uuid)
+        or (not top_run_uuid and not content_run_uuid)
+    ):
         meta_file = source_path.parent / "publish_meta.json"
         if not meta_file.is_file():
             # Manifest kann in bookconfig/ liegen
@@ -145,14 +163,24 @@ def _normalize_manifest(data: dict[str, Any], *, source_path: Optional[Path]) ->
             try:
                 meta = json.loads(meta_file.read_text(encoding="utf-8"))
                 if isinstance(meta, dict):
-                    top_uuid = str(meta.get("uuid") or "").strip()
+                    meta_for_ids = meta
             except (OSError, json.JSONDecodeError, UnicodeError):
-                pass
+                meta_for_ids = None
+    if meta_for_ids is not None:
+        if not top_uuid and not content_uuid:
+            top_uuid = str(meta_for_ids.get("uuid") or "").strip()
+        if not top_run_uuid and not content_run_uuid:
+            top_run_uuid = str(meta_for_ids.get("run_uuid") or "").strip()
     if top_uuid:
         out["uuid"] = top_uuid
         content.setdefault("uuid", top_uuid)
     elif content_uuid:
         out["uuid"] = content_uuid
+    if top_run_uuid:
+        out["run_uuid"] = top_run_uuid
+        content.setdefault("run_uuid", top_run_uuid)
+    elif content_run_uuid:
+        out["run_uuid"] = content_run_uuid
     top_variant = str(out.get("market_variant") or "").strip()
     content_variant = str(content.get("market_variant") or "").strip()
     if top_variant:

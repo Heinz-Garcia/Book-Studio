@@ -22,7 +22,8 @@ ICON_LEGEND_LINES: tuple[str, ...] = (
     "↵ Seitenumbruch am Dateiende",
     "🖼 Fehlende Bildreferenz",
     "☠ Buch-Doktor-Befund",
-    "📌/🧬/🧭 vor Titel · ↵/🖼/☠ dahinter",
+    "🚫K Nicht im KDP-Interior",
+    "📌/🧬/🧭 vor Titel · ↵/🖼/☠/🚫K dahinter",
 )
 
 _DEFAULT_PAGEBREAK = re.compile(
@@ -102,6 +103,7 @@ def decorate_title(
     *,
     file_state: Optional[dict[str, Any]] = None,
     doctor_issue_paths: Optional[Iterable[str]] = None,
+    kdp_excluded_paths: Optional[Iterable[str]] = None,
 ) -> str:
     """Hängt Suffix-Marker an den Anzeigetitel (ohne doppelte Anhänge)."""
     if not path:
@@ -110,6 +112,7 @@ def decorate_title(
     base = _strip_status_suffixes(str(title))
     state = file_state or {}
     doctor_set = set(doctor_issue_paths or ())
+    kdp_excluded_set = {str(p).replace("\\", "/") for p in (kdp_excluded_paths or ())}
 
     suffixes: list[str] = []
     if state.get("pdf_pagebreak_end"):
@@ -118,13 +121,15 @@ def decorate_title(
         suffixes.append("🖼")
     if path in doctor_set:
         suffixes.append("☠")
+    if str(path).replace("\\", "/") in kdp_excluded_set:
+        suffixes.append("🚫K")
 
     if not suffixes:
         return base
     return f"{base} {' '.join(suffixes)}"
 
 
-_SUFFIX_TAIL = re.compile(r"(?:\s+[↵🖼☠]+)+\s*$")
+_SUFFIX_TAIL = re.compile(r"(?:\s+(?:↵|🖼|☠|🚫K)+)+\s*$")
 
 
 def _strip_status_suffixes(title: str) -> str:
