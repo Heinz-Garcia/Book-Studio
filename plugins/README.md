@@ -20,6 +20,14 @@ kennt **keine** Plugin-Fachlogik — nur Discovery, Menü und generische Hooks.
 
 Gemeinsame Logik (Manifest, Diff, Library) bleibt in **`tools/skeleton/`**.
 
+## Cover-Schlagwortwolke
+
+| Plugin | Menü | Implementierung |
+|--------|------|-----------------|
+| `stylecloud` | Cover-Schlagwortwolke… | `tools/stylecloud/` + `ui_qt/dialogs/stylecloud_dialog.py` |
+
+Basiert auf [minimaxir/stylecloud](https://github.com/minimaxir/stylecloud) (Icon-Formen, Paletten, Verläufe). Abhängigkeit: `stylecloud` + `setuptools>=70,<82` (pkg_resources). Optionales Substantiv-Filter: `spacy` + Modell `de_core_news_sm` (Logik in `tools/stylecloud/noun_filter.py`).
+
 ## Hooks (Core entkoppeln)
 
 Plugins können Lifecycle-Hooks deklarieren — `book_studio` feuert nur den Hook-Namen:

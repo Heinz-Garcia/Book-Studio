@@ -67,6 +67,6 @@ orchestrator.py
 pipelines/
 specifications.md
 
-# UUID-Backfill-Lauf-Report (tools/uuid_manager/backfill.py) - lokales
-# Laufzeit-Artefakt mit absoluten Maschinenpfaden, kein Quellcode.
-uuid_backfill_report.json
+# Cover-Schlagwortwolke: zuletzt genutzte Dialog-Einstellungen (lokal)
+tools/stylecloud/last_session.json
+tools/stylecloud/last_session.json.tmp

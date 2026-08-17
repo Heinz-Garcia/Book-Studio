@@ -14,3 +14,12 @@ rich>=13.0
 
 # KDP Wrap-Cover-Export (tools/kdp_cover)
 Pillow>=10.0.0
+
+# Cover-Schlagwortwolken (plugins/stylecloud → tools/stylecloud)
+# stylecloud nutzt noch pkg_resources → setuptools <82
+stylecloud>=0.5.2
+setuptools>=70,<82
+# Optional für „Nur Substantive“: zusätzlich Modell laden
+#   python -m spacy download de_core_news_sm
+spacy>=3.7,<4
+click>=8.0

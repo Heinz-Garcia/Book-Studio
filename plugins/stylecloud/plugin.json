@@ -1,0 +1,11 @@
+{
+  "name": "stylecloud",
+  "label": "🎨 Cover-Schlagwortwolke…",
+  "description": "Konfigurierbare Schlagwortwolken für Buchcover (stylecloud: Icon-Formen, Paletten, Verläufe).",
+  "entrypoint": "plugins.stylecloud:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 19,
+  "help_text": "Erzeugt eine drucktaugliche PNG-Schlagwortwolke (300 dpi Presets, z. B. PB 135×215 mm). Quelle: Buch/Datei/Freitext. Form: Font Awesome oder Silhouette-Bild. Muss-Wort unter der Form. Deps: stylecloud, setuptools<82; optional spacy + de_core_news_sm."
+}
