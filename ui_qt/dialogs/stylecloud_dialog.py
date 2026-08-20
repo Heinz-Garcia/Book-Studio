@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -33,8 +34,13 @@ from PySide6.QtWidgets import (
 )
 
 from tools.stylecloud.generator import (
+    CUSTOM_SIZE_SENTINEL,
     DEFAULT_PRINT_SIZE_LABEL,
+    FREE_FORM_DENSITY_PRESETS,
+    FREE_FORM_PACKING_PRESETS,
     GRADIENT_CHOICES,
+    ICON_NONE,
+    ICON_ORGANIC,
     ICON_PRESETS,
     PALETTE_PRESETS,
     PRINT_DPI,
@@ -42,14 +48,20 @@ from tools.stylecloud.generator import (
     StylecloudDependencyError,
     StylecloudOptions,
     format_file_size,
+    free_form_word_budget,
     generate_stylecloud,
+    normalize_free_form_density,
+    normalize_free_form_packing,
+    normalize_icon_name,
     suggested_max_font_size,
     suggested_must_word_gap,
     suggested_must_word_max_font,
 )
 from tools.stylecloud.noun_filter import SpacyNounFilterError
+from tools.stylecloud.preset_store import list_presets, load_preset, save_preset
 from tools.stylecloud.settings import load_settings, resolve_window_size, save_settings
 from tools.stylecloud.text_sources import collect_book_text, default_output_path
+from ui_qt.dialogs.stylecloud_preset_manager_dialog import StylecloudPresetManagerDialog
 from ui_qt.widgets.help_bar import HelpBar
 
 
@@ -107,6 +119,9 @@ class StylecloudQtDialog(QDialog):
         self._preview_pixmap: QPixmap | None = None
         self._worker: _GenerateWorker | None = None
         self._restoring = False
+        self._is_generating = False
+        self._generation_max_font_size: int | None = None
+        self._user_font_size: int | None = None
         self.setWindowTitle("Cover-Schlagwortwolke (stylecloud)")
         self.setMinimumSize(860, 480)
         # Native window edges resize; corner grip is placed in the button row
@@ -126,6 +141,7 @@ class StylecloudQtDialog(QDialog):
         left_layout.setContentsMargins(0, 0, 8, 0)
         left_layout.setSpacing(0)
         form = QFormLayout()
+        self._form_layout = form
         form.setSpacing(4)
         form.setHorizontalSpacing(10)
         form.setContentsMargins(0, 0, 0, 0)
@@ -176,21 +192,151 @@ class StylecloudQtDialog(QDialog):
         self.size_combo = QComboBox()
         for label, value in SIZE_PRESETS.items():
             self.size_combo.addItem(label, value)
+        self.size_combo.addItem(
+            "Benutzerdefiniert (freie Breite × Höhe) …",
+            CUSTOM_SIZE_SENTINEL,
+        )
         idx = self.size_combo.findText(DEFAULT_PRINT_SIZE_LABEL)
         if idx >= 0:
             self.size_combo.setCurrentIndex(idx)
         self.size_combo.setToolTip(
-            "Ausgabe-Auflösung für Buchdruck.\n"
+            "Ausgabe-Auflösung / Seitenverhältnis für Buchdruck.\n"
+            "• DE Paperback 135×215 mm = Standard DACH\n"
+            "• Amazon KDP Paperback 6×9 in = Standard international\n"
             f"Presets mit „300 dpi“ sind drucktauglich (ca. {PRINT_DPI} dpi Trim).\n"
-            "„Entwurf“ nur zur schnellen Vorschau — nicht für den Druck verwenden."
+            "„Entwurf“ nur zur schnellen Vorschau — nicht für den Druck.\n"
+            "„Benutzerdefiniert“ = freies Ratio über Breite × Höhe in Pixeln."
         )
-        form.addRow("Auflösung (Druck):", self.size_combo)
+        form.addRow("Auflösung / Ratio:", self.size_combo)
         self.size_combo.currentIndexChanged.connect(self._on_size_changed)
 
+        custom_size_row = QHBoxLayout()
+        custom_size_row.setContentsMargins(0, 0, 0, 0)
+        custom_size_row.setSpacing(8)
+        self.custom_width = QSpinBox()
+        self.custom_width.setRange(256, 8000)
+        self.custom_width.setValue(1594)
+        self.custom_width.setSuffix(" px")
+        self.custom_height = QSpinBox()
+        self.custom_height.setRange(256, 8000)
+        self.custom_height.setValue(2539)
+        self.custom_height.setSuffix(" px")
+        self.custom_ratio_label = QLabel("Ratio: –")
+        self.custom_ratio_label.setMinimumWidth(90)
+        custom_size_row.addWidget(QLabel("B:"))
+        custom_size_row.addWidget(self.custom_width)
+        custom_size_row.addWidget(QLabel("H:"))
+        custom_size_row.addWidget(self.custom_height)
+        custom_size_row.addWidget(self.custom_ratio_label)
+        custom_size_row.addStretch(1)
+        self._custom_size_host = QWidget()
+        self._custom_size_host.setLayout(custom_size_row)
+        form.addRow("Frei (px):", self._custom_size_host)
+        self._custom_size_row = form.rowCount() - 1
+        form.setRowVisible(self._custom_size_row, False)
+        self.custom_width.valueChanged.connect(self._on_custom_size_changed)
+        self.custom_height.valueChanged.connect(self._on_custom_size_changed)
+
         self.icon_combo = QComboBox()
+        self.icon_combo.setMinimumWidth(320)
+        self.icon_combo.setMaxVisibleItems(12)
+        self.icon_combo.view().setMinimumWidth(480)
         for label, icon in ICON_PRESETS:
             self.icon_combo.addItem(label, icon)
-        form.addRow("Form (Font Awesome):", self.icon_combo)
+        self.icon_combo.setToolTip(
+            "Form der Wolke:\n"
+            "• Freie Form = Wörter harmonisch dicht gepackt über die Cover-Fläche; "
+            "was über den Rand geht, wird abgeschnitten\n"
+            "• Organische Silhouette = unregelmäßiger Blob mit Rand\n"
+            "• Rechteck = Wörter packen die volle Cover-Fläche\n"
+            "• Font Awesome = Icon-Silhouette\n"
+            "• Bildmaske (unten) hat Vorrang und deaktiviert diese Auswahl"
+        )
+        form.addRow("Form:", self.icon_combo)
+        self.icon_combo.currentIndexChanged.connect(self._on_form_changed)
+        self.icon_combo.setCurrentIndex(0)
+
+        free_margin_row = QHBoxLayout()
+        free_margin_row.setContentsMargins(0, 0, 0, 0)
+        free_margin_row.setSpacing(8)
+        self.free_form_margin = QSpinBox()
+        self.free_form_margin.setRange(5, 40)
+        self.free_form_margin.setValue(14)
+        self.free_form_margin.setSuffix(" %")
+        self.free_form_margin.setToolTip(
+            "Rand um die Wolke (Prozent) — Platz für Titel/Verlag am Cover-Rand."
+        )
+        free_margin_row.addWidget(self.free_form_margin)
+        free_margin_row.addWidget(QLabel("Cover-Rand"))
+        free_margin_row.addSpacing(12)
+        free_margin_row.addWidget(QLabel("Dichte:"))
+        self.free_form_density = QComboBox()
+        for label, key in FREE_FORM_DENSITY_PRESETS:
+            self.free_form_density.addItem(label, key)
+        self.free_form_density.setToolTip(
+            "Nur Freie Form:\n"
+            "• Luftig = 64 Wörter (Default)\n"
+            "• Normal = 90 Wörter\n"
+            "• Dicht = 140 Wörter\n"
+            "• Frei (Maxima) = Wortanzahl über „Maxima → Wörter“\n"
+            "Packung (Locker/Normal/Eng) steuert die Weißabstände."
+        )
+        self.free_form_density.currentIndexChanged.connect(self._on_free_form_density_changed)
+        free_margin_row.addWidget(self.free_form_density)
+        self.free_form_words_hint = QLabel("")
+        self.free_form_words_hint.setStyleSheet("color:#5b6573;")
+        free_margin_row.addWidget(self.free_form_words_hint)
+        free_margin_row.addStretch(1)
+        self._free_margin_host = QWidget()
+        self._free_margin_host.setLayout(free_margin_row)
+        form.addRow("Wolken-Rand:", self._free_margin_host)
+        self._free_margin_row = form.rowCount() - 1
+        form.setRowVisible(self._free_margin_row, True)
+
+        pack_orient_row = QHBoxLayout()
+        pack_orient_row.setContentsMargins(0, 0, 0, 0)
+        pack_orient_row.setSpacing(8)
+        pack_orient_row.addWidget(QLabel("Packung:"))
+        self.free_form_packing = QComboBox()
+        for label, key in FREE_FORM_PACKING_PRESETS:
+            self.free_form_packing.addItem(label, key)
+        self.free_form_packing.setToolTip(
+            "Nur Freie Form — wie eng die Wörter aneinander sitzen:\n"
+            "• Eng = maximal dicht (kleine Wolke, keine Staub-Lücken)\n"
+            "• Normal = dicht\n"
+            "• Locker = etwas mehr Luft zwischen den Wörtern\n"
+            "Zu wenige Wörter werden NICHT über das ganze Cover verteilt."
+        )
+        _set_combo_by_data(self.free_form_packing, "tight")
+        pack_orient_row.addWidget(self.free_form_packing)
+        pack_orient_row.addSpacing(12)
+        pack_orient_row.addWidget(QLabel("Ausrichtung:"))
+        self.orient_auto = QCheckBox("Auto (Ratio)")
+        self.orient_auto.setChecked(True)
+        self.orient_auto.setToolTip(
+            "Ein: quer/hoch folgt dem Cover-Ratio "
+            "(Hochformat → mehr senkrechte Wörter).\n"
+            "Aus: manuell über „% quer“."
+        )
+        self.orient_auto.toggled.connect(self._on_orient_auto_toggled)
+        pack_orient_row.addWidget(self.orient_auto)
+        self.orient_pct = QSpinBox()
+        self.orient_pct.setRange(0, 100)
+        self.orient_pct.setValue(50)
+        self.orient_pct.setSuffix(" % quer")
+        self.orient_pct.setEnabled(False)
+        self.orient_pct.setToolTip(
+            "Anteil der Wörter, die zuerst waagerecht versucht werden "
+            "(Rest senkrecht).\n"
+            "0 % = nur hoch, 100 % = nur quer."
+        )
+        pack_orient_row.addWidget(self.orient_pct)
+        pack_orient_row.addStretch(1)
+        self._pack_orient_host = QWidget()
+        self._pack_orient_host.setLayout(pack_orient_row)
+        form.addRow("Packung / Richtung:", self._pack_orient_host)
+        self._pack_orient_row = form.rowCount() - 1
+        form.setRowVisible(self._pack_orient_row, True)
 
         mask_row = QHBoxLayout()
         mask_row.setContentsMargins(0, 0, 0, 0)
@@ -270,17 +416,23 @@ class StylecloudQtDialog(QDialog):
         self.max_words = QSpinBox()
         self.max_words.setRange(20, 2000)
         self.max_words.setValue(400)
+        self.max_words.setToolTip(
+            "Maximale Wortanzahl.\n"
+            "Bei Freier Form greift stattdessen die Dichte (Luftig/Normal/Dicht)."
+        )
         self.max_font = QSpinBox()
         self.max_font.setRange(40, 2000)
         self.max_font.setValue(suggested_max_font_size(self.size_combo.currentData() or 1024))
         self.max_font.setToolTip(
-            "Maximale Wortgröße in Pixeln. Wird beim Wechsel der Auflösung "
-            "automatisch auf Druckmaß angepasst."
+            "Maximale Wortgröße in Pixeln — genau der Wert, den du setzt.\n"
+            "Wird weder beim Erzeugen noch bei „Neu würfeln“ überschrieben."
         )
+        self.max_font.valueChanged.connect(self._preserve_generation_font)
         words_font_row = QHBoxLayout()
         words_font_row.setContentsMargins(0, 0, 0, 0)
         words_font_row.setSpacing(8)
-        words_font_row.addWidget(QLabel("Wörter:"))
+        self.max_words_label = QLabel("Wörter:")
+        words_font_row.addWidget(self.max_words_label)
         words_font_row.addWidget(self.max_words)
         words_font_row.addWidget(QLabel("Schrift:"))
         words_font_row.addWidget(self.max_font)
@@ -460,15 +612,45 @@ class StylecloudQtDialog(QDialog):
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
+        row.setSpacing(6)
+        row.addWidget(QLabel("Preset:"))
+        self.preset_combo = QComboBox()
+        self.preset_combo.setFixedWidth(320)
+        self.preset_combo.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        self.preset_combo.setToolTip(
+            "Gespeicherte Einstellungs-Presets (Auflösung, Form, Farben, …)."
+        )
+        row.addWidget(self.preset_combo)
+        self.btn_preset_load = QPushButton("📥 Laden")
+        self.btn_preset_load.setToolTip("Ausgewähltes Preset laden")
+        self.btn_preset_load.clicked.connect(self._load_selected_preset)
+        row.addWidget(self.btn_preset_load)
+        self.btn_preset_save = QPushButton("💾 Speichern…")
+        self.btn_preset_save.setToolTip("Aktuelle Einstellungen als Preset speichern")
+        self.btn_preset_save.clicked.connect(self._save_preset_as)
+        row.addWidget(self.btn_preset_save)
+        self.btn_preset_manage = QPushButton("⚙️ Verwalten…")
+        self.btn_preset_manage.setToolTip("Presets verwalten (laden, umbenennen, löschen)")
+        self.btn_preset_manage.clicked.connect(self._open_preset_manager)
+        row.addWidget(self.btn_preset_manage)
+
+        row.addStretch(1)
+
         self.btn_generate = QPushButton("Wolke erzeugen")
         self.btn_generate.setDefault(True)
         self.btn_generate.clicked.connect(self._generate)
         row.addWidget(self.btn_generate)
+        self.btn_reset = QPushButton("Neu würfeln")
+        self.btn_reset.setToolTip(
+            "Gleiche Einstellungen, neues Zufalls-Layout (nur neu erzeugen)."
+        )
+        self.btn_reset.clicked.connect(self._reshuffle_generate)
+        row.addWidget(self.btn_reset)
         self.btn_open = QPushButton("Ordner öffnen")
         self.btn_open.clicked.connect(self._open_folder)
         row.addWidget(self.btn_open)
-        row.addStretch(1)
         close = QPushButton("Schließen")
         close.clicked.connect(self.accept)
         self.btn_close = close
@@ -480,10 +662,12 @@ class StylecloudQtDialog(QDialog):
         layout.addLayout(row)
 
         self.source_combo.currentIndexChanged.connect(self._on_source_changed)
+        self._refresh_preset_combo()
         self._restore_settings()
         self._on_source_changed()
         self._on_mask_path_changed()
         self._refresh_palette_preview()
+        self.max_font.valueChanged.connect(self._persist_font_size_immediately)
 
     def _color_field(
         self,
@@ -586,16 +770,43 @@ class StylecloudQtDialog(QDialog):
     def _on_size_changed(self, *_args) -> None:
         if self._restoring:
             return
-        size = self.size_combo.currentData()
+        size = self._resolved_size()
+        custom = self.size_combo.currentData() == CUSTOM_SIZE_SENTINEL
+        self._form_layout.setRowVisible(self._custom_size_row, bool(custom))
         if size is None:
             return
-        self.max_font.setValue(suggested_max_font_size(size))
-        self.must_word_size.setValue(suggested_must_word_max_font(size))
-        self.must_word_gap.setValue(suggested_must_word_gap(size))
+        # Never auto-overwrite Maxima → Schrift here. Size changes used to reset
+        # Schrift (e.g. back to 346) on Neu würfeln / spurious combo signals.
+        self._size_for_font_suggest = size
+        self._update_custom_ratio_label()
         self._update_gradient_items()
 
+    def _on_custom_size_changed(self, *_args) -> None:
+        if self._restoring:
+            return
+        if self.size_combo.currentData() != CUSTOM_SIZE_SENTINEL:
+            return
+        size = self._resolved_size()
+        if size is None:
+            return
+        self._size_for_font_suggest = size
+        self._update_custom_ratio_label()
+        self._update_gradient_items()
+
+    def _update_custom_ratio_label(self) -> None:
+        width = max(1, int(self.custom_width.value()))
+        height = max(1, int(self.custom_height.value()))
+        ratio = width / height
+        self.custom_ratio_label.setText(f"Ratio: {ratio:.2f}")
+
+    def _resolved_size(self) -> int | tuple[int, int] | None:
+        data = self.size_combo.currentData()
+        if data == CUSTOM_SIZE_SENTINEL:
+            return (int(self.custom_width.value()), int(self.custom_height.value()))
+        return data
+
     def _canvas_is_square(self) -> bool:
-        size = self.size_combo.currentData()
+        size = self._resolved_size()
         return not (
             isinstance(size, tuple) and len(size) == 2 and int(size[0]) != int(size[1])
         )
@@ -665,8 +876,84 @@ class StylecloudQtDialog(QDialog):
     def _on_mask_path_changed(self, *_args) -> None:
         has_mask = bool(self.mask_path.text().strip())
         self.icon_combo.setEnabled(not has_mask)
+        self._update_form_margin_ui()
         self._update_gradient_items()
         self._update_invert_mask_ui()
+
+    def _on_form_changed(self, *_args) -> None:
+        if self._restoring:
+            return
+        self._update_form_margin_ui()
+        self._update_gradient_items()
+
+    def _resolved_icon_name(self) -> str:
+        """Canonical form id from the combo (never confuse Qt's None with FA book)."""
+        return normalize_icon_name(self.icon_combo.currentData())
+
+    def _resolved_free_form_density(self) -> str:
+        return normalize_free_form_density(self.free_form_density.currentData())
+
+    def _on_orient_auto_toggled(self, checked: bool) -> None:
+        self.orient_pct.setEnabled(not bool(checked))
+
+    def _resolved_free_form_packing(self) -> str:
+        return normalize_free_form_packing(self.free_form_packing.currentData())
+
+    def _resolved_prefer_horizontal(self) -> float | None:
+        if self.orient_auto.isChecked():
+            return None
+        return max(0.0, min(1.0, float(self.orient_pct.value()) / 100.0))
+
+    def _on_free_form_density_changed(self, *_args) -> None:
+        if self._restoring:
+            return
+        self._update_form_margin_ui()
+
+    def _update_free_form_words_hint(self, *_args) -> None:
+        if not hasattr(self, "free_form_words_hint"):
+            return
+        density = self._resolved_free_form_density()
+        if density == "free":
+            self.free_form_words_hint.setText("(→ Maxima → Wörter)")
+            return
+        budget = free_form_word_budget(density, 1200, 1900)
+        self.free_form_words_hint.setText(f"(Ziel: {budget} Wörter)")
+
+    def _update_form_margin_ui(self) -> None:
+        has_mask = bool(self.mask_path.text().strip())
+        icon = self._resolved_icon_name()
+        is_free = (not has_mask) and icon == ICON_NONE
+        density = self._resolved_free_form_density() if is_free else ""
+        density_uses_maxima = is_free and density == "free"
+        # Cover-Rand only for organic blob. Freie Form uses the full cover;
+        # overflow is hard-clipped at the canvas edge.
+        show_margin = (not has_mask) and icon == ICON_ORGANIC
+        self._form_layout.setRowVisible(self._free_margin_row, bool(show_margin))
+        self.free_form_margin.setEnabled(bool(show_margin))
+        self.free_form_density.setVisible(bool(is_free))
+        self.free_form_density.setEnabled(bool(is_free))
+        self.free_form_words_hint.setVisible(bool(is_free))
+        if hasattr(self, "_pack_orient_row"):
+            self._form_layout.setRowVisible(self._pack_orient_row, bool(is_free))
+            self.free_form_packing.setEnabled(bool(is_free))
+            self.orient_auto.setEnabled(bool(is_free))
+            self.orient_pct.setEnabled(
+                bool(is_free) and not self.orient_auto.isChecked()
+            )
+        self.max_words.setEnabled((not is_free) or density_uses_maxima)
+        self.max_words_label.setEnabled((not is_free) or density_uses_maxima)
+        if is_free and not density_uses_maxima:
+            self.max_words.setToolTip(
+                "Bei Dichte Luftig/Normal/Dicht steuert „Dichte“ die Wortanzahl.\n"
+                "Für manuelle Steuerung: Dichte → „Frei (Maxima)“."
+            )
+        elif density_uses_maxima:
+            self.max_words.setToolTip(
+                "Dichte „Frei“: hier die gewünschte Wortanzahl setzen."
+            )
+        else:
+            self.max_words.setToolTip("Maximale Wortanzahl in der Wolke.")
+        self._update_free_form_words_hint()
 
     def _update_invert_mask_ui(self) -> None:
         """Context-sensitive tooltip for mask vs. Font Awesome invert."""
@@ -696,14 +983,20 @@ class StylecloudQtDialog(QDialog):
         self.mask_path.clear()
 
     def _collect_settings(self) -> dict:
-        size = self.size_combo.currentData()
+        size = self._resolved_size()
+        icon_name = self._resolved_icon_name()
         return {
             "source_mode": str(self.source_combo.currentData() or "book"),
             "source_path": self.source_path.text().strip(),
             "output_path": self.output_path.text().strip(),
             "size": size if size is not None else 1024,
-            "icon_name": str(self.icon_combo.currentData() or "fas fa-book"),
+            "icon_name": icon_name,
             "mask_path": self.mask_path.text().strip(),
+            "free_form_margin_pct": float(self.free_form_margin.value()),
+            "free_form_density": self._resolved_free_form_density(),
+            "free_form_packing": self._resolved_free_form_packing(),
+            "free_form_orient_auto": bool(self.orient_auto.isChecked()),
+            "free_form_orient_pct": int(self.orient_pct.value()),
             "palette": str(
                 self.palette_combo.currentData() or "cartocolors.qualitative.Bold_5"
             ),
@@ -712,6 +1005,7 @@ class StylecloudQtDialog(QDialog):
             "max_colors": int(self.max_colors.value()),
             "max_words": int(self.max_words.value()),
             "max_font_size": int(self.max_font.value()),
+            "user_font_size": self._user_font_size,
             "use_german_stopwords": self.german_stop.isChecked(),
             "nouns_only": self.nouns_only.isChecked(),
             "collocations": self.collocations.isChecked(),
@@ -737,20 +1031,122 @@ class StylecloudQtDialog(QDialog):
         except OSError as exc:
             self._log(f"[stylecloud] Einstellungen nicht speicherbar: {exc}", "warning")
 
+    def _persist_font_size_immediately(self, value: int) -> None:
+        """Save a user-selected font size before a generation can reload settings."""
+        if self._restoring or self._is_generating:
+            return
+        self._user_font_size = int(value)
+        try:
+            settings = load_settings()
+            settings["max_font_size"] = int(value)
+            settings["user_font_size"] = int(value)
+            save_settings(settings)
+        except OSError as exc:
+            self._log(
+                f"[stylecloud] Schriftgröße nicht speicherbar: {exc}", "warning"
+            )
+
+    def _refresh_preset_combo(self, select_name: str | None = None) -> None:
+        current = select_name or self.preset_combo.currentData()
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        self.preset_combo.addItem("— Preset wählen —", "")
+        for info in list_presets():
+            self.preset_combo.addItem(info.name, info.name)
+        if current:
+            _set_combo_by_data(self.preset_combo, current)
+        self.preset_combo.blockSignals(False)
+        has_any = self.preset_combo.count() > 1
+        self.btn_preset_load.setEnabled(has_any)
+
+    def _apply_preset_settings(self, data: dict) -> None:
+        """Apply a preset without changing the dialog window size."""
+        self._restoring = True
+        try:
+            self._restore_settings_body(data, apply_geometry=False)
+        finally:
+            self._restoring = False
+            self._on_mask_path_changed()
+            self._on_source_changed()
+
+    def _load_selected_preset(self) -> None:
+        name = str(self.preset_combo.currentData() or "").strip()
+        if not name:
+            QMessageBox.information(
+                self,
+                "Preset laden",
+                "Bitte zuerst ein Preset in der Liste auswählen.",
+            )
+            return
+        try:
+            settings = load_preset(name)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Preset laden", str(exc))
+            self._refresh_preset_combo()
+            return
+        self._apply_preset_settings(settings)
+        self.status.setText(f"Preset „{name}“ geladen.")
+
+    def _save_preset_as(self) -> None:
+        suggested = str(self.preset_combo.currentData() or "").strip()
+        name, ok = QInputDialog.getText(
+            self,
+            "Preset speichern",
+            "Name des Presets:",
+            text=suggested,
+        )
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            QMessageBox.warning(self, "Preset speichern", "Bitte einen Namen angeben.")
+            return
+        existing = {p.name.casefold() for p in list_presets()}
+        if name.casefold() in existing:
+            answer = QMessageBox.question(
+                self,
+                "Preset überschreiben?",
+                f"Preset „{name}“ existiert bereits. Überschreiben?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            save_preset(name, self._collect_settings())
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Preset speichern", str(exc))
+            return
+        self._refresh_preset_combo(select_name=name)
+        self.status.setText(f"Preset „{name}“ gespeichert.")
+
+    def _open_preset_manager(self) -> None:
+        dlg = StylecloudPresetManagerDialog(
+            collect_settings=self._collect_settings,
+            apply_settings=self._apply_preset_settings,
+            parent=self,
+        )
+        dlg.exec()
+        select = dlg.loaded_preset_name or str(self.preset_combo.currentData() or "")
+        self._refresh_preset_combo(select_name=select or None)
+
     def _restore_settings(self) -> None:
         data = load_settings()
         self._restoring = True
         try:
-            self._restore_settings_body(data)
+            self._restore_settings_body(data, apply_geometry=True)
         finally:
             self._restoring = False
             self._on_mask_path_changed()
 
-    def _restore_settings_body(self, data: dict) -> None:
+    def _restore_settings_body(
+        self, data: dict, *, apply_geometry: bool = True
+    ) -> None:
         from tools.stylecloud.generator import DEFAULT_PRINT_SIZE
 
-        width, height = resolve_window_size(data)
-        self.resize(width, height)
+        if apply_geometry:
+            width, height = resolve_window_size(data)
+            self.resize(width, height)
 
         mode = str(data.get("source_mode") or "book")
         _set_combo_by_data(self.source_combo, mode)
@@ -766,9 +1162,45 @@ class StylecloudQtDialog(QDialog):
         size = data.get("size", DEFAULT_PRINT_SIZE)
         if size in (512, 1024) or size == [1024] or size == [512]:
             size = DEFAULT_PRINT_SIZE
+        if isinstance(size, list) and len(size) == 2:
+            try:
+                size = (int(size[0]), int(size[1]))
+            except (TypeError, ValueError):
+                size = DEFAULT_PRINT_SIZE
         if not _set_combo_by_data(self.size_combo, size):
-            _set_combo_by_data(self.size_combo, DEFAULT_PRINT_SIZE)
-        _set_combo_by_data(self.icon_combo, data.get("icon_name"))
+            if isinstance(size, tuple) and len(size) == 2:
+                _set_combo_by_data(self.size_combo, CUSTOM_SIZE_SENTINEL)
+                self.custom_width.setValue(max(256, int(size[0])))
+                self.custom_height.setValue(max(256, int(size[1])))
+            else:
+                _set_combo_by_data(self.size_combo, DEFAULT_PRINT_SIZE)
+        self._form_layout.setRowVisible(
+            self._custom_size_row,
+            self.size_combo.currentData() == CUSTOM_SIZE_SENTINEL,
+        )
+        self._update_custom_ratio_label()
+        icon_name = normalize_icon_name(data.get("icon_name", ICON_NONE))
+        if not _set_combo_by_data(self.icon_combo, icon_name):
+            _set_combo_by_data(self.icon_combo, ICON_NONE)
+        self.free_form_margin.setValue(
+            int(data.get("free_form_margin_pct") or 14)
+        )
+        _set_combo_by_data(
+            self.free_form_density,
+            normalize_free_form_density(data.get("free_form_density")),
+        )
+        _set_combo_by_data(
+            self.free_form_packing,
+            normalize_free_form_packing(data.get("free_form_packing")),
+        )
+        orient_auto = bool(data.get("free_form_orient_auto", True))
+        self.orient_auto.setChecked(orient_auto)
+        try:
+            self.orient_pct.setValue(int(data.get("free_form_orient_pct") or 50))
+        except (TypeError, ValueError):
+            self.orient_pct.setValue(50)
+        self.orient_pct.setEnabled(not orient_auto)
+        self._update_form_margin_ui()
         mask = str(data.get("mask_path") or "").strip()
         if mask:
             self.mask_path.setText(mask)
@@ -777,14 +1209,21 @@ class StylecloudQtDialog(QDialog):
 
         bg = str(data.get("background_color") or "white").strip()
         self.bg_edit.setText(bg or "white")
-        size_data = self.size_combo.currentData() or DEFAULT_PRINT_SIZE
+        size_data = self._resolved_size() or DEFAULT_PRINT_SIZE
         self.max_colors.setValue(int(data.get("max_colors") or 5))
         self.max_words.setValue(int(data.get("max_words") or 500))
-        self.max_font.setValue(
-            int(data.get("max_font_size") or suggested_max_font_size(size_data))
-        )
-        if int(self.max_font.value()) < suggested_max_font_size(size_data) // 2:
-            self.max_font.setValue(suggested_max_font_size(size_data))
+        saved_font = data.get("user_font_size")
+        if saved_font is None:
+            saved_font = data.get("max_font_size")
+        try:
+            self._user_font_size = int(saved_font) if saved_font is not None else None
+        except (TypeError, ValueError):
+            self._user_font_size = None
+        # Never invent a fantasy Schrift (e.g. 346) — only restore what was saved,
+        # otherwise keep the spinbox default from construction.
+        if self._user_font_size is not None:
+            self.max_font.setValue(int(self._user_font_size))
+        self._size_for_font_suggest = size_data
         self.png_compress.setValue(int(data.get("png_compress_level") or 6))
         self.png_optimize.setChecked(bool(data.get("png_optimize", True)))
         self.png_dpi.setValue(int(data.get("png_dpi") or PRINT_DPI))
@@ -957,12 +1396,11 @@ class StylecloudQtDialog(QDialog):
             QMessageBox.critical(self, "Lesen fehlgeschlagen", str(exc))
 
     def _build_options(self) -> StylecloudOptions:
-        size = self.size_combo.currentData()
+        size = self._resolved_size()
         out = self.output_path.text().strip()
         if not out:
             raise ValueError("Bitte einen Ausgabe-Pfad angeben.")
         text = self.text_edit.toPlainText().strip()
-        must = self.must_word.text().strip() or self.must_word_line2.text().strip()
         if not text:
             # Auto-load from book/file so "Wolke erzeugen" works without
             # an extra "Text laden" click after choosing a source file.
@@ -970,21 +1408,49 @@ class StylecloudQtDialog(QDialog):
             if mode in ("book", "file"):
                 text = self._read_source_text().strip()
                 self.text_edit.setPlainText(text)
-        if not text and not must:
+            elif mode == "paste":
+                # Recover: Freitext leer, aber Quelldatei-Pfad noch gesetzt.
+                raw = self.source_path.text().strip()
+                if raw:
+                    path = Path(raw).expanduser().resolve()
+                    if path.is_file():
+                        if path.suffix.lower() in {".md", ".qmd"}:
+                            from tools.stylecloud.text_sources import extract_markdown_body
+
+                            text = extract_markdown_body(path).strip()
+                        else:
+                            text = path.read_text(
+                                encoding="utf-8", errors="replace"
+                            ).strip()
+                        if text:
+                            self.text_edit.setPlainText(text)
+                            self.source_combo.blockSignals(True)
+                            _set_combo_by_data(self.source_combo, "file")
+                            self.source_combo.blockSignals(False)
+                            self.status.setText(
+                                f"Leerer Freitext — Quelldatei geladen: {path.name}"
+                            )
+        if not text:
             raise ValueError(
                 "Kein Text für die Schlagwortwolke.\n"
-                "Bitte Text laden oder ein Muss-Wort eingeben."
+                "Freitext ist leer — bitte Text laden (Buch/Datei) oder einfügen.\n"
+                "Nur ein Muss-Wort ohne Wolken-Text erzeugt keine Schlagwortwolke."
             )
+        icon_name = self._resolved_icon_name()
         return StylecloudOptions(
             text=text,
             output_path=Path(out),
             size=size if size is not None else 1024,
-            icon_name=str(self.icon_combo.currentData() or "fas fa-book"),
+            icon_name=icon_name,
             mask_path=(
                 Path(self.mask_path.text().strip())
                 if self.mask_path.text().strip()
                 else None
             ),
+            free_form_margin_pct=float(self.free_form_margin.value()),
+            free_form_density=self._resolved_free_form_density(),
+            free_form_packing=self._resolved_free_form_packing(),
+            free_form_prefer_horizontal=self._resolved_prefer_horizontal(),
             palette=str(
                 self.palette_combo.currentData() or "cartocolors.qualitative.Bold_5"
             ),
@@ -992,7 +1458,7 @@ class StylecloudQtDialog(QDialog):
             max_colors=int(self.max_colors.value()),
             gradient=(
                 None
-                if self.mask_path.text().strip()
+                if self.mask_path.text().strip() or not icon_name.strip()
                 else self.gradient_combo.currentData()
             ),
             max_font_size=int(self.max_font.value()),
@@ -1002,7 +1468,7 @@ class StylecloudQtDialog(QDialog):
             nouns_only=self.nouns_only.isChecked(),
             collocations=self.collocations.isChecked(),
             invert_mask=self.invert_mask.isChecked(),
-            random_state=42,
+            random_state=int(getattr(self, "_layout_seed", 42)),
             must_word=self.must_word.text().strip(),
             must_word_line2=self.must_word_line2.text().strip(),
             must_word_font_size=int(self.must_word_size.value()),
@@ -1018,9 +1484,15 @@ class StylecloudQtDialog(QDialog):
     def _generate(self) -> None:
         if self._worker is not None and self._worker.isRunning():
             return
+        if not hasattr(self, "_layout_seed"):
+            self._layout_seed = 42
+        self._generation_max_font_size = int(self.max_font.value())
+        self._is_generating = True
         try:
             options = self._build_options()
         except ValueError as exc:
+            self._is_generating = False
+            self._generation_max_font_size = None
             QMessageBox.warning(self, "Eingabe", str(exc))
             return
 
@@ -1037,11 +1509,35 @@ class StylecloudQtDialog(QDialog):
         worker.finished.connect(self._on_generate_finished)
         worker.start()
 
+    def _preserve_generation_font(self, value: int) -> None:
+        """Reject stale UI updates while a generation is using this font size."""
+        expected = self._generation_max_font_size
+        if not self._is_generating or expected is None or int(value) == expected:
+            return
+        self.max_font.blockSignals(True)
+        self.max_font.setValue(expected)
+        self.max_font.blockSignals(False)
+
     def _set_busy(self, busy: bool) -> None:
         self.progress.setVisible(busy)
         self.btn_generate.setEnabled(not busy)
+        self.btn_reset.setEnabled(not busy)
         self.btn_open.setEnabled(not busy)
         self.btn_close.setEnabled(not busy)
+        self.btn_preset_load.setEnabled(not busy and self.preset_combo.count() > 1)
+        self.btn_preset_save.setEnabled(not busy)
+        self.btn_preset_manage.setEnabled(not busy)
+        self.preset_combo.setEnabled(not busy)
+        self.max_font.setEnabled(not busy)
+
+    def _reshuffle_generate(self) -> None:
+        """Same settings, new random layout — does not wipe the form or Schrift."""
+        if self._worker is not None and self._worker.isRunning():
+            return
+        import random
+
+        self._layout_seed = random.randint(1, 2_147_483_647)
+        self._generate()
 
     def _on_generate_progress(self, percent: int, message: str) -> None:
         self.progress.setValue(int(percent))
@@ -1066,6 +1562,8 @@ class StylecloudQtDialog(QDialog):
                 meta = ""
         self.status.setText(f"Gespeichert: {out}{meta}")
         self._log(f"[stylecloud] Cover-Wolke erzeugt: {out}{meta}", "success")
+        # Persist exactly the Schrift the user has set — never invent a value.
+        self._user_font_size = int(self.max_font.value())
         self._persist_settings()
         pix = QPixmap(str(out))
         if not pix.isNull():
@@ -1092,6 +1590,8 @@ class StylecloudQtDialog(QDialog):
         self.status.setText(message)
 
     def _on_generate_finished(self) -> None:
+        self._is_generating = False
+        self._generation_max_font_size = None
         self._set_busy(False)
         self.progress.setValue(0)
         self.progress.setFormat("%p%")

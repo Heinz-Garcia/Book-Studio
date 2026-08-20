@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
 from services.plugin_loader import PluginLoader
@@ -165,8 +166,7 @@ def test_must_word_only_generates_overlay(tmp_path: Path) -> None:
     )
     assert path.is_file()
     img = Image.open(path).convert("RGB")
-    assert img.size[0] == 256
-    assert img.size[1] >= 256
+    assert img.size == (256, 256)
     has_ink = any(
         img.getpixel((x, y)) != (255, 255, 255)
         for x in range(0, img.width, 3)
@@ -340,6 +340,307 @@ def test_print_size_helpers() -> None:
     assert suggested_max_font_size(DEFAULT_PRINT_SIZE) >= 400
 
 
+def test_size_preset_labels_state_markets_clearly() -> None:
+    from tools.stylecloud.generator import SIZE_PRESETS, inch_to_px, mm_to_px
+
+    labels = "\n".join(SIZE_PRESETS.keys())
+    assert "Standard DACH" in labels
+    assert "Standard international" in labels
+    assert "DE Paperback 135×215" in labels
+    assert "Amazon KDP Paperback 6×9" in labels
+    assert SIZE_PRESETS[
+        next(k for k in SIZE_PRESETS if "Standard DACH" in k)
+    ] == (mm_to_px(135), mm_to_px(215))
+    assert SIZE_PRESETS[
+        next(k for k in SIZE_PRESETS if "Standard international" in k)
+    ] == (inch_to_px(6), inch_to_px(9))
+
+
+def test_uses_rectangle_form() -> None:
+    from tools.stylecloud.generator import (
+        ICON_NONE,
+        ICON_ORGANIC,
+        ICON_RECT,
+        normalize_icon_name,
+        uses_free_form,
+        uses_free_ratio_cloud,
+        uses_organic_form,
+        uses_rectangle_form,
+    )
+
+    assert uses_free_ratio_cloud(StylecloudOptions(icon_name=ICON_NONE)) is True
+    assert uses_free_ratio_cloud(StylecloudOptions(icon_name="")) is True
+    assert uses_rectangle_form(StylecloudOptions(icon_name=ICON_RECT)) is True
+    assert uses_rectangle_form(StylecloudOptions(icon_name=ICON_NONE)) is False
+    assert uses_rectangle_form(StylecloudOptions(icon_name="fas fa-book")) is False
+    assert uses_rectangle_form(StylecloudOptions(icon_name=ICON_ORGANIC)) is False
+    assert uses_organic_form(StylecloudOptions(icon_name=ICON_ORGANIC)) is True
+    assert uses_organic_form(StylecloudOptions(icon_name="__free_form__")) is True
+    assert uses_free_form(StylecloudOptions(icon_name=ICON_ORGANIC)) is True
+    assert uses_free_form(StylecloudOptions(icon_name=ICON_NONE)) is False
+    assert normalize_icon_name("") == ICON_NONE
+    assert normalize_icon_name("rectangle") == ICON_RECT
+    assert normalize_icon_name("__free_form__") == ICON_ORGANIC
+    assert (
+        uses_free_ratio_cloud(
+            StylecloudOptions(icon_name=ICON_NONE, mask_path=Path("x.png"))
+        )
+        is False
+    )
+
+
+def test_ratio_ellipse_mask_follows_aspect_and_leaves_corners() -> None:
+    from tools.stylecloud.mask_image import build_ratio_ellipse_mask
+
+    width, height = 600, 900
+    mask = build_ratio_ellipse_mask((width, height), margin_pct=10.0)
+    assert mask.shape == (height, width, 3)
+    assert np.all(mask[0, 0] >= 250)
+    assert np.all(mask[0, -1] >= 250)
+    assert np.all(mask[-1, 0] >= 250)
+    assert np.all(mask[-1, -1] >= 250)
+    cy, cx = height // 2, width // 2
+    assert np.all(mask[cy, cx] <= 10)
+    fill = int(np.sum(mask[:, :, 0] < 128))
+    assert 0 < fill < width * height * 0.95
+
+
+def test_centered_free_form_mask_has_margins_and_fill() -> None:
+    from tools.stylecloud.mask_image import build_centered_free_form_mask
+
+    width, height = 600, 900
+    mask = build_centered_free_form_mask(
+        (width, height), margin_pct=20.0, random_state=7
+    )
+    assert mask.shape == (height, width, 3)
+    # Corners must stay white (outside)
+    assert np.all(mask[0, 0] >= 250)
+    assert np.all(mask[0, -1] >= 250)
+    assert np.all(mask[-1, 0] >= 250)
+    assert np.all(mask[-1, -1] >= 250)
+    # Center must be fillable (dark)
+    cy, cx = height // 2, width // 2
+    assert np.all(mask[cy, cx] <= 10)
+    # Fill area smaller than full canvas
+    fill = int(np.sum(mask[:, :, 0] < 128))
+    assert 0 < fill < width * height * 0.85
+
+
+def test_generate_rectangle_skips_stylecloud_icon(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.stylecloud.generator import ICON_RECT
+
+    out = tmp_path / "rect.png"
+    calls: list[str] = []
+
+    class _FakeWC:
+        def __init__(self, **kwargs):
+            assert "mask" not in kwargs
+            assert kwargs["width"] == 400
+            assert kwargs["height"] == 600
+            calls.append("init")
+
+        def generate_from_text(self, text: str) -> None:
+            assert "Brustkrebs" in text
+            calls.append("generate")
+
+        def recolor(self, **kwargs) -> None:
+            calls.append("recolor")
+
+        def to_file(self, path: str) -> None:
+            from PIL import Image
+
+            Image.new("RGB", (40, 60), "white").save(path)
+            calls.append("to_file")
+
+    monkeypatch.setattr(
+        "tools.stylecloud.generator.ensure_stylecloud_available",
+        lambda: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        "tools.stylecloud.generator.resolve_word_colors",
+        lambda _options: ["#000000", "#ffffff"],
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "wordcloud",
+        SimpleNamespace(WordCloud=_FakeWC),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "stylecloud.stylecloud",
+        SimpleNamespace(STATIC_PATH=str(tmp_path), gen_palette=lambda *a, **k: None),
+    )
+    (tmp_path / "Staatliches-Regular.ttf").write_bytes(b"x")
+
+    path = generate_stylecloud(
+        StylecloudOptions(
+            text="Brustkrebs Therapie Diagnose",
+            output_path=out,
+            size=(400, 600),
+            icon_name=ICON_RECT,
+        )
+    )
+    assert Path(path).resolve() == out.resolve()
+    assert out.is_file()
+    assert "generate" in calls
+    assert "to_file" in calls
+
+
+def test_generate_free_ratio_cloud_has_no_mask_sunburst(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PIL import Image, ImageDraw
+
+    from tools.stylecloud.generator import ICON_NONE
+
+    out = tmp_path / "free.png"
+    calls: list[str] = []
+
+    class _FakeWC:
+        last: dict | None = None
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            _FakeWC.last = kwargs
+
+        def process_text(self, text: str) -> dict[str, float]:
+            return {
+                "Brustkrebs": 1.0,
+                "Therapie": 0.8,
+                "Diagnose": 0.6,
+                "Vorsorge": 0.5,
+                "Klinik": 0.4,
+                "Patient": 0.35,
+                "Forschung": 0.3,
+                "Heilung": 0.25,
+            }
+
+        def generate_from_text(self, _text: str) -> None:
+            return None
+
+        def generate_from_frequencies(self, _freqs) -> None:
+            return None
+
+        def recolor(self, **_kwargs) -> None:
+            return None
+
+        def to_image(self):
+            w = int(self.kwargs.get("width") or 200)
+            h = int(self.kwargs.get("height") or 300)
+            img = Image.new("RGB", (w, h), "white")
+            draw = ImageDraw.Draw(img)
+            draw.rectangle((0, 0, w - 1, h - 1), fill=(200, 40, 40))
+            return img
+
+    monkeypatch.setattr(
+        "tools.stylecloud.generator.ensure_stylecloud_available",
+        lambda: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        "tools.stylecloud.generator.resolve_word_colors",
+        lambda _options: ["#112233", "#445566", "#778899"],
+    )
+    monkeypatch.setattr("tools.stylecloud.generator.WordCloud", _FakeWC, raising=False)
+    monkeypatch.setattr("wordcloud.WordCloud", _FakeWC)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "stylecloud.stylecloud",
+        SimpleNamespace(STATIC_PATH=str(tmp_path), gen_palette=lambda *a, **k: None),
+    )
+    (tmp_path / "Staatliches-Regular.ttf").write_bytes(b"x")
+
+    path = generate_stylecloud(
+        StylecloudOptions(
+            text="Brustkrebs Therapie Diagnose " * 40,
+            output_path=out,
+            size=(400, 600),
+            icon_name=ICON_NONE,
+            free_form_density="airy",
+            free_form_packing="tight",
+            max_words=800,
+            max_font_size=80,
+        )
+    )
+    assert Path(path).resolve() == out.resolve()
+    assert out.is_file()
+    import numpy as np
+
+    arr = np.asarray(Image.open(out).convert("RGB"))
+    ink = np.any(arr < 250, axis=2)
+    assert bool(np.any(ink))
+    assert arr.shape[1] == 400 and arr.shape[0] == 600
+    # Dense cloud is centered — corners of the full cover stay empty.
+    assert not bool(ink[0, 0])
+    assert not bool(ink[-1, -1])
+    assert _FakeWC.last is not None
+    assert int(_FakeWC.last["width"]) <= 400
+    assert int(_FakeWC.last["height"]) <= 600
+    calls.append("ok")
+    assert "ok" in calls
+
+
+def test_prefer_horizontal_follows_cover_ratio() -> None:
+    from tools.stylecloud.generator import (
+        _prefer_horizontal_for_ratio,
+        free_form_dense_canvas_size,
+        free_form_packing_params,
+        normalize_free_form_packing,
+        resolve_prefer_horizontal,
+    )
+
+    portrait = _prefer_horizontal_for_ratio(1594, 2539)
+    landscape = _prefer_horizontal_for_ratio(2539, 1594)
+    assert portrait < landscape
+    assert portrait < 0.55
+    assert landscape > 0.55
+    assert resolve_prefer_horizontal(1594, 2539, prefer_horizontal=None) == portrait
+    assert resolve_prefer_horizontal(100, 100, prefer_horizontal=0.8) == 0.8
+    assert normalize_free_form_packing("eng") == "tight"
+    loose = free_form_packing_params("loose")
+    tight = free_form_packing_params("tight")
+    assert tight[1] < loose[1]  # Eng uses less area per word
+    # Few words → compact canvas, not full paperback (that caused sparse dust).
+    dw, dh = free_form_dense_canvas_size(
+        1594, 2539, word_count=40, max_font=46, packing="tight"
+    )
+    assert dw < 1594 * 0.75
+    assert dh < 2539 * 0.75
+
+
+def test_paste_glyph_clipped_cuts_overflow(tmp_path: Path) -> None:
+    """Overflow past the cover edge is hard-clipped, not rejected."""
+    from PIL import Image, ImageDraw
+
+    from tools.stylecloud.generator import _paste_glyph_clipped
+    import numpy as np
+
+    canvas = Image.new("RGB", (80, 60), "white")
+    occupied = np.zeros((60, 80), dtype=bool)
+    glyph = Image.new("RGBA", (40, 20), (0, 0, 0, 0))
+    ImageDraw.Draw(glyph).rectangle((0, 0, 39, 19), fill=(200, 0, 0, 255))
+    # Center near left edge → left half of glyph is off-canvas and clipped.
+    assert _paste_glyph_clipped(canvas, occupied, glyph, 5.0, 30.0, pad_px=0)
+    arr = np.asarray(canvas)
+    assert bool(np.any(arr[:, 0] < 250))  # ink on left edge
+    assert not bool(np.any(arr[:, 40] < 250))  # far right stays empty for this glyph
+
+
+def test_free_form_word_budget_by_density() -> None:
+    from tools.stylecloud.generator import free_form_word_budget, normalize_free_form_density
+
+    assert normalize_free_form_density("luftig") == "airy"
+    assert normalize_free_form_density("frei") == "free"
+    assert free_form_word_budget("airy", 1200, 1900) == 64
+    assert free_form_word_budget("normal", 1200, 1900) == 90
+    assert free_form_word_budget("dense", 1200, 1900) == 140
+    # Large Cover-Rand must not silently shrink the density target.
+    assert free_form_word_budget("airy", 200, 300) == 64
+    assert free_form_word_budget("free", 1200, 1900, requested=800) == 800
+    assert free_form_word_budget("free", 1200, 1900, requested=5) == 20
+
+
 def test_generate_reports_progress(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -469,6 +770,7 @@ def test_settings_roundtrip(tmp_path: Path) -> None:
             "size": (1536, 2048),
             "nouns_only": True,
             "icon_name": "fas fa-leaf",
+            "user_font_size": 1234,
         },
         path=path,
     )
@@ -478,8 +780,70 @@ def test_settings_roundtrip(tmp_path: Path) -> None:
     assert loaded["size"] == (1536, 2048)
     assert loaded["nouns_only"] is True
     assert loaded["icon_name"] == "fas fa-leaf"
+    assert loaded["user_font_size"] == 1234
     # Defaults preserved for unset keys
     assert loaded["use_german_stopwords"] is True
+
+
+def test_preset_store_save_load_rename_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.stylecloud import preset_store as store
+
+    monkeypatch.setattr(store, "presets_dir", lambda: tmp_path / "presets")
+
+    path = store.save_preset(
+        "DE Cover Blau",
+        {
+            "palette": "cartocolors.qualitative.Bold_5",
+            "icon_name": "__organic__",
+            "size": (1594, 2539),
+            "must_word": "Berlin",
+            "window_width": 9999,  # must not persist in preset
+        },
+    )
+    assert path.is_file()
+    names = [p.name for p in store.list_presets()]
+    assert names == ["DE Cover Blau"]
+
+    loaded = store.load_preset("DE Cover Blau")
+    assert loaded["must_word"] == "Berlin"
+    assert loaded["icon_name"] == "__organic__"
+    assert loaded["size"] == [1594, 2539] or loaded["size"] == (1594, 2539)
+    assert "window_width" not in loaded
+
+    store.rename_preset("DE Cover Blau", "KDP Cover Rot")
+    assert [p.name for p in store.list_presets()] == ["KDP Cover Rot"]
+    assert store.load_preset("KDP Cover Rot")["must_word"] == "Berlin"
+
+    assert store.delete_preset("KDP Cover Rot") is True
+    assert store.list_presets() == []
+
+
+def test_shipped_freeform_preset_loads() -> None:
+    """Factory preset freeForm.json — eng gepackte Freie Form, nur laden."""
+    from tools.stylecloud.generator import ICON_NONE
+    from tools.stylecloud.preset_store import load_preset, presets_dir
+
+    path = presets_dir() / "freeForm.json"
+    assert path.is_file(), f"fehlendes Factory-Preset: {path}"
+    settings = load_preset("freeForm")
+    assert settings["icon_name"] == ICON_NONE
+    assert settings["free_form_packing"] == "tight"
+    assert settings["free_form_density"] == "free"
+    assert settings["free_form_orient_auto"] is True
+    assert settings["nouns_only"] is False
+    assert settings["png_dpi"] == 300
+    assert list(settings["size"]) == [1594, 2539]
+    assert int(settings["user_font_size"] or 0) == 72
+
+
+def test_preset_store_rejects_empty_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tools.stylecloud import preset_store as store
+
+    monkeypatch.setattr(store, "presets_dir", lambda: tmp_path / "presets")
+    with pytest.raises(ValueError):
+        store.save_preset("  ", {"must_word": "x"})
 
 
 def test_window_geometry_fallback_without_saved_size(tmp_path: Path) -> None:

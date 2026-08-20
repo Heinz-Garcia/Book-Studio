@@ -275,21 +275,35 @@ def overlay_must_word(
     gap = max(0, int(spec.gap_px))
     x = left + (form_w - layer.width) // 2
     y = bottom + gap
+    pad = 4
 
-    needed_h = y + layer.height + pad
-    if needed_h > base.height or x < 0 or x + layer.width > base.width:
-        new_w = max(base.width, x + layer.width + pad if x >= 0 else layer.width + 2 * pad)
-        new_h = max(base.height, needed_h)
-        try:
-            bg_rgb = ImageColor.getrgb(bg)
-        except ValueError:
-            bg_rgb = (255, 255, 255)
-        canvas = Image.new("RGBA", (new_w, new_h), (*bg_rgb, 255))
-        canvas.alpha_composite(base, dest=(0, 0))
-        base = canvas
-        if x < 0:
+    # Never expand the cover canvas — scale the must-word down to fit instead.
+    max_w = max(8, base.width - 2 * pad)
+    max_h = max(8, base.height - y - pad)
+    if layer.width > max_w or layer.height > max_h:
+        scale = min(max_w / max(1, layer.width), max_h / max(1, layer.height))
+        scale = max(0.05, min(1.0, float(scale)))
+        new_size = (
+            max(1, int(round(layer.width * scale))),
+            max(1, int(round(layer.height * scale))),
+        )
+        layer = layer.resize(new_size, Image.Resampling.LANCZOS)
+        x = left + (form_w - layer.width) // 2
+        y = bottom + gap
+        if y + layer.height + pad > base.height:
+            y = max(0, base.height - layer.height - pad)
+        if x < 0 or x + layer.width > base.width:
             x = max(0, (base.width - layer.width) // 2)
 
-    base.alpha_composite(layer, dest=(max(0, x), y))
+    if y < 0:
+        y = 0
+    if y + layer.height > base.height:
+        y = max(0, base.height - layer.height)
+    if x < 0:
+        x = 0
+    if x + layer.width > base.width:
+        x = max(0, base.width - layer.width)
+
+    base.alpha_composite(layer, dest=(x, y))
     base.convert("RGB").save(path)
     return path

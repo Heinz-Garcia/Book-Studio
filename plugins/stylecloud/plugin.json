@@ -7,5 +7,5 @@
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 19,
-  "help_text": "Erzeugt eine drucktaugliche PNG-Schlagwortwolke (300 dpi Presets, z. B. PB 135×215 mm). Quelle: Buch/Datei/Freitext. Form: Font Awesome oder Silhouette-Bild. Muss-Wort unter der Form. Deps: stylecloud, setuptools<82; optional spacy + de_core_news_sm."
+  "help_text": "Erzeugt eine drucktaugliche PNG-Schlagwortwolke (300 dpi). Auflösung/Ratio: DE Paperback / Amazon KDP 6×9 / frei. Form: Freie Form (vom Zentrum aus, keine Hülle; Ratio steuert Richtung) / Organische Silhouette / Rechteck / Font Awesome / Bildmaske. Dichte Luftig/Normal/Dicht/Frei. Presets. Muss-Wort. Deps: stylecloud, setuptools<82; optional spacy."
 }

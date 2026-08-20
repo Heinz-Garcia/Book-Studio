@@ -1,0 +1,11 @@
+{
+  "name": "breathcloud",
+  "label": "🌬️ Breathcloud — organische Wortwolke…",
+  "description": "Autonome Wortwolke um ein Kernwort: freie Form, dichter Versatz, Farbverlauf.",
+  "entrypoint": "plugins.breathcloud:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 20,
+  "help_text": "Eigenständiges Tool (nicht Cover-Schlagwortwolke). Kernwort frei wählbar, Wolke atmet organisch, Farbverlauf hex-kommagetrennt. CLI: python -m tools.breathcloud --hub NATURE --text-file … -o out.png"
+}

@@ -70,3 +70,8 @@ specifications.md
 # Cover-Schlagwortwolke: zuletzt genutzte Dialog-Einstellungen (lokal)
 tools/stylecloud/last_session.json
 tools/stylecloud/last_session.json.tmp
+tools/breathcloud/last_session.json
+tools/breathcloud/last_session.json.tmp
+tools/stylecloud/presets/*.json
+# Shipped factory preset (Freie Form, eng gepackt)
+!tools/stylecloud/presets/freeForm.json

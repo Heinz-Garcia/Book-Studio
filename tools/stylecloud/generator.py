@@ -50,30 +50,40 @@ def suggested_must_word_gap(size: int | tuple[int, int]) -> int:
 
 
 # Cover sizes: Entwurf (screen) + Buchdruck @ 300 dpi (trim without bleed).
+# Labels must state market / use clearly (dropdown is the UX SSOT for size choice).
 SIZE_PRESETS: dict[str, tuple[int, int] | int] = {
-    "1024×1024 (Entwurf)": 1024,
-    "2048×2048 (Entwurf HD)": 2048,
-    f"{mm_to_px(135)}×{mm_to_px(215)} (PB 135×215 mm · 300 dpi)": (
+    "1024×1024 · Entwurf 1:1 (nur Vorschau)": 1024,
+    "2048×2048 · Entwurf HD 1:1 (nur Vorschau)": 2048,
+    (
+        f"{mm_to_px(135)}×{mm_to_px(215)} · DE Paperback 135×215 mm · "
+        "300 dpi · Standard DACH"
+    ): (
         mm_to_px(135),
         mm_to_px(215),
     ),
-    f"{mm_to_px(148)}×{mm_to_px(210)} (A5 · 300 dpi)": (
-        mm_to_px(148),
-        mm_to_px(210),
-    ),
-    f"{inch_to_px(6)}×{inch_to_px(9)} (6×9 in · 300 dpi)": (
+    (
+        f"{inch_to_px(6)}×{inch_to_px(9)} · Amazon KDP Paperback 6×9 in · "
+        "300 dpi · Standard international"
+    ): (
         inch_to_px(6),
         inch_to_px(9),
     ),
-    f"{mm_to_px(170)}×{mm_to_px(240)} (170×240 mm · 300 dpi)": (
+    f"{mm_to_px(148)}×{mm_to_px(210)} · A5 148×210 mm · 300 dpi": (
+        mm_to_px(148),
+        mm_to_px(210),
+    ),
+    f"{mm_to_px(170)}×{mm_to_px(240)} · 170×240 mm · 300 dpi": (
         mm_to_px(170),
         mm_to_px(240),
     ),
-    f"{inch_to_px(12)}×{inch_to_px(18)} (Druck XL 12×18 in · 300 dpi)": (
+    f"{inch_to_px(12)}×{inch_to_px(18)} · Druck XL 12×18 in · 300 dpi": (
         inch_to_px(12),
         inch_to_px(18),
     ),
 }
+
+# Sentinel for free width×height (dialog enables custom spinboxes).
+CUSTOM_SIZE_SENTINEL = "custom"
 
 # Default: German paperback trim at print resolution.
 DEFAULT_PRINT_SIZE: tuple[int, int] = (mm_to_px(135), mm_to_px(215))
@@ -81,17 +91,53 @@ DEFAULT_PRINT_SIZE_LABEL = next(
     label for label, value in SIZE_PRESETS.items() if value == DEFAULT_PRINT_SIZE
 )
 
+# Freie Form: natural word cloud oriented to the chosen cover ratio (not a packed rect).
+ICON_NONE = "__none__"
+# Full rectangular pack (optional explicit mode).
+ICON_RECT = "__rect__"
+# Centered organic blob; canvas keeps full cover ratio with margins for title/logo.
+ICON_ORGANIC = "__organic__"
+# Older sessions/presets used these ids; still recognized on load.
+_ICON_NONE_ALIASES = frozenset({"", "__none__", "none", "free"})
+_ICON_RECT_ALIASES = frozenset({"__rect__", "rectangle", "rect"})
+_ICON_ORGANIC_ALIASES = frozenset({"__organic__", "__free_form__", "free_form"})
+# Back-compat alias (older code imported ICON_FREE_FORM for the blob).
+ICON_FREE_FORM = ICON_ORGANIC
 ICON_PRESETS: list[tuple[str, str]] = [
-    ("Buch", "fas fa-book"),
-    ("Aufgeschlagenes Buch", "fas fa-book-open"),
-    ("Herz", "fas fa-heart"),
-    ("Schild", "fas fa-shield-alt"),
-    ("Stern", "fas fa-star"),
-    ("Blatt", "fas fa-leaf"),
-    ("Gehirn", "fas fa-brain"),
-    ("Kreis", "fas fa-circle"),
-    ("Flagge", "fas fa-flag"),
+    (
+        "★ Freie Form — dicht gepackt bis zum Rand (Überstand wird abgeschnitten)",
+        ICON_NONE,
+    ),
+    (
+        "Organische Silhouette — unregelmäßiger Blob mit Rand",
+        ICON_ORGANIC,
+    ),
+    (
+        "Rechteck — Wörter packen die Cover-Fläche",
+        ICON_RECT,
+    ),
+    ("Buch (Font Awesome)", "fas fa-book"),
+    ("Aufgeschlagenes Buch (Font Awesome)", "fas fa-book-open"),
+    ("Herz (Font Awesome)", "fas fa-heart"),
+    ("Schild (Font Awesome)", "fas fa-shield-alt"),
+    ("Stern (Font Awesome)", "fas fa-star"),
+    ("Blatt (Font Awesome)", "fas fa-leaf"),
+    ("Gehirn (Font Awesome)", "fas fa-brain"),
+    ("Kreis (Font Awesome)", "fas fa-circle"),
+    ("Flagge (Font Awesome)", "fas fa-flag"),
 ]
+
+
+def normalize_icon_name(icon_name: object) -> str:
+    """Map UI/session icon ids onto canonical ICON_* values."""
+    raw = "" if icon_name is None else str(icon_name).strip()
+    if raw in _ICON_NONE_ALIASES:
+        return ICON_NONE
+    if raw in _ICON_RECT_ALIASES:
+        return ICON_RECT
+    if raw in _ICON_ORGANIC_ALIASES:
+        return ICON_ORGANIC
+    return raw or ICON_NONE
 
 PALETTE_PRESETS: list[tuple[str, str]] = [
     ("Kräftig bunt", "cartocolors.qualitative.Bold_5"),
@@ -108,6 +154,130 @@ GRADIENT_CHOICES: list[tuple[str, str | None]] = [
     ("Verlauf senkrecht", "vertical"),
 ]
 
+# Freie-Form density: word budget + min-font fraction (of max font).
+FREE_FORM_DENSITY_PRESETS: list[tuple[str, str]] = [
+    ("Luftig (64)", "airy"),
+    ("Normal (90)", "normal"),
+    ("Dicht (140)", "dense"),
+    ("Frei (Maxima)", "free"),
+]
+_FREE_FORM_DENSITY_WORDS: dict[str, int] = {
+    "airy": 64,
+    "normal": 90,
+    "dense": 140,
+}
+_FREE_FORM_DENSITY_MIN_FONT_FRAC: dict[str, float] = {
+    "airy": 0.40,
+    "normal": 0.32,
+    "dense": 0.22,
+}
+DEFAULT_FREE_FORM_DENSITY = "airy"
+
+# Packing → area factor (font² per word): lower = tighter nest / smaller cloud.
+FREE_FORM_PACKING_PRESETS: list[tuple[str, str]] = [
+    ("Locker", "loose"),
+    ("Normal", "normal"),
+    ("Eng", "tight"),
+]
+DEFAULT_FREE_FORM_PACKING = "tight"
+# unused, area_factor, unused, unused2  (area_factor: lower = denser)
+_FREE_FORM_PACKING_PARAMS: dict[str, tuple[int, float, int, float]] = {
+    "loose": (0, 0.72, 0, 0.0),
+    "normal": (0, 0.48, 0, 0.0),
+    "tight": (0, 0.28, 0, 0.0),
+}
+
+
+def free_form_dense_canvas_size(
+    cover_w: int,
+    cover_h: int,
+    *,
+    word_count: int,
+    max_font: int,
+    packing: str,
+) -> tuple[int, int]:
+    """Canvas that WordCloud can fill *flush* — not the full cover when few words.
+
+    Too large a canvas with few words is what caused the sparse „Staub“ look.
+    """
+    import math
+
+    key = normalize_free_form_packing(packing)
+    _u, area_factor, _a, _b = _FREE_FORM_PACKING_PARAMS[key]
+    n = max(8, int(word_count))
+    font = max(24, int(max_font))
+    target_area = float(n) * float(font * font) * float(area_factor)
+    ratio = float(cover_w) / float(max(1, cover_h))
+    dense_h = int(math.sqrt(target_area / max(ratio, 1e-6)))
+    dense_w = max(64, int(round(dense_h * ratio)))
+    dense_h = max(64, dense_h)
+    # Slight oversize vs cover → edge words can be clipped when compositing.
+    max_w = int(cover_w * 1.06)
+    max_h = int(cover_h * 1.06)
+    dense_w = min(dense_w, max_w)
+    dense_h = min(dense_h, max_h)
+    dense_w = max(64, dense_w)
+    dense_h = max(64, dense_h)
+    return int(dense_w), int(dense_h)
+
+
+
+def normalize_free_form_density(value: object) -> str:
+    raw = str(value or DEFAULT_FREE_FORM_DENSITY).strip().casefold()
+    aliases = {
+        "airy": "airy",
+        "luftig": "airy",
+        "luft": "airy",
+        "normal": "normal",
+        "medium": "normal",
+        "mittel": "normal",
+        "dense": "dense",
+        "dicht": "dense",
+        "free": "free",
+        "frei": "free",
+        "maxima": "free",
+        "custom": "free",
+    }
+    return aliases.get(raw, DEFAULT_FREE_FORM_DENSITY)
+
+
+def normalize_free_form_packing(value: object) -> str:
+    raw = str(value or DEFAULT_FREE_FORM_PACKING).strip().casefold()
+    aliases = {
+        "loose": "loose",
+        "locker": "loose",
+        "air": "loose",
+        "normal": "normal",
+        "medium": "normal",
+        "mittel": "normal",
+        "tight": "tight",
+        "eng": "tight",
+        "dicht": "tight",
+        "compact": "tight",
+    }
+    return aliases.get(raw, DEFAULT_FREE_FORM_PACKING)
+
+
+def free_form_packing_params(packing: str) -> tuple[int, float, int, float]:
+    """Return (unused, area_factor, unused, unused2)."""
+    key = normalize_free_form_packing(packing)
+    return _FREE_FORM_PACKING_PARAMS[key]
+
+
+def resolve_prefer_horizontal(
+    place_w: int,
+    place_h: int,
+    *,
+    prefer_horizontal: float | None = None,
+) -> float:
+    """Fraction of words tried horizontal-first (0=all vertical, 1=all horizontal).
+
+    ``None`` → derive from cover ratio (portrait → more vertical).
+    """
+    if prefer_horizontal is None:
+        return _prefer_horizontal_for_ratio(place_w, place_h)
+    return max(0.0, min(1.0, float(prefer_horizontal)))
+
 
 @dataclass
 class StylecloudOptions:
@@ -116,7 +286,7 @@ class StylecloudOptions:
     text: str = ""
     output_path: Path = field(default_factory=lambda: Path("cover_stylecloud.png"))
     size: int | tuple[int, int] = field(default_factory=lambda: DEFAULT_PRINT_SIZE)
-    icon_name: str = "fas fa-book"
+    icon_name: str = ICON_NONE
     mask_path: Path | None = None
     palette: str = "cartocolors.qualitative.Bold_5"
     background_color: str = "white"
@@ -131,6 +301,14 @@ class StylecloudOptions:
     collocations: bool = False
     invert_mask: bool = False
     random_state: int | None = 42
+    # Margin around centered free-form / organic cloud (% of canvas).
+    free_form_margin_pct: float = 14.0
+    # Freie Form only: airy | normal | dense | free
+    free_form_density: str = DEFAULT_FREE_FORM_DENSITY
+    # Freie Form only: loose | normal | tight
+    free_form_packing: str = DEFAULT_FREE_FORM_PACKING
+    # Freie Form only: None = auto from cover ratio; else 0..1 share horizontal-first.
+    free_form_prefer_horizontal: float | None = None
     must_word: str = ""
     must_word_line2: str = ""
     must_word_font_size: int = 360
@@ -157,9 +335,8 @@ def _report_progress(callback: ProgressCallback | None, percent: int, message: s
 
 
 def resolve_render_max_font(options: StylecloudOptions) -> int:
-    """Ensure max font is large enough for the canvas (print sharpness)."""
-    suggested = suggested_max_font_size(options.size)
-    return max(int(options.max_font_size), suggested)
+    """Use the dialog's Schrift value as-is (floor only for sanity)."""
+    return max(24, int(options.max_font_size))
 
 
 def finalize_png(
@@ -251,6 +428,7 @@ def _apply_must_word_overlay(options: StylecloudOptions, output: Path) -> Path:
         return output
     from tools.stylecloud.must_word import (
         MustWordSpec,
+        form_bbox_from_image,
         form_bbox_from_mask_array,
         overlay_must_word,
     )
@@ -269,20 +447,44 @@ def _apply_must_word_overlay(options: StylecloudOptions, output: Path) -> Path:
             form_bbox = form_bbox_from_mask_array(mask)
         except (OSError, ValueError, FileNotFoundError):
             form_bbox = None
+    elif uses_organic_form(options):
+        try:
+            from tools.stylecloud.mask_image import build_centered_free_form_mask
+
+            mask = build_centered_free_form_mask(
+                options.size,
+                margin_pct=float(options.free_form_margin_pct),
+                random_state=options.random_state,
+            )
+            form_bbox = form_bbox_from_mask_array(mask)
+        except (OSError, ValueError):
+            form_bbox = None
+
+    # Freie Form / packed clouds: place must-word under actual ink, not full canvas.
+    if form_bbox is None:
+        try:
+            from PIL import Image
+
+            with Image.open(output) as img:
+                form_bbox = form_bbox_from_image(
+                    img, options.background_color or "white"
+                )
+        except OSError:
+            form_bbox = None
 
     return overlay_must_word(
         output,
         MustWordSpec(
-            line1=line1 or line2,
-            line2=line2 if line1 else "",
+            line1=line1,
+            line2=line2,
             font_size=int(options.must_word_font_size),
-            color=str(options.must_word_color or "#c0392b").strip() or "#c0392b",
+            color=str(options.must_word_color or "#c0392b"),
             angle=int(options.must_word_angle),
-            gap_px=max(0, int(options.must_word_gap)),
+            gap_px=int(options.must_word_gap),
             match_line1_width=bool(options.must_word_match_line1_width),
         ),
+        background_color=options.background_color or "white",
         form_bbox=form_bbox,
-        background_color=str(options.background_color or "white"),
     )
 
 
@@ -412,6 +614,517 @@ def _generate_with_image_mask(options: StylecloudOptions, text: str, output: Pat
     return output
 
 
+def _generate_rectangle(options: StylecloudOptions, text: str, output: Path) -> Path:
+    """Word cloud packing a plain rectangle — no FA icon, no soft cloud mask."""
+    from wordcloud import WordCloud
+
+    from tools.stylecloud.mask_image import resolve_canvas_size
+
+    ensure_stylecloud_available()
+    from stylecloud.stylecloud import STATIC_PATH
+    import os
+
+    width, height = resolve_canvas_size(options.size)
+    font_path = os.path.join(STATIC_PATH, "Staatliches-Regular.ttf")
+    stopwords = _stopword_set(options)
+    color_func = _palette_color_func(
+        options.palette, resolve_word_colors(options), options.random_state
+    )
+    max_font = resolve_render_max_font(options)
+    min_font = max(8, int(min(width, height) * 0.008))
+
+    wc = WordCloud(
+        background_color=options.background_color,
+        font_path=font_path,
+        max_words=int(options.max_words),
+        stopwords=stopwords,
+        max_font_size=max_font,
+        min_font_size=min_font,
+        random_state=options.random_state,
+        collocations=bool(options.collocations),
+        width=width,
+        height=height,
+        prefer_horizontal=0.85,
+        relative_scaling=0.5,
+        scale=1,
+    )
+    wc.generate_from_text(text)
+    wc.recolor(color_func=color_func, random_state=options.random_state)
+    wc.to_file(str(output))
+    return output
+
+
+def _background_rgb(background_color: str) -> tuple[int, int, int]:
+    from PIL import ImageColor
+
+    try:
+        rgb = ImageColor.getrgb(background_color or "white")
+    except (ValueError, TypeError):
+        return (255, 255, 255)
+    return int(rgb[0]), int(rgb[1]), int(rgb[2])
+
+
+def _non_background_bbox(
+    image: Any,
+    background_color: str,
+    *,
+    tol: int = 14,
+    pad: int = 6,
+) -> tuple[int, int, int, int] | None:
+    """Tight bbox around non-background pixels (left, top, right, bottom)."""
+    import numpy as np
+
+    arr = np.asarray(image.convert("RGB"), dtype=np.int16)
+    br, bg, bb = _background_rgb(background_color)
+    delta = np.abs(arr - np.array([br, bg, bb], dtype=np.int16))
+    ink = np.any(delta > int(tol), axis=2)
+    if not bool(np.any(ink)):
+        return None
+    ys, xs = np.where(ink)
+    left = max(0, int(xs.min()) - pad)
+    top = max(0, int(ys.min()) - pad)
+    right = min(int(image.size[0]), int(xs.max()) + 1 + pad)
+    bottom = min(int(image.size[1]), int(ys.max()) + 1 + pad)
+    return left, top, right, bottom
+
+
+def free_form_word_budget(
+    density: str,
+    place_w: int,
+    place_h: int,
+    *,
+    requested: int | None = None,
+) -> int:
+    """Word count for free form from density preset, or Maxima when density=free.
+
+    *place_w* / *place_h* are kept for call-site compatibility; presets use fixed
+    targets so a large cover margin cannot silently shrink their word count.
+    """
+    del place_w, place_h  # reserved for future area-aware tuning
+    key = normalize_free_form_density(density)
+    if key == "free":
+        req = 400 if requested is None else int(requested)
+        return max(20, min(2000, req))
+    return int(_FREE_FORM_DENSITY_WORDS[key])
+
+
+def free_form_min_font_size(density: str, max_font: int, place_w: int, place_h: int) -> int:
+    """Min font for free form; presets stay airy, „Frei“ follows Maxima packing."""
+    key = normalize_free_form_density(density)
+    if key == "free":
+        return max(8, int(min(place_w, place_h) * 0.008))
+    frac = float(_FREE_FORM_DENSITY_MIN_FONT_FRAC[key])
+    from_max = int(max(24, int(max_font)) * frac)
+    from_side = int(min(place_w, place_h) * 0.02)
+    return max(12, min(from_max, max(from_side, 12)))
+
+
+
+# Back-compat name used by older tests.
+def _free_form_word_budget(requested: int, place_w: int, place_h: int) -> int:
+    """Deprecated: density-based budget ignores *requested* except as a soft cap."""
+    base = free_form_word_budget(DEFAULT_FREE_FORM_DENSITY, place_w, place_h)
+    return max(40, min(base, max(40, int(requested))))
+
+
+def _prefer_horizontal_for_ratio(width: int, height: int) -> float:
+    """Word orientation bias from cover ratio (portrait → more vertical words)."""
+    if height <= 0 or width <= 0:
+        return 0.55
+    # width/height: paperback ~0.63 → ~0.42; square → ~0.55; landscape → higher
+    ratio = float(width) / float(height)
+    t = (ratio - 0.45) / 1.55
+    t = max(0.0, min(1.0, t))
+    return 0.32 + t * 0.53
+
+
+def _sunburst_font(path: str, size: int):
+    from PIL import ImageFont
+
+    try:
+        return ImageFont.truetype(path, size=max(8, int(size)))
+    except OSError:
+        return ImageFont.load_default()
+
+
+def _sunburst_glyph(
+    word: str,
+    font,
+    *,
+    angle: float,
+    fill: tuple[int, int, int],
+):
+    """Render *word* as RGBA; *angle* 0 = horizontal, 90 = vertical."""
+    from PIL import Image, ImageDraw
+
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    bbox = probe.textbbox((0, 0), word, font=font)
+    tw = max(1, int(bbox[2] - bbox[0]))
+    th = max(1, int(bbox[3] - bbox[1]))
+    pad = 2
+    layer = Image.new("RGBA", (tw + 2 * pad, th + 2 * pad), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).text(
+        (pad - bbox[0], pad - bbox[1]),
+        word,
+        font=font,
+        fill=(int(fill[0]), int(fill[1]), int(fill[2]), 255),
+    )
+    deg = float(angle) % 180.0
+    if abs(deg - 90.0) < 0.5:
+        return layer.rotate(90, expand=True, resample=Image.Resampling.BICUBIC)
+    return layer
+
+
+def _sunburst_fits(
+    occupied,
+    glyph_alpha,
+    left: int,
+    top: int,
+    *,
+    clip: tuple[int, int, int, int] | None = None,
+    pad_px: int = 0,
+) -> bool:
+    """Strict fit (fully inside canvas/clip). Used by non-clipping callers."""
+    import numpy as np
+
+    gh, gw = glyph_alpha.shape
+    oh, ow = occupied.shape
+    pad = max(0, int(pad_px))
+    if left - pad < 0 or top - pad < 0 or left + gw + pad > ow or top + gh + pad > oh:
+        if left < 0 or top < 0 or left + gw > ow or top + gh > oh:
+            return False
+        pad = 0
+    if clip is not None:
+        c_left, c_top, c_right, c_bottom = clip
+        if left < c_left or top < c_top or left + gw > c_right or top + gh > c_bottom:
+            return False
+    if pad == 0:
+        region = occupied[top : top + gh, left : left + gw]
+        return not bool(np.any(region & (glyph_alpha > 32)))
+    r_top = max(0, top - pad)
+    r_left = max(0, left - pad)
+    r_bottom = min(oh, top + gh + pad)
+    r_right = min(ow, left + gw + pad)
+    region = occupied[r_top:r_bottom, r_left:r_right]
+    return not bool(np.any(region))
+
+
+def _sunburst_stamp(occupied, glyph_alpha, left: int, top: int) -> None:
+    gh, gw = glyph_alpha.shape
+    oh, ow = occupied.shape
+    if left >= ow or top >= oh or left + gw <= 0 or top + gh <= 0:
+        return
+    src_l = max(0, -left)
+    src_t = max(0, -top)
+    dst_l = max(0, left)
+    dst_t = max(0, top)
+    dst_r = min(ow, left + gw)
+    dst_b = min(oh, top + gh)
+    crop = glyph_alpha[src_t : src_t + (dst_b - dst_t), src_l : src_l + (dst_r - dst_l)]
+    occupied[dst_t:dst_b, dst_l:dst_r] |= crop > 32
+
+
+def _paste_glyph_clipped(
+    canvas,
+    occupied,
+    glyph,
+    px: float,
+    py: float,
+    *,
+    pad_px: int = 0,
+) -> bool:
+    """Paste *glyph* centered at (px, py); overflow past canvas is hard-clipped.
+
+    Collision is checked only on the visible (clipped) ink. Fully off-canvas
+    placements are rejected.
+    """
+    import numpy as np
+
+    gw, gh = glyph.size
+    left = int(round(px - gw / 2.0))
+    top = int(round(py - gh / 2.0))
+    oh, ow = occupied.shape
+    src_l = max(0, -left)
+    src_t = max(0, -top)
+    dst_l = max(0, left)
+    dst_t = max(0, top)
+    dst_r = min(ow, left + gw)
+    dst_b = min(oh, top + gh)
+    if dst_r <= dst_l or dst_b <= dst_t:
+        return False
+    crop_w = dst_r - dst_l
+    crop_h = dst_b - dst_t
+    alpha = np.asarray(glyph.split()[-1])
+    alpha_crop = alpha[src_t : src_t + crop_h, src_l : src_l + crop_w]
+    if not bool(np.any(alpha_crop > 32)):
+        return False
+    pad = max(0, int(pad_px))
+    if pad == 0:
+        region = occupied[dst_t:dst_b, dst_l:dst_r]
+        if bool(np.any(region & (alpha_crop > 32))):
+            return False
+    else:
+        r_top = max(0, dst_t - pad)
+        r_left = max(0, dst_l - pad)
+        r_bottom = min(oh, dst_b + pad)
+        r_right = min(ow, dst_r + pad)
+        if bool(np.any(occupied[r_top:r_bottom, r_left:r_right])):
+            return False
+    cropped = glyph.crop((src_l, src_t, src_l + crop_w, src_t + crop_h))
+    canvas.paste(cropped, (dst_l, dst_t), cropped)
+    occupied[dst_t:dst_b, dst_l:dst_r] |= alpha_crop > 32
+    return True
+
+
+def _frequencies_for_sunburst(
+    text: str,
+    options: StylecloudOptions,
+    *,
+    font_path: str,
+    max_words: int,
+) -> list[tuple[str, float]]:
+    """Word frequencies via wordcloud tokenizer (SSOT for stopwords/collocations)."""
+    from wordcloud import WordCloud
+
+    stopwords = _stopword_set(options)
+    helper = WordCloud(
+        width=64,
+        height=64,
+        font_path=font_path,
+        max_words=max(20, int(max_words)),
+        stopwords=stopwords,
+        collocations=bool(options.collocations),
+        background_color="white",
+    )
+    raw = helper.process_text(text or "")
+    if not raw:
+        return []
+    ranked = sorted(raw.items(), key=lambda item: (-float(item[1]), item[0]))
+    return [(str(w), float(f)) for w, f in ranked[: max(1, int(max_words))]]
+
+
+def _generate_free_ratio_cloud(
+    options: StylecloudOptions,
+    text: str,
+    output: Path,
+    progress: ProgressCallback | None = None,
+) -> Path:
+    """Freie Form: compact, flush WordCloud centered on the cover.
+
+    WordCloud is run on a *dense* canvas sized for the real word count (not the
+    full cover). Spreading few words over a paperback page is what looked
+    sparse. The dense cloud is pasted at the cover center; overflow is clipped.
+    """
+    import os
+
+    from PIL import Image, ImageColor
+    from wordcloud import WordCloud
+
+    from tools.stylecloud.mask_image import resolve_canvas_size
+
+    ensure_stylecloud_available()
+    from stylecloud.stylecloud import STATIC_PATH
+
+    width, height = resolve_canvas_size(options.size)
+    packing = normalize_free_form_packing(options.free_form_packing)
+    density = normalize_free_form_density(options.free_form_density)
+    font_path = os.path.join(STATIC_PATH, "Staatliches-Regular.ttf")
+    user_font = max(24, int(resolve_render_max_font(options)))
+    max_font = user_font
+
+    word_budget = free_form_word_budget(
+        density,
+        width,
+        height,
+        requested=int(options.max_words),
+    )
+    stopwords = _stopword_set(options)
+    # Count tokens that will actually be placed (nouns_only can be << Maxima).
+    probe = WordCloud(
+        width=64,
+        height=64,
+        font_path=font_path,
+        max_words=max(20, int(word_budget)),
+        stopwords=stopwords,
+        collocations=bool(options.collocations),
+        background_color="white",
+    )
+    freqs = probe.process_text(text or "")
+    if not freqs:
+        raise ValueError(
+            "Kein Wort für die Freie Form übrig "
+            "(Stoppwörter / „Nur Substantive“). Text prüfen."
+        )
+    place_n = max(8, min(int(word_budget), len(freqs)))
+
+    dense_w, dense_h = free_form_dense_canvas_size(
+        width,
+        height,
+        word_count=place_n,
+        max_font=max_font,
+        packing=packing,
+    )
+    # Min font high enough that WC cannot „fill“ with dust — forces flush nesting.
+    if packing == "tight":
+        min_font = max(8, int(max_font * 0.18))
+    elif packing == "normal":
+        min_font = max(8, int(max_font * 0.22))
+    else:
+        min_font = max(10, int(max_font * 0.28))
+    if min_font >= max_font:
+        min_font = max(8, max_font // 2)
+
+    prefer_h = resolve_prefer_horizontal(
+        width,
+        height,
+        prefer_horizontal=options.free_form_prefer_horizontal,
+    )
+    color_func = _palette_color_func(
+        options.palette, resolve_word_colors(options), options.random_state
+    )
+
+    bg = (options.background_color or "white").strip() or "white"
+    try:
+        bg_rgb = ImageColor.getrgb(bg)
+    except ValueError:
+        bg_rgb = (255, 255, 255)
+
+    _report_progress(
+        progress,
+        25,
+        f"Dicht packen ({place_n} Wörter auf {dense_w}×{dense_h})…",
+    )
+    wc = WordCloud(
+        background_color=options.background_color,
+        font_path=font_path,
+        max_words=place_n,
+        stopwords=stopwords,
+        max_font_size=max_font,
+        min_font_size=min_font,
+        random_state=options.random_state,
+        collocations=bool(options.collocations),
+        width=dense_w,
+        height=dense_h,
+        prefer_horizontal=float(prefer_h),
+        relative_scaling=0.5,
+        scale=1,
+        margin=0,
+    )
+    _report_progress(progress, 45, "harmonisch verschachteln…")
+    wc.generate_from_frequencies(freqs)
+    wc.recolor(color_func=color_func, random_state=options.random_state)
+    cloud = wc.to_image().convert("RGB")
+
+    # Center on cover; hard-clip anything past the cover edge.
+    canvas = Image.new("RGB", (width, height), bg_rgb)
+    paste_x = (width - dense_w) // 2
+    paste_y = (height - dense_h) // 2
+    if dense_w <= width and dense_h <= height:
+        canvas.paste(cloud, (paste_x, paste_y))
+    else:
+        # Cloud larger than cover → crop the overflow (user: Rand schneidet ab).
+        src_l = max(0, -paste_x)
+        src_t = max(0, -paste_y)
+        dst_l = max(0, paste_x)
+        dst_t = max(0, paste_y)
+        dst_r = min(width, paste_x + dense_w)
+        dst_b = min(height, paste_y + dense_h)
+        cropped = cloud.crop(
+            (src_l, src_t, src_l + (dst_r - dst_l), src_t + (dst_b - dst_t))
+        )
+        canvas.paste(cropped, (dst_l, dst_t))
+
+    canvas.save(str(output))
+    _report_progress(
+        progress,
+        55,
+        f"Freie Form eng: {place_n} Woerter dicht "
+        f"({dense_w}x{dense_h} auf Cover {width}x{height}, Packung {packing})…",
+    )
+    return output
+
+
+def _generate_organic_blob(options: StylecloudOptions, text: str, output: Path) -> Path:
+    """Centered organic blob; full canvas keeps cover ratio with margins."""
+    from wordcloud import WordCloud
+
+    from tools.stylecloud.mask_image import build_centered_free_form_mask
+
+    ensure_stylecloud_available()
+    from stylecloud.stylecloud import STATIC_PATH
+    import os
+
+    mask = build_centered_free_form_mask(
+        options.size,
+        margin_pct=float(options.free_form_margin_pct),
+        random_state=options.random_state,
+    )
+    height, width = mask.shape[0], mask.shape[1]
+    font_path = os.path.join(STATIC_PATH, "Staatliches-Regular.ttf")
+    stopwords = _stopword_set(options)
+    color_func = _palette_color_func(
+        options.palette, resolve_word_colors(options), options.random_state
+    )
+    max_font = resolve_render_max_font(options)
+    # Font scale relative to the inner blob, not the full cover margins.
+    inner = max(64, int(min(width, height) * (1.0 - 2.0 * float(options.free_form_margin_pct) / 100.0)))
+    min_font = max(8, int(inner * 0.008))
+
+    wc = WordCloud(
+        background_color=options.background_color,
+        font_path=font_path,
+        max_words=int(options.max_words),
+        mask=mask,
+        stopwords=stopwords,
+        max_font_size=max_font,
+        min_font_size=min_font,
+        random_state=options.random_state,
+        collocations=bool(options.collocations),
+        width=width,
+        height=height,
+        prefer_horizontal=0.85,
+        relative_scaling=0.5,
+        scale=1,
+    )
+    wc.generate_from_text(text)
+    wc.recolor(color_func=color_func, random_state=options.random_state)
+    wc.to_file(str(output))
+    return output
+
+
+# Back-compat name used by older tests/callers.
+_generate_free_form = _generate_organic_blob
+
+
+def uses_organic_form(options: StylecloudOptions) -> bool:
+    """True for centered organic blob (margins for title/logo)."""
+    mask_path = options.mask_path
+    if mask_path is not None and str(mask_path).strip():
+        return False
+    return normalize_icon_name(options.icon_name) == ICON_ORGANIC
+
+
+def uses_free_form(options: StylecloudOptions) -> bool:
+    """Back-compat name for the organic blob path (not „Freie Form“ in the UI)."""
+    return uses_organic_form(options)
+
+
+def uses_free_ratio_cloud(options: StylecloudOptions) -> bool:
+    """True for natural word cloud oriented to the chosen cover ratio."""
+    mask_path = options.mask_path
+    if mask_path is not None and str(mask_path).strip():
+        return False
+    return normalize_icon_name(options.icon_name) == ICON_NONE
+
+
+def uses_rectangle_form(options: StylecloudOptions) -> bool:
+    """True when words pack the full rectangular canvas."""
+    mask_path = options.mask_path
+    if mask_path is not None and str(mask_path).strip():
+        return False
+    return normalize_icon_name(options.icon_name) == ICON_RECT
+
+
 def _ensure_pillow_textsize_compat() -> None:
     """icon_font_to_png (stylecloud) still calls ImageDraw.textsize (removed in Pillow 10+)."""
     from PIL import ImageDraw
@@ -490,6 +1203,42 @@ def generate_stylecloud(
     if mask_path is not None and str(mask_path).strip():
         _report_progress(progress, 20, "Wolke in Bildform berechnen…")
         path = _generate_with_image_mask(options, text, output)
+        if not path.is_file():
+            raise RuntimeError(f"Wordcloud hat keine Datei erzeugt: {output}")
+        _report_progress(progress, 75, "Muss-Wort setzen…")
+        path = _apply_must_word_overlay(options, path)
+        _report_progress(progress, 92, "PNG für Druck speichern…")
+        _finalize_output(options, path)
+        _report_progress(progress, 100, "Fertig")
+        return path
+
+    if uses_organic_form(options):
+        _report_progress(progress, 20, "Organische Silhouette berechnen…")
+        path = _generate_organic_blob(options, text, output)
+        if not path.is_file():
+            raise RuntimeError(f"Wordcloud hat keine Datei erzeugt: {output}")
+        _report_progress(progress, 75, "Muss-Wort setzen…")
+        path = _apply_must_word_overlay(options, path)
+        _report_progress(progress, 92, "PNG für Druck speichern…")
+        _finalize_output(options, path)
+        _report_progress(progress, 100, "Fertig")
+        return path
+
+    if uses_free_ratio_cloud(options):
+        _report_progress(progress, 20, "Freie Form (vom Zentrum, Rand schneidet ab)…")
+        path = _generate_free_ratio_cloud(options, text, output, progress=progress)
+        if not path.is_file():
+            raise RuntimeError(f"Wordcloud hat keine Datei erzeugt: {output}")
+        _report_progress(progress, 75, "Muss-Wort setzen…")
+        path = _apply_must_word_overlay(options, path)
+        _report_progress(progress, 92, "PNG für Druck speichern…")
+        _finalize_output(options, path)
+        _report_progress(progress, 100, "Fertig")
+        return path
+
+    if uses_rectangle_form(options):
+        _report_progress(progress, 20, "Rechteck-Wolke berechnen…")
+        path = _generate_rectangle(options, text, output)
         if not path.is_file():
             raise RuntimeError(f"Wordcloud hat keine Datei erzeugt: {output}")
         _report_progress(progress, 75, "Muss-Wort setzen…")
