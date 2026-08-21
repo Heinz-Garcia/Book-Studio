@@ -68,8 +68,11 @@ from tools.stylecloud.must_word import (
 )
 from tools.stylecloud.noun_filter import (
     DEFAULT_SPACY_MODEL,
+    ENGLISH_SPACY_MODEL,
     SpacyNounFilterError,
+    detect_text_language,
     extract_german_nouns,
+    extract_nouns,
 )
 from tools.stylecloud.settings import (
     default_settings,
@@ -90,6 +93,7 @@ __all__ = [
     "DEFAULT_PRINT_SIZE",
     "DEFAULT_PRINT_SIZE_LABEL",
     "DEFAULT_SPACY_MODEL",
+    "ENGLISH_SPACY_MODEL",
     "FREE_FORM_DENSITY_PRESETS",
     "FREE_FORM_PACKING_PRESETS",
     "GRADIENT_CHOICES",
@@ -115,9 +119,11 @@ __all__ = [
     "composite_hub_raw_on_cover",
     "default_output_path",
     "default_settings",
+    "detect_text_language",
     "ensure_stylecloud_available",
     "extract_german_nouns",
     "extract_markdown_body",
+    "extract_nouns",
     "finalize_png",
     "fit_font_to_width",
     "form_bbox_from_image",

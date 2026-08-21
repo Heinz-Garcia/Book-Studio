@@ -129,6 +129,10 @@ class CoverLayout:
     front_compose: Optional[dict[str, Any]] = None
     # Relativer Pfad zum zuletzt am Buch hinterlegten Wrap-PDF (optional)
     wrap_pdf: str = ""
+    # Production-UUID (GrammarGraph-Lieferung / BS-Buch) — Cover↔Inhalt-Mapping
+    production_uuid: str = ""
+    cover_label: str = ""
+    cover_role: Literal["primary", "alternative"] = "primary"
 
     def effective_offsets(self) -> dict[str, float]:
         """Im Sicher-Modus immer 0 / Scale 1 — Slots sind fest."""
@@ -172,6 +176,17 @@ class CoverLayout:
             badge.get("enabled") or str(badge.get("text") or "").strip()
         ):
             data.pop("spine_badge", None)
+        if not str(data.get("production_uuid") or "").strip():
+            data.pop("production_uuid", None)
+            data.pop("cover_label", None)
+            data.pop("cover_role", None)
+        else:
+            role = str(data.get("cover_role") or "primary").strip().lower()
+            data["cover_role"] = (
+                "alternative" if role == "alternative" else "primary"
+            )
+            if not str(data.get("cover_label") or "").strip():
+                data.pop("cover_label", None)
         return data
 
     @classmethod
@@ -197,6 +212,10 @@ class CoverLayout:
         raw_badge = data.get("spine_badge")
         spine_badge = SpineBadgeSpec.from_dict(
             raw_badge if isinstance(raw_badge, dict) else None
+        )
+        role_raw = str(data.get("cover_role") or "primary").strip().lower()
+        cover_role: Literal["primary", "alternative"] = (
+            "alternative" if role_raw == "alternative" else "primary"
         )
 
         return cls(
@@ -231,6 +250,9 @@ class CoverLayout:
             spine_badge=spine_badge,
             front_compose=front_compose,
             wrap_pdf=str(data.get("wrap_pdf") or ""),
+            production_uuid=str(data.get("production_uuid") or "").strip(),
+            cover_label=str(data.get("cover_label") or "").strip(),
+            cover_role=cover_role,
         )
 
 

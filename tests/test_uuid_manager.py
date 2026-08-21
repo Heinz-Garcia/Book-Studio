@@ -134,6 +134,83 @@ def test_uuid_manager_dialog_renders_records(monkeypatch: pytest.MonkeyPatch) ->
     dlg.close()
 
 
+def test_uuid_manager_filter_cover_assignment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from tools.kdp_cover.cover_registry import upsert_cover_link
+    from tools.uuid_manager.dialog import (
+        UuidManagerDialog,
+        _FILTER_COVER_NO,
+        _FILTER_COVER_YES,
+    )
+    from tools.uuid_manager.model import DeliveryRecord, UuidRecord, UuidStatus
+    from ui_qt.theme import apply_theme
+
+    uid_with = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    uid_without = "bbbbbbbb-bbbb-4ccc-8ddd-ffffffffffff"
+    records = [
+        UuidRecord(
+            uuid=uid_with,
+            status=UuidStatus.delivery_only,
+            delivery=DeliveryRecord(
+                uuid=uid_with, publish_dir=tmp_path / "a", book_title="Mit Cover"
+            ),
+        ),
+        UuidRecord(
+            uuid=uid_without,
+            status=UuidStatus.delivery_only,
+            delivery=DeliveryRecord(
+                uuid=uid_without, publish_dir=tmp_path / "b", book_title="Ohne Cover"
+            ),
+        ),
+    ]
+    reg = tmp_path / "cover_uuid_registry.json"
+    cover = tmp_path / "cover.json"
+    cover.write_text("{}", encoding="utf-8")
+    upsert_cover_link(
+        production_uuid=uid_with,
+        cover_path=cover,
+        cover_label="Haupt",
+        cover_role="primary",
+        path=reg,
+    )
+    monkeypatch.setattr(
+        "tools.uuid_manager.dialog.collect_uuid_records",
+        lambda **_: records,
+    )
+    monkeypatch.setattr(
+        "tools.uuid_manager.dialog.load_registry",
+        lambda path=None: __import__(
+            "tools.kdp_cover.cover_registry", fromlist=["load_registry"]
+        ).load_registry(reg),
+    )
+    monkeypatch.setattr("app_config.read_config", lambda _path: {})
+    app = QApplication.instance() or QApplication([])
+    apply_theme(app)
+    dlg = UuidManagerDialog(book_studio_repo=tmp_path, parent=None)
+    yes_idx = next(
+        i
+        for i in range(dlg.status_combo.count())
+        if dlg.status_combo.itemData(i) == _FILTER_COVER_YES
+    )
+    dlg.status_combo.setCurrentIndex(yes_idx)
+    assert dlg.table.rowCount() == 1
+    assert dlg.table.item(0, 1).text() == uid_with
+    assert "Primary" in dlg.table.item(0, 4).text()
+    no_idx = next(
+        i
+        for i in range(dlg.status_combo.count())
+        if dlg.status_combo.itemData(i) == _FILTER_COVER_NO
+    )
+    dlg.status_combo.setCurrentIndex(no_idx)
+    assert dlg.table.rowCount() == 1
+    assert dlg.table.item(0, 1).text() == uid_without
+    assert dlg.table.item(0, 4).text() == "—"
+    dlg.close()
+
+
 def test_uuid_manager_main_importable_as_script(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression: script launch must put the repo root on ``sys.path``.
 

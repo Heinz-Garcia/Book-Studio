@@ -584,6 +584,12 @@ class StylecloudQtDialog(QDialog):
         self.german_stop.setChecked(True)
         self.nouns_only = QCheckBox("Nur Substantive (spaCy)")
         self.nouns_only.setChecked(False)
+        self.nouns_only.setToolTip(
+            "Nur Substantive/Eigennamen (spaCy POS) — gilt für alle Formen "
+            "inkl. Freie Form.\n"
+            "Deutsch: de_core_news_sm · Englisch: en_core_web_sm "
+            "(Sprache wird automatisch erkannt)."
+        )
         self.collocations = QCheckBox("Wortpaare (Bigramme)")
         self.collocations.setChecked(False)
         opts_grid = QGridLayout()

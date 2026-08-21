@@ -113,7 +113,7 @@ def test_prepare_stylecloud_text_nouns_only(monkeypatch: pytest.MonkeyPatch) -> 
     from tools.stylecloud.generator import prepare_stylecloud_text
 
     monkeypatch.setattr(
-        "tools.stylecloud.noun_filter.extract_german_nouns",
+        "tools.stylecloud.noun_filter.extract_nouns",
         lambda text, **kwargs: "Brustkrebs Therapie",
     )
     out = prepare_stylecloud_text(
@@ -123,6 +123,66 @@ def test_prepare_stylecloud_text_nouns_only(monkeypatch: pytest.MonkeyPatch) -> 
         )
     )
     assert out == "Brustkrebs Therapie"
+
+
+def test_nouns_only_strips_english_function_words_with_de_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DE-Modell auf EN-Text darf THE/DOES/CAN nicht als Substantive durchlassen."""
+    from tools.stylecloud import noun_filter as nf
+
+    class _Tok:
+        def __init__(self, text: str, pos: str, lemma: str):
+            self.text = text
+            self.pos_ = pos
+            self.lemma_ = lemma
+            self.is_alpha = True
+            self.is_space = False
+            self.is_punct = False
+
+    class _Doc(list):
+        pass
+
+    class _Nlp:
+        def __call__(self, text: str):
+            # Simulates German model mis-tagging English function words as NOUN.
+            return _Doc(
+                [
+                    _Tok("What", "NOUN", "What"),
+                    _Tok("should", "NOUN", "should"),
+                    _Tok("police", "NOUN", "police"),
+                    _Tok("the", "NOUN", "the"),
+                    _Tok("Berlin", "PROPN", "Berlin"),
+                    _Tok("does", "NOUN", "does"),
+                    _Tok("can", "NOUN", "can"),
+                    _Tok("hotel", "NOUN", "hotel"),
+                ]
+            )
+
+    nf.clear_nlp_cache()
+    monkeypatch.setattr(nf, "_load_nlp", lambda model: _Nlp())
+    monkeypatch.setattr(nf, "detect_text_language", lambda text: "en")
+    result = nf.extract_nouns("What should the police do in Berlin?")
+    kept = {w.casefold() for w in result.split()}
+    assert "police" in kept
+    assert "berlin" in kept
+    assert "hotel" in kept
+    assert "the" not in kept
+    assert "should" not in kept
+    assert "does" not in kept
+    assert "can" not in kept
+    assert "what" not in kept
+
+
+def test_detect_text_language_en_vs_de() -> None:
+    from tools.stylecloud.noun_filter import detect_text_language
+
+    assert detect_text_language(
+        "What should I do if the police stop my rental car?"
+    ) == "en"
+    assert detect_text_language(
+        "Was soll ich tun, wenn die Polizei mein Mietwagen anhält?"
+    ) == "de"
 
 
 def test_strip_must_word_from_text() -> None:

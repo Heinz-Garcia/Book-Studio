@@ -259,8 +259,13 @@ def generate_quarto_yml_for_import(
     # Immer ueberschreiben – die chapters-Liste muss LEER sein, damit alle
     # .md-Dateien im linken Fenster ("nicht zugeordnete Kapitel") landen.
 
-    # Autor aus _book_studio.toml; Titel ueber SSOT (nie „Book Master“)
+    # Autor / Beschreibung / Sprache / Keywords / ISBN aus _book_studio.toml
+    # (Export-Meta-Tab); CLI-Overrides gewinnen nur wenn gesetzt.
     author = ""
+    description = index_description
+    lang = "de"
+    keywords: list[str] = []
+    isbn = ""
     cfg_file = publish_dir / "_book_studio.toml"
     if cfg_file.is_file():
         try:
@@ -268,30 +273,78 @@ def generate_quarto_yml_for_import(
             book = raw.get("book", {}) if isinstance(raw, dict) else {}
             if isinstance(book, dict):
                 author = str(book.get("author") or "").strip()
+                if not description:
+                    description = str(book.get("description") or "").strip()
+                lang = str(book.get("lang") or lang).strip() or "de"
+                isbn = str(book.get("isbn") or "").strip()
+                raw_kw = book.get("keywords")
+                if isinstance(raw_kw, list):
+                    keywords = [str(x).strip() for x in raw_kw if str(x).strip()]
+                elif isinstance(raw_kw, str) and raw_kw.strip():
+                    keywords = [
+                        part.strip()
+                        for part in raw_kw.replace(";", ",").split(",")
+                        if part.strip()
+                    ]
         except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError):
             pass
 
+    # Fallback: publish_meta.json when toml lacks fields
+    meta_path = publish_dir / "publish_meta.json"
+    if meta_path.is_file() and (not author or not description or not keywords or not isbn):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            if not author:
+                author = str(meta.get("author") or "").strip()
+            if not description:
+                description = str(meta.get("description") or "").strip()
+            if not isbn:
+                isbn = str(meta.get("isbn") or "").strip()
+            if not keywords:
+                raw_kw = meta.get("keywords")
+                if isinstance(raw_kw, list):
+                    keywords = [str(x).strip() for x in raw_kw if str(x).strip()]
+                elif isinstance(raw_kw, str) and raw_kw.strip():
+                    keywords = [
+                        part.strip()
+                        for part in raw_kw.replace(";", ",").split(",")
+                        if part.strip()
+                    ]
+            if meta.get("lang"):
+                lang = str(meta.get("lang")).strip() or lang
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+
     title = resolve_import_book_title(publish_dir, index_title=index_title)
-    description = index_description
 
     if index_author and not is_placeholder_book_title(index_author):
         author = index_author
+    if index_description:
+        description = index_description
     # Alte Exporte setzten oft author=title (technischer Stem) — das ist kein Autor.
     if author and author.casefold() == title.casefold() and ("_" in author or "rev." in author.casefold()):
         author = ""
 
     # Keine .md-Dateien in chapters eintragen → alle landen in list_avail
+    kw_yaml = ""
+    if keywords:
+        kw_items = ", ".join(_yaml_double_quoted(k) for k in keywords)
+        kw_yaml = f"keywords: [{kw_items}]\n"
+    isbn_line = f'isbn: {_yaml_double_quoted(isbn)}\n' if isbn else ""
     content = (
-        f'project:\n'
-        f'  type: book\n'
-        f'book:\n'
-        f'  title: {_yaml_double_quoted(title)}\n'
-        f'  author: {_yaml_double_quoted(author)}\n'
-        f'  date: last-modified\n'
-        f'  chapters: []\n'
-        f'format:\n'
-        f'  typst:\n'
-        f'    toc: false\n'
+        f"{isbn_line}"
+        f"{kw_yaml}"
+        f"project:\n"
+        f"  type: book\n"
+        f"book:\n"
+        f"  title: {_yaml_double_quoted(title)}\n"
+        f"  author: {_yaml_double_quoted(author)}\n"
+        f"  date: last-modified\n"
+        f"  chapters: []\n"
+        f"lang: {_yaml_double_quoted(lang)}\n"
+        f"format:\n"
+        f"  typst:\n"
+        f"    toc: false\n"
     )
     quarto_yml.write_text(content, encoding="utf-8")
 
@@ -304,6 +357,7 @@ def generate_quarto_yml_for_import(
         f'title: {_yaml_double_quoted(title)}\n'
         f'author: {_yaml_double_quoted(author)}\n'
         f'{desc_line}'
+        f'lang: {_yaml_double_quoted(lang)}\n'
         f'status: "bookstudio"\n'
         f'unnumbered: true\n'
         f'unlisted: true\n'

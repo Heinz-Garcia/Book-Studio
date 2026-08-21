@@ -472,6 +472,59 @@ class CommandHost:
         if dlg.exec():
             self.w._facade.log("KDP-Spezifikationen gespeichert.", "success")
 
+    def open_cover_uuid_assign(self) -> None:
+        """Cover↔UUID-Picker autonom öffnen und Zuordnung sofort registrieren."""
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QMessageBox
+
+        from tools.kdp_cover.assign_link import assign_cover_to_uuid
+        from tools.kdp_cover.uuid_choices import resolve_studio_repo
+        from ui_qt.dialogs.kdp_cover_uuid_dialog import pick_cover_uuid
+
+        book_raw = getattr(self.w._facade, "current_book", None)
+        book = Path(book_raw) if book_raw else None
+        if book is not None and not book.is_dir():
+            book = None
+        picked = pick_cover_uuid(
+            self.w,
+            studio=self.w._facade,
+            book_root=book,
+        )
+        if not picked:
+            return
+        try:
+            entry = assign_cover_to_uuid(
+                production_uuid=str(picked.get("uuid") or ""),
+                cover_label=str(picked.get("cover_label") or ""),
+                cover_role=(
+                    "alternative"
+                    if picked.get("cover_role") == "alternative"
+                    else "primary"
+                ),
+                title_hint=str(picked.get("title_hint") or ""),
+                source_kinds=list(picked.get("source_kinds") or []),
+                book_path=book,
+                repo=resolve_studio_repo(self.w._facade),
+            )
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self.w, "Cover ↔ UUID", str(exc))
+            return
+        role = "Primary" if entry.cover_role == "primary" else "Alternative"
+        label = entry.cover_label or "—"
+        QMessageBox.information(
+            self.w,
+            "Cover zugeordnet",
+            f"Zuordnung gespeichert ({role}, Label: {label}).\n\n"
+            f"Kanonischer Layout-Pfad:\n{entry.cover_path}\n\n"
+            "Beim nächsten Öffnen des Dialogs erscheint die Zuordnung "
+            "in der Spalte „Cover“.",
+        )
+        self.w._facade.log(
+            f"Cover↔UUID verknüpft: {entry.production_uuid[:8]}… → {entry.cover_path}",
+            "success",
+        )
+
     def open_sanitizer_config_editor(self) -> None:
         path = repo_root() / "sanitizer_config.toml"
         if not path.is_file():

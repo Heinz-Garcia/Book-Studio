@@ -32,12 +32,23 @@ class MenuCascade:
 # --- Datei --------------------------------------------------------------------
 
 MENU_FILE = [
-    MenuCascade(label="Buchstruktur (JSON)", children=[
-        MenuItem(label="📂 Buchstruktur aus JSON-Datei laden", command="import_json"),
-        MenuItem(label="🔍 Buchstruktur suchen & laden…", command="find_structure"),
-        MenuItem(label="💾 Buchstruktur als JSON-Datei speichern", command="quick_save_json", accelerator="Ctrl+S"),
-        MenuItem(label="📝 Buchstruktur als JSON-Datei speichern als...", command="export_json"),
-    ]),
+    MenuCascade(
+        label="Buchstruktur (JSON)",
+        children=[
+            MenuItem(label="📂 Buchstruktur aus JSON-Datei laden", command="import_json"),
+            MenuItem(label="🔍 Buchstruktur suchen & laden…", command="find_structure"),
+            MenuSeparator(),
+            MenuItem(
+                label="💾 Buchstruktur als JSON-Datei speichern",
+                command="quick_save_json",
+                accelerator="Ctrl+S",
+            ),
+            MenuItem(
+                label="📝 Buchstruktur als JSON-Datei speichern als...",
+                command="export_json",
+            ),
+        ],
+    ),
     MenuItem(label="📥 Datei aus anderem Projekt holen…", command="fetch_file_from_project"),
     MenuSeparator(),
     MenuItem(label="💾 In Quarto speichern", command="save_project"),
@@ -50,7 +61,11 @@ MENU_FILE = [
 
 MENU_EXPORT = [
     MenuItem(label="🖨️ Buch rendern...", command="run_quarto_render", accelerator="F5"),
-    MenuItem(label="📝 Buch als Single-Markdown exportieren (.md)", command="export_single_markdown"),
+    MenuSeparator(),
+    MenuItem(
+        label="📝 Buch als Single-Markdown exportieren (.md)",
+        command="export_single_markdown",
+    ),
 ]
 
 
@@ -66,6 +81,7 @@ MENU_EDIT = [
     MenuSeparator(),
     MenuItem(label="⬆️ Hoch", command="move_up"),
     MenuItem(label="⬇️ Runter", command="move_down"),
+    MenuSeparator(),
     MenuItem(label="➡️ Einrücken", command="indent_item"),
     MenuItem(label="➡️➡️ Einrücken ×2", command="indent_item_2"),
     MenuItem(label="⬅️ Ausrücken", command="outdent_item"),
@@ -78,6 +94,7 @@ MENU_EDIT = [
 MENU_VIEW = [
     MenuItem(label="📄 _quarto.yml anzeigen", command="open_preview"),
     MenuItem(label="🔄 Anzeige aktualisieren", command="refresh_ui_titles"),
+    MenuSeparator(),
     MenuItem(label="📁 Projekte neu laden", command="reload_projects"),
     MenuSeparator(),
     MenuItem(label="🧹 Status-Filter zurücksetzen", command="reset_status_filter"),
@@ -85,7 +102,7 @@ MENU_VIEW = [
 
 
 # --- Tools --------------------------------------------------------------------
-# Thematische Blöcke mit Separatoren (wie Plugins: Skeleton | Rest).
+# Blöcke: Inhalt | Studio-Konfig | KDP/Cover | Sicherung | Wartung
 
 MENU_TOOLS = [
     # Inhalt / Qualität
@@ -93,12 +110,15 @@ MENU_TOOLS = [
     MenuItem(label="🩺 Buch-Doktor", command="run_doctor"),
     MenuItem(label="✨ Frontmatter ergänzen…", command="heal_frontmatter"),
     MenuSeparator(),
-    # Konfiguration
+    # Studio-Konfiguration
     MenuItem(label="🧩 Studio-Konfiguration…", command="open_app_config_editor"),
-    MenuItem(label="📐 KDP-Spezifikationen…", command="open_kdp_specs_editor"),
-    MenuItem(label="⚙️ Sanitizer-Konfiguration…", command="open_sanitizer_config_editor"),
     MenuItem(label="📘 Quarto.yml konfigurieren…", command="open_quarto_config_editor"),
+    MenuItem(label="⚙️ Sanitizer-Konfiguration…", command="open_sanitizer_config_editor"),
     MenuItem(label="🔌 Plugin-Konfiguration…", command="open_plugin_config_editor"),
+    MenuSeparator(),
+    # KDP / Cover
+    MenuItem(label="📐 KDP-Spezifikationen…", command="open_kdp_specs_editor"),
+    MenuItem(label="🔗 Cover ↔ Production-UUID…", command="open_cover_uuid_assign"),
     MenuSeparator(),
     # Sicherung / Struktur
     MenuItem(label="📦 Backup", command="run_backup"),
@@ -106,9 +126,15 @@ MENU_TOOLS = [
     MenuItem(label="⏪ Struktur-Snapshots", command="open_time_machine"),
     MenuSeparator(),
     # Wartung
-    MenuCascade(label="🛠️ Wartung", children=[
-        MenuItem(label="⚠️ _quarto.yml hart zurücksetzen (Nuke)", command="reset_quarto_yml"),
-    ]),
+    MenuCascade(
+        label="🛠️ Wartung",
+        children=[
+            MenuItem(
+                label="⚠️ _quarto.yml hart zurücksetzen (Nuke)",
+                command="reset_quarto_yml",
+            ),
+        ],
+    ),
 ]
 
 
@@ -127,11 +153,13 @@ MENU_HELP = [
 
 CONTEXT_MENU_AVAIL = [
     MenuItem(label="📂 Im Explorer anzeigen", command="open_avail_in_explorer"),
+    MenuSeparator(),
     MenuItem(label="🖼 Fehlende Bilder anzeigen", command="show_avail_missing_images"),
 ]
 
 CONTEXT_MENU_TREE = [
     MenuItem(label="📂 Im Explorer anzeigen", command="open_tree_in_explorer"),
+    MenuSeparator(),
     MenuItem(label="🖼 Fehlende Bilder anzeigen", command="show_tree_missing_images"),
 ]
 

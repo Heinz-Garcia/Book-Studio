@@ -41,6 +41,7 @@ class DeliveryRecord:
     description: str = ""
     source_kind: str = ""
     market_variant: str = ""
+    run_uuid: str = ""
 
 
 @dataclass(frozen=True)

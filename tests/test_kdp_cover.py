@@ -542,9 +542,13 @@ def test_render_wrap_skips_missing_back_image(tmp_path: Path):
 
 def test_kdp_settings_window_geometry_roundtrip(tmp_path: Path):
     from tools.kdp_cover.settings import (
+        DEFAULT_CONFIRM_WINDOW_HEIGHT,
+        DEFAULT_CONFIRM_WINDOW_WIDTH,
         DEFAULT_WINDOW_HEIGHT,
         DEFAULT_WINDOW_WIDTH,
         load_settings,
+        resolve_active_tab,
+        resolve_confirm_window_size,
         resolve_window_size,
         save_settings,
     )
@@ -553,8 +557,57 @@ def test_kdp_settings_window_geometry_roundtrip(tmp_path: Path):
     empty = load_settings(path)
     assert empty["window_geometry_saved"] is False
     assert resolve_window_size(empty) == (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+    assert resolve_confirm_window_size(empty) == (
+        DEFAULT_CONFIRM_WINDOW_WIDTH,
+        DEFAULT_CONFIRM_WINDOW_HEIGHT,
+    )
 
-    save_settings({"window_width": 1600, "window_height": 900}, path)
+    save_settings(
+        {
+            "window_width": 1600,
+            "window_height": 900,
+            "window_maximized": True,
+            "active_tab": 3,
+        },
+        path,
+    )
     loaded = load_settings(path)
     assert loaded["window_geometry_saved"] is True
     assert resolve_window_size(loaded) == (1600, 900)
+    assert loaded["window_maximized"] is True
+    assert resolve_active_tab(loaded, tab_count=7) == 3
+    assert resolve_active_tab({"active_tab": 99}, tab_count=7) == 6
+
+    save_settings(
+        {
+            "confirm_window_width": 800,
+            "confirm_window_height": 500,
+            "confirm_window_maximized": False,
+        },
+        path,
+    )
+    loaded2 = load_settings(path)
+    # Hauptfenster-Größe bleibt erhalten (partielles Update).
+    assert resolve_window_size(loaded2) == (1600, 900)
+    assert loaded2["confirm_geometry_saved"] is True
+    assert resolve_confirm_window_size(loaded2) == (800, 500)
+
+    from tools.kdp_cover.settings import (
+        resolve_uuid_picker_window_size,
+    )
+
+    save_settings(
+        {
+            "uuid_picker_window_width": 1334,
+            "uuid_picker_window_height": 571,
+            "uuid_picker_window_maximized": False,
+        },
+        path,
+    )
+    loaded3 = load_settings(path)
+    assert loaded3["uuid_picker_geometry_saved"] is True
+    assert resolve_uuid_picker_window_size(loaded3) == (1334, 571)
+    # Partial update must keep UUID-picker size.
+    save_settings({"window_width": 1500, "window_height": 880}, path)
+    loaded4 = load_settings(path)
+    assert resolve_uuid_picker_window_size(loaded4) == (1334, 571)

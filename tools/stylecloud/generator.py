@@ -628,11 +628,11 @@ def prepare_stylecloud_text(options: StylecloudOptions) -> str:
     if options.nouns_only and text:
         from tools.stylecloud.noun_filter import (
             SpacyNounFilterError,
-            extract_german_nouns,
+            extract_nouns,
         )
 
         try:
-            nouns = extract_german_nouns(text)
+            nouns = extract_nouns(text)
         except SpacyNounFilterError:
             raise
         text = nouns

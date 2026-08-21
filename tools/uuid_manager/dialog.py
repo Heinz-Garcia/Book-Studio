@@ -32,9 +32,17 @@ from PySide6.QtWidgets import (
 )
 
 from tools.book_projects.catalog import list_content_roots
+from tools.kdp_cover.cover_registry import CoverRegistryEntry, load_registry
+from tools.kdp_cover.uuid_choices import format_cover_link_detail, format_cover_link_summary
 from tools.production_paths.paths import legacy_publish_hubs_from_content_roots, target_inbox_dir
+from tools.production_uuid import normalize_uuid
 from tools.uuid_manager.model import UuidRecord, UuidStatus, uuid_status_label
 from tools.uuid_manager.service import collect_uuid_records
+
+_FILTER_NONE = "__none__"
+_FILTER_ALL = ""
+_FILTER_COVER_YES = "__cover_yes__"
+_FILTER_COVER_NO = "__cover_no__"
 
 
 def _status_color(status: UuidStatus) -> QColor:
@@ -80,6 +88,7 @@ class UuidManagerDialog(QDialog):
         )
         self._records: list[UuidRecord] = []
         self._filtered: list[UuidRecord] = []
+        self._covers_by_uuid: dict[str, list[CoverRegistryEntry]] = {}
         self._help_texts = self._read_help_texts()
 
         self.setWindowTitle(window_title)
@@ -98,8 +107,10 @@ class UuidManagerDialog(QDialog):
         top.addWidget(QLabel("Status:"))
         self.status_combo = QComboBox()
         # Default "Keine": Fenster öffnet ohne teuren Vollscan.
-        self.status_combo.addItem("Keine", "__none__")
-        self.status_combo.addItem("Alle", "")
+        self.status_combo.addItem("Keine", _FILTER_NONE)
+        self.status_combo.addItem("Alle", _FILTER_ALL)
+        self.status_combo.addItem("Mit Cover-Zuordnung", _FILTER_COVER_YES)
+        self.status_combo.addItem("Ohne Cover-Zuordnung", _FILTER_COVER_NO)
         for status in UuidStatus:
             self.status_combo.addItem(uuid_status_label(status), status.value)
         self.status_combo.setCurrentIndex(0)
@@ -115,7 +126,7 @@ class UuidManagerDialog(QDialog):
         top.addWidget(self.help_banner, stretch=1)
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText(
-            "Filtern: UUID, Buch, Variante, Publish, Batch, PDF …"
+            "Filtern: UUID, Buch, Variante, Cover, Publish, Batch, PDF …"
         )
         self.filter_edit.textChanged.connect(self._apply_filter)
         self.filter_edit.setClearButtonEnabled(True)
@@ -131,9 +142,19 @@ class UuidManagerDialog(QDialog):
         self.summary_label.setStyleSheet("color:#5b6573;")
         layout.addWidget(self.summary_label)
 
-        self.table = QTableWidget(0, 8)
+        self.table = QTableWidget(0, 9)
         self.table.setHorizontalHeaderLabels(
-            ["Status", "UUID", "Buch", "Variante", "Lieferung", "PDF", "Batch", "Hinweise"]
+            [
+                "Status",
+                "UUID",
+                "Buch",
+                "Variante",
+                "Cover",
+                "Lieferung",
+                "PDF",
+                "Batch",
+                "Hinweise",
+            ]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -143,7 +164,7 @@ class UuidManagerDialog(QDialog):
         self.table.itemSelectionChanged.connect(self._sync_detail)
         self.table.cellDoubleClicked.connect(self._open_selected_pdf)
         header = self.table.horizontalHeader()
-        for col in range(8):
+        for col in range(9):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
         layout.addWidget(self.table, stretch=1)
@@ -198,17 +219,27 @@ class UuidManagerDialog(QDialog):
         fallback = str(merged.get("uuid_manager_help_text") or "").strip()
         raw = merged.get("uuid_manager_help_texts")
         if not isinstance(raw, dict):
-            return {"": fallback}
-        out = {
-            str(key): str(value).strip()
-            for key, value in raw.items()
-            if str(value).strip()
-        }
-        out.setdefault("", fallback)
+            out = {"": fallback}
+        else:
+            out = {
+                str(key): str(value).strip()
+                for key, value in raw.items()
+                if str(value).strip()
+            }
+            out.setdefault("", fallback)
         out.setdefault(
-            "__none__",
+            _FILTER_NONE,
             "Kein Scan beim Öffnen. Wähle „Alle“ oder einen Status, "
             "oder klicke „Aktualisieren“, um UUID-Fälle zu laden.",
+        )
+        out.setdefault(
+            _FILTER_COVER_YES,
+            "Nur Produktionen mit Eintrag in der Cover↔UUID-Registry "
+            "(Primary/Alternative). Spalte „Cover“ zeigt Label/Datei.",
+        )
+        out.setdefault(
+            _FILTER_COVER_NO,
+            "Nur Produktionen ohne Cover-Zuordnung in der Registry.",
         )
         return out
 
@@ -217,7 +248,32 @@ class UuidManagerDialog(QDialog):
         return self._help_texts.get(key) or self._help_texts.get("") or ""
 
     def _status_is_none(self) -> bool:
-        return str(self.status_combo.currentData() or "") == "__none__"
+        return str(self.status_combo.currentData() or "") == _FILTER_NONE
+
+    def _covers_for(self, uid: str) -> list[CoverRegistryEntry]:
+        key = (normalize_uuid(uid) or uid).casefold()
+        return list(self._covers_by_uuid.get(key, []))
+
+    def _cover_summary(self, uid: str) -> str:
+        return format_cover_link_summary(self._covers_for(uid))
+
+    def _load_cover_registry(self) -> dict[str, list[CoverRegistryEntry]]:
+        by_uid: dict[str, list[CoverRegistryEntry]] = {}
+        try:
+            data = load_registry()
+        except OSError:
+            return by_uid
+        for raw in data.get("entries") or []:
+            if not isinstance(raw, dict):
+                continue
+            entry = CoverRegistryEntry.from_dict(raw)
+            uid = normalize_uuid(entry.production_uuid) or str(
+                entry.production_uuid or ""
+            ).strip()
+            if not uid:
+                continue
+            by_uid.setdefault(uid.casefold(), []).append(entry)
+        return by_uid
 
     def _on_status_changed(self) -> None:
         self.help_banner.setText(self._help_text_for_selected_status())
@@ -249,6 +305,7 @@ class UuidManagerDialog(QDialog):
                 book_studio_repo=self._book_studio_repo,
                 grammargraph_repo=self._grammargraph_repo,
             )
+            self._covers_by_uuid = self._load_cover_registry()
             self.help_banner.setText(self._help_text_for_selected_status())
             self._apply_filter()
             return
@@ -256,6 +313,7 @@ class UuidManagerDialog(QDialog):
             book_studio_repo=self._book_studio_repo,
             grammargraph_repo=self._grammargraph_repo,
         )
+        self._covers_by_uuid = self._load_cover_registry()
         self.help_banner.setText(self._help_text_for_selected_status())
         self._apply_filter()
 
@@ -291,14 +349,27 @@ class UuidManagerDialog(QDialog):
         wanted = str(self.status_combo.currentData() or "")
         self._filtered = []
         for rec in self._records:
-            if wanted and rec.status.value != wanted:
+            has_cover = bool(self._covers_for(rec.uuid))
+            if wanted == _FILTER_COVER_YES and not has_cover:
                 continue
+            if wanted == _FILTER_COVER_NO and has_cover:
+                continue
+            if (
+                wanted
+                and wanted not in {_FILTER_COVER_YES, _FILTER_COVER_NO}
+                and rec.status.value != wanted
+            ):
+                continue
+            cover_summary = self._cover_summary(rec.uuid)
+            cover_detail = format_cover_link_detail(self._covers_for(rec.uuid))
             hay = " ".join(
                 [
                     rec.uuid,
                     rec.book_title,
                     rec.market_variant,
                     rec.batch_id,
+                    cover_summary,
+                    cover_detail,
                     str(rec.publish_dir or ""),
                     str(rec.book_path or ""),
                     str(rec.pdf_path or ""),
@@ -330,18 +401,21 @@ class UuidManagerDialog(QDialog):
             self.table.setItem(row, 1, QTableWidgetItem(rec.uuid))
             self.table.setItem(row, 2, QTableWidgetItem(rec.book_title or "—"))
             self.table.setItem(row, 3, QTableWidgetItem(rec.market_variant or "—"))
+            cover_item = QTableWidgetItem(self._cover_summary(rec.uuid))
+            cover_item.setToolTip(format_cover_link_detail(self._covers_for(rec.uuid)))
+            self.table.setItem(row, 4, cover_item)
             self.table.setItem(
                 row,
-                4,
+                5,
                 QTableWidgetItem(str(rec.publish_dir) if rec.publish_dir else "—"),
             )
             self.table.setItem(
                 row,
-                5,
+                6,
                 QTableWidgetItem(str(rec.pdf_path) if rec.pdf_path else "—"),
             )
-            self.table.setItem(row, 6, QTableWidgetItem(rec.batch_id or "—"))
-            self.table.setItem(row, 7, QTableWidgetItem(" | ".join(rec.notes) or "—"))
+            self.table.setItem(row, 7, QTableWidgetItem(rec.batch_id or "—"))
+            self.table.setItem(row, 8, QTableWidgetItem(" | ".join(rec.notes) or "—"))
         self.table.setSortingEnabled(True)
         if self._filtered:
             self.table.selectRow(0)
@@ -359,7 +433,11 @@ class UuidManagerDialog(QDialog):
         if rec is None:
             self.detail.clear()
             return
-        self.detail.setPlainText(json.dumps(rec.to_dict(), indent=2, ensure_ascii=False))
+        payload = rec.to_dict()
+        covers = self._covers_for(rec.uuid)
+        payload["cover_links"] = [entry.to_dict() for entry in covers]
+        payload["cover_summary"] = format_cover_link_summary(covers)
+        self.detail.setPlainText(json.dumps(payload, indent=2, ensure_ascii=False))
 
     def _guard_path(self, path: Path | None, label: str) -> Path | None:
         if path is None:
@@ -435,6 +513,7 @@ class UuidManagerDialog(QDialog):
                     "uuid",
                     "book_title",
                     "market_variant",
+                    "cover",
                     "publish_dir",
                     "book_path",
                     "pdf_path",
@@ -449,6 +528,7 @@ class UuidManagerDialog(QDialog):
                         rec.uuid,
                         rec.book_title,
                         rec.market_variant,
+                        self._cover_summary(rec.uuid),
                         str(rec.publish_dir or ""),
                         str(rec.book_path or ""),
                         str(rec.pdf_path or ""),

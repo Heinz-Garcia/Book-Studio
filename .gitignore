@@ -11,6 +11,10 @@ env/
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
 # Coverage-Reports (lokal, nicht versionieren)
 .coverage
 .coverage.*
@@ -39,8 +43,9 @@ session_state.json
 _Sanitizer_Backups_*/
 sanitizer_backup_*/
 
-# Bucheinhalte sind Daten, kein Code (analog Band_Dummy/Band_Template, die
-# bereits lokal per .git/info/exclude ausgeschlossen sind) - nicht versionieren.
+# Bucheinhalte / Production-Artefakte sind Daten, kein Code — nicht versionieren.
+# Deckt u. a. production/books/, production/inbox/, production/covers/,
+# export/covers, kdp_cover-PDFs, publish_renders, publish_map/record-JSONs.
 /production/
 /assets/pool/*
 !/assets/pool/.gitkeep
@@ -74,6 +79,8 @@ tools/breathcloud/last_session.json
 tools/breathcloud/last_session.json.tmp
 tools/kdp_cover/last_session.json
 tools/kdp_cover/last_session.json.tmp
+tools/kdp_cover/cover_uuid_registry.json
+tools/kdp_cover/cover_uuid_registry.json.tmp
 tools/stylecloud/presets/*.json
 # Shipped factory preset (Freie Form, eng gepackt)
 !tools/stylecloud/presets/freeForm.json

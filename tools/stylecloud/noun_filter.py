@@ -1,40 +1,303 @@
-"""German noun extraction for Cover-Schlagwortwolken (spaCy POS) — SSOT.
+"""Noun extraction for Cover-Schlagwortwolken (spaCy POS) — SSOT.
 
-Kept entirely under ``tools/stylecloud`` so the main app stays free of NLP
-imports. Callers pass plain text in and get a noun-only string out.
+Language-aware: German and English models. When „Nur Substantive“ is on,
+function words must not leak through — even if the wrong spaCy model
+mis-tags foreign text as NOUN/PROPN.
 """
 
 from __future__ import annotations
 
 import importlib
+import re
 import sys
 from functools import lru_cache
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
+
+from tools.stylecloud.stopwords_de import GERMAN_STOPWORDS
 
 # Universal Dependencies POS tags kept for cover keywords.
 NOUN_POS_TAGS: frozenset[str] = frozenset({"NOUN", "PROPN"})
 
-# Default German pipeline (small, fast). Install:
-#   python -m spacy download de_core_news_sm
 DEFAULT_SPACY_MODEL = "de_core_news_sm"
+ENGLISH_SPACY_MODEL = "en_core_web_sm"
 
 # spaCy default max is 1_000_000; chunk before that for book-sized inputs.
 _CHUNK_CHARS = 80_000
 
+# Compact English function-word set (WordCloud-style) — blocks DE-model-on-EN leaks.
+ENGLISH_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "about",
+        "above",
+        "after",
+        "again",
+        "against",
+        "all",
+        "am",
+        "an",
+        "and",
+        "any",
+        "are",
+        "aren't",
+        "as",
+        "at",
+        "be",
+        "because",
+        "been",
+        "before",
+        "being",
+        "below",
+        "between",
+        "both",
+        "but",
+        "by",
+        "can",
+        "can't",
+        "cannot",
+        "could",
+        "couldn't",
+        "did",
+        "didn't",
+        "do",
+        "does",
+        "doesn't",
+        "doing",
+        "don't",
+        "down",
+        "during",
+        "each",
+        "few",
+        "for",
+        "from",
+        "further",
+        "had",
+        "hadn't",
+        "has",
+        "hasn't",
+        "have",
+        "haven't",
+        "having",
+        "he",
+        "he'd",
+        "he'll",
+        "he's",
+        "her",
+        "here",
+        "here's",
+        "hers",
+        "herself",
+        "him",
+        "himself",
+        "his",
+        "how",
+        "how's",
+        "i",
+        "i'd",
+        "i'll",
+        "i'm",
+        "i've",
+        "if",
+        "in",
+        "into",
+        "is",
+        "isn't",
+        "it",
+        "it's",
+        "its",
+        "itself",
+        "let's",
+        "me",
+        "more",
+        "most",
+        "mustn't",
+        "my",
+        "myself",
+        "no",
+        "nor",
+        "not",
+        "of",
+        "off",
+        "on",
+        "once",
+        "only",
+        "or",
+        "other",
+        "ought",
+        "our",
+        "ours",
+        "ourselves",
+        "out",
+        "over",
+        "own",
+        "same",
+        "shan't",
+        "she",
+        "she'd",
+        "she'll",
+        "she's",
+        "should",
+        "shouldn't",
+        "so",
+        "some",
+        "such",
+        "than",
+        "that",
+        "that's",
+        "the",
+        "their",
+        "theirs",
+        "them",
+        "themselves",
+        "then",
+        "there",
+        "there's",
+        "these",
+        "they",
+        "they'd",
+        "they'll",
+        "they're",
+        "they've",
+        "this",
+        "those",
+        "through",
+        "to",
+        "too",
+        "under",
+        "until",
+        "up",
+        "very",
+        "was",
+        "wasn't",
+        "we",
+        "we'd",
+        "we'll",
+        "we're",
+        "we've",
+        "were",
+        "weren't",
+        "what",
+        "what's",
+        "when",
+        "when's",
+        "where",
+        "where's",
+        "which",
+        "while",
+        "who",
+        "who's",
+        "whom",
+        "why",
+        "why's",
+        "with",
+        "won't",
+        "would",
+        "wouldn't",
+        "you",
+        "you'd",
+        "you'll",
+        "you're",
+        "you've",
+        "your",
+        "yours",
+        "yourself",
+        "yourselves",
+        # Frequent prompt noise
+        "also",
+        "get",
+        "got",
+        "just",
+        "like",
+        "make",
+        "need",
+        "please",
+        "really",
+        "will",
+    }
+)
+
+_FUNCTION_STOPWORDS: frozenset[str] = frozenset(
+    w.casefold() for w in (GERMAN_STOPWORDS | ENGLISH_STOPWORDS)
+)
+
+_DE_HINTS = frozenset(
+    {
+        "der",
+        "die",
+        "das",
+        "und",
+        "ich",
+        "nicht",
+        "mit",
+        "sich",
+        "auf",
+        "für",
+        "eine",
+        "einem",
+        "einer",
+        "wie",
+        "auch",
+        "oder",
+        "aber",
+        "wenn",
+        "bei",
+        "nach",
+        "wird",
+        "sind",
+        "kann",
+        "werden",
+        "haben",
+        "wurde",
+        "über",
+    }
+)
+_EN_HINTS = frozenset(
+    {
+        "the",
+        "and",
+        "to",
+        "of",
+        "in",
+        "is",
+        "for",
+        "that",
+        "with",
+        "you",
+        "are",
+        "this",
+        "from",
+        "have",
+        "what",
+        "how",
+        "can",
+        "does",
+        "do",
+        "should",
+        "if",
+        "my",
+        "or",
+        "at",
+        "when",
+        "your",
+        "will",
+        "would",
+        "could",
+    }
+)
+
+TextLanguage = Literal["de", "en"]
+
 
 class SpacyNounFilterError(RuntimeError):
-    """spaCy or the German model is missing / unusable."""
+    """spaCy or the required language model is missing / unusable."""
 
 
-def _install_hint() -> str:
+def _install_hint(model: str) -> str:
     exe = sys.executable
-    return (
-        f'"{exe}" -m pip install spacy\n'
-        f'"{exe}" -m spacy download {DEFAULT_SPACY_MODEL}'
-    )
+    return f'"{exe}" -m pip install spacy\n"{exe}" -m spacy download {model}'
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=4)
 def _load_nlp(model_name: str) -> Any:
     """Load and cache a spaCy pipeline (tagger only — no parser/NER)."""
     try:
@@ -43,7 +306,7 @@ def _load_nlp(model_name: str) -> Any:
         raise SpacyNounFilterError(
             "spaCy ist nicht installiert (nur für Substantiv-Filter nötig).\n"
             f"Aktuelles Python: {sys.executable}\n"
-            f"Bitte ausführen:\n{_install_hint()}"
+            f"Bitte ausführen:\n{_install_hint(model_name)}"
         ) from exc
 
     try:
@@ -52,8 +315,7 @@ def _load_nlp(model_name: str) -> Any:
         raise SpacyNounFilterError(
             f"spaCy-Modell „{model_name}“ fehlt.\n"
             f"Aktuelles Python: {sys.executable}\n"
-            f"Bitte ausführen:\n"
-            f'"{sys.executable}" -m spacy download {model_name}'
+            f"Bitte ausführen:\n{_install_hint(model_name)}"
         ) from exc
 
 
@@ -81,23 +343,52 @@ def _iter_text_chunks(text: str, chunk_chars: int = _CHUNK_CHARS) -> Iterator[st
         start = end
 
 
-def extract_german_nouns(
+def detect_text_language(text: str) -> TextLanguage:
+    """Heuristic DE vs EN from common function-word hits (no extra dependency)."""
+    tokens = re.findall(r"[A-Za-zÄÖÜäöüß']+", (text or "").casefold())
+    if not tokens:
+        return "de"
+    sample = tokens[:4000]
+    de_hits = sum(1 for t in sample if t in _DE_HINTS)
+    en_hits = sum(1 for t in sample if t in _EN_HINTS)
+    if en_hits > de_hits:
+        return "en"
+    return "de"
+
+
+def model_for_language(lang: TextLanguage) -> str:
+    return ENGLISH_SPACY_MODEL if lang == "en" else DEFAULT_SPACY_MODEL
+
+
+def _is_kept_noun_lemma(lemma: str) -> bool:
+    key = lemma.casefold().strip()
+    if len(key) < 2:
+        return False
+    if key in _FUNCTION_STOPWORDS:
+        return False
+    return True
+
+
+def extract_nouns(
     text: str,
     *,
-    model: str = DEFAULT_SPACY_MODEL,
+    language: TextLanguage | None = None,
+    model: str | None = None,
     include_proper_nouns: bool = True,
 ) -> str:
-    """Return a space-separated string of German noun lemmas (frequency kept).
+    """Return space-separated noun lemmas (frequency kept).
 
-    Each noun occurrence is emitted once so ``stylecloud`` / ``word_cloud`` can
-    weight by frequency. Empty / non-alpha tokens are dropped.
+    Always strips DE+EN function stopwords after POS filtering so „Nur
+    Substantive“ stays reliable for Freie Form / Cover-dicht / every path.
     """
     source = (text or "").strip()
     if not source:
         return ""
 
+    lang = language or detect_text_language(source)
+    model_name = model or model_for_language(lang)
     allowed = NOUN_POS_TAGS if include_proper_nouns else frozenset({"NOUN"})
-    nlp = _load_nlp(model)
+    nlp = _load_nlp(model_name)
     nouns: list[str] = []
     for chunk in _iter_text_chunks(source):
         doc = nlp(chunk)
@@ -109,10 +400,24 @@ def extract_german_nouns(
             if len(token.text) < 2:
                 continue
             lemma = (token.lemma_ or token.text).strip()
-            if lemma:
+            if lemma and _is_kept_noun_lemma(lemma):
                 nouns.append(lemma)
 
     return " ".join(nouns)
+
+
+def extract_german_nouns(
+    text: str,
+    *,
+    model: str | None = None,
+    include_proper_nouns: bool = True,
+) -> str:
+    """Back-compat: language-aware noun extract (DE/EN). Prefer ``extract_nouns``."""
+    return extract_nouns(
+        text,
+        model=model,
+        include_proper_nouns=include_proper_nouns,
+    )
 
 
 def clear_nlp_cache() -> None:

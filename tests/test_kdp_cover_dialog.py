@@ -220,17 +220,29 @@ def test_kdp_channel_checkbox_is_form_style(monkeypatch, tmp_path):
 
 def test_kdp_dialog_keeps_preview_column(monkeypatch, tmp_path):
     """Linke Spalte begrenzt — Vorschau darf nicht weggequetscht werden."""
-    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QTabWidget, QWidget
 
     _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
     assert dlg._preview_scroll.minimumWidth() >= 400
     assert dlg.preview_label.objectName() == "kdpCoverPreview"
-    assert dlg._left_scroll.minimumWidth() >= 560
-    assert dlg._left_scroll.maximumWidth() >= 650
-    assert (
-        dlg._left_scroll.horizontalScrollBarPolicy()
-        == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-    )
+    panels = [
+        w for w in dlg.findChildren(QWidget) if w.objectName() == "kdpCoverLeftPanel"
+    ]
+    assert panels
+    assert panels[0].minimumWidth() >= 560
+    assert panels[0].maximumWidth() >= 650
+    assert isinstance(dlg._editor_tabs, QTabWidget)
+    assert dlg._editor_tabs.count() == 7
+    labels = [dlg._editor_tabs.tabText(i) for i in range(7)]
+    assert labels == [
+        "Maße",
+        "Allgemein",
+        "Vorderseite",
+        "Rücken",
+        "Rückseite",
+        "Layer",
+        "Frei",
+    ]
     dlg.close()
 
 
@@ -673,16 +685,39 @@ def test_copy_wrap_to_configured_folder(monkeypatch, tmp_path):
 def test_free_export_confirm_requires_checkbox(monkeypatch):
     pytest.importorskip("PySide6")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QTableWidget
 
+    from tools.kdp_cover.validate import ValidationIssue
+    from ui_qt.dialogs.kdp_cover_export_issues_dialog import KdpExportIssuesDialog
     from ui_qt.dialogs.kdp_cover_dialog import _FreeExportConfirmDialog
 
     _app = QApplication.instance() or QApplication([])
-    dlg = _FreeExportConfirmDialog(None, "- warn")
+    dlg = _FreeExportConfirmDialog(None, "- [warning] Rand knapp")
     assert not dlg._yes.isEnabled()
+    assert dlg.ack is not None
     dlg.ack.setChecked(True)
     assert dlg._yes.isEnabled()
+    assert isinstance(dlg.table, QTableWidget)
+    assert dlg.table.rowCount() >= 1
     dlg.close()
+
+    dlg2 = KdpExportIssuesDialog(
+        None,
+        [
+            ValidationIssue(code="x", severity="error", message="Fehler A"),
+            ValidationIssue(code="y", severity="warning", message="Warnung B"),
+        ],
+        title="Test",
+        intro="Intro",
+        require_ack=False,
+    )
+    assert dlg2.table.rowCount() == 2
+    dlg2.filter_edit.setText("fehler")
+    visible = sum(
+        1 for r in range(dlg2.table.rowCount()) if not dlg2.table.isRowHidden(r)
+    )
+    assert visible == 1
+    dlg2.close()
 
 
 def test_kdp_dialog_prefills_front_image_from_kwarg(monkeypatch, tmp_path):
@@ -878,3 +913,85 @@ def test_open_kdp_cover_qt_forwards_front_image(monkeypatch, tmp_path):
     assert rc == 0
     assert Path(str(seen["front_image"])).resolve() == png.resolve()
     assert seen.get("applied") == (str(png), False)
+
+
+def test_kdp_dialog_save_stamps_production_uuid(monkeypatch, tmp_path):
+    """Speichern verlangt UUID-Picker und schreibt production_uuid + Registry."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from uuid import uuid4
+
+    from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+
+    from tools.kdp_cover.cover_registry import list_covers_for_uuid
+    from tools.kdp_cover.model import default_project_path, load_layout
+    from tools.kdp_cover.validate import ValidationReport
+    from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
+    from ui_qt.theme import apply_theme
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *a, **k: QMessageBox.StandardButton.Yes,
+    )
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    app = QApplication.instance() or QApplication([])
+    apply_theme(app)
+
+    book = tmp_path / "book"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("title: T\nauthor: A\n", encoding="utf-8")
+    front = tmp_path / "front.png"
+    Image.new("RGB", (2000, 3200), (20, 40, 80)).save(front)
+
+    uid = str(uuid4())
+    out = default_project_path(book)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    reg = tmp_path / "cover_uuid_registry.json"
+
+    monkeypatch.setattr(
+        "ui_qt.dialogs.kdp_cover_uuid_dialog.pick_cover_uuid",
+        lambda *a, **k: {
+            "uuid": uid,
+            "cover_label": "Haupt",
+            "cover_role": "primary",
+            "title_hint": "T",
+            "source_kinds": ["book_studio"],
+            "origin_label": "Book-Studio-Buch (keine Lieferung gefunden)",
+            "content_label": "ohne Inhalt/PDF",
+        },
+    )
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *a, **k: (str(out), ""),
+    )
+    monkeypatch.setattr(
+        "tools.kdp_cover.cover_registry.registry_path",
+        lambda: reg,
+    )
+    monkeypatch.setattr(
+        KdpCoverQtDialog,
+        "_layout_validation_blocks_persist",
+        lambda self, layout: ValidationReport(),
+    )
+
+    class _Studio:
+        current_book = str(book)
+
+        def log(self, msg, level="info"):
+            pass
+
+    dlg = KdpCoverQtDialog(_Studio(), None)
+    dlg.front_edit.setText(str(front))
+    dlg._params_guard = False
+    dlg._save_project()
+    assert dlg._production_uuid == uid
+    loaded = load_layout(out)
+    assert loaded.production_uuid == uid
+    assert loaded.cover_label == "Haupt"
+    covers = list_covers_for_uuid(uid, path=reg)
+    assert len(covers) == 1
+    assert covers[0].cover_role == "primary"
+    dlg.close()
