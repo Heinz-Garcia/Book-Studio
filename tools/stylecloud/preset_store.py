@@ -18,6 +18,9 @@ from tools.stylecloud.settings import default_settings
 
 _PRESET_SCHEMA = 1
 _PRESETS_DIRNAME = "presets"
+# Shipped factory preset (file: presets/freeForm.json) — one-click Freie Form + Verlauf.
+FACTORY_FREEFORM_PRESET_NAME = "★ Freie Form · Verlauf"
+FACTORY_FREEFORM_PRESET_STEM = "freeForm"
 _SKIP_KEYS = frozenset(
     {
         "window_width",
@@ -76,6 +79,8 @@ def settings_for_preset(raw: dict[str, Any]) -> dict[str, Any]:
     # Drop geometry leftovers if present in defaults copy
     for key in _SKIP_KEYS:
         out.pop(key, None)
+    # ``__none__`` = Cover-dicht (canonical). Never auto-rewrite to Hub.
+    out["migrated_none_to_hub"] = True
     return out
 
 
@@ -100,6 +105,14 @@ def list_presets() -> list[PresetInfo]:
         )
     items.sort(key=lambda p: p.name.casefold())
     return items
+
+
+def load_factory_freeform_preset() -> dict[str, Any]:
+    """Load the shipped Freie-Form+Verlauf preset (by display name or stem)."""
+    try:
+        return load_preset(FACTORY_FREEFORM_PRESET_NAME)
+    except FileNotFoundError:
+        return load_preset(FACTORY_FREEFORM_PRESET_STEM)
 
 
 def load_preset(name: str) -> dict[str, Any]:

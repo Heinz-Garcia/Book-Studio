@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -27,7 +27,9 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizeGrip,
     QSizePolicy,
+    QSlider,
     QSpinBox,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -35,30 +37,48 @@ from PySide6.QtWidgets import (
 
 from tools.stylecloud.generator import (
     CUSTOM_SIZE_SENTINEL,
+    DEFAULT_HUB_GRADIENT,
+    DEFAULT_PRINT_SIZE,
     DEFAULT_PRINT_SIZE_LABEL,
+    DEFAULT_WORD_DENSITY,
     FREE_FORM_DENSITY_PRESETS,
     FREE_FORM_PACKING_PRESETS,
     GRADIENT_CHOICES,
+    ICON_HUB,
     ICON_NONE,
     ICON_ORGANIC,
     ICON_PRESETS,
+    ICON_RECT,
     PALETTE_PRESETS,
     PRINT_DPI,
     SIZE_PRESETS,
     StylecloudDependencyError,
     StylecloudOptions,
+    clamp_word_density,
+    composite_hub_raw_on_cover,
+    density_for_packing_key,
+    finalize_png,
     format_file_size,
     free_form_word_budget,
     generate_stylecloud,
     normalize_free_form_density,
     normalize_free_form_packing,
+    normalize_hub_gradient,
     normalize_icon_name,
+    packing_key_for_density,
+    resolve_pack_raw_path,
     suggested_max_font_size,
     suggested_must_word_gap,
     suggested_must_word_max_font,
 )
 from tools.stylecloud.noun_filter import SpacyNounFilterError
-from tools.stylecloud.preset_store import list_presets, load_preset, save_preset
+from tools.stylecloud.preset_store import (
+    FACTORY_FREEFORM_PRESET_NAME,
+    list_presets,
+    load_factory_freeform_preset,
+    load_preset,
+    save_preset,
+)
 from tools.stylecloud.settings import load_settings, resolve_window_size, save_settings
 from tools.stylecloud.text_sources import collect_book_text, default_output_path
 from ui_qt.dialogs.stylecloud_preset_manager_dialog import StylecloudPresetManagerDialog
@@ -112,6 +132,44 @@ def _set_combo_by_data(combo: QComboBox, value: object) -> bool:
     return False
 
 
+_VCENTER = Qt.AlignmentFlag.AlignVCenter
+
+
+def _tune_form(form: QFormLayout, *, margins: tuple[int, int, int, int] = (8, 12, 8, 8)) -> None:
+    """Consistent form label/field vertical centering (avoids Windows baseline drift)."""
+    form.setSpacing(8)
+    form.setHorizontalSpacing(12)
+    form.setContentsMargins(*margins)
+    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    form.setLabelAlignment(
+        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+    )
+    form.setFormAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+    )
+
+
+def _hrow(
+    *parts: QWidget | tuple[QWidget, int],
+    spacing: int = 8,
+    stretch_end: bool = False,
+) -> QWidget:
+    """Horizontal field host: zero margins, widgets vertically centered."""
+    host = QWidget()
+    row = QHBoxLayout(host)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(spacing)
+    for part in parts:
+        if isinstance(part, tuple):
+            widget, stretch = part
+            row.addWidget(widget, int(stretch), _VCENTER)
+        else:
+            row.addWidget(part, 0, _VCENTER)
+    if stretch_end:
+        row.addStretch(1)
+    return host
+
+
 class StylecloudQtDialog(QDialog):
     def __init__(self, studio: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -122,6 +180,15 @@ class StylecloudQtDialog(QDialog):
         self._is_generating = False
         self._generation_max_font_size: int | None = None
         self._user_font_size: int | None = None
+        self._cover_scale = 1.0
+        self._hub_raw_path: Path | None = None
+        self._last_output_path: Path | None = None
+        self._layout_regen_timer = QTimer(self)
+        self._layout_regen_timer.setSingleShot(True)
+        self._layout_regen_timer.setInterval(350)
+        self._layout_regen_timer.timeout.connect(self._on_layout_slider_committed)
+        # Back-compat alias used by older handlers.
+        self._orient_regen_timer = self._layout_regen_timer
         self.setWindowTitle("Cover-Schlagwortwolke (stylecloud)")
         self.setMinimumSize(860, 480)
         # Native window edges resize; corner grip is placed in the button row
@@ -139,55 +206,63 @@ class StylecloudQtDialog(QDialog):
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 8, 0)
-        left_layout.setSpacing(0)
-        form = QFormLayout()
-        self._form_layout = form
-        form.setSpacing(4)
-        form.setHorizontalSpacing(10)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        left_layout.setSpacing(6)
+
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        left_layout.addWidget(self.tabs, 1)
+
+        # ---- Tab: Text ----
+        tab_text = QWidget()
+        form_text = QFormLayout(tab_text)
+        _tune_form(form_text)
+        self._form_layout = form_text
 
         self.source_combo = QComboBox()
         self.source_combo.addItem("Aktuelles Buch (content/*.md)", "book")
         self.source_combo.addItem("Textdatei…", "file")
         self.source_combo.addItem("Freitext", "paste")
-        form.addRow("Textquelle:", self.source_combo)
+        form_text.addRow("Textquelle:", self.source_combo)
 
-        src_row = QHBoxLayout()
-        src_row.setContentsMargins(0, 0, 0, 0)
-        src_row.setSpacing(8)
         self.source_path = QLineEdit()
         self.source_path.setPlaceholderText("Pfad zur .txt / .md / .csv")
         self.btn_browse_source = QPushButton("Datei…")
         self.btn_browse_source.clicked.connect(self._browse_source)
         self.btn_load = QPushButton("Text laden")
         self.btn_load.clicked.connect(self._load_text)
-        src_row.addWidget(self.source_path, 1)
-        src_row.addWidget(self.btn_browse_source)
-        src_row.addWidget(self.btn_load)
-        form.addRow("Quelldatei:", src_row)
+        form_text.addRow(
+            "Quelldatei:",
+            _hrow(self.source_path, self.btn_browse_source, self.btn_load),
+        )
 
         self.text_edit = QTextEdit()
         self.text_edit.setPlaceholderText(
-            "Schlagwörter / Fließtext für die Wolke…\n"
-            "„Text laden“ übernimmt Buchinhalt oder Datei."
+            "Schlagwörter / Fließtext…\n„Text laden“ übernimmt Buch oder Datei."
         )
-        self.text_edit.setMinimumHeight(48)
-        self.text_edit.setMaximumHeight(80)
-        form.addRow("Text:", self.text_edit)
+        self.text_edit.setMinimumHeight(120)
+        form_text.addRow("Text:", self.text_edit)
 
-        out_row = QHBoxLayout()
-        out_row.setContentsMargins(0, 0, 0, 0)
-        out_row.setSpacing(8)
         book = getattr(studio, "current_book", None)
         self.output_path = QLineEdit(
             str(default_output_path(Path(book) if book else None))
         )
         self.btn_browse_out = QPushButton("Speichern unter…")
         self.btn_browse_out.clicked.connect(self._browse_output)
-        out_row.addWidget(self.output_path, 1)
-        out_row.addWidget(self.btn_browse_out)
-        form.addRow("Ausgabe-PNG:", out_row)
+        form_text.addRow("Ausgabe-PNG:", _hrow((self.output_path, 1), self.btn_browse_out))
+        self.save_svg = QCheckBox("Auch als SVG speichern")
+        self.save_svg.setChecked(False)
+        self.save_svg.setToolTip(
+            "Schreibt neben der PNG eine .svg-Datei.\n"
+            "Freie Form: echte Vektor-Texte.\n"
+            "Andere Formen: PNG in SVG eingebettet."
+        )
+        form_text.addRow("", self.save_svg)
+        self.tabs.addTab(tab_text, "Text")
+
+        # ---- Tab: Form & Cover ----
+        tab_form = QWidget()
+        form_form = QFormLayout(tab_form)
+        _tune_form(form_form)
 
         self.size_combo = QComboBox()
         for label, value in SIZE_PRESETS.items():
@@ -200,383 +275,384 @@ class StylecloudQtDialog(QDialog):
         if idx >= 0:
             self.size_combo.setCurrentIndex(idx)
         self.size_combo.setToolTip(
-            "Ausgabe-Auflösung / Seitenverhältnis für Buchdruck.\n"
-            "• DE Paperback 135×215 mm = Standard DACH\n"
-            "• Amazon KDP Paperback 6×9 in = Standard international\n"
-            f"Presets mit „300 dpi“ sind drucktauglich (ca. {PRINT_DPI} dpi Trim).\n"
-            "„Entwurf“ nur zur schnellen Vorschau — nicht für den Druck.\n"
-            "„Benutzerdefiniert“ = freies Ratio über Breite × Höhe in Pixeln."
+            "Cover-Auflösung / Seitenverhältnis (Druck).\n"
+            f"Druck-Presets: ≥ {PRINT_DPI} dpi inkl. KDP-Bleed "
+            "(Vorderseiten-Panel druckfertig)."
         )
-        form.addRow("Auflösung / Ratio:", self.size_combo)
+        form_form.addRow("Auflösung:", self.size_combo)
         self.size_combo.currentIndexChanged.connect(self._on_size_changed)
 
-        custom_size_row = QHBoxLayout()
-        custom_size_row.setContentsMargins(0, 0, 0, 0)
-        custom_size_row.setSpacing(8)
         self.custom_width = QSpinBox()
         self.custom_width.setRange(256, 8000)
-        self.custom_width.setValue(1594)
+        self.custom_width.setValue(int(DEFAULT_PRINT_SIZE[0]))
         self.custom_width.setSuffix(" px")
         self.custom_height = QSpinBox()
         self.custom_height.setRange(256, 8000)
-        self.custom_height.setValue(2539)
+        self.custom_height.setValue(int(DEFAULT_PRINT_SIZE[1]))
         self.custom_height.setSuffix(" px")
         self.custom_ratio_label = QLabel("Ratio: –")
-        self.custom_ratio_label.setMinimumWidth(90)
-        custom_size_row.addWidget(QLabel("B:"))
-        custom_size_row.addWidget(self.custom_width)
-        custom_size_row.addWidget(QLabel("H:"))
-        custom_size_row.addWidget(self.custom_height)
-        custom_size_row.addWidget(self.custom_ratio_label)
-        custom_size_row.addStretch(1)
-        self._custom_size_host = QWidget()
-        self._custom_size_host.setLayout(custom_size_row)
-        form.addRow("Frei (px):", self._custom_size_host)
-        self._custom_size_row = form.rowCount() - 1
-        form.setRowVisible(self._custom_size_row, False)
+        self._custom_size_host = _hrow(
+            QLabel("B:"),
+            self.custom_width,
+            QLabel("H:"),
+            self.custom_height,
+            self.custom_ratio_label,
+            stretch_end=True,
+        )
+        form_form.addRow("Frei (px):", self._custom_size_host)
+        self._form_form = form_form
+        form_form.setRowVisible(self._custom_size_host, False)
         self.custom_width.valueChanged.connect(self._on_custom_size_changed)
         self.custom_height.valueChanged.connect(self._on_custom_size_changed)
 
         self.icon_combo = QComboBox()
-        self.icon_combo.setMinimumWidth(320)
         self.icon_combo.setMaxVisibleItems(12)
         self.icon_combo.view().setMinimumWidth(480)
         for label, icon in ICON_PRESETS:
             self.icon_combo.addItem(label, icon)
         self.icon_combo.setToolTip(
-            "Form der Wolke:\n"
-            "• Freie Form = Wörter harmonisch dicht gepackt über die Cover-Fläche; "
-            "was über den Rand geht, wird abgeschnitten\n"
-            "• Organische Silhouette = unregelmäßiger Blob mit Rand\n"
-            "• Rechteck = Wörter packen die volle Cover-Fläche\n"
-            "• Font Awesome = Icon-Silhouette\n"
-            "• Bildmaske (unten) hat Vorrang und deaktiviert diese Auswahl"
+            "• Freie Form = organische Hub-Wolke um Kernwort\n"
+            "• Cover-dicht = WordCloud auf Cover\n"
+            "• Organisch / Rechteck / Font Awesome\n"
+            "• Bildmaske (Tab Erweitert) hat Vorrang"
         )
-        form.addRow("Form:", self.icon_combo)
+        form_form.addRow("Form:", self.icon_combo)
         self.icon_combo.currentIndexChanged.connect(self._on_form_changed)
         self.icon_combo.setCurrentIndex(0)
 
-        free_margin_row = QHBoxLayout()
-        free_margin_row.setContentsMargins(0, 0, 0, 0)
-        free_margin_row.setSpacing(8)
+        self._cover_pack_box = QGroupBox("Cover-dicht / Organisch")
+        cover_pack_form = QFormLayout(self._cover_pack_box)
+        _tune_form(cover_pack_form, margins=(8, 8, 8, 8))
+        cover_pack_form.setSpacing(6)
         self.free_form_margin = QSpinBox()
         self.free_form_margin.setRange(5, 40)
         self.free_form_margin.setValue(14)
         self.free_form_margin.setSuffix(" %")
-        self.free_form_margin.setToolTip(
-            "Rand um die Wolke (Prozent) — Platz für Titel/Verlag am Cover-Rand."
-        )
-        free_margin_row.addWidget(self.free_form_margin)
-        free_margin_row.addWidget(QLabel("Cover-Rand"))
-        free_margin_row.addSpacing(12)
-        free_margin_row.addWidget(QLabel("Dichte:"))
+        self.free_form_margin.setToolTip("Rand um organische Silhouette.")
+        self._cover_rand_label = QLabel("Cover-Rand")
+        cover_pack_form.addRow(self._cover_rand_label, self.free_form_margin)
+
         self.free_form_density = QComboBox()
         for label, key in FREE_FORM_DENSITY_PRESETS:
             self.free_form_density.addItem(label, key)
-        self.free_form_density.setToolTip(
-            "Nur Freie Form:\n"
-            "• Luftig = 64 Wörter (Default)\n"
-            "• Normal = 90 Wörter\n"
-            "• Dicht = 140 Wörter\n"
-            "• Frei (Maxima) = Wortanzahl über „Maxima → Wörter“\n"
-            "Packung (Locker/Normal/Eng) steuert die Weißabstände."
+        self.free_form_density.setToolTip("Wortbudget für Cover-dicht.")
+        self.free_form_density.currentIndexChanged.connect(
+            self._on_free_form_density_changed
         )
-        self.free_form_density.currentIndexChanged.connect(self._on_free_form_density_changed)
-        free_margin_row.addWidget(self.free_form_density)
         self.free_form_words_hint = QLabel("")
         self.free_form_words_hint.setStyleSheet("color:#5b6573;")
-        free_margin_row.addWidget(self.free_form_words_hint)
-        free_margin_row.addStretch(1)
-        self._free_margin_host = QWidget()
-        self._free_margin_host.setLayout(free_margin_row)
-        form.addRow("Wolken-Rand:", self._free_margin_host)
-        self._free_margin_row = form.rowCount() - 1
-        form.setRowVisible(self._free_margin_row, True)
+        dens_host = _hrow((self.free_form_density, 1), self.free_form_words_hint)
+        self._dichte_label = QLabel("Wortbudget")
+        cover_pack_form.addRow(self._dichte_label, dens_host)
 
-        pack_orient_row = QHBoxLayout()
-        pack_orient_row.setContentsMargins(0, 0, 0, 0)
-        pack_orient_row.setSpacing(8)
-        pack_orient_row.addWidget(QLabel("Packung:"))
         self.free_form_packing = QComboBox()
         for label, key in FREE_FORM_PACKING_PRESETS:
             self.free_form_packing.addItem(label, key)
-        self.free_form_packing.setToolTip(
-            "Nur Freie Form — wie eng die Wörter aneinander sitzen:\n"
-            "• Eng = maximal dicht (kleine Wolke, keine Staub-Lücken)\n"
-            "• Normal = dicht\n"
-            "• Locker = etwas mehr Luft zwischen den Wörtern\n"
-            "Zu wenige Wörter werden NICHT über das ganze Cover verteilt."
-        )
         _set_combo_by_data(self.free_form_packing, "tight")
-        pack_orient_row.addWidget(self.free_form_packing)
-        pack_orient_row.addSpacing(12)
-        pack_orient_row.addWidget(QLabel("Ausrichtung:"))
-        self.orient_auto = QCheckBox("Auto (Ratio)")
-        self.orient_auto.setChecked(True)
-        self.orient_auto.setToolTip(
-            "Ein: quer/hoch folgt dem Cover-Ratio "
-            "(Hochformat → mehr senkrechte Wörter).\n"
-            "Aus: manuell über „% quer“."
+        self.free_form_packing.setToolTip(
+            "Schnellwahl für Packdichte (synchron mit Slider „Dichte“ unten)."
         )
-        self.orient_auto.toggled.connect(self._on_orient_auto_toggled)
-        pack_orient_row.addWidget(self.orient_auto)
+        self.free_form_packing.currentIndexChanged.connect(self._on_packing_combo_changed)
+        # Kept for session back-compat; orientation lives in the shared slider below.
+        self.orient_auto = QCheckBox("Auto (Ratio)")
+        self.orient_auto.setChecked(False)
+        self.orient_auto.setVisible(False)
         self.orient_pct = QSpinBox()
         self.orient_pct.setRange(0, 100)
         self.orient_pct.setValue(50)
-        self.orient_pct.setSuffix(" % quer")
-        self.orient_pct.setEnabled(False)
-        self.orient_pct.setToolTip(
-            "Anteil der Wörter, die zuerst waagerecht versucht werden "
-            "(Rest senkrecht).\n"
-            "0 % = nur hoch, 100 % = nur quer."
+        self.orient_pct.setVisible(False)
+        pack_host = _hrow(self.free_form_packing)
+        cover_pack_form.addRow("Packung:", pack_host)
+        self._pack_host = pack_host
+        form_form.addRow(self._cover_pack_box)
+        self._free_margin_host = self._cover_pack_box
+        self._pack_orient_host = self._cover_pack_box
+
+        self._hub_pack_box = QGroupBox("Orientierung, Dichte & Cover-Einpassen")
+        hub_pack_form = QFormLayout(self._hub_pack_box)
+        _tune_form(hub_pack_form, margins=(8, 8, 8, 8))
+        self.hub_orient_slider = QSlider(Qt.Orientation.Horizontal)
+        self.hub_orient_slider.setRange(0, 100)
+        self.hub_orient_slider.setValue(50)
+        self.hub_orient_slider.setToolTip(
+            "Anteil Wörter quer (horizontal) vs. hochkant (vertikal).\n"
+            "Gilt für alle Formen (außer Font-Awesome-Icons ohne Steuerung).\n"
+            "Nach Loslassen: Wolke wird neu erzeugt (Einpassfaktor bleibt)."
         )
-        pack_orient_row.addWidget(self.orient_pct)
-        pack_orient_row.addStretch(1)
-        self._pack_orient_host = QWidget()
-        self._pack_orient_host.setLayout(pack_orient_row)
-        form.addRow("Packung / Richtung:", self._pack_orient_host)
-        self._pack_orient_row = form.rowCount() - 1
-        form.setRowVisible(self._pack_orient_row, True)
+        self.hub_orient_label = QLabel("50 % quer · 50 % hoch")
+        self.hub_orient_slider.valueChanged.connect(self._on_hub_orient_changed)
+        self.hub_orient_slider.sliderReleased.connect(self._on_layout_slider_committed)
+        hub_pack_form.addRow("Orientierung:", self.hub_orient_slider)
+        hub_pack_form.addRow("", self.hub_orient_label)
 
-        mask_row = QHBoxLayout()
-        mask_row.setContentsMargins(0, 0, 0, 0)
-        mask_row.setSpacing(8)
-        self.mask_path = QLineEdit()
-        self.mask_path.setPlaceholderText(
-            "Optional: Silhouette-PNG (z. B. Sagrada Família) — ersetzt FA-Form"
+        self.word_density_slider = QSlider(Qt.Orientation.Horizontal)
+        self.word_density_slider.setRange(0, 100)
+        self.word_density_slider.setValue(int(round(DEFAULT_WORD_DENSITY * 100)))
+        self.word_density_slider.setToolTip(
+            "Packdichte der Wörter: links locker, rechts eng verschachtelt.\n"
+            "Nach Loslassen: Wolke wird neu erzeugt (Einpassfaktor bleibt)."
         )
-        self.btn_browse_mask = QPushButton("Maske…")
-        self.btn_browse_mask.clicked.connect(self._browse_mask)
-        self.btn_clear_mask = QPushButton("Leeren")
-        self.btn_clear_mask.clicked.connect(self._clear_mask)
-        self.invert_mask = QCheckBox("Maske invertieren")
-        self.invert_mask.setChecked(False)
-        mask_row.addWidget(self.mask_path, 1)
-        mask_row.addWidget(self.btn_browse_mask)
-        mask_row.addWidget(self.btn_clear_mask)
-        mask_row.addWidget(self.invert_mask)
-        form.addRow("Form aus Bild:", mask_row)
-        self.mask_path.textChanged.connect(self._on_mask_path_changed)
+        self.word_density_label = QLabel("55 % dicht")
+        self.word_density_slider.valueChanged.connect(self._on_word_density_changed)
+        self.word_density_slider.sliderReleased.connect(self._on_layout_slider_committed)
+        hub_pack_form.addRow("Dichte:", self.word_density_slider)
+        hub_pack_form.addRow("", self.word_density_label)
 
-        self.palette_combo = QComboBox()
-        self.palette_combo.setToolTip("Farbpalette der Wörter in der Wolke.")
-        self.palette_combo.setMinimumWidth(220)
-        self.palette_combo.setMaxVisibleItems(12)
-        self.palette_combo.view().setMinimumWidth(280)
-        for label, palette in PALETTE_PRESETS:
-            self.palette_combo.addItem(label, palette)
-        self.max_colors = QSpinBox()
-        self.max_colors.setRange(2, 12)
-        self.max_colors.setValue(5)
-        self.max_colors.setToolTip(
-            "Höchstens so viele Wortfarben aus der gewählten Palette "
-            "(gleichmäßige ColorBrewer-Stichprobe).\n"
-            "Unter 12 Tönen erscheint die Vorschau darunter."
+        self.btn_scale_down = QPushButton("−")
+        self.btn_scale_down.setFixedWidth(40)
+        self.btn_scale_down.setToolTip("Wolke verkleinern (mehr Rand, kein Neu-Packen)")
+        self.btn_scale_up = QPushButton("+")
+        self.btn_scale_up.setFixedWidth(40)
+        self.btn_scale_up.setToolTip(
+            "Wolke vergrößern (füllt Cover; bei zu groß Abschneiden möglich)"
         )
-        palette_row = QHBoxLayout()
-        palette_row.setContentsMargins(0, 0, 0, 0)
-        palette_row.setSpacing(8)
-        palette_row.addWidget(self.palette_combo, 1)
-        palette_row.addWidget(QLabel("Max.:"))
-        palette_row.addWidget(self.max_colors)
-        form.addRow("Palette:", palette_row)
-
-        self._swatch_host = QWidget()
-        self._swatch_layout = QHBoxLayout(self._swatch_host)
-        self._swatch_layout.setContentsMargins(0, 2, 0, 2)
-        self._swatch_layout.setSpacing(4)
-        self._swatch_layout.addStretch(1)
-        form.addRow("Töne:", self._swatch_host)
-
-        self.gradient_combo = QComboBox()
-        self.gradient_combo.setMinimumWidth(160)
-        self.gradient_combo.setToolTip(
-            "Zufallsfarben: Wörter zufällig aus den Tönen.\n"
-            "Verlauf: nur bei quadratischer FA-Form (nicht bei Bildmaske/Hochformat)."
+        self.cover_scale_label = QLabel("100 %")
+        self.cover_scale_label.setMinimumWidth(56)
+        self.cover_scale_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.btn_scale_reset = QPushButton("Passend")
+        self.btn_scale_reset.setToolTip("Einpassen: Wolke vollständig sichtbar (100 %)")
+        self.btn_scale_down.clicked.connect(lambda: self._nudge_cover_scale(1 / 1.12))
+        self.btn_scale_up.clicked.connect(lambda: self._nudge_cover_scale(1.12))
+        self.btn_scale_reset.clicked.connect(lambda: self._set_cover_scale(1.0))
+        fit_host = _hrow(
+            self.btn_scale_down,
+            self.cover_scale_label,
+            self.btn_scale_up,
+            self.btn_scale_reset,
+            stretch_end=True,
         )
-        for label, grad in GRADIENT_CHOICES:
-            self.gradient_combo.addItem(label, grad)
-        bg_host, self.bg_edit = self._color_field(
-            "white",
-            max_width=90,
-            tooltip="Hintergrundfarbe der Wolke (Hex oder Picker).",
-            dialog_title="Hintergrundfarbe",
-        )
-        dist_row = QHBoxLayout()
-        dist_row.setContentsMargins(0, 0, 0, 0)
-        dist_row.setSpacing(8)
-        dist_row.addWidget(self.gradient_combo, 1)
-        dist_row.addWidget(QLabel("BK:"))
-        dist_row.addWidget(bg_host)
-        form.addRow("Verteilung:", dist_row)
+        hub_pack_form.addRow("Cover-Einpassen:", fit_host)
+        self._hub_fit_box = self._hub_pack_box
+        self._set_hub_fit_enabled(False)
+        form_form.addRow(self._hub_pack_box)
 
-        self.palette_combo.currentIndexChanged.connect(self._refresh_palette_preview)
-        self.max_colors.valueChanged.connect(self._refresh_palette_preview)
+        self.tabs.addTab(tab_form, "Form")
 
-        self.max_words = QSpinBox()
-        self.max_words.setRange(20, 2000)
-        self.max_words.setValue(400)
-        self.max_words.setToolTip(
-            "Maximale Wortanzahl.\n"
-            "Bei Freier Form greift stattdessen die Dichte (Luftig/Normal/Dicht)."
-        )
-        self.max_font = QSpinBox()
-        self.max_font.setRange(40, 2000)
-        self.max_font.setValue(suggested_max_font_size(self.size_combo.currentData() or 1024))
-        self.max_font.setToolTip(
-            "Maximale Wortgröße in Pixeln — genau der Wert, den du setzt.\n"
-            "Wird weder beim Erzeugen noch bei „Neu würfeln“ überschrieben."
-        )
-        self.max_font.valueChanged.connect(self._preserve_generation_font)
-        words_font_row = QHBoxLayout()
-        words_font_row.setContentsMargins(0, 0, 0, 0)
-        words_font_row.setSpacing(8)
-        self.max_words_label = QLabel("Wörter:")
-        words_font_row.addWidget(self.max_words_label)
-        words_font_row.addWidget(self.max_words)
-        words_font_row.addWidget(QLabel("Schrift:"))
-        words_font_row.addWidget(self.max_font)
-        words_font_row.addStretch(1)
-        form.addRow("Maxima:", words_font_row)
+        # ---- Tab: Kernwort & Farben ----
+        tab_style = QWidget()
+        form_style = QFormLayout(tab_style)
+        _tune_form(form_style)
 
-        png_row = QHBoxLayout()
-        png_row.setContentsMargins(0, 0, 0, 0)
-        png_row.setSpacing(8)
-        self.png_compress = QSpinBox()
-        self.png_compress.setRange(0, 9)
-        self.png_compress.setValue(6)
-        self.png_compress.setToolTip(
-            "PNG-Kompression ist verlustfrei (0 = schnell/groß, 9 = klein/langsamer).\n"
-            "Die Druckqualität hängt von der Auflösung ab, nicht von diesem Wert."
-        )
-        png_row.addWidget(self.png_compress)
-        self.png_optimize = QCheckBox("PNG optimieren")
-        self.png_optimize.setChecked(True)
-        self.png_optimize.setToolTip(
-            "Verlustfreie PNG-Optimierung (etwas langsamer, meist kleinere Datei)."
-        )
-        png_row.addWidget(self.png_optimize)
-        self.png_dpi = QSpinBox()
-        self.png_dpi.setRange(72, 600)
-        self.png_dpi.setValue(PRINT_DPI)
-        self.png_dpi.setSuffix(" dpi")
-        self.png_dpi.setToolTip(
-            "DPI-Metadaten in der PNG (Druckstandard: 300). "
-            "Ändert nicht die Pixelzahl — nur die Kennzeichnung für Layout-Software."
-        )
-        png_row.addWidget(self.png_dpi)
-        png_row.addStretch(1)
-        form.addRow("PNG / Druck:", png_row)
-
-        self.german_stop = QCheckBox("Deutsche Stoppwörter filtern")
-        self.german_stop.setChecked(True)
-
-        self.nouns_only = QCheckBox("Nur Substantive (spaCy POS)")
-        self.nouns_only.setChecked(False)
-        self.nouns_only.setToolTip(
-            "Filtert den Text mit spaCy (de_core_news_sm) auf NOUN/PROPN-Lemmata.\n"
-            "Benötigt: pip install spacy && python -m spacy download de_core_news_sm"
-        )
-
-        self.collocations = QCheckBox("Wortpaare (Bigramme) erlauben")
-        self.collocations.setChecked(False)
-
-        # 2×2 grid so columns line up vertically under each other.
-        opts_grid = QGridLayout()
-        opts_grid.setContentsMargins(0, 0, 0, 0)
-        opts_grid.setHorizontalSpacing(16)
-        opts_grid.setVerticalSpacing(4)
-        opts_grid.addWidget(self.german_stop, 0, 0)
-        opts_grid.addWidget(self.nouns_only, 0, 1)
-        opts_grid.addWidget(self.collocations, 1, 0, 1, 2)
-        opts_grid.setColumnStretch(0, 1)
-        opts_grid.setColumnStretch(1, 1)
-        form.addRow("Optionen:", opts_grid)
-
-        self.extra_stop = QLineEdit()
-        self.extra_stop.setPlaceholderText("zusätzliche Stoppwörter, kommagetrennt")
-        form.addRow("Extra-Stoppwörter:", self.extra_stop)
-
-        must_lines = QHBoxLayout()
-        must_lines.setContentsMargins(0, 0, 0, 0)
-        must_lines.setSpacing(8)
         self.must_word = QLineEdit()
-        self.must_word.setPlaceholderText("Zeile 1 — z. B. BARCELONA")
-        self.must_word_line2 = QLineEdit()
-        self.must_word_line2.setPlaceholderText("Zeile 2 (optional)")
-        self.must_word_line2.setToolTip(
-            "Zweite Zeile unter der Form. Mit aktiver Checkbox erhält sie eine "
-            "eigene Schriftgröße, sodass sie genauso breit wirkt wie Zeile 1."
-        )
-        must_lines.addWidget(self.must_word, 1)
-        must_lines.addWidget(self.must_word_line2, 1)
-        form.addRow("Muss-Wort:", must_lines)
+        self.must_word.setPlaceholderText("z. B. BARCELONA")
+        form_style.addRow("Kernwort:", self.must_word)
+        self._must_word_label = form_style.labelForField(self.must_word)
+        self._must_lines_host = self.must_word
 
-        self.must_word_match_width = QCheckBox(
-            "Zeile 2 auf Breite von Zeile 1 skalieren"
+        self.auto_fit = QCheckBox(
+            "Auto-Fit — Schriftgrößen automatisch (Pack-/Cover-Maßstab)"
         )
-        self.must_word_match_width.setChecked(True)
-        self.must_word_match_width.setToolTip(
-            "An: Zeile 1 füllt die Formbreite; Zeile 2 bekommt eine eigene "
-            "Schriftgröße und wird auf dieselbe visuelle Breite skaliert.\n"
-            "Aus: Beide Zeilen teilen sich dieselbe Schriftgröße."
+        self.auto_fit.setChecked(True)
+        self.auto_fit.setToolTip(
+            "Freie Form: Schrift aus der festen Pack-Fläche (Cover wird beim Packen "
+            "ignoriert — Einpassen danach mit − / + unter Orientierung).\n"
+            "Andere Formen: Maxima-/Muss-Schrift aus Cover-Auflösung; "
+            "danach ebenfalls − / + Cover-Einpassen.\n"
+            "Aus: manuelle Kern-/Muss-Schrift und Maxima → Schrift."
         )
+        self.auto_fit.toggled.connect(self._on_auto_fit_toggled)
+        form_style.addRow(self.auto_fit)
 
-        must_row = QHBoxLayout()
-        must_row.setContentsMargins(0, 0, 0, 0)
-        must_row.setSpacing(8)
         self.must_word_size = QSpinBox()
         self.must_word_size.setRange(24, 2000)
         self.must_word_size.setValue(
             suggested_must_word_max_font(self.size_combo.currentData() or 1024)
         )
-        self.must_word_size.setSuffix(" px max")
-        self.must_word_size.setToolTip(
-            "Obere Grenze für die Schriftgröße. "
-            "Die Breite wird an die Form angepasst."
-        )
-        must_row.addWidget(self.must_word_size)
+        self.must_word_size.setSuffix(" px")
+        form_style.addRow("Kern-Schrift:", self.must_word_size)
+        self._must_style_host = self.must_word_size
+        self._must_style_label = form_style.labelForField(self.must_word_size)
+        self._form_style = form_style
 
+        self._overlay_box = QGroupBox("Muss-Wort Overlay (nicht Hub)")
+        overlay_form = QFormLayout(self._overlay_box)
+        _tune_form(overlay_form, margins=(8, 8, 8, 8))
+        self.must_word_line2 = QLineEdit()
+        self.must_word_line2.setPlaceholderText("Zeile 2 (optional)")
+        overlay_form.addRow("Zeile 2:", self.must_word_line2)
         self.must_word_gap = QSpinBox()
         self.must_word_gap.setRange(0, 500)
         self.must_word_gap.setValue(
             suggested_must_word_gap(self.size_combo.currentData() or 1024)
         )
         self.must_word_gap.setSuffix(" px")
-        self.must_word_gap.setToolTip("Abstand zwischen Formunterkante und Muss-Wort.")
-        must_row.addWidget(QLabel("Abstand:"))
-        must_row.addWidget(self.must_word_gap)
-
+        self._must_gap_label = QLabel("Abstand")
+        overlay_form.addRow(self._must_gap_label, self.must_word_gap)
         color_host, self.must_word_color = self._color_field(
             "#c0392b",
-            tooltip="Muss-Wort-Farbe (Hex oder Picker).",
+            tooltip="Muss-Wort-Farbe",
             dialog_title="Muss-Wort-Farbe",
         )
-        must_row.addWidget(color_host)
-
+        self._must_color_host = color_host
+        overlay_form.addRow("Farbe:", color_host)
         self.must_word_angle = QComboBox()
         from tools.stylecloud.must_word import MUST_WORD_ORIENTATIONS
 
         for label, angle in MUST_WORD_ORIENTATIONS:
             self.must_word_angle.addItem(label, angle)
-        self.must_word_angle.setToolTip(
-            "Ausrichtung unter der Form (Breitenanpassung bei Horizontal)."
-        )
-        must_row.addWidget(self.must_word_angle, 1)
-        form.addRow("Muss-Wort Stil:", must_row)
-        form.addRow("", self.must_word_match_width)
+        overlay_form.addRow("Winkel:", self.must_word_angle)
+        self.must_word_match_width = QCheckBox("Zeile 2 auf Breite von Zeile 1")
+        self.must_word_match_width.setChecked(True)
+        overlay_form.addRow(self.must_word_match_width)
+        form_style.addRow(self._overlay_box)
+        self._hub_grad_box = QGroupBox("Farbverlauf (Freie Form / Hub)")
+        hub_lay = QHBoxLayout(self._hub_grad_box)
+        hub_lay.setContentsMargins(8, 8, 8, 8)
+        hub_lay.setSpacing(8)
+        self._hub_swatch_a = self._make_hub_swatch(DEFAULT_HUB_GRADIENT[0])
+        self._hub_swatch_b = self._make_hub_swatch(DEFAULT_HUB_GRADIENT[1])
+        self._hub_swatch_c = self._make_hub_swatch(DEFAULT_HUB_GRADIENT[2])
+        for sw in (self._hub_swatch_a, self._hub_swatch_b, self._hub_swatch_c):
+            hub_lay.addWidget(sw, 0, _VCENTER)
+        self._hub_grad_preview = QLabel()
+        self._hub_grad_preview.setFixedHeight(28)
+        self._hub_grad_preview.setMinimumWidth(140)
+        hub_lay.addWidget(self._hub_grad_preview, 1, _VCENTER)
+        form_style.addRow(self._hub_grad_box)
+        self._hub_grad_host = self._hub_grad_box
+        self._update_hub_gradient_preview()
 
-        left_layout.addLayout(form)
-        left_scroll = QScrollArea()
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        left_scroll.setWidget(left)
-        left_scroll.setMinimumWidth(420)
-        left_scroll.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        self._palette_box = QGroupBox("Palette (andere Formen)")
+        pal_form = QFormLayout(self._palette_box)
+        _tune_form(pal_form, margins=(8, 8, 8, 8))
+        self.palette_combo = QComboBox()
+        for label, palette in PALETTE_PRESETS:
+            self.palette_combo.addItem(label, palette)
+        self.max_colors = QSpinBox()
+        self.max_colors.setRange(2, 12)
+        self.max_colors.setValue(5)
+        self._palette_host = _hrow(
+            (self.palette_combo, 1), QLabel("Max.:"), self.max_colors
         )
-        body.addWidget(left_scroll, 3)
+        pal_form.addRow("Palette:", self._palette_host)
+        self._swatch_host = QWidget()
+        self._swatch_layout = QHBoxLayout(self._swatch_host)
+        self._swatch_layout.setContentsMargins(0, 0, 0, 0)
+        self._swatch_layout.setSpacing(4)
+        self._swatch_layout.addStretch(1)
+        pal_form.addRow("Töne:", self._swatch_host)
+        self.gradient_combo = QComboBox()
+        for label, grad in GRADIENT_CHOICES:
+            self.gradient_combo.addItem(label, grad)
+        self.gradient_combo.setToolTip(
+            "Nur bei Font-Awesome-Form und quadratischer Auflösung "
+            "(Einschränkung der stylecloud-Bibliothek)."
+        )
+        bg_host, self.bg_edit = self._color_field(
+            "white",
+            max_width=90,
+            tooltip="Hintergrundfarbe",
+            dialog_title="Hintergrundfarbe",
+        )
+        pal_form.addRow("FA-Verlauf:", self.gradient_combo)
+        pal_form.addRow("Hintergrund:", bg_host)
+        self._palette_form = pal_form
+        self._dist_host = self.gradient_combo
+        form_style.addRow(self._palette_box)
+        self.palette_combo.currentIndexChanged.connect(self._refresh_palette_preview)
+        self.max_colors.valueChanged.connect(self._refresh_palette_preview)
+
+        self.tabs.addTab(tab_style, "Kernwort & Farbe")
+
+        # ---- Tab: Maxima ----
+        tab_opt = QWidget()
+        form_opt = QFormLayout(tab_opt)
+        _tune_form(form_opt)
+
+        self.max_words = QSpinBox()
+        self.max_words.setRange(20, 2000)
+        self.max_words.setValue(200)
+        self.max_words_label = QLabel("Wörter")
+        self.max_font = QSpinBox()
+        self.max_font.setRange(40, 2000)
+        self.max_font.setValue(
+            suggested_max_font_size(self.size_combo.currentData() or 1024)
+        )
+        self.max_font.setToolTip("Maximale Begleitwort-Schrift (nicht Kernwort).")
+        self.max_font.valueChanged.connect(self._preserve_generation_font)
+        self.max_font_label = QLabel("Schrift:")
+        maxima_host = _hrow(
+            self.max_words_label,
+            self.max_words,
+            self.max_font_label,
+            self.max_font,
+            stretch_end=True,
+        )
+        form_opt.addRow("Maxima:", maxima_host)
+
+        self.german_stop = QCheckBox("Deutsche Stoppwörter filtern")
+        self.german_stop.setChecked(True)
+        self.nouns_only = QCheckBox("Nur Substantive (spaCy)")
+        self.nouns_only.setChecked(False)
+        self.collocations = QCheckBox("Wortpaare (Bigramme)")
+        self.collocations.setChecked(False)
+        opts_grid = QGridLayout()
+        opts_grid.setContentsMargins(0, 0, 0, 0)
+        opts_grid.setHorizontalSpacing(12)
+        opts_grid.setVerticalSpacing(6)
+        opts_grid.addWidget(self.german_stop, 0, 0, _VCENTER)
+        opts_grid.addWidget(self.nouns_only, 0, 1, _VCENTER)
+        opts_grid.addWidget(self.collocations, 1, 0, 1, 2, _VCENTER)
+        self._opts_host = QWidget()
+        self._opts_host.setLayout(opts_grid)
+        form_opt.addRow("Filter:", self._opts_host)
+        self._opts_label = None
+
+        self.extra_stop = QLineEdit()
+        self.extra_stop.setPlaceholderText("zusätzliche Stoppwörter, kommagetrennt")
+        form_opt.addRow("Extra-Stoppwörter:", self.extra_stop)
+
+        self.tabs.addTab(tab_opt, "Maxima")
+
+        # ---- Tab: Erweitert ----
+        tab_adv = QWidget()
+        form_adv = QFormLayout(tab_adv)
+        _tune_form(form_adv)
+
+        self.mask_path = QLineEdit()
+        self.mask_path.setPlaceholderText("Silhouette-PNG — ersetzt Form-Auswahl")
+        self.btn_browse_mask = QPushButton("Maske…")
+        self.btn_browse_mask.clicked.connect(self._browse_mask)
+        self.btn_clear_mask = QPushButton("Leeren")
+        self.btn_clear_mask.clicked.connect(self._clear_mask)
+        self.invert_mask = QCheckBox("Invertieren")
+        form_adv.addRow(
+            "Bildmaske:",
+            _hrow(
+                (self.mask_path, 1),
+                self.btn_browse_mask,
+                self.btn_clear_mask,
+                self.invert_mask,
+            ),
+        )
+        self.mask_path.textChanged.connect(self._on_mask_path_changed)
+
+        self.png_compress = QSpinBox()
+        self.png_compress.setRange(0, 9)
+        self.png_compress.setValue(6)
+        self.png_optimize = QCheckBox("PNG optimieren")
+        self.png_optimize.setChecked(True)
+        self.png_dpi = QSpinBox()
+        self.png_dpi.setRange(PRINT_DPI, 600)
+        self.png_dpi.setValue(PRINT_DPI)
+        self.png_dpi.setSuffix(" dpi")
+        self.png_dpi.setToolTip(
+            f"PNG-Metadaten-DPI — mindestens {PRINT_DPI} (Druckqualität)."
+        )
+        form_adv.addRow(
+            "PNG:",
+            _hrow(
+                QLabel("Kompression:"),
+                self.png_compress,
+                self.png_optimize,
+                self.png_dpi,
+                stretch_end=True,
+            ),
+        )
+
+        self.tabs.addTab(tab_adv, "Erweitert")
+
+        body.addWidget(left, 3)
 
         preview_box = QGroupBox("Vorschau")
         preview_layout = QVBoxLayout(preview_box)
@@ -593,9 +669,11 @@ class StylecloudQtDialog(QDialog):
         )
         self.preview.setScaledContents(False)
         preview_layout.addWidget(self.preview, 1)
+
         body.addWidget(preview_box, 2)
 
         layout.addLayout(body, 1)
+
 
         self.status = QLabel("")
         self.status.setWordWrap(True)
@@ -613,9 +691,16 @@ class StylecloudQtDialog(QDialog):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
+        self.btn_factory_freeform = QPushButton(FACTORY_FREEFORM_PRESET_NAME)
+        self.btn_factory_freeform.setToolTip(
+            "Ein Klick: Freie Form (Hub), Cover DE Paperback, Farbverlauf.\n"
+            "Danach nur Kernwort setzen, Text laden, Wolke erzeugen."
+        )
+        self.btn_factory_freeform.clicked.connect(self._load_factory_freeform_preset)
+        row.addWidget(self.btn_factory_freeform)
         row.addWidget(QLabel("Preset:"))
         self.preset_combo = QComboBox()
-        self.preset_combo.setFixedWidth(320)
+        self.preset_combo.setFixedWidth(280)
         self.preset_combo.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
         )
@@ -651,6 +736,14 @@ class StylecloudQtDialog(QDialog):
         self.btn_open = QPushButton("Ordner öffnen")
         self.btn_open.clicked.connect(self._open_folder)
         row.addWidget(self.btn_open)
+        self.btn_handoff_kdp = QPushButton("An KDP Cover übergeben")
+        self.btn_handoff_kdp.setToolTip(
+            "Öffnet den KDP Cover-Designer und setzt die Ausgabe-PNG als Vorderseite "
+            "(Hintergrund). Cover-Layer (Titel, Bänder, Badges) bleiben aktiv und "
+            "zeichnen darüber."
+        )
+        self.btn_handoff_kdp.clicked.connect(self._handoff_to_kdp_cover)
+        row.addWidget(self.btn_handoff_kdp)
         close = QPushButton("Schließen")
         close.clicked.connect(self.accept)
         self.btn_close = close
@@ -666,8 +759,65 @@ class StylecloudQtDialog(QDialog):
         self._restore_settings()
         self._on_source_changed()
         self._on_mask_path_changed()
+        self._update_mode_ui()
         self._refresh_palette_preview()
         self.max_font.valueChanged.connect(self._persist_font_size_immediately)
+        self.output_path.textChanged.connect(lambda *_a: self._update_handoff_button())
+        self._update_handoff_button()
+
+    def _make_hub_swatch(self, hex_color: str) -> QPushButton:
+        """Flat color button → QColorDialog for hub gradient stops."""
+        btn = QPushButton()
+        btn.setFixedSize(48, 28)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setProperty("hub_hex", hex_color)
+        btn.setToolTip("Klicken zum Wählen der Verlaufsfarbe")
+        self._paint_hub_swatch(btn)
+        btn.clicked.connect(lambda *_a, b=btn: self._pick_hub_swatch(b))
+        return btn
+
+    def _paint_hub_swatch(self, btn: QPushButton) -> None:
+        hex_color = str(btn.property("hub_hex") or "#888888")
+        btn.setStyleSheet(
+            f"QPushButton {{ background-color: {hex_color}; "
+            f"border: 1px solid #444; border-radius: 4px; }}"
+        )
+
+    def _pick_hub_swatch(self, btn: QPushButton) -> None:
+        current = QColor(str(btn.property("hub_hex") or "#888888"))
+        chosen = QColorDialog.getColor(current, self, "Verlaufsfarbe wählen")
+        if chosen.isValid():
+            btn.setProperty("hub_hex", chosen.name(QColor.NameFormat.HexRgb))
+            self._paint_hub_swatch(btn)
+            self._update_hub_gradient_preview()
+
+    def _hub_gradient_stops(self) -> list[str]:
+        return normalize_hub_gradient(
+            [
+                str(self._hub_swatch_a.property("hub_hex") or DEFAULT_HUB_GRADIENT[0]),
+                str(self._hub_swatch_b.property("hub_hex") or DEFAULT_HUB_GRADIENT[1]),
+                str(self._hub_swatch_c.property("hub_hex") or DEFAULT_HUB_GRADIENT[2]),
+            ]
+        )
+
+    def _set_hub_gradient_stops(self, stops: object) -> None:
+        parts = normalize_hub_gradient(stops)
+        for btn, hex_color in zip(
+            (self._hub_swatch_a, self._hub_swatch_b, self._hub_swatch_c),
+            parts,
+            strict=True,
+        ):
+            btn.setProperty("hub_hex", hex_color)
+            self._paint_hub_swatch(btn)
+        self._update_hub_gradient_preview()
+
+    def _update_hub_gradient_preview(self) -> None:
+        a, b, c = self._hub_gradient_stops()
+        self._hub_grad_preview.setStyleSheet(
+            f"border:1px solid #666; border-radius:4px; "
+            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0, "
+            f"stop:0 {a}, stop:0.5 {b}, stop:1 {c});"
+        )
 
     def _color_field(
         self,
@@ -692,8 +842,8 @@ class StylecloudQtDialog(QDialog):
         row = QHBoxLayout(host)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
-        row.addWidget(edit)
-        row.addWidget(btn)
+        row.addWidget(edit, 0, _VCENTER)
+        row.addWidget(btn, 0, _VCENTER)
 
         def _parse() -> QColor:
             raw = edit.text().strip() or initial
@@ -767,12 +917,21 @@ class StylecloudQtDialog(QDialog):
         self._persist_settings()
         super().reject()
 
+    def _set_custom_size_row_visible(self, visible: bool) -> None:
+        """Show B×H only for „Benutzerdefiniert“ — hide label + fields together."""
+        show = bool(visible)
+        form = getattr(self, "_form_form", None)
+        if form is not None:
+            form.setRowVisible(self._custom_size_host, show)
+        else:
+            self._custom_size_host.setVisible(show)
+
     def _on_size_changed(self, *_args) -> None:
         if self._restoring:
             return
         size = self._resolved_size()
         custom = self.size_combo.currentData() == CUSTOM_SIZE_SENTINEL
-        self._form_layout.setRowVisible(self._custom_size_row, bool(custom))
+        self._set_custom_size_row_visible(custom)
         if size is None:
             return
         # Never auto-overwrite Maxima → Schrift here. Size changes used to reset
@@ -811,20 +970,21 @@ class StylecloudQtDialog(QDialog):
             isinstance(size, tuple) and len(size) == 2 and int(size[0]) != int(size[1])
         )
 
+    def _uses_font_awesome(self) -> bool:
+        """True when Form is a Font Awesome icon (library gradient applies)."""
+        if self.mask_path.text().strip():
+            return False
+        icon = self._resolved_icon_name()
+        return icon not in {ICON_HUB, ICON_NONE, ICON_ORGANIC, ICON_RECT, ""}
+
     def _update_gradient_items(self) -> None:
-        """Keep „Zufallsfarben“ always usable; lock only FA-square gradients."""
-        self.gradient_combo.setEnabled(True)
-        has_mask = bool(self.mask_path.text().strip())
-        square = self._canvas_is_square()
-        allow_gradient = (not has_mask) and square
-        model = self.gradient_combo.model()
-        for index in range(self.gradient_combo.count()):
-            data = self.gradient_combo.itemData(index)
-            item = model.item(index) if hasattr(model, "item") else None
-            enabled = data is None or allow_gradient
-            if item is not None:
-                item.setEnabled(enabled)
-        if not allow_gradient and self.gradient_combo.currentData() is not None:
+        """Show FA-Verlauf only for Font Awesome + square canvas."""
+        allow = self._uses_font_awesome() and self._canvas_is_square()
+        form = getattr(self, "_palette_form", None)
+        if form is not None:
+            form.setRowVisible(self.gradient_combo, bool(allow))
+        self.gradient_combo.setEnabled(bool(allow))
+        if not allow and self.gradient_combo.currentData() is not None:
             _set_combo_by_data(self.gradient_combo, None)
 
     def _clear_swatches(self) -> None:
@@ -876,14 +1036,14 @@ class StylecloudQtDialog(QDialog):
     def _on_mask_path_changed(self, *_args) -> None:
         has_mask = bool(self.mask_path.text().strip())
         self.icon_combo.setEnabled(not has_mask)
-        self._update_form_margin_ui()
+        self._update_mode_ui()
         self._update_gradient_items()
         self._update_invert_mask_ui()
 
     def _on_form_changed(self, *_args) -> None:
         if self._restoring:
             return
-        self._update_form_margin_ui()
+        self._update_mode_ui()
         self._update_gradient_items()
 
     def _resolved_icon_name(self) -> str:
@@ -893,21 +1053,169 @@ class StylecloudQtDialog(QDialog):
     def _resolved_free_form_density(self) -> str:
         return normalize_free_form_density(self.free_form_density.currentData())
 
-    def _on_orient_auto_toggled(self, checked: bool) -> None:
-        self.orient_pct.setEnabled(not bool(checked))
+    def _on_hub_orient_changed(self, value: int) -> None:
+        quer = int(value)
+        hoch = 100 - quer
+        self.hub_orient_label.setText(f"{quer} % quer · {hoch} % hoch")
+        if self._restoring or self._is_generating:
+            return
+        if self.hub_orient_slider.isSliderDown():
+            return
+        self._layout_regen_timer.start()
+
+    def _on_word_density_changed(self, value: int) -> None:
+        pct = int(value)
+        self.word_density_label.setText(f"{pct} % dicht")
+        # Keep Cover-dicht packing combo in sync (visual only).
+        if not self._restoring:
+            key = packing_key_for_density(pct / 100.0)
+            if normalize_free_form_packing(self.free_form_packing.currentData()) != key:
+                self.free_form_packing.blockSignals(True)
+                _set_combo_by_data(self.free_form_packing, key)
+                self.free_form_packing.blockSignals(False)
+        if self._restoring or self._is_generating:
+            return
+        if self.word_density_slider.isSliderDown():
+            return
+        self._layout_regen_timer.start()
+
+    def _on_layout_slider_committed(self) -> None:
+        """Regenerate after Orientierungs- oder Dichte-Slider; keep cover_scale."""
+        self._layout_regen_timer.stop()
+        if self._restoring or self._is_generating:
+            return
+        has_text = bool(self.text_edit.toPlainText().strip())
+        is_hub = (
+            not self.mask_path.text().strip()
+            and self._resolved_icon_name() == ICON_HUB
+        )
+        if is_hub:
+            if not self.must_word.text().strip():
+                return
+            if not has_text and self._hub_raw_path is None:
+                return
+        elif not has_text:
+            return
+        scale_pct = int(round(self._cover_scale * 100))
+        dens_pct = int(self.word_density_slider.value())
+        orient_pct = int(self.hub_orient_slider.value())
+        self.status.setText(
+            f"Layout {orient_pct}% quer / {dens_pct}% dicht — "
+            f"erzeuge neu (Einpassen {scale_pct} % bleibt)…"
+        )
+        self._generate()
+
+    def _on_hub_orient_committed(self) -> None:
+        """Back-compat alias."""
+        self._on_layout_slider_committed()
+
+    def _set_cover_scale(self, value: float) -> None:
+        # Never let a pending Orient/Dichte-Regen steal the ± click.
+        self._layout_regen_timer.stop()
+        self._cover_scale = max(0.15, min(8.0, float(value)))
+        self.cover_scale_label.setText(f"{int(round(self._cover_scale * 100))} %")
+        if not self._restoring:
+            self._recomposite_hub_to_cover()
+
+    def _nudge_cover_scale(self, factor: float) -> None:
+        self._set_cover_scale(self._cover_scale * float(factor))
+
+    def _set_hub_fit_enabled(self, enabled: bool) -> None:
+        for w in (
+            self.btn_scale_down,
+            self.btn_scale_up,
+            self.btn_scale_reset,
+            self.cover_scale_label,
+        ):
+            w.setEnabled(bool(enabled))
+
+    def _prefer_hub_raw(self) -> bool:
+        return (
+            not self.mask_path.text().strip()
+            and self._resolved_icon_name() == ICON_HUB
+        )
+
+    def _recomposite_hub_to_cover(self) -> None:
+        """Re-place packed cloud onto cover with current scale — no re-pack."""
+        out = self._last_output_path
+        if out is None:
+            return
+        raw = resolve_pack_raw_path(out, prefer_hub=self._prefer_hub_raw())
+        if raw is None or not raw.is_file():
+            raw = self._hub_raw_path
+        if raw is None or out is None or not raw.is_file():
+            return
+        if self._is_generating:
+            return
+        try:
+            size = self._resolved_size()
+            opts = StylecloudOptions(
+                text=".",
+                output_path=out,
+                size=size if size is not None else 1024,
+                icon_name=self._resolved_icon_name(),
+                mask_path=(
+                    Path(self.mask_path.text().strip())
+                    if self.mask_path.text().strip()
+                    else None
+                ),
+                background_color=self.bg_edit.text().strip() or "white",
+                cover_scale=float(self._cover_scale),
+                png_compress_level=int(self.png_compress.value()),
+                png_optimize=self.png_optimize.isChecked(),
+                png_dpi=int(self.png_dpi.value()),
+            )
+            composite_hub_raw_on_cover(raw, out, opts)
+            finalize_png(
+                out,
+                compress_level=opts.png_compress_level,
+                optimize=opts.png_optimize,
+                dpi=int(opts.png_dpi or PRINT_DPI),
+            )
+            if self.save_svg.isChecked():
+                from tools.stylecloud.generator import export_stylecloud_svg
+
+                opts.save_svg = True
+                opts.cover_scale = float(self._cover_scale)
+                export_stylecloud_svg(opts, out)
+            self._hub_raw_path = raw
+            pix = QPixmap(str(out))
+            if not pix.isNull():
+                self._preview_pixmap = pix
+                self._refresh_preview_pixmap()
+            self.status.setText(
+                f"Einpassen {int(round(self._cover_scale * 100))} % — "
+                f"ohne Neu-Berechnung."
+            )
+        except (OSError, ValueError, FileNotFoundError) as exc:
+            self.status.setText(f"Einpassen fehlgeschlagen: {exc}")
+
+    def _resolved_prefer_horizontal(self) -> float | None:
+        # Shared slider for all forms (cover-ratio auto removed).
+        return max(0.0, min(1.0, float(self.hub_orient_slider.value()) / 100.0))
 
     def _resolved_free_form_packing(self) -> str:
         return normalize_free_form_packing(self.free_form_packing.currentData())
 
-    def _resolved_prefer_horizontal(self) -> float | None:
-        if self.orient_auto.isChecked():
-            return None
-        return max(0.0, min(1.0, float(self.orient_pct.value()) / 100.0))
+    def _resolved_word_density(self) -> float:
+        return clamp_word_density(self.word_density_slider.value() / 100.0)
+
+    def _on_packing_combo_changed(self, *_args) -> None:
+        if self._restoring:
+            return
+        dens = density_for_packing_key(self._resolved_free_form_packing())
+        pct = int(round(dens * 100))
+        if int(self.word_density_slider.value()) != pct:
+            self.word_density_slider.blockSignals(True)
+            self.word_density_slider.setValue(pct)
+            self.word_density_slider.blockSignals(False)
+            self.word_density_label.setText(f"{pct} % dicht")
+        self._layout_regen_timer.start()
 
     def _on_free_form_density_changed(self, *_args) -> None:
         if self._restoring:
             return
-        self._update_form_margin_ui()
+        self._update_mode_ui()
 
     def _update_free_form_words_hint(self, *_args) -> None:
         if not hasattr(self, "free_form_words_hint"):
@@ -919,41 +1227,117 @@ class StylecloudQtDialog(QDialog):
         budget = free_form_word_budget(density, 1200, 1900)
         self.free_form_words_hint.setText(f"(Ziel: {budget} Wörter)")
 
-    def _update_form_margin_ui(self) -> None:
+    def _update_mode_ui(self) -> None:
+        """Show only controls for the active form mode (tab containers)."""
         has_mask = bool(self.mask_path.text().strip())
         icon = self._resolved_icon_name()
-        is_free = (not has_mask) and icon == ICON_NONE
-        density = self._resolved_free_form_density() if is_free else ""
-        density_uses_maxima = is_free and density == "free"
-        # Cover-Rand only for organic blob. Freie Form uses the full cover;
-        # overflow is hard-clipped at the canvas edge.
-        show_margin = (not has_mask) and icon == ICON_ORGANIC
-        self._form_layout.setRowVisible(self._free_margin_row, bool(show_margin))
-        self.free_form_margin.setEnabled(bool(show_margin))
-        self.free_form_density.setVisible(bool(is_free))
-        self.free_form_density.setEnabled(bool(is_free))
-        self.free_form_words_hint.setVisible(bool(is_free))
-        if hasattr(self, "_pack_orient_row"):
-            self._form_layout.setRowVisible(self._pack_orient_row, bool(is_free))
-            self.free_form_packing.setEnabled(bool(is_free))
-            self.orient_auto.setEnabled(bool(is_free))
-            self.orient_pct.setEnabled(
-                bool(is_free) and not self.orient_auto.isChecked()
+        is_hub = (not has_mask) and icon == ICON_HUB
+        is_cover = (not has_mask) and icon == ICON_NONE
+        is_organic = (not has_mask) and icon == ICON_ORGANIC
+        density = self._resolved_free_form_density() if is_cover else ""
+        density_uses_maxima = is_cover and density == "free"
+
+        # Form tab: Cover-dicht / Organisch extras vs shared Orient/Einpassen
+        self._cover_pack_box.setVisible(bool(is_organic or is_cover))
+        self._hub_pack_box.setVisible(True)
+        if hasattr(self, "_hub_fit_box"):
+            self._hub_fit_box.setVisible(True)
+        self.free_form_margin.setVisible(bool(is_organic))
+        self.free_form_margin.setEnabled(bool(is_organic))
+        self._cover_rand_label.setVisible(bool(is_organic))
+        self._dichte_label.setVisible(bool(is_cover))
+        self.free_form_density.setVisible(bool(is_cover))
+        self.free_form_density.setEnabled(bool(is_cover))
+        self.free_form_words_hint.setVisible(bool(is_cover))
+        # Packung nur Cover-dicht (Orientierung ist im gemeinsamen Block).
+        cover_form = self._cover_pack_box.layout()
+        if isinstance(cover_form, QFormLayout) and hasattr(self, "_pack_host"):
+            cover_form.setRowVisible(self._pack_host, bool(is_cover))
+        self.free_form_packing.setEnabled(bool(is_cover))
+
+        # Kernwort & Farbe: hub gradient XOR palette / overlay
+        self._hub_grad_box.setVisible(bool(is_hub))
+        self._palette_box.setVisible(not is_hub)
+        self._overlay_box.setVisible(not is_hub)
+        self.auto_fit.setVisible(True)
+        self._on_auto_fit_toggled(self.auto_fit.isChecked())
+        self._update_gradient_items()
+
+        if self._must_word_label is not None:
+            self._must_word_label.setText("Kernwort:" if is_hub else "Muss-Wort:")
+        if getattr(self, "_must_style_label", None) is not None:
+            self._must_style_label.setText(
+                "Kern-Schrift:" if is_hub else "Muss-Wort Stil:"
             )
-        self.max_words.setEnabled((not is_free) or density_uses_maxima)
-        self.max_words_label.setEnabled((not is_free) or density_uses_maxima)
-        if is_free and not density_uses_maxima:
+        self.must_word.setPlaceholderText(
+            "Kernwort — Pflicht für Freie Form"
+            if is_hub
+            else "Zeile 1 — z. B. BARCELONA"
+        )
+        self.must_word_size.setToolTip(
+            "Schriftgröße des Kernworts (lange Wörter werden begrenzt)."
+            if is_hub
+            else "Obere Grenze für die Schriftgröße. Die Breite wird an die Form angepasst."
+        )
+        self.must_word_size.setSuffix(" px" if is_hub else " px max")
+
+        self.max_words.setEnabled((not is_cover) or density_uses_maxima)
+        self.max_words_label.setEnabled((not is_cover) or density_uses_maxima)
+        if is_hub:
+            self.max_words.setToolTip(
+                "Begleitwörter um das Kernwort (empfohlen ≥ 80)."
+            )
+        elif is_cover and not density_uses_maxima:
             self.max_words.setToolTip(
                 "Bei Dichte Luftig/Normal/Dicht steuert „Dichte“ die Wortanzahl.\n"
                 "Für manuelle Steuerung: Dichte → „Frei (Maxima)“."
             )
-        elif density_uses_maxima:
+        elif is_cover and density_uses_maxima:
             self.max_words.setToolTip(
                 "Dichte „Frei“: hier die gewünschte Wortanzahl setzen."
             )
         else:
             self.max_words.setToolTip("Maximale Wortanzahl in der Wolke.")
         self._update_free_form_words_hint()
+
+    def _on_auto_fit_toggled(self, checked: bool) -> None:
+        """When Auto-Fit is on, Kern-/Muss-Schrift and Maxima-Schrift are derived."""
+        auto = bool(checked)
+        is_hub = (
+            not self.mask_path.text().strip()
+            and self._resolved_icon_name() == ICON_HUB
+        )
+        self.must_word_size.setEnabled(not auto)
+        self.max_font.setEnabled(not auto)
+        if hasattr(self, "max_font_label"):
+            self.max_font_label.setEnabled(not auto)
+        if auto:
+            self.must_word_size.setToolTip(
+                "Auto-Fit aktiv: Größe wird aus dem Cover berechnet.\n"
+                "Checkbox aus, um manuell zu setzen."
+            )
+            self.max_font.setToolTip(
+                "Auto-Fit aktiv: Maxima-Schrift wird automatisch gesetzt.\n"
+                "Checkbox aus für manuelle Maxima → Schrift."
+            )
+        elif is_hub:
+            self.must_word_size.setToolTip(
+                "Schriftgröße des Kernworts (lange Wörter werden begrenzt)."
+            )
+            self.max_font.setToolTip(
+                "Obere Grenze für Begleitwörter um das Kernwort."
+            )
+        else:
+            self.must_word_size.setToolTip(
+                "Obere Grenze für die Schriftgröße. Die Breite wird an die Form angepasst."
+            )
+            self.max_font.setToolTip(
+                "Maximale Begleitwort-Schrift (nicht Muss-Wort)."
+            )
+
+    def _update_form_margin_ui(self) -> None:
+        """Back-compat alias — prefer ``_update_mode_ui``."""
+        self._update_mode_ui()
 
     def _update_invert_mask_ui(self) -> None:
         """Context-sensitive tooltip for mask vs. Font Awesome invert."""
@@ -995,12 +1379,14 @@ class StylecloudQtDialog(QDialog):
             "free_form_margin_pct": float(self.free_form_margin.value()),
             "free_form_density": self._resolved_free_form_density(),
             "free_form_packing": self._resolved_free_form_packing(),
-            "free_form_orient_auto": bool(self.orient_auto.isChecked()),
-            "free_form_orient_pct": int(self.orient_pct.value()),
+            # Orientation SSOT is hub_orient_pct; keep legacy keys in sync.
+            "free_form_orient_auto": False,
+            "free_form_orient_pct": int(self.hub_orient_slider.value()),
             "palette": str(
                 self.palette_combo.currentData() or "cartocolors.qualitative.Bold_5"
             ),
             "gradient": self.gradient_combo.currentData(),
+            "hub_gradient": self._hub_gradient_stops(),
             "background_color": self.bg_edit.text().strip() or "white",
             "max_colors": int(self.max_colors.value()),
             "max_words": int(self.max_words.value()),
@@ -1018,9 +1404,15 @@ class StylecloudQtDialog(QDialog):
             "must_word_angle": int(self.must_word_angle.currentData() or 0),
             "must_word_gap": int(self.must_word_gap.value()),
             "must_word_match_line1_width": self.must_word_match_width.isChecked(),
+            "auto_fit": bool(self.auto_fit.isChecked()),
+            "cover_scale": float(self._cover_scale),
+            "hub_orient_pct": int(self.hub_orient_slider.value()),
+            "word_density_pct": int(self.word_density_slider.value()),
+            "save_svg": bool(self.save_svg.isChecked()),
             "png_compress_level": int(self.png_compress.value()),
             "png_optimize": self.png_optimize.isChecked(),
             "png_dpi": int(self.png_dpi.value()),
+            "migrated_none_to_hub": True,
             "window_width": int(self.width()),
             "window_height": int(self.height()),
         }
@@ -1055,6 +1447,8 @@ class StylecloudQtDialog(QDialog):
             self.preset_combo.addItem(info.name, info.name)
         if current:
             _set_combo_by_data(self.preset_combo, current)
+        else:
+            _set_combo_by_data(self.preset_combo, FACTORY_FREEFORM_PRESET_NAME)
         self.preset_combo.blockSignals(False)
         has_any = self.preset_combo.count() > 1
         self.btn_preset_load.setEnabled(has_any)
@@ -1069,13 +1463,37 @@ class StylecloudQtDialog(QDialog):
             self._on_mask_path_changed()
             self._on_source_changed()
 
+    def _focus_after_freeform_preset(self) -> None:
+        """Jump to Kernwort so the user only fills the hub word."""
+        for index in range(self.tabs.count()):
+            if "Kernwort" in self.tabs.tabText(index):
+                self.tabs.setCurrentIndex(index)
+                break
+        self.must_word.setFocus()
+        self.must_word.selectAll()
+
+    def _load_factory_freeform_preset(self) -> None:
+        try:
+            settings = load_factory_freeform_preset()
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Freie Form laden", str(exc))
+            self._refresh_preset_combo()
+            return
+        self._apply_preset_settings(settings)
+        self._refresh_preset_combo(select_name=FACTORY_FREEFORM_PRESET_NAME)
+        self._focus_after_freeform_preset()
+        self.status.setText(
+            "★ Freie Form · Verlauf geladen — Kernwort setzen, Text laden, erzeugen."
+        )
+
     def _load_selected_preset(self) -> None:
         name = str(self.preset_combo.currentData() or "").strip()
         if not name:
             QMessageBox.information(
                 self,
                 "Preset laden",
-                "Bitte zuerst ein Preset in der Liste auswählen.",
+                "Bitte zuerst ein Preset in der Liste auswählen.\n\n"
+                f"Tipp: Button „{FACTORY_FREEFORM_PRESET_NAME}“ für Ein-Klick-Hub.",
             )
             return
         try:
@@ -1085,6 +1503,8 @@ class StylecloudQtDialog(QDialog):
             self._refresh_preset_combo()
             return
         self._apply_preset_settings(settings)
+        if name == FACTORY_FREEFORM_PRESET_NAME:
+            self._focus_after_freeform_preset()
         self.status.setText(f"Preset „{name}“ geladen.")
 
     def _save_preset_as(self) -> None:
@@ -1160,7 +1580,9 @@ class StylecloudQtDialog(QDialog):
             self.output_path.setText(output_path)
 
         size = data.get("size", DEFAULT_PRINT_SIZE)
-        if size in (512, 1024) or size == [1024] or size == [512]:
+        # Legacy only: bare list [512]/[1024] from broken saves — never rewrite
+        # the live SIZE_PRESETS value ``1024`` (Entwurf 1:1).
+        if size == [1024] or size == [512]:
             size = DEFAULT_PRINT_SIZE
         if isinstance(size, list) and len(size) == 2:
             try:
@@ -1174,17 +1596,18 @@ class StylecloudQtDialog(QDialog):
                 self.custom_height.setValue(max(256, int(size[1])))
             else:
                 _set_combo_by_data(self.size_combo, DEFAULT_PRINT_SIZE)
-        self._form_layout.setRowVisible(
-            self._custom_size_row,
-            self.size_combo.currentData() == CUSTOM_SIZE_SENTINEL,
+        self._set_custom_size_row_visible(
+            self.size_combo.currentData() == CUSTOM_SIZE_SENTINEL
         )
         self._update_custom_ratio_label()
-        icon_name = normalize_icon_name(data.get("icon_name", ICON_NONE))
+        icon_name = normalize_icon_name(data.get("icon_name", ICON_HUB))
         if not _set_combo_by_data(self.icon_combo, icon_name):
-            _set_combo_by_data(self.icon_combo, ICON_NONE)
-        self.free_form_margin.setValue(
-            int(data.get("free_form_margin_pct") or 14)
-        )
+            _set_combo_by_data(self.icon_combo, ICON_HUB)
+        raw_margin = data.get("free_form_margin_pct", 14)
+        try:
+            self.free_form_margin.setValue(int(raw_margin))
+        except (TypeError, ValueError):
+            self.free_form_margin.setValue(14)
         _set_combo_by_data(
             self.free_form_density,
             normalize_free_form_density(data.get("free_form_density")),
@@ -1193,17 +1616,58 @@ class StylecloudQtDialog(QDialog):
             self.free_form_packing,
             normalize_free_form_packing(data.get("free_form_packing")),
         )
-        orient_auto = bool(data.get("free_form_orient_auto", True))
-        self.orient_auto.setChecked(orient_auto)
+        orient_auto = bool(data.get("free_form_orient_auto", False))
+        self.orient_auto.setChecked(False)
         try:
-            self.orient_pct.setValue(int(data.get("free_form_orient_pct") or 50))
+            legacy_orient = int(data.get("free_form_orient_pct") or 50)
         except (TypeError, ValueError):
-            self.orient_pct.setValue(50)
-        self.orient_pct.setEnabled(not orient_auto)
-        self._update_form_margin_ui()
+            legacy_orient = 50
+        self.orient_pct.setValue(legacy_orient)
+        self._set_hub_gradient_stops(data.get("hub_gradient"))
+        self.auto_fit.setChecked(bool(data.get("auto_fit", True)))
+        try:
+            self._cover_scale = float(data.get("cover_scale") or 1.0)
+        except (TypeError, ValueError):
+            self._cover_scale = 1.0
+        self._cover_scale = max(0.15, min(8.0, self._cover_scale))
+        self.cover_scale_label.setText(f"{int(round(self._cover_scale * 100))} %")
+        try:
+            if "hub_orient_pct" in data:
+                orient = int(data.get("hub_orient_pct") or 50)
+            elif not orient_auto:
+                orient = legacy_orient
+            else:
+                orient = 50
+        except (TypeError, ValueError):
+            orient = 50
+        self.hub_orient_slider.setValue(max(0, min(100, orient)))
+        self._on_hub_orient_changed(self.hub_orient_slider.value())
+        try:
+            if "word_density_pct" in data:
+                dens_pct = int(data.get("word_density_pct") or 55)
+            else:
+                dens_pct = int(
+                    round(
+                        density_for_packing_key(
+                            normalize_free_form_packing(data.get("free_form_packing"))
+                        )
+                        * 100
+                    )
+                )
+        except (TypeError, ValueError):
+            dens_pct = int(round(DEFAULT_WORD_DENSITY * 100))
+        dens_pct = max(0, min(100, dens_pct))
+        self.word_density_slider.setValue(dens_pct)
+        self._on_word_density_changed(dens_pct)
+        self.save_svg.setChecked(bool(data.get("save_svg", False)))
+        self._update_mode_ui()
         mask = str(data.get("mask_path") or "").strip()
         if mask:
             self.mask_path.setText(mask)
+            for index in range(self.tabs.count()):
+                if self.tabs.tabText(index) == "Erweitert":
+                    self.tabs.setCurrentIndex(index)
+                    break
         _set_combo_by_data(self.palette_combo, data.get("palette"))
         _set_combo_by_data(self.gradient_combo, data.get("gradient"))
 
@@ -1431,11 +1895,24 @@ class StylecloudQtDialog(QDialog):
                                 f"Leerer Freitext — Quelldatei geladen: {path.name}"
                             )
         if not text:
-            raise ValueError(
-                "Kein Text für die Schlagwortwolke.\n"
-                "Freitext ist leer — bitte Text laden (Buch/Datei) oder einfügen.\n"
-                "Nur ein Muss-Wort ohne Wolken-Text erzeugt keine Schlagwortwolke."
+            has_must = bool(
+                self.must_word.text().strip() or self.must_word_line2.text().strip()
             )
+            is_hub = (
+                self._resolved_icon_name() == ICON_HUB
+                and not self.mask_path.text().strip()
+            )
+            if is_hub or not has_must:
+                raise ValueError(
+                    "Kein Text für die Schlagwortwolke.\n"
+                    "Bitte Text laden (Buch/Datei) oder einfügen.\n"
+                    + (
+                        "Freie Form braucht Begleitwörter zusätzlich zum Kernwort."
+                        if is_hub
+                        else "Tipp: Mit Muss-Wort allein (ohne Freie Form) geht’s auch."
+                    )
+                )
+            # Non-hub + Muss-Wort: blank canvas + overlay (generator path).
         icon_name = self._resolved_icon_name()
         return StylecloudOptions(
             text=text,
@@ -1450,6 +1927,7 @@ class StylecloudQtDialog(QDialog):
             free_form_margin_pct=float(self.free_form_margin.value()),
             free_form_density=self._resolved_free_form_density(),
             free_form_packing=self._resolved_free_form_packing(),
+            word_density=self._resolved_word_density(),
             free_form_prefer_horizontal=self._resolved_prefer_horizontal(),
             palette=str(
                 self.palette_combo.currentData() or "cartocolors.qualitative.Bold_5"
@@ -1457,10 +1935,11 @@ class StylecloudQtDialog(QDialog):
             background_color=self.bg_edit.text().strip() or "white",
             max_colors=int(self.max_colors.value()),
             gradient=(
-                None
-                if self.mask_path.text().strip() or not icon_name.strip()
-                else self.gradient_combo.currentData()
+                self.gradient_combo.currentData()
+                if self._uses_font_awesome() and self._canvas_is_square()
+                else None
             ),
+            hub_gradient=self._hub_gradient_stops(),
             max_font_size=int(self.max_font.value()),
             max_words=int(self.max_words.value()),
             use_german_stopwords=self.german_stop.isChecked(),
@@ -1476,6 +1955,9 @@ class StylecloudQtDialog(QDialog):
             must_word_angle=int(self.must_word_angle.currentData() or 0),
             must_word_gap=int(self.must_word_gap.value()),
             must_word_match_line1_width=self.must_word_match_width.isChecked(),
+            auto_fit=bool(self.auto_fit.isChecked()),
+            cover_scale=float(self._cover_scale),
+            save_svg=bool(self.save_svg.isChecked()),
             png_compress_level=int(self.png_compress.value()),
             png_optimize=self.png_optimize.isChecked(),
             png_dpi=int(self.png_dpi.value()),
@@ -1523,12 +2005,29 @@ class StylecloudQtDialog(QDialog):
         self.btn_generate.setEnabled(not busy)
         self.btn_reset.setEnabled(not busy)
         self.btn_open.setEnabled(not busy)
+        self.btn_handoff_kdp.setEnabled(False if busy else bool(self._resolve_handoff_png()))
         self.btn_close.setEnabled(not busy)
         self.btn_preset_load.setEnabled(not busy and self.preset_combo.count() > 1)
         self.btn_preset_save.setEnabled(not busy)
         self.btn_preset_manage.setEnabled(not busy)
+        self.btn_factory_freeform.setEnabled(not busy)
         self.preset_combo.setEnabled(not busy)
         self.max_font.setEnabled(not busy)
+        self.hub_orient_slider.setEnabled(not busy)
+        self.word_density_slider.setEnabled(not busy)
+        # ± usable when a packed raw sidecar exists and we are idle.
+        if busy:
+            self._set_hub_fit_enabled(False)
+            self.free_form_packing.setEnabled(False)
+        else:
+            is_cover = (
+                not self.mask_path.text().strip()
+                and self._resolved_icon_name() == ICON_NONE
+            )
+            self.free_form_packing.setEnabled(bool(is_cover))
+            self._set_hub_fit_enabled(bool(self._hub_raw_path))
+            # Restore Auto-Fit lock on Schrift (busy path enables max_font).
+            self._on_auto_fit_toggled(self.auto_fit.isChecked())
 
     def _reshuffle_generate(self) -> None:
         """Same settings, new random layout — does not wipe the form or Schrift."""
@@ -1562,8 +2061,17 @@ class StylecloudQtDialog(QDialog):
                 meta = ""
         self.status.setText(f"Gespeichert: {out}{meta}")
         self._log(f"[stylecloud] Cover-Wolke erzeugt: {out}{meta}", "success")
+        svg = out.with_suffix(".svg")
+        if self.save_svg.isChecked() and svg.is_file():
+            self.status.setText(f"Gespeichert: {out}{meta} · SVG: {svg.name}")
+            self._log(f"[stylecloud] SVG: {svg}", "success")
         # Persist exactly the Schrift the user has set — never invent a value.
         self._user_font_size = int(self.max_font.value())
+        self._last_output_path = out
+        raw = resolve_pack_raw_path(out, prefer_hub=self._prefer_hub_raw())
+        self._hub_raw_path = raw
+        self._set_hub_fit_enabled(bool(self._hub_raw_path))
+        self.btn_handoff_kdp.setEnabled(True)
         self._persist_settings()
         pix = QPixmap(str(out))
         if not pix.isNull():
@@ -1610,7 +2118,80 @@ class StylecloudQtDialog(QDialog):
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
+    def _resolve_handoff_png(self) -> Path | None:
+        return resolve_stylecloud_handoff_png(
+            last_output=self._last_output_path,
+            output_field=self.output_path.text().strip(),
+        )
 
-def open_stylecloud_qt(studio: Any, parent: Optional[QWidget] = None) -> None:
+    def _update_handoff_button(self) -> None:
+        if self._is_generating:
+            self.btn_handoff_kdp.setEnabled(False)
+            return
+        self.btn_handoff_kdp.setEnabled(bool(self._resolve_handoff_png()))
+
+    def _handoff_to_kdp_cover(self) -> None:
+        png = self._resolve_handoff_png()
+        if png is None:
+            QMessageBox.warning(
+                self,
+                "KDP Cover",
+                "Keine Ausgabe-PNG gefunden.\n"
+                "Bitte zuerst eine Schlagwortwolke erzeugen.",
+            )
+            return
+        from ui_qt.dialogs.kdp_cover_dialog import open_kdp_cover_qt
+
+        self.status.setText(f"Übergabe an KDP Cover: {png.name}")
+        self._log(f"[stylecloud] An KDP Cover übergeben: {png}", "success")
+        # Parent = Studio-Hauptfenster (nicht Stylecloud), vermeidet Nested-Modal-Probleme.
+        parent = getattr(self._studio, "root", None) or self.window() or self
+        open_kdp_cover_qt(
+            self._studio,
+            parent=parent,
+            front_image=png,
+            disable_compose=False,
+        )
+
+
+def resolve_stylecloud_handoff_png(
+    *,
+    last_output: Path | str | None,
+    output_field: str | None,
+) -> Path | None:
+    """Resolve PNG for KDP handoff: last generated file, else output path field."""
+    candidates: list[Path] = []
+    if last_output is not None and str(last_output).strip():
+        candidates.append(Path(str(last_output)).expanduser())
+    if output_field and str(output_field).strip():
+        candidates.append(Path(str(output_field).strip()).expanduser())
+    seen: set[str] = set()
+    for raw in candidates:
+        try:
+            path = raw.resolve()
+        except OSError:
+            continue
+        key = str(path).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.is_file() and path.suffix.casefold() in {".png", ".jpg", ".jpeg", ".webp"}:
+            return path
+    return None
+
+
+def open_stylecloud_qt(
+    studio: Any,
+    parent: Optional[QWidget] = None,
+    *,
+    force_hub: bool = False,
+) -> None:
     dialog = StylecloudQtDialog(studio, parent)
+    if force_hub:
+        if not _set_combo_by_data(dialog.icon_combo, ICON_HUB):
+            dialog.icon_combo.setCurrentIndex(0)
+        dialog._update_mode_ui()
+        dialog.status.setText(
+            "Freie Form (Hub) — Kernwort setzen, Text laden, Wolke erzeugen."
+        )
     dialog.exec()

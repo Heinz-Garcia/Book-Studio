@@ -517,3 +517,44 @@ def test_back_image_scale_and_barcode_validation(tmp_path: Path):
     loaded = load_layout(path)
     assert loaded.back_image_scale == pytest.approx(0.25)
     assert loaded.back_image_frame is True
+
+
+def test_render_wrap_skips_missing_back_image(tmp_path: Path):
+    """Fehlendes Rückseiten-Bild darf die Wrap-Vorschau nicht abbrechen."""
+    from tools.kdp_cover.export_pdf import render_wrap_image
+
+    front = _make_front(tmp_path, width=800, height=1200)
+    Image.new("RGB", (800, 1200), (220, 40, 40)).save(front)
+    layout = CoverLayout(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+        back_image=str(tmp_path / "assets" / "gone.jpg"),
+        back_color="#112233",
+    )
+    img = render_wrap_image(layout, dpi=72, resolve_base=tmp_path)
+    assert img.size[0] > 0 and img.size[1] > 0
+    # Front panel should contain the red cover pixels somewhere.
+    assert any(px == (220, 40, 40) for px in img.getdata())
+
+
+def test_kdp_settings_window_geometry_roundtrip(tmp_path: Path):
+    from tools.kdp_cover.settings import (
+        DEFAULT_WINDOW_HEIGHT,
+        DEFAULT_WINDOW_WIDTH,
+        load_settings,
+        resolve_window_size,
+        save_settings,
+    )
+
+    path = tmp_path / "last_session.json"
+    empty = load_settings(path)
+    assert empty["window_geometry_saved"] is False
+    assert resolve_window_size(empty) == (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+
+    save_settings({"window_width": 1600, "window_height": 900}, path)
+    loaded = load_settings(path)
+    assert loaded["window_geometry_saved"] is True
+    assert resolve_window_size(loaded) == (1600, 900)

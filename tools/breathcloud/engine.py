@@ -7,12 +7,13 @@ import random
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from tools.breathcloud.gradient import color_at_x, parse_gradient_stops
+from tools.stylecloud.stopwords_de import GERMAN_STOPWORDS
 
 ProgressCallback = Callable[[int, str], None]
 
@@ -21,21 +22,8 @@ _TOKEN_RE = re.compile(
     re.UNICODE,
 )
 
-
-# Minimal DE stopwords (self-contained — no import from stylecloud).
-_STOP_DE = frozenset(
-    {
-        "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "eines",
-        "einem", "einen", "und", "oder", "aber", "als", "auch", "am", "im", "in",
-        "an", "auf", "aus", "bei", "mit", "nach", "von", "zu", "zum", "zur",
-        "für", "über", "unter", "vor", "sich", "nicht", "noch", "nur", "schon",
-        "wie", "was", "wer", "wo", "wenn", "weil", "dass", "daß", "es", "er",
-        "sie", "wir", "ihr", "ihn", "ihm", "ist", "sind", "war", "werden",
-        "hat", "haben", "wird", "kann", "man", "so", "sehr", "mehr", "diese",
-        "dieser", "dieses", "jenes", "alle", "alles", "kein", "keine", "ich",
-        "du", "mir", "dir", "uns", "euch", "mein", "dein", "sein", "ihr",
-    }
-)
+# SSOT: same list as Stylecloud (Cover / Hub companions).
+_STOP_DE = GERMAN_STOPWORDS
 
 
 @dataclass
@@ -45,23 +33,46 @@ class BreathcloudOptions:
     text: str
     hub_word: str
     output_path: Path
-    # Working square before crop; larger = more room to breathe outward.
+    # Working square before crop (legacy). Prefer canvas_width×canvas_height.
     canvas_size: int = 1600
+    # Cover-aspect working area (when both set). Keeps paperback ratio during pack.
+    canvas_width: int | None = None
+    canvas_height: int | None = None
     hub_font_size: int = 140
     max_font_size: int = 72
     min_font_size: int = 14
     max_words: int = 180
+    # Hub glyph rotation (0=horizontal title, 90=vertical spine for portrait covers).
+    hub_angle: int = 0
     # Horizontal linear gradient as comma-separated hex colors.
     gradient: str = "#1e5f8a,#2ec4b6,#c8f542"
     background_color: str = "#ffffff"
     prefer_horizontal: float = 0.55
+    # Packing density 0..1 (higher = tighter nest / smaller gaps).
+    word_density: float = 0.55
     random_state: int | None = 42
     use_stopwords: bool = True
+    # Extra stop tokens (comma/whitespace); always applied when non-empty.
+    extra_stopwords: str = ""
     font_path: str | None = None
-    # Extra margin around the ink bbox when saving.
+    # Extra margin around the ink bbox when saving (ignored if crop_to_ink=False).
     crop_pad: int = 24
-    # Final export size (longest side). 0 = keep crop resolution.
+    # When False, keep the full working canvas (Stylecloud cover fill).
+    crop_to_ink: bool = True
+    # Final export size (longest side). 0 = keep canvas/crop resolution.
     export_max_side: int = 1600
+    # When set, write layout JSON next to the PNG for SVG / re-fit.
+    layout_path: Path | None = None
+
+
+def working_canvas_size(options: BreathcloudOptions) -> tuple[int, int]:
+    """Return (width, height) of the packing surface."""
+    width = options.canvas_width
+    height = options.canvas_height
+    if width is not None and height is not None:
+        return max(400, int(width)), max(400, int(height))
+    side = max(400, int(options.canvas_size))
+    return side, side
 
 
 def _resolve_font_path(explicit: str | None) -> str | None:
@@ -91,7 +102,30 @@ def _load_font(path: str | None, size: int):
     return ImageFont.load_default()
 
 
-def _tokenize(text: str, *, use_stopwords: bool) -> list[str]:
+def _parse_extra_stops(extra: str | None) -> set[str]:
+    out: set[str] = set()
+    for token in (extra or "").replace(",", " ").split():
+        cleaned = token.strip().casefold()
+        if cleaned:
+            out.add(cleaned)
+    return out
+
+
+def _resolve_stop_set(*, use_german: bool, extra: str | None) -> set[str] | None:
+    """German defaults (optional) plus always-honoured extra stopwords."""
+    extras = _parse_extra_stops(extra)
+    if use_german:
+        return {w.casefold() for w in _STOP_DE} | extras
+    if extras:
+        return extras
+    return None
+
+
+def _tokenize(
+    text: str,
+    *,
+    stop_set: set[str] | None,
+) -> list[str]:
     """Split on commas/newlines/whitespace; keep tokens like ``wort1`` distinct."""
     raw = text or ""
     # Explicit list separators first (comma / semicolon / newline).
@@ -113,7 +147,7 @@ def _tokenize(text: str, *, use_stopwords: bool) -> list[str]:
     words: list[str] = []
     for piece in pieces:
         key = piece.casefold()
-        if use_stopwords and key in _STOP_DE:
+        if stop_set is not None and key in stop_set:
             continue
         if len(key) < 2:
             continue
@@ -130,10 +164,15 @@ def _frequencies(
     *,
     max_words: int,
     use_stopwords: bool,
+    extra_stopwords: str = "",
 ) -> list[tuple[str, float]]:
     hub_key = (hub or "").strip().upper()
+    stop_set = _resolve_stop_set(
+        use_german=bool(use_stopwords),
+        extra=extra_stopwords,
+    )
     counts: dict[str, float] = {}
-    for word in _tokenize(text, use_stopwords=use_stopwords):
+    for word in _tokenize(text, stop_set=stop_set):
         if word == hub_key:
             continue
         counts[word] = counts.get(word, 0.0) + 1.0
@@ -296,38 +335,56 @@ def _spiral_points(
     max_r: float,
     golden: float,
 ) -> Iterable[tuple[float, float]]:
-    """Archimedean / golden-angle spiral — dense near center, free outward."""
-    i = 0
+    """Archimedean / golden-angle spiral — dense near center, free outward.
+
+    Outer rings skip points (``i`` jumps) so we still reach ``max_r`` with far
+    fewer collision tests than a uniform fine spiral.
+    """
+    i = 0.0
     while True:
         radius = step * math.sqrt(i + 1.0)
         if radius > max_r:
             break
         theta = i * golden
         yield cx + radius * math.cos(theta), cy + radius * math.sin(theta)
-        i += 1
+        # Near center: every point; farther out: skip so packing stays fast.
+        i += 1.0 + (radius / 28.0)
 
 
 def _apply_horizontal_gradient(
     rgba: Image.Image,
     stops: list[tuple[int, int, int]],
 ) -> Image.Image:
-    """Recolor opaque pixels by horizontal position (global linear gradient)."""
+    """Recolor opaque pixels by horizontal position (vectorized)."""
     arr = np.asarray(rgba).copy()
     alpha = arr[:, :, 3]
     ink = alpha > 32
     if not bool(np.any(ink)):
         return rgba
-    ys, xs = np.where(ink)
-    x0, x1 = float(xs.min()), float(xs.max())
-    # Vectorized-ish: unique x columns
-    for x in range(int(x0), int(x1) + 1):
-        col = ink[:, x]
-        if not bool(np.any(col)):
-            continue
-        rgb = color_at_x(float(x), x0, x1, stops)
-        arr[col, x, 0] = rgb[0]
-        arr[col, x, 1] = rgb[1]
-        arr[col, x, 2] = rgb[2]
+    xs = np.where(ink)[1]
+    x0 = float(xs.min())
+    x1 = float(xs.max())
+    if x1 <= x0:
+        rgb = color_at_x(x0, x0, x1, stops)
+        arr[ink, 0] = rgb[0]
+        arr[ink, 1] = rgb[1]
+        arr[ink, 2] = rgb[2]
+        return Image.fromarray(arr, mode="RGBA")
+    # Build a 256-entry LUT over the ink span, map each ink x through it.
+    lut_n = 256
+    lut = np.empty((lut_n, 3), dtype=np.uint8)
+    for i in range(lut_n):
+        t = i / float(lut_n - 1)
+        lut[i] = color_at_x(x0 + t * (x1 - x0), x0, x1, stops)
+    idx = np.clip(
+        ((xs.astype(np.float64) - x0) / (x1 - x0) * (lut_n - 1)).astype(np.int32),
+        0,
+        lut_n - 1,
+    )
+    ys = np.where(ink)[0]
+    arr[ys, xs, 0] = lut[idx, 0]
+    arr[ys, xs, 1] = lut[idx, 1]
+    arr[ys, xs, 2] = lut[idx, 2]
     return Image.fromarray(arr, mode="RGBA")
 
 
@@ -366,31 +423,54 @@ def generate_breathcloud(
         hub,
         max_words=int(options.max_words),
         use_stopwords=bool(options.use_stopwords),
+        extra_stopwords=str(getattr(options, "extra_stopwords", "") or ""),
     )
     if not freqs:
         raise ValueError("Keine Begleitwörter im Text (nach Stoppwörtern).")
 
     font_path = _resolve_font_path(options.font_path)
-    side = max(400, int(options.canvas_size))
-    cx = cy = side / 2.0
-    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
-    occupied = np.zeros((side, side), dtype=bool)
+    font_cache: dict[int, Any] = {}
+
+    def cached_font(size: int):
+        size = max(8, int(size))
+        hit = font_cache.get(size)
+        if hit is None:
+            hit = _load_font(font_path, size)
+            font_cache[size] = hit
+        return hit
+
+    side_w, side_h = working_canvas_size(options)
+    cx = side_w / 2.0
+    cy = side_h / 2.0
+    canvas = Image.new("RGBA", (side_w, side_h), (0, 0, 0, 0))
+    occupied = np.zeros((side_h, side_w), dtype=bool)
     rng = random.Random(42 if options.random_state is None else int(options.random_state))
     golden = math.pi * (3.0 - math.sqrt(5.0))
-    step = 1.6
-    max_r = side * 0.48
+    dens = max(0.0, min(1.0, float(getattr(options, "word_density", 0.55) or 0.55)))
+    # Coarser spiral when loose; finer when dense.
+    step = 4.2 - dens * 2.0
+    max_r = 0.50 * float(max(side_w, side_h))
     prefer_h = max(0.0, min(1.0, float(options.prefer_horizontal)))
-    # Placeholder color — final gradient applied after layout.
     placeholder = (80, 80, 80)
+    max_spiral_attempts = 2800
+    shrink_steps = (1.0, 0.82, 0.66, 0.52, 0.40, 0.30, 0.22)
+    companion_pad = max(0, int(round(8.0 * (1.0 - dens))))
+
+    # Precompute spiral once (shared by all words).
+    spiral = list(
+        _spiral_points(cx, cy, step=step, max_r=max_r, golden=golden)
+    )
 
     report(10, "Kernwort setzen...")
-    # Kern-Schrift is authoritative (Max applies to Begleitwörter only).
     hub_size = max(24, int(options.hub_font_size))
-    hub_font = _load_font(font_path, hub_size)
-    hub_glyph = _glyph(hub, hub_font, angle=0, fill=placeholder)
-    # block_bbox: nothing may be drawn across the Kernwort rectangle
-    # (open letters C/E have no closed holes — hole-fill is not enough).
+    hub_angle = int(getattr(options, "hub_angle", 0) or 0)
+    if hub_angle not in (0, 90, -90, 270):
+        hub_angle = 0
+    hub_font = cached_font(hub_size)
+    hub_glyph = _glyph(hub, hub_font, angle=hub_angle, fill=placeholder)
     hub_pad = max(3, hub_size // 40)
+    placements: list[dict[str, Any]] = []
+    placed_hub_size = hub_size
     if not _paste(
         canvas,
         occupied,
@@ -400,11 +480,11 @@ def generate_breathcloud(
         block_bbox=True,
         bbox_pad=hub_pad,
     ):
-        # Shrink hub until it fits.
         placed_hub = False
         for shrink in (0.9, 0.8, 0.7, 0.6, 0.5):
-            hub_font = _load_font(font_path, max(24, int(hub_size * shrink)))
-            hub_glyph = _glyph(hub, hub_font, angle=0, fill=placeholder)
+            placed_hub_size = max(24, int(hub_size * shrink))
+            hub_font = cached_font(placed_hub_size)
+            hub_glyph = _glyph(hub, hub_font, angle=hub_angle, fill=placeholder)
             if _paste(
                 canvas,
                 occupied,
@@ -418,6 +498,19 @@ def generate_breathcloud(
                 break
         if not placed_hub:
             raise RuntimeError("Kernwort passt nicht auf die Arbeitsflaeche.")
+    gw, gh = hub_glyph.size
+    placements.append(
+        {
+            "word": hub,
+            "font_size": int(placed_hub_size),
+            "angle": int(hub_angle),
+            "cx": float(cx),
+            "cy": float(cy),
+            "gw": int(gw),
+            "gh": int(gh),
+            "is_hub": True,
+        }
+    )
 
     peak = max(f for _, f in freqs) or 1.0
     max_font = max(12, int(options.max_font_size))
@@ -429,27 +522,44 @@ def generate_breathcloud(
         weight = max(0.12, float(freq) / float(peak))
         base = int(round(min_font + (max_font - min_font) * (weight**0.6)))
         base = max(min_font, min(max_font, base))
-        angles = (0, 90) if rng.random() < prefer_h else (90, 0)
+        # Strict orientation: one angle from prefer_horizontal — never fall back
+        # to the other direction (that made the slider look broken).
+        angle = 0 if rng.random() < prefer_h else 90
         ok = False
-        for shrink in (1.0, 0.88, 0.76, 0.64, 0.52, 0.42, 0.32, 0.24):
+        for shrink in shrink_steps:
             size = max(min_font, int(round(base * shrink)))
-            font = _load_font(font_path, size)
-            for angle in angles:
-                glyph = _glyph(word, font, angle=angle, fill=placeholder)
-                for attempt, (px, py) in enumerate(
-                    _spiral_points(cx, cy, step=step, max_r=max_r, golden=golden)
+            font = cached_font(size)
+            glyph = _glyph(word, font, angle=angle, fill=placeholder)
+            for attempt, (px, py) in enumerate(spiral):
+                if attempt >= max_spiral_attempts:
+                    break
+                if _paste(
+                    canvas,
+                    occupied,
+                    glyph,
+                    px,
+                    py,
+                    bbox_pad=companion_pad,
                 ):
-                    if attempt > 12000:
-                        break
-                    if _paste(canvas, occupied, glyph, px, py):
-                        placed += 1
-                        ok = True
-                        break
-                if ok:
+                    gw, gh = glyph.size
+                    placements.append(
+                        {
+                            "word": word,
+                            "font_size": int(size),
+                            "angle": int(angle),
+                            "cx": float(px),
+                            "cy": float(py),
+                            "gw": int(gw),
+                            "gh": int(gh),
+                            "is_hub": False,
+                        }
+                    )
+                    placed += 1
+                    ok = True
                     break
             if ok:
                 break
-        if index % 15 == 0:
+        if index % 20 == 0:
             report(25 + int(50 * (index + 1) / max(1, len(freqs))), f"{placed} Woerter...")
 
     report(80, "Farbverlauf legen...")
@@ -462,8 +572,14 @@ def generate_breathcloud(
     except (ValueError, TypeError, IndexError):
         bg_rgb = (255, 255, 255)
 
-    report(90, "Freie Form zuschneiden...")
-    final = _crop_to_ink(colored, pad=max(0, int(options.crop_pad)), bg=bg_rgb)
+    report(90, "Freie Form exportieren...")
+    if bool(options.crop_to_ink):
+        final = _crop_to_ink(colored, pad=max(0, int(options.crop_pad)), bg=bg_rgb)
+    else:
+        # Keep full canvas (cover aspect) — Stylecloud composites/resizes to trim.
+        base = Image.new("RGB", colored.size, bg_rgb)
+        base.paste(colored, (0, 0), colored)
+        final = base
     export_side = int(options.export_max_side or 0)
     if export_side > 0:
         w, h = final.size
@@ -478,5 +594,33 @@ def generate_breathcloud(
     out = Path(options.output_path).expanduser().resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
     final.save(str(out), format="PNG", dpi=(300, 300))
+    layout_path = options.layout_path
+    if layout_path is not None:
+        import json
+
+        layout_out = Path(layout_path).expanduser().resolve()
+        layout_out.parent.mkdir(parents=True, exist_ok=True)
+        # Attach gradient colors by center-x (same as PNG gradient).
+        from tools.breathcloud.gradient import color_at_x
+
+        stops = parse_gradient_stops(options.gradient)
+        colored_placements: list[dict[str, Any]] = []
+        for item in placements:
+            r, g, b = color_at_x(float(item["cx"]), 0.0, float(side_w - 1), stops)
+            row = dict(item)
+            row["color"] = f"#{int(r):02x}{int(g):02x}{int(b):02x}"
+            colored_placements.append(row)
+        payload = {
+            "canvas_width": int(side_w),
+            "canvas_height": int(side_h),
+            "background_color": options.background_color,
+            "gradient": options.gradient,
+            "font_path": font_path,
+            "placements": colored_placements,
+        }
+        layout_out.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     report(100, f"Fertig ({placed} Woerter) -> {out.name}")
     return out

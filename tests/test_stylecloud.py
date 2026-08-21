@@ -330,46 +330,93 @@ def test_finalize_png_and_format_size(tmp_path: Path) -> None:
 def test_print_size_helpers() -> None:
     from tools.stylecloud.generator import (
         DEFAULT_PRINT_SIZE,
+        clamp_png_dpi,
+        ensure_print_ready_size,
+        kdp_front_panel_px,
         mm_to_px,
         suggested_max_font_size,
     )
 
     assert mm_to_px(25.4) == 300
-    assert DEFAULT_PRINT_SIZE[0] == mm_to_px(135)
-    assert DEFAULT_PRINT_SIZE[1] == mm_to_px(215)
+    assert DEFAULT_PRINT_SIZE == kdp_front_panel_px(135.0, 215.0)
+    assert DEFAULT_PRINT_SIZE[0] > mm_to_px(135)
+    assert DEFAULT_PRINT_SIZE[1] > mm_to_px(215)
     assert suggested_max_font_size(DEFAULT_PRINT_SIZE) >= 400
+    assert clamp_png_dpi(72) == 300
+    assert clamp_png_dpi(600) == 600
+    assert ensure_print_ready_size((mm_to_px(135), mm_to_px(215))) == DEFAULT_PRINT_SIZE
+    assert ensure_print_ready_size(1024) == 1024
 
 
 def test_size_preset_labels_state_markets_clearly() -> None:
-    from tools.stylecloud.generator import SIZE_PRESETS, inch_to_px, mm_to_px
+    from tools.stylecloud.generator import SIZE_PRESETS, kdp_front_panel_px
 
     labels = "\n".join(SIZE_PRESETS.keys())
     assert "Standard DACH" in labels
     assert "Standard international" in labels
     assert "DE Paperback 135×215" in labels
     assert "Amazon KDP Paperback 6×9" in labels
+    assert "inkl. Bleed" in labels
     assert SIZE_PRESETS[
         next(k for k in SIZE_PRESETS if "Standard DACH" in k)
-    ] == (mm_to_px(135), mm_to_px(215))
+    ] == kdp_front_panel_px(135.0, 215.0)
     assert SIZE_PRESETS[
         next(k for k in SIZE_PRESETS if "Standard international" in k)
-    ] == (inch_to_px(6), inch_to_px(9))
+    ] == kdp_front_panel_px(6.0 * 25.4, 9.0 * 25.4)
+
+
+def test_print_ready_size_meets_kdp_front_dpi() -> None:
+    """DE-Paperback-Preset muss KDP-Validierung (≥300 DPI inkl. Bleed) bestehen."""
+    from pathlib import Path
+
+    from PIL import Image
+
+    from tools.kdp_cover.geometry import build_geometry
+    from tools.kdp_cover.model import CoverLayout
+    from tools.kdp_cover.validate import validate_layout
+    from tools.stylecloud.generator import DEFAULT_PRINT_SIZE
+
+    tmp = Path("_tmp_print_ready_check.png")
+    try:
+        Image.new("RGB", DEFAULT_PRINT_SIZE, (200, 40, 40)).save(tmp)
+        layout = CoverLayout(
+            page_count=200,
+            paper_type_id="white_bw",
+            trim_width_mm=135.0,
+            trim_height_mm=215.0,
+            front_image=str(tmp.resolve()),
+        )
+        geo = build_geometry(
+            page_count=layout.page_count,
+            paper_type_id=layout.paper_type_id,
+            trim_width_mm=layout.trim_width_mm,
+            trim_height_mm=layout.trim_height_mm,
+        )
+        report = validate_layout(layout, geometry=geo, resolve_base=tmp.parent)
+        assert not any(i.code == "front_image_dpi" for i in report.errors)
+    finally:
+        if tmp.is_file():
+            tmp.unlink()
 
 
 def test_uses_rectangle_form() -> None:
     from tools.stylecloud.generator import (
+        ICON_HUB,
         ICON_NONE,
         ICON_ORGANIC,
         ICON_RECT,
         normalize_icon_name,
         uses_free_form,
         uses_free_ratio_cloud,
+        uses_hub_cloud,
         uses_organic_form,
         uses_rectangle_form,
     )
 
+    assert uses_hub_cloud(StylecloudOptions(icon_name=ICON_HUB)) is True
+    assert uses_hub_cloud(StylecloudOptions(icon_name="")) is True
     assert uses_free_ratio_cloud(StylecloudOptions(icon_name=ICON_NONE)) is True
-    assert uses_free_ratio_cloud(StylecloudOptions(icon_name="")) is True
+    assert uses_free_ratio_cloud(StylecloudOptions(icon_name="")) is False
     assert uses_rectangle_form(StylecloudOptions(icon_name=ICON_RECT)) is True
     assert uses_rectangle_form(StylecloudOptions(icon_name=ICON_NONE)) is False
     assert uses_rectangle_form(StylecloudOptions(icon_name="fas fa-book")) is False
@@ -378,13 +425,18 @@ def test_uses_rectangle_form() -> None:
     assert uses_organic_form(StylecloudOptions(icon_name="__free_form__")) is True
     assert uses_free_form(StylecloudOptions(icon_name=ICON_ORGANIC)) is True
     assert uses_free_form(StylecloudOptions(icon_name=ICON_NONE)) is False
-    assert normalize_icon_name("") == ICON_NONE
+    assert normalize_icon_name("") == ICON_HUB
+    assert normalize_icon_name("__none__") == ICON_NONE
     assert normalize_icon_name("rectangle") == ICON_RECT
     assert normalize_icon_name("__free_form__") == ICON_ORGANIC
     assert (
         uses_free_ratio_cloud(
             StylecloudOptions(icon_name=ICON_NONE, mask_path=Path("x.png"))
         )
+        is False
+    )
+    assert (
+        uses_hub_cloud(StylecloudOptions(icon_name=ICON_HUB, mask_path=Path("x.png")))
         is False
     )
 
@@ -429,28 +481,42 @@ def test_centered_free_form_mask_has_margins_and_fill() -> None:
 def test_generate_rectangle_skips_stylecloud_icon(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from PIL import Image
+
     from tools.stylecloud.generator import ICON_RECT
 
     out = tmp_path / "rect.png"
     calls: list[str] = []
 
     class _FakeWC:
+        last: dict | None = None
+
         def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            _FakeWC.last = kwargs
             assert "mask" not in kwargs
-            assert kwargs["width"] == 400
-            assert kwargs["height"] == 600
             calls.append("init")
 
-        def generate_from_text(self, text: str) -> None:
+        def process_text(self, text: str) -> dict[str, float]:
             assert "Brustkrebs" in text
+            return {"Brustkrebs": 3.0, "Therapie": 2.0, "Diagnose": 1.0}
+
+        def generate_from_frequencies(self, freqs: dict) -> None:
+            assert "Brustkrebs" in freqs
             calls.append("generate")
+
+        def generate_from_text(self, text: str) -> None:
+            raise AssertionError("rectangle path uses frequencies, not text")
 
         def recolor(self, **kwargs) -> None:
             calls.append("recolor")
 
-        def to_file(self, path: str) -> None:
-            from PIL import Image
+        def to_image(self):
+            w = int(self.kwargs.get("width") or 64)
+            h = int(self.kwargs.get("height") or 64)
+            return Image.new("RGB", (w, h), "white")
 
+        def to_file(self, path: str) -> None:
             Image.new("RGB", (40, 60), "white").save(path)
             calls.append("to_file")
 
@@ -480,15 +546,20 @@ def test_generate_rectangle_skips_stylecloud_icon(
             output_path=out,
             size=(400, 600),
             icon_name=ICON_RECT,
+            word_density=0.55,
+            auto_fit=False,
+            max_font_size=48,
         )
     )
     assert Path(path).resolve() == out.resolve()
     assert out.is_file()
     assert "generate" in calls
-    assert "to_file" in calls
+    assert _FakeWC.last is not None
+    assert int(_FakeWC.last["width"]) <= 400
+    assert int(_FakeWC.last["height"]) <= 600
 
 
-def test_generate_free_ratio_cloud_has_no_mask_sunburst(
+def test_generate_cover_dicht_has_no_mask(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from PIL import Image, ImageDraw
@@ -609,24 +680,6 @@ def test_prefer_horizontal_follows_cover_ratio() -> None:
     assert dh < 2539 * 0.75
 
 
-def test_paste_glyph_clipped_cuts_overflow(tmp_path: Path) -> None:
-    """Overflow past the cover edge is hard-clipped, not rejected."""
-    from PIL import Image, ImageDraw
-
-    from tools.stylecloud.generator import _paste_glyph_clipped
-    import numpy as np
-
-    canvas = Image.new("RGB", (80, 60), "white")
-    occupied = np.zeros((60, 80), dtype=bool)
-    glyph = Image.new("RGBA", (40, 20), (0, 0, 0, 0))
-    ImageDraw.Draw(glyph).rectangle((0, 0, 39, 19), fill=(200, 0, 0, 255))
-    # Center near left edge → left half of glyph is off-canvas and clipped.
-    assert _paste_glyph_clipped(canvas, occupied, glyph, 5.0, 30.0, pad_px=0)
-    arr = np.asarray(canvas)
-    assert bool(np.any(arr[:, 0] < 250))  # ink on left edge
-    assert not bool(np.any(arr[:, 40] < 250))  # far right stays empty for this glyph
-
-
 def test_free_form_word_budget_by_density() -> None:
     from tools.stylecloud.generator import free_form_word_budget, normalize_free_form_density
 
@@ -666,6 +719,7 @@ def test_generate_reports_progress(
         StylecloudOptions(
             text="Therapie Hoffnung Vorsorge",
             output_path=out,
+            icon_name="__rect__",
             use_german_stopwords=False,
         ),
         progress=_cb,
@@ -728,6 +782,94 @@ def test_load_mask_array_from_silhouette(tmp_path: Path) -> None:
     arr = load_mask_array(path, 128)
     assert arr.shape == (128, 128, 3)
     assert arr.min() < 50  # dark fill region present
+
+
+def test_mask_contain_does_not_squash_aspect(tmp_path: Path) -> None:
+    """Wide silhouette on square canvas must letterbox, not stretch."""
+    from PIL import Image
+
+    from tools.stylecloud.mask_image import load_mask_array
+
+    img = Image.new("RGB", (200, 40), (0, 0, 0))
+    path = tmp_path / "wide_mask.png"
+    img.save(path)
+    arr = load_mask_array(path, 200)
+    assert arr.shape == (200, 200, 3)
+    # Top/bottom padding stays white; mid band is dark.
+    assert float(arr[8].mean()) > 240
+    assert float(arr[100].mean()) < 40
+
+
+def test_hub_max_font_respects_ui_value() -> None:
+    from tools.stylecloud.generator import (
+        ICON_HUB,
+        StylecloudOptions,
+        _stylecloud_to_breathcloud_options,
+    )
+
+    opts = StylecloudOptions(
+        text="forest water earth " * 20,
+        output_path=Path("hub.png"),
+        size=(1594, 2539),
+        icon_name=ICON_HUB,
+        must_word="BARCELONA",
+        must_word_font_size=200,
+        max_font_size=46,
+        max_words=80,
+    )
+    breath = _stylecloud_to_breathcloud_options(opts, opts.text, opts.output_path)
+    # Cover floor may raise small UI values so packs reach the page edges.
+    assert breath.max_font_size >= 46
+
+
+def test_none_icon_stays_cover_dicht_not_auto_hub() -> None:
+    """``__none__`` is Cover-dicht — never silently rewritten to Hub."""
+    from tools.stylecloud.generator import ICON_HUB, ICON_NONE
+    from tools.stylecloud.preset_store import settings_for_preset
+    from tools.stylecloud.settings import load_settings
+
+    cover = settings_for_preset({"icon_name": "__none__", "must_word": "X"})
+    assert cover["icon_name"] == ICON_NONE
+    assert cover["migrated_none_to_hub"] is True
+
+    hub = settings_for_preset({"icon_name": ICON_HUB, "must_word": "Y"})
+    assert hub["icon_name"] == ICON_HUB
+
+    # Session load: same rule
+    from pathlib import Path
+    import json
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "last_session.json"
+        path.write_text(
+            json.dumps({"icon_name": "__none__", "migrated_none_to_hub": False}),
+            encoding="utf-8",
+        )
+        loaded = load_settings(path)
+        assert loaded["icon_name"] == ICON_NONE
+        assert loaded["migrated_none_to_hub"] is True
+
+
+def test_prepare_keeps_line2_tokens_for_hub() -> None:
+    from tools.stylecloud.generator import (
+        ICON_HUB,
+        StylecloudOptions,
+        prepare_stylecloud_text,
+    )
+
+    text = prepare_stylecloud_text(
+        StylecloudOptions(
+            text="barcelona und katalonien forest water",
+            icon_name=ICON_HUB,
+            must_word="BARCELONA",
+            must_word_line2="und Katalonien",
+            use_german_stopwords=False,
+        )
+    )
+    low = text.casefold()
+    assert "barcelona" not in low
+    assert "katalonien" in low
 
 
 def test_generate_with_mask_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -821,21 +963,334 @@ def test_preset_store_save_load_rename_delete(
 
 
 def test_shipped_freeform_preset_loads() -> None:
-    """Factory preset freeForm.json — eng gepackte Freie Form, nur laden."""
-    from tools.stylecloud.generator import ICON_NONE
-    from tools.stylecloud.preset_store import load_preset, presets_dir
+    """Factory preset freeForm.json — Hub Freie Form, nur laden."""
+    from tools.stylecloud.generator import ICON_HUB
+    from tools.stylecloud.preset_store import (
+        FACTORY_FREEFORM_PRESET_NAME,
+        load_factory_freeform_preset,
+        load_preset,
+        presets_dir,
+    )
 
     path = presets_dir() / "freeForm.json"
     assert path.is_file(), f"fehlendes Factory-Preset: {path}"
-    settings = load_preset("freeForm")
-    assert settings["icon_name"] == ICON_NONE
+    settings = load_factory_freeform_preset()
+    assert load_preset(FACTORY_FREEFORM_PRESET_NAME)["icon_name"] == ICON_HUB
+    assert settings["icon_name"] == ICON_HUB
+    assert settings["hub_gradient"] == ["#1e5f8a", "#2ec4b6", "#c8f542"]
     assert settings["free_form_packing"] == "tight"
     assert settings["free_form_density"] == "free"
-    assert settings["free_form_orient_auto"] is True
+    assert settings["free_form_orient_auto"] is False
     assert settings["nouns_only"] is False
     assert settings["png_dpi"] == 300
-    assert list(settings["size"]) == [1594, 2539]
-    assert int(settings["user_font_size"] or 0) == 72
+    from tools.stylecloud.generator import DEFAULT_PRINT_SIZE
+
+    assert tuple(settings["size"]) == tuple(DEFAULT_PRINT_SIZE)
+    assert int(settings["max_words"]) >= 80
+    assert int(settings["must_word_font_size"]) >= 180
+    assert int(settings["user_font_size"] or 0) >= 70
+
+
+def test_hub_route_requires_must_word(tmp_path: Path) -> None:
+    from tools.stylecloud.generator import ICON_HUB, generate_stylecloud
+
+    with pytest.raises(ValueError, match="Kernwort"):
+        generate_stylecloud(
+            StylecloudOptions(
+                text="forest water earth life " * 10,
+                output_path=tmp_path / "hub.png",
+                icon_name=ICON_HUB,
+                must_word="",
+                max_words=40,
+            )
+        )
+
+
+def test_hub_route_skips_must_overlay_and_crops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hub path uses Breathcloud; must-word overlay must not run again."""
+    from tools.stylecloud.generator import ICON_HUB, generate_stylecloud
+
+    calls: list[str] = []
+
+    def _overlay(options, output):  # noqa: ANN001
+        calls.append("overlay")
+        return output
+
+    monkeypatch.setattr(
+        "tools.stylecloud.generator._apply_must_word_overlay", _overlay
+    )
+    out = tmp_path / "hub.png"
+    path = generate_stylecloud(
+        StylecloudOptions(
+            text=(
+                "forest water earth life eco global recycle flora fauna climate "
+                "green planet ocean river tree soil air sun wind nature habitat "
+            )
+            * 6,
+            output_path=out,
+            size=(800, 1200),
+            icon_name=ICON_HUB,
+            must_word="NATURE",
+            must_word_font_size=90,
+            max_font_size=40,
+            max_words=60,
+            hub_gradient=["#1e5f8a", "#c8f542"],
+            use_german_stopwords=False,
+            random_state=1,
+        )
+    )
+    assert path.is_file()
+    assert calls == []
+    from PIL import Image
+
+    img = Image.open(path)
+    # Composited onto full cover canvas (not a flat crop strip).
+    assert img.size == (800, 1200)
+
+
+def test_hub_packs_fixed_canvas_cover_scale_composites(tmp_path: Path) -> None:
+    """Hub packs on HUB_PACK_SIZE; cover_scale 1.0 contain-fits without clipping."""
+    import numpy as np
+    from PIL import Image
+
+    from tools.stylecloud.generator import (
+        HUB_PACK_SIZE,
+        ICON_HUB,
+        _stylecloud_to_breathcloud_options,
+        composite_hub_raw_on_cover,
+        generate_stylecloud,
+        hub_raw_path_for,
+    )
+
+    opts = StylecloudOptions(
+        text=(
+            "forest water earth life eco global recycle flora fauna climate "
+            "green planet ocean river tree soil air sun wind nature habitat "
+            "biome canopy meadow valley canyon glacier reef mangrove "
+        )
+        * 8,
+        output_path=tmp_path / "hub_fill.png",
+        size=(800, 1200),
+        icon_name=ICON_HUB,
+        must_word="NATURE",
+        max_words=80,
+        auto_fit=True,
+        cover_scale=1.0,
+        free_form_prefer_horizontal=0.45,
+        hub_gradient=["#1e5f8a", "#2ec4b6", "#c8f542"],
+        use_german_stopwords=False,
+        random_state=7,
+    )
+    breath = _stylecloud_to_breathcloud_options(opts, opts.text, opts.output_path)
+    assert breath.canvas_width == HUB_PACK_SIZE
+    assert breath.canvas_height == HUB_PACK_SIZE
+    assert breath.hub_angle == 0
+    assert abs(breath.prefer_horizontal - 0.45) < 0.01
+
+    path = generate_stylecloud(opts)
+    raw = hub_raw_path_for(path)
+    assert raw.is_file()
+    arr = np.asarray(Image.open(path).convert("RGB"))
+    assert arr.shape[1] == 800 and arr.shape[0] == 1200
+    ink = np.any(arr < 248, axis=2)
+    ys, xs = np.where(ink)
+    assert len(ys) > 0
+    assert int(xs.min()) >= 0 and int(xs.max()) < 800
+    assert int(ys.min()) >= 0 and int(ys.max()) < 1200
+
+    # Zoom in past contain — may clip edges.
+    opts.cover_scale = 2.5
+    composite_hub_raw_on_cover(raw, path, opts)
+    arr2 = np.asarray(Image.open(path).convert("RGB"))
+    assert arr2.shape[1] == 800 and arr2.shape[0] == 1200
+
+
+def test_auto_fit_hub_fonts_on_pack_canvas() -> None:
+    from tools.stylecloud.generator import HUB_PACK_SIZE, auto_fit_hub_fonts, auto_fit_hub_layout
+
+    a = auto_fit_hub_fonts(HUB_PACK_SIZE, HUB_PACK_SIZE, "BARCELONA")
+    b = auto_fit_hub_fonts(800, 800, "BARCELONA")
+    assert a[0] > b[0]
+    _hf, _mf, angle, prefer = auto_fit_hub_layout(HUB_PACK_SIZE, HUB_PACK_SIZE, "BARCELONA")
+    assert angle == 0
+    assert prefer == 0.50
+    assert a[0] > a[1]
+
+
+def test_auto_fit_off_uses_manual_fonts() -> None:
+    from tools.stylecloud.generator import (
+        ICON_HUB,
+        StylecloudOptions,
+        _stylecloud_to_breathcloud_options,
+    )
+
+    opts = StylecloudOptions(
+        text="alpha beta gamma delta epsilon zeta eta theta",
+        output_path=Path("x.png"),
+        size=(1594, 2539),
+        icon_name=ICON_HUB,
+        must_word="BARCELONA",
+        must_word_font_size=120,
+        max_font_size=60,
+        auto_fit=False,
+        free_form_prefer_horizontal=0.3,
+    )
+    breath = _stylecloud_to_breathcloud_options(opts, opts.text, opts.output_path)
+    assert breath.hub_font_size == 120
+    assert breath.max_font_size == 60
+    assert abs(breath.prefer_horizontal - 0.3) < 0.01
+
+
+def test_hub_orientation_slider_is_strict(tmp_path: Path) -> None:
+    """prefer_horizontal low → most companions vertical (no horizontal fallback)."""
+    import json
+
+    from tools.breathcloud.engine import BreathcloudOptions, generate_breathcloud
+
+    out = tmp_path / "orient.png"
+    layout = tmp_path / "orient.hub_layout.json"
+    text = (
+        "alpha beta gamma delta epsilon zeta eta theta iota kappa "
+        "lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi "
+    ) * 3
+    generate_breathcloud(
+        BreathcloudOptions(
+            text=text,
+            hub_word="HUBWORD",
+            output_path=out,
+            canvas_width=1024,
+            canvas_height=1024,
+            canvas_size=1024,
+            hub_font_size=100,
+            max_font_size=48,
+            min_font_size=12,
+            max_words=60,
+            prefer_horizontal=0.20,
+            random_state=11,
+            use_stopwords=False,
+            export_max_side=0,
+            crop_to_ink=False,
+            layout_path=layout,
+        )
+    )
+    data = json.loads(layout.read_text(encoding="utf-8"))
+    companions = [p for p in data["placements"] if not p.get("is_hub")]
+    assert len(companions) >= 8
+    vertical = sum(1 for p in companions if int(p["angle"]) % 180 == 90)
+    assert vertical / len(companions) >= 0.55
+
+
+def test_apply_auto_fit_all_non_hub_forms() -> None:
+    """Cover-dicht / Organisch / FA / Maske get print-scale fonts, ignore junk values."""
+    from tools.stylecloud.generator import (
+        ICON_NONE,
+        ICON_ORGANIC,
+        StylecloudOptions,
+        apply_auto_fit,
+        suggested_max_font_size,
+        suggested_must_word_gap,
+        suggested_must_word_max_font,
+    )
+
+    size = (1594, 2539)
+    expect_max = suggested_max_font_size(size)
+    expect_must = suggested_must_word_max_font(size)
+    expect_gap = suggested_must_word_gap(size)
+
+    for icon in (ICON_NONE, ICON_ORGANIC, "fas fa-heart"):
+        raw = StylecloudOptions(
+            text="alpha beta",
+            output_path=Path("x.png"),
+            size=size,
+            icon_name=icon,
+            must_word="TITEL",
+            must_word_font_size=9999,
+            max_font_size=12,
+            must_word_gap=1,
+            auto_fit=True,
+        )
+        fitted = apply_auto_fit(raw)
+        assert fitted.max_font_size == expect_max
+        assert fitted.must_word_font_size == expect_must
+        assert fitted.must_word_gap == expect_gap
+
+    masked = StylecloudOptions(
+        text="alpha",
+        output_path=Path("x.png"),
+        size=size,
+        icon_name=ICON_NONE,
+        mask_path=Path("silhouette.png"),
+        must_word_font_size=1,
+        max_font_size=1,
+        auto_fit=True,
+    )
+    fitted_m = apply_auto_fit(masked)
+    assert fitted_m.max_font_size == expect_max
+    assert fitted_m.must_word_font_size == expect_must
+
+
+def test_apply_auto_fit_off_preserves_manual() -> None:
+    from tools.stylecloud.generator import ICON_NONE, StylecloudOptions, apply_auto_fit
+
+    raw = StylecloudOptions(
+        text="x",
+        output_path=Path("x.png"),
+        size=(800, 1200),
+        icon_name=ICON_NONE,
+        must_word_font_size=111,
+        max_font_size=222,
+        must_word_gap=33,
+        auto_fit=False,
+    )
+    out = apply_auto_fit(raw)
+    assert out.must_word_font_size == 111
+    assert out.max_font_size == 222
+    assert out.must_word_gap == 33
+
+
+def test_hub_composite_contain_never_clips(tmp_path: Path) -> None:
+    """Scaled hub blob must fit inside cover (contain, not height-fill clip)."""
+    import numpy as np
+    from PIL import Image
+
+    from tools.stylecloud.generator import (
+        ICON_HUB,
+        StylecloudOptions,
+        _composite_hub_on_cover,
+    )
+
+    cover_w, cover_h = 400, 600
+    # Wide ink that would overflow sides if height-filled to ~90% of cover.
+    blob = Image.new("RGB", (900, 200), "white")
+    for x in range(40, 860):
+        for y in range(30, 170):
+            blob.putpixel((x, y), (30, 100, 140))
+    cloud_path = tmp_path / "wide_hub.png"
+    blob.save(cloud_path)
+
+    opts = StylecloudOptions(
+        text="x",
+        output_path=cloud_path,
+        size=(cover_w, cover_h),
+        icon_name=ICON_HUB,
+        must_word="X",
+        auto_fit=True,
+        background_color="white",
+    )
+    _composite_hub_on_cover(cloud_path, opts)
+    arr = np.asarray(Image.open(cloud_path).convert("RGB"))
+    assert arr.shape[1] == cover_w and arr.shape[0] == cover_h
+    ink = np.any(arr < 248, axis=2)
+    ys, xs = np.where(ink)
+    assert len(ys) > 0
+    assert int(xs.min()) >= 0 and int(xs.max()) < cover_w
+    assert int(ys.min()) >= 0 and int(ys.max()) < cover_h
+    # Width-limited contain: ink width near 92% of cover, not full height-fill stretch.
+    bw = int(xs.max() - xs.min() + 1)
+    assert bw <= int(cover_w * 0.98) + 2
+    assert bw >= int(cover_w * 0.90)
 
 
 def test_preset_store_rejects_empty_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -872,6 +1327,196 @@ def test_window_geometry_restored_from_session(tmp_path: Path) -> None:
     loaded = load_settings(path)
     assert loaded["window_geometry_saved"] is True
     assert resolve_window_size(loaded) == (1200, 700)
+
+
+def test_hub_extra_stopwords_excluded_from_layout(tmp_path: Path) -> None:
+    from tools.stylecloud.generator import ICON_HUB, generate_stylecloud
+    from tools.stylecloud.svg_export import hub_layout_path_for
+
+    out = tmp_path / "stops.png"
+    generate_stylecloud(
+        StylecloudOptions(
+            text=(
+                "Chemotherapie Diagnose Bestrahlung Chemotherapie "
+                "Nachsorge Krankenkasse Chemotherapie Barcelona"
+            ),
+            output_path=out,
+            size=(400, 600),
+            icon_name=ICON_HUB,
+            must_word="BARCELONA",
+            max_words=40,
+            max_font_size=40,
+            use_german_stopwords=True,
+            extra_stopwords="Chemotherapie",
+            auto_fit=False,
+            random_state=7,
+        )
+    )
+    layout = hub_layout_path_for(out)
+    assert layout.is_file()
+    data = json.loads(layout.read_text(encoding="utf-8"))
+    words = {str(p.get("word", "")).upper() for p in data.get("placements") or []}
+    assert "CHEMOTHERAPIE" not in words
+    assert "DIAGNOSE" in words or "BESTRAHLUNG" in words
+
+
+def test_hub_save_svg_writes_vector_file(tmp_path: Path) -> None:
+    from tools.stylecloud.generator import ICON_HUB, generate_stylecloud
+
+    out = tmp_path / "cloud.png"
+    generate_stylecloud(
+        StylecloudOptions(
+            text="diagnose bestrahlung nachsorge krankenkasse alpha beta",
+            output_path=out,
+            size=(400, 600),
+            icon_name=ICON_HUB,
+            must_word="BARCELONA",
+            max_words=20,
+            max_font_size=36,
+            use_german_stopwords=False,
+            save_svg=True,
+            auto_fit=False,
+            random_state=3,
+        )
+    )
+    svg = out.with_suffix(".svg")
+    assert svg.is_file()
+    body = svg.read_text(encoding="utf-8")
+    assert body.lstrip().startswith("<?xml")
+    assert "<svg" in body
+    assert "BARCELONA" in body
+    assert "data:image/png;base64" not in body  # vector hub, not embedded PNG
+
+
+def test_rectangle_cover_scale_writes_pack_raw(tmp_path: Path) -> None:
+    from PIL import Image
+
+    from tools.stylecloud.generator import (
+        ICON_RECT,
+        composite_hub_raw_on_cover,
+        generate_stylecloud,
+        pack_raw_path_for,
+    )
+
+    out = tmp_path / "rect.png"
+    path = generate_stylecloud(
+        StylecloudOptions(
+            text="alpha beta gamma delta epsilon zeta eta theta iota kappa",
+            output_path=out,
+            size=(400, 600),
+            icon_name=ICON_RECT,
+            max_words=30,
+            max_font_size=48,
+            free_form_prefer_horizontal=0.25,
+            cover_scale=1.0,
+            use_german_stopwords=False,
+            auto_fit=False,
+            random_state=5,
+        )
+    )
+    raw = pack_raw_path_for(path)
+    assert raw.is_file()
+    assert path.is_file()
+    w0, h0 = Image.open(path).size
+    assert (w0, h0) == (400, 600)
+
+    opts = StylecloudOptions(
+        text=".",
+        output_path=path,
+        size=(400, 600),
+        icon_name=ICON_RECT,
+        cover_scale=2.0,
+        background_color="white",
+    )
+    composite_hub_raw_on_cover(raw, path, opts)
+    w1, h1 = Image.open(path).size
+    assert (w1, h1) == (400, 600)
+
+
+def test_word_density_affects_rectangle_canvas(tmp_path: Path) -> None:
+    from tools.stylecloud.generator import (
+        ICON_RECT,
+        free_form_dense_canvas_size,
+        packing_area_factor_for_density,
+    )
+
+    loose = packing_area_factor_for_density(0.1)
+    tight = packing_area_factor_for_density(0.9)
+    assert tight < loose
+    w_loose, h_loose = free_form_dense_canvas_size(
+        800, 1200, word_count=40, max_font=48, packing="tight", word_density=0.1
+    )
+    w_tight, h_tight = free_form_dense_canvas_size(
+        800, 1200, word_count=40, max_font=48, packing="tight", word_density=0.9
+    )
+    assert w_tight * h_tight < w_loose * h_loose
+
+    from tools.stylecloud.generator import generate_stylecloud
+
+    out = tmp_path / "dens.png"
+    path = generate_stylecloud(
+        StylecloudOptions(
+            text="alpha beta gamma delta epsilon zeta eta theta iota kappa lambda",
+            output_path=out,
+            size=(400, 600),
+            icon_name=ICON_RECT,
+            max_words=40,
+            max_font_size=48,
+            word_density=0.85,
+            use_german_stopwords=False,
+            auto_fit=False,
+            random_state=2,
+        )
+    )
+    assert path.is_file()
+
+
+def test_rectangle_cover_scale_is_pure_zoom(tmp_path: Path) -> None:
+    """Cover-Einpassen must not re-layout words — only scale the packed image."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from tools.stylecloud.generator import (
+        ICON_RECT,
+        StylecloudOptions,
+        composite_hub_raw_on_cover,
+        pack_raw_path_for,
+    )
+
+    out = tmp_path / "zoom.png"
+    raw = pack_raw_path_for(out)
+    # Cover-sized pack_raw with a distinctive asymmetric pattern.
+    img = Image.new("RGB", (200, 300), "white")
+    draw = ImageDraw.Draw(img)
+    draw.rectangle((20, 40, 80, 100), fill=(200, 40, 40))
+    draw.rectangle((120, 180, 180, 260), fill=(40, 40, 200))
+    raw.write_bytes(b"")  # ensure parent
+    img.save(raw)
+
+    opts = StylecloudOptions(
+        text=".",
+        output_path=out,
+        size=(200, 300),
+        icon_name=ICON_RECT,
+        cover_scale=1.0,
+        background_color="white",
+    )
+    composite_hub_raw_on_cover(raw, out, opts)
+    a100 = np.asarray(Image.open(out).convert("RGB"))
+    a_raw = np.asarray(Image.open(raw).convert("RGB"))
+    assert np.array_equal(a100, a_raw)
+
+    opts.cover_scale = 0.5
+    composite_hub_raw_on_cover(raw, out, opts)
+    a50 = np.asarray(Image.open(out).convert("RGB"))
+    assert a50.shape == (300, 200, 3)
+    # Pattern still present (scaled), not a full re-pack / blank.
+    assert np.any(a50[:, :, 0] > 150)
+    assert np.any(a50[:, :, 2] > 150)
+    # More white margin than at 100%.
+    white100 = int(np.sum(np.all(a100 >= 250, axis=2)))
+    white50 = int(np.sum(np.all(a50 >= 250, axis=2)))
+    assert white50 > white100
 
 
 def test_plugin_manifest_discovered() -> None:
@@ -925,3 +1570,29 @@ def test_plugin_run_opens_dialog(monkeypatch: pytest.MonkeyPatch) -> None:
     studio = SimpleNamespace(root=MagicMock())
     plugin.run(studio)
     assert opened == [(studio, studio.root)]
+
+
+def test_resolve_stylecloud_handoff_png(tmp_path: Path) -> None:
+    from ui_qt.dialogs.stylecloud_dialog import resolve_stylecloud_handoff_png
+
+    missing = tmp_path / "gone.png"
+    field = tmp_path / "field.png"
+    last = tmp_path / "last.png"
+    field.write_bytes(b"\x89PNG\r\n\x1a\n")
+    last.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    assert resolve_stylecloud_handoff_png(last_output=None, output_field="") is None
+    assert (
+        resolve_stylecloud_handoff_png(last_output=missing, output_field=str(field))
+        == field.resolve()
+    )
+    assert (
+        resolve_stylecloud_handoff_png(last_output=last, output_field=str(field))
+        == last.resolve()
+    )
+    txt = tmp_path / "notes.txt"
+    txt.write_text("x", encoding="utf-8")
+    assert (
+        resolve_stylecloud_handoff_png(last_output=txt, output_field=str(field))
+        == field.resolve()
+    )

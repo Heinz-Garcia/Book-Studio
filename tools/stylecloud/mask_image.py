@@ -23,6 +23,22 @@ def resolve_canvas_size(size: int | tuple[int, int]) -> tuple[int, int]:
     return side, side
 
 
+def fit_mask_contain(
+    image: Image.Image, width: int, height: int
+) -> Image.Image:
+    """Scale *image* to fit inside width×height; pad white (never squash)."""
+    iw, ih = image.size
+    if iw < 1 or ih < 1:
+        return Image.new("RGB", (width, height), (255, 255, 255))
+    scale = min(width / float(iw), height / float(ih))
+    nw = max(1, int(round(iw * scale)))
+    nh = max(1, int(round(ih * scale)))
+    resized = image.resize((nw, nh), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", (width, height), (255, 255, 255))
+    canvas.paste(resized, ((width - nw) // 2, (height - nh) // 2))
+    return canvas
+
+
 def load_mask_array(
     mask_path: Path | str,
     size: int | tuple[int, int],
@@ -58,7 +74,7 @@ def load_mask_array(
     else:
         image = image.convert("RGB")
 
-    image = image.resize((width, height), Image.Resampling.LANCZOS)
+    image = fit_mask_contain(image, width, height)
     arr = np.array(image)
     if invert:
         arr = 255 - arr

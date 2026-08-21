@@ -1,4 +1,7 @@
-"""Breathcloud plugin — opens the autonomous organic word-cloud dialog."""
+"""Breathcloud plugin — redirects to Cover-Schlagwortwolke (Freie Form / Hub).
+
+The packer SSOT remains ``tools.breathcloud.engine``; the UI lives in Stylecloud.
+"""
 
 from __future__ import annotations
 
@@ -10,14 +13,14 @@ _REPO_ROOT = ensure_repo_on_path(__file__)
 
 
 def run(studio: Optional[Any] = None, **kwargs) -> None:
-    from tools.breathcloud.dialog import open_breathcloud_dialog
+    from ui_qt.dialogs.stylecloud_dialog import open_stylecloud_qt
 
     parent = kwargs.get("parent") or getattr(studio, "root", None)
-    open_breathcloud_dialog(studio, parent)
+    open_stylecloud_qt(studio, parent, force_hub=True)
 
 
 def is_available() -> bool:
-    return tool_exists(_REPO_ROOT, "tools", "breathcloud", "dialog.py")
+    return tool_exists(_REPO_ROOT, "ui_qt", "dialogs", "stylecloud_dialog.py")
 
 
 __all__ = ["run", "is_available"]

@@ -382,8 +382,11 @@ def render_wrap_image(
     draw.rectangle(_box_xyxy(back_ext, dpi), fill=_hex_to_rgb(layout.back_color))
     if layout.back_image.strip():
         back_path = _resolve(layout.back_image, base)
-        with Image.open(back_path) as im:
-            _paste_back_image(canvas, im, layout=layout, geo=geo, dpi=dpi)
+        # Missing back is a validation warning, not a hard render abort —
+        # otherwise the preview goes blank/black when only the front was updated.
+        if back_path.is_file():
+            with Image.open(back_path) as im:
+                _paste_back_image(canvas, im, layout=layout, geo=geo, dpi=dpi)
 
     # Spine
     draw.rectangle(_box_xyxy(spine_ext, dpi), fill=_hex_to_rgb(layout.spine_color))
@@ -404,15 +407,17 @@ def render_wrap_image(
     except (TypeError, ValueError):
         ox_mm, oy_mm = 0.0, 0.0
     with Image.open(front_path) as im:
-        panel = Image.new("RGB", (max(1, fw), max(1, fh)), (0, 0, 0))
-        _cover_fit_paste(
-            panel,
-            im,
-            (0, 0, fw, fh),
-            zoom=front_zoom,
-            offset_x_px=int(round(ox_mm * scale_mm)),
-            offset_y_px=int(round(oy_mm * scale_mm)),
-        )
+        im.load()
+        front_rgb = im.convert("RGB")
+    panel = Image.new("RGB", (max(1, fw), max(1, fh)), (0, 0, 0))
+    _cover_fit_paste(
+        panel,
+        front_rgb,
+        (0, 0, fw, fh),
+        zoom=front_zoom,
+        offset_x_px=int(round(ox_mm * scale_mm)),
+        offset_y_px=int(round(oy_mm * scale_mm)),
+    )
 
     # Experimenteller Hook (wegwerfbar): Vorderseiten-Layer.
     # Fehlt das Modul oder enabled=false → panel unverändert.

@@ -71,6 +71,7 @@ from tools.kdp_cover.model import (
     resolve_existing_project_path,
     save_layout,
 )
+from tools.kdp_cover.settings import load_settings, resolve_window_size, save_settings
 from tools.kdp_cover.validate import ValidationReport, validate_layout
 from tools.kdp_specs import format_bleed_note, studio_paperback_preset
 from ui_qt.widgets.collapsible_section import CollapsibleSection
@@ -242,12 +243,19 @@ class _FreeExportConfirmDialog(QDialog):
 
 
 class KdpCoverQtDialog(QDialog):
-    def __init__(self, studio: Any = None, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        studio: Any = None,
+        parent: Optional[QWidget] = None,
+        *,
+        front_image: str | Path | None = None,
+    ) -> None:
         super().__init__(parent)
         self._studio = studio
         self._book = _book_root(studio)
         self._mode_guard = False
         self._params_guard = True  # bis Init fertig — kein Preview-Sturm
+        self._initial_front_image = front_image
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(_PREVIEW_DEBOUNCE_MS)
@@ -277,7 +285,11 @@ class KdpCoverQtDialog(QDialog):
         )
         self.setSizeGripEnabled(False)
         self.setMinimumSize(1280, 720)
-        self.resize(1540, 920)
+        try:
+            _ww, _wh = resolve_window_size(load_settings())
+        except OSError:
+            _ww, _wh = 1540, 920
+        self.resize(_ww, _wh)
         self._size_grip = attach_resize_grip(self)
 
         root = QVBoxLayout(self)
@@ -851,10 +863,47 @@ class KdpCoverQtDialog(QDialog):
                     self._apply_layout(load_layout(auto), project_path=auto)
                 except (OSError, ValueError, TypeError, KeyError):
                     pass
+        self._apply_initial_front_image()
         self._refresh_binding_ui()
         # Einmalige Vorschau nach kompletter Init (Signale waren geblockt).
         self._params_guard = False
         self._on_params_changed()
+
+    def apply_front_image(
+        self,
+        path: str | Path | None,
+        *,
+        disable_compose: bool = False,
+    ) -> bool:
+        """Set front image path, optionally disable layer compose, refresh preview.
+
+        Returns True when the file exists and was applied.
+        """
+        if path is None or not str(path).strip():
+            return False
+        resolved = Path(str(path)).expanduser().resolve()
+        if not resolved.is_file():
+            return False
+        self.front_edit.setText(str(resolved))
+        if disable_compose and hasattr(self, "compose_enabled"):
+            self.compose_enabled.setChecked(False)
+        if not self._params_guard:
+            self._preview_timer.stop()
+            self._refresh_preview()
+        return True
+
+    def _apply_initial_front_image(self) -> None:
+        """Optional Prefill (z. B. Stylecloud-Übergabe) — überschreibt Deckblatt/Projekt."""
+        raw = self._initial_front_image
+        if raw is None or not str(raw).strip():
+            return
+        # Schlagwortwolke = Hintergrund; Projekt-Layer (Titel/Bänder) bleiben darüber.
+        ok = self.apply_front_image(raw, disable_compose=False)
+        if not ok and hasattr(self, "status_label"):
+            self.status_label.setText(
+                f"● Übergabe-Bild nicht gefunden: {raw}"
+            )
+            self.status_label.setStyleSheet("color:#b91c1c; font-weight:600;")
 
     def _build_book_banner(self, parent_layout: QVBoxLayout) -> None:
         section = CollapsibleSection("Buch & KDP-Kanal", expanded=True)
@@ -1886,7 +1935,23 @@ class KdpCoverQtDialog(QDialog):
                 self.mode_combo.setCurrentIndex(midx)
 
             self.front_edit.setText(layout.front_image)
+            # Ungültige Front-/Back-Pfade aus altem Projekt nicht behalten
+            # (sonst schwarze/fehlschlagende Vorschau ohne erkennbare Ursache).
+            front_raw = (layout.front_image or "").strip()
+            if front_raw:
+                front_p = Path(front_raw)
+                if not front_p.is_absolute() and self._book is not None:
+                    front_p = (self._book / front_p).resolve()
+                if not front_p.is_file():
+                    self.front_edit.clear()
             self.back_edit.setText(layout.back_image)
+            back_raw = (layout.back_image or "").strip()
+            if back_raw:
+                back_p = Path(back_raw)
+                if not back_p.is_absolute() and self._book is not None:
+                    back_p = (self._book / back_p).resolve()
+                if not back_p.is_file():
+                    self.back_edit.clear()
             self.front_zoom_spin.setValue(
                 max(1.0, float(getattr(layout, "front_image_zoom", 1.0) or 1.0))
             )
@@ -2228,6 +2293,16 @@ class KdpCoverQtDialog(QDialog):
             self.preview_label.setText("Bitte Vorderseiten-Bild wählen.")
             self.preview_label.setPixmap(QPixmap())
             return
+        front_path = Path(layout.front_image.strip())
+        if not front_path.is_absolute() and self._book is not None:
+            front_path = (self._book / front_path).resolve()
+        if not front_path.is_file():
+            self._preview_full = None
+            self.preview_label.setText(
+                f"Vorderseiten-Bild fehlt:\n{front_path}"
+            )
+            self.preview_label.setPixmap(QPixmap())
+            return
         dpi = self._effective_preview_dpi()
         try:
             geo = build_geometry(
@@ -2254,6 +2329,29 @@ class KdpCoverQtDialog(QDialog):
         self._preview_full = pix
         self._preview_fit_size = None
         self._fit_preview_to_viewport()
+
+    def _persist_window_geometry(self) -> None:
+        try:
+            save_settings(
+                {
+                    "window_width": int(self.width()),
+                    "window_height": int(self.height()),
+                }
+            )
+        except OSError:
+            pass
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self._persist_window_geometry()
+        super().closeEvent(event)
+
+    def accept(self) -> None:
+        self._persist_window_geometry()
+        super().accept()
+
+    def reject(self) -> None:
+        self._persist_window_geometry()
+        super().reject()
 
     def _fit_preview_to_viewport(self) -> None:
         """Vorschau skalieren: Einpassen × Zoomfaktor."""
@@ -2553,8 +2651,26 @@ class KdpCoverQtDialog(QDialog):
             self._copy_wrap_to_configured_folder(deploy_source)
 
 
-def open_kdp_cover_qt(studio: Any = None, parent: Optional[QWidget] = None, **_kwargs: Any) -> int:
-    dlg = KdpCoverQtDialog(studio, parent)
+def open_kdp_cover_qt(
+    studio: Any = None,
+    parent: Optional[QWidget] = None,
+    *,
+    front_image: str | Path | None = None,
+    disable_compose: bool | None = None,
+    **_kwargs: Any,
+) -> int:
+    """Open KDP Cover dialog.
+
+    ``front_image``: Prefill Vorderseite (z. B. Stylecloud-PNG) as background.
+    ``disable_compose``: when True, turn off front layer compose. Default False
+    so title/band/badge layers stay on top of a Stylecloud handoff image.
+    """
+    dlg = KdpCoverQtDialog(studio, parent, front_image=front_image)
+    if front_image is not None:
+        turn_off = False if disable_compose is None else bool(disable_compose)
+        dlg.apply_front_image(front_image, disable_compose=turn_off)
+        # Nach Show einmal hard refresh (Viewport-Größe erst dann korrekt).
+        QTimer.singleShot(0, dlg._refresh_preview)
     return int(dlg.exec())
 
 

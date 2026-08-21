@@ -69,11 +69,12 @@ def test_hub_required(tmp_path: Path) -> None:
 
 
 def test_tokenize_keeps_numbered_list_entries_distinct() -> None:
-    from tools.breathcloud.engine import _frequencies, _tokenize
+    from tools.breathcloud.engine import _frequencies, _resolve_stop_set, _tokenize
 
+    stop = _resolve_stop_set(use_german=True, extra=None)
     words = _tokenize(
         "wort1, Wort2, Wort3, Wort4, Wort5, Wort6, Wort7",
-        use_stopwords=True,
+        stop_set=stop,
     )
     assert "WORT1" in words
     assert "WORT2" in words
@@ -86,6 +87,33 @@ def test_tokenize_keeps_numbered_list_entries_distinct() -> None:
     )
     labels = {w for w, _ in freqs}
     assert labels == {"WORT1", "WORT2", "WORT3"}
+
+
+def test_extra_stopwords_exclude_chemotherapie() -> None:
+    from tools.breathcloud.engine import _frequencies
+
+    text = "Chemotherapie Diagnose Bestrahlung Chemotherapie Nachsorge"
+    freqs = _frequencies(
+        text,
+        "BARCELONA",
+        max_words=50,
+        use_stopwords=True,
+        extra_stopwords="Chemotherapie",
+    )
+    labels = {w for w, _ in freqs}
+    assert "CHEMOTHERAPIE" not in labels
+    assert "DIAGNOSE" in labels
+    assert "BESTRAHLUNG" in labels
+
+    # Extra stops must apply even when German stop filter is off.
+    freqs2 = _frequencies(
+        text,
+        "X",
+        max_words=50,
+        use_stopwords=False,
+        extra_stopwords="chemotherapie",
+    )
+    assert "CHEMOTHERAPIE" not in {w for w, _ in freqs2}
 
 
 def test_ui_defaults_never_take_max_words_from_freeform() -> None:

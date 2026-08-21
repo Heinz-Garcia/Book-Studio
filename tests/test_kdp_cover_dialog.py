@@ -683,3 +683,198 @@ def test_free_export_confirm_requires_checkbox(monkeypatch):
     dlg.ack.setChecked(True)
     assert dlg._yes.isEnabled()
     dlg.close()
+
+
+def test_kdp_dialog_prefills_front_image_from_kwarg(monkeypatch, tmp_path):
+    """Stylecloud-Übergabe: front_image überschreibt Deckblatt-Autofill."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
+    from ui_qt.theme import apply_theme
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *a, **k: QMessageBox.StandardButton.Yes,
+    )
+
+    app = QApplication.instance() or QApplication([])
+    apply_theme(app)
+
+    book = tmp_path / "book"
+    book.mkdir()
+    (book / "img").mkdir()
+    (book / "_quarto.yml").write_text("title: T\nauthor: A\n", encoding="utf-8")
+    deckblatt = book / "img" / "Deckblatt.png"
+    Image.new("RGB", (100, 150), (10, 10, 10)).save(deckblatt)
+    stylecloud_png = tmp_path / "cover_stylecloud.png"
+    Image.new("RGB", (200, 300), (200, 40, 40)).save(stylecloud_png)
+
+    class _Studio:
+        current_book = str(book)
+
+        def log(self, msg, level="info"):
+            pass
+
+    dlg = KdpCoverQtDialog(_Studio(), None, front_image=stylecloud_png)
+    assert Path(dlg.front_edit.text()).resolve() == stylecloud_png.resolve()
+    # Ohne Projekt-Compose bleibt „Layer aktiv“ aus — Übergabe schaltet ihn
+    # nicht mehr zwangsweise aus.
+    assert dlg.compose_enabled.isChecked() is False
+    dlg.close()
+
+
+def test_kdp_dialog_handoff_keeps_compose_layers(monkeypatch, tmp_path):
+    """Stylecloud-PNG ist Hintergrund; vorhandene Front-Layer bleiben aktiv darüber."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from tools.kdp_cover.model import CoverLayout, default_project_path, save_layout
+    from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
+    from ui_qt.theme import apply_theme
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *a, **k: QMessageBox.StandardButton.Yes,
+    )
+
+    app = QApplication.instance() or QApplication([])
+    apply_theme(app)
+
+    book = tmp_path / "book"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("title: T\nauthor: A\n", encoding="utf-8")
+    front = tmp_path / "old_front.png"
+    Image.new("RGB", (80, 120), (10, 10, 10)).save(front)
+    project = default_project_path(book)
+    project.parent.mkdir(parents=True, exist_ok=True)
+    save_layout(
+        CoverLayout(
+            page_count=200,
+            paper_type_id="white_bw",
+            trim_width_mm=135.0,
+            trim_height_mm=215.0,
+            front_image=str(front),
+            front_compose={
+                "enabled": True,
+                "titles": {
+                    "enabled": True,
+                    "series": "IFJN",
+                    "line1": "Diagnose",
+                    "line2": "Brustkrebs",
+                    "accent": "Was nun?",
+                },
+            },
+        ),
+        project,
+    )
+
+    stylecloud_png = tmp_path / "cover_stylecloud.png"
+    Image.new("RGB", (200, 300), (200, 40, 40)).save(stylecloud_png)
+
+    class _Studio:
+        current_book = str(book)
+
+        def log(self, msg, level="info"):
+            pass
+
+    dlg = KdpCoverQtDialog(_Studio(), None, front_image=stylecloud_png)
+    assert Path(dlg.front_edit.text()).resolve() == stylecloud_png.resolve()
+    assert dlg.compose_enabled.isChecked() is True
+    assert dlg.compose_titles_enabled.isChecked() is True
+    dlg.close()
+
+
+def test_kdp_dialog_handoff_preview_with_missing_back(monkeypatch, tmp_path):
+    """Übergabe trotz fehlendem Back-Asset: Vorschau darf nicht schwarz/leer bleiben."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from tools.kdp_cover.model import CoverLayout, default_project_path, save_layout
+    from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
+    from ui_qt.theme import apply_theme
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *a, **k: QMessageBox.StandardButton.Yes,
+    )
+
+    app = QApplication.instance() or QApplication([])
+    apply_theme(app)
+
+    book = tmp_path / "book"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("title: T\nauthor: A\n", encoding="utf-8")
+    project = default_project_path(book)
+    project.parent.mkdir(parents=True, exist_ok=True)
+    save_layout(
+        CoverLayout(
+            page_count=200,
+            paper_type_id="white_bw",
+            trim_width_mm=135.0,
+            trim_height_mm=215.0,
+            front_image="assets/pool/missing_front.png",
+            back_image="assets/pool/missing_back.jpg",
+            front_compose={"enabled": True},
+        ),
+        project,
+    )
+
+    stylecloud_png = tmp_path / "cover_stylecloud.png"
+    Image.new("RGB", (400, 600), (200, 40, 40)).save(stylecloud_png)
+
+    class _Studio:
+        current_book = str(book)
+
+        def log(self, msg, level="info"):
+            pass
+
+    dlg = KdpCoverQtDialog(_Studio(), None, front_image=stylecloud_png)
+    assert Path(dlg.front_edit.text()).resolve() == stylecloud_png.resolve()
+    assert dlg.back_edit.text().strip() == ""
+    dlg._refresh_preview()
+    assert dlg._preview_full is not None
+    assert not dlg._preview_full.isNull()
+    dlg.close()
+
+
+def test_open_kdp_cover_qt_forwards_front_image(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs import kdp_cover_dialog as mod
+
+    _app = QApplication.instance() or QApplication([])
+    png = tmp_path / "front.png"
+    Image.new("RGB", (40, 60), (1, 2, 3)).save(png)
+    seen: dict[str, object] = {}
+
+    class _FakeDlg:
+        def __init__(self, studio, parent, *, front_image=None):
+            seen["front_image"] = front_image
+            seen["studio"] = studio
+
+        def apply_front_image(self, path, *, disable_compose=False):
+            seen["applied"] = (str(path), disable_compose)
+            return True
+
+        def _refresh_preview(self) -> None:
+            seen["refreshed"] = True
+
+        def exec(self) -> int:
+            return 0
+
+    monkeypatch.setattr(mod, "KdpCoverQtDialog", _FakeDlg)
+    # Avoid queued refresh depending on event loop timing in this unit test.
+    monkeypatch.setattr(mod.QTimer, "singleShot", lambda *a, **k: None)
+    rc = mod.open_kdp_cover_qt(object(), None, front_image=png)
+    assert rc == 0
+    assert Path(str(seen["front_image"])).resolve() == png.resolve()
+    assert seen.get("applied") == (str(png), False)

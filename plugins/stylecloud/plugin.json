@@ -7,5 +7,5 @@
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 19,
-  "help_text": "Erzeugt eine drucktaugliche PNG-Schlagwortwolke (300 dpi). Auflösung/Ratio: DE Paperback / Amazon KDP 6×9 / frei. Form: Freie Form (vom Zentrum aus, keine Hülle; Ratio steuert Richtung) / Organische Silhouette / Rechteck / Font Awesome / Bildmaske. Dichte Luftig/Normal/Dicht/Frei. Presets. Muss-Wort. Deps: stylecloud, setuptools<82; optional spacy."
+  "help_text": "Drucktaugliche PNG-Schlagwortwolke (300 dpi). Form: Freie Form (Hub um Kernwort) / Cover-dicht / Organisch / Rechteck / Font Awesome / Bildmaske. Hub-Verlauf per Farbdialog. Presets. Muss-Wort. Deps: stylecloud, setuptools<82; optional spacy. Hub-Packer: tools.breathcloud.engine."
 }
