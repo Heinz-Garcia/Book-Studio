@@ -65,17 +65,33 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Qt-UI bereit")
         facade.log("Qt-Shell gestartet.", "info")
         self._refresh_book_list()
-        self._restore_active_book()
-        if facade.import_path is not None:
-            facade.log(f"Import-Pfad übergeben: {facade.import_path}", "info")
-            self._try_select_book(Path(facade.import_path))
-            try:
-                self.as_export_studio()._fire_plugin_hooks_after_book_import(
-                    import_path=facade.import_path
+        if facade.activate_book is not None or facade.import_path is not None:
+            # Bridge-Import: richtiges Arbeitsbuch aktivieren — NICHT zuerst
+            # die Session (z. B. Brustkrebs) laden, sonst landet Provenance falsch.
+            select_path = facade.activate_book or facade.import_path
+            assert select_path is not None
+            facade.log(f"Import-Pfad übergeben: {facade.import_path or select_path}", "info")
+            if facade.activate_book is not None:
+                facade.log(f"Arbeitsbuch aktivieren: {facade.activate_book}", "info")
+            selected = self._try_select_book(Path(select_path))
+            if selected:
+                try:
+                    # Provenance/Hooks: Roh-Lieferung (inbox), falls vorhanden
+                    hook_source = facade.import_path or select_path
+                    self.as_export_studio()._fire_plugin_hooks_after_book_import(
+                        import_path=hook_source
+                    )
+                except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                    facade.log(f"after_book_import Hook: {exc}", "warning")
+            else:
+                facade.log(
+                    "Import-Buch konnte nicht aktiviert werden — "
+                    "Provenance-Hook übersprungen.",
+                    "warning",
                 )
-            except (OSError, RuntimeError, TypeError, ValueError) as exc:
-                facade.log(f"after_book_import Hook: {exc}", "warning")
-
+                self._restore_active_book()
+        else:
+            self._restore_active_book()
     def as_plugin_studio(self) -> SimpleNamespace:
         """Minimales studio-ähnliches Objekt für PluginExecutor."""
         return SimpleNamespace(
@@ -217,12 +233,15 @@ class MainWindow(QMainWindow):
             self.book_combo.setItemData(tip_idx, str(book), Qt.ItemDataRole.ToolTipRole)
         self.book_combo.blockSignals(False)
         self._facade.log(f"{len(self._books)} Buchprojekt(e) gefunden.", "info")
+        # Beim Bridge-Import nicht hier die alte Session aktivieren —
+        # der Import-Pfad wird danach gezielt geladen.
+        if self._facade.import_path is not None or self._facade.activate_book is not None:
+            return
         target = prefer
         if target is None or qt_session.is_ephemeral_book_path(target):
             target = qt_session.pick_restorable_book()
         if target is not None:
             self._try_select_book(Path(target))
-
     def _restore_active_book(self) -> None:
         book = qt_session.pick_restorable_book()
         if book is not None:
@@ -288,7 +307,7 @@ class MainWindow(QMainWindow):
         except (OSError, TypeError, ValueError) as exc:
             self._facade.log(f"Session konnte nicht gespeichert werden: {exc}", "warning")
 
-    def _try_select_book(self, book: Path) -> None:
+    def _try_select_book(self, book: Path) -> bool:
         book = book.resolve()
         if qt_session.is_ephemeral_book_path(book):
             self._facade.log(
@@ -298,8 +317,8 @@ class MainWindow(QMainWindow):
             )
             fallback = qt_session.pick_restorable_book()
             if fallback is not None and fallback.resolve() != book:
-                self._try_select_book(fallback)
-            return
+                return self._try_select_book(fallback)
+            return False
         for i in range(self.book_combo.count()):
             data = self.book_combo.itemData(i)
             if data is not None and Path(data).resolve() == book:
@@ -308,13 +327,13 @@ class MainWindow(QMainWindow):
                 self.book_combo.setCurrentIndex(i)
                 self.book_combo.blockSignals(False)
                 self._load_book(book)
-                return
+                return True
         # Nicht in der Discovery-Liste → nicht heimlich laden (führt zu „Band_T“-Chaos)
         self._facade.log(
             f"Buch nicht in der Liste (Suchpfade prüfen): {book.name}",
             "warning",
         )
-
+        return False
     def show_restored_source_banner(self, text: str) -> None:
         """Persistenter Hinweis über der Kapitelstruktur: die gerade
         geladene Quelle ist ein wiederhergestellter Stand (siehe

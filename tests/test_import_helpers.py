@@ -12,6 +12,7 @@ Deckt die aus `book_studio.py` extrahierten Funktionen ab:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from import_helpers import (
@@ -128,6 +129,33 @@ def test_generate_quarto_yml_creates_minimal_file(tmp_path):
     assert "type: book" in text
     assert "chapters: []" in text
 
+
+def test_generate_quarto_yml_auto_includes_publish_meta_book_files(tmp_path):
+    """GG-Payload aus publish_meta.book_files → chapters (kein leeres PDF)."""
+    (tmp_path / "Prosa_Laurel_and_Hardy_24.08.2026.md").write_text(
+        "---\ntitle: Laurel\n---\n\nText.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "Erstellungsprotokoll.md").write_text("# Prot\n", encoding="utf-8")
+    (tmp_path / "publish_meta.json").write_text(
+        json.dumps(
+            {
+                "book_title": "Laurel",
+                "book_files": ["Prosa_Laurel_and_Hardy_24.08.2026.md"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    generate_quarto_yml_for_import(tmp_path)
+    text = (tmp_path / "_quarto.yml").read_text(encoding="utf-8")
+    assert "chapters: []" not in text
+    assert "- index.md" in text
+    assert "- Prosa_Laurel_and_Hardy_24.08.2026.md" in text
+    assert "Erstellungsprotokoll" not in text
+    gui = json.loads(
+        (tmp_path / "bookconfig" / ".gui_state.json").read_text(encoding="utf-8")
+    )
+    assert gui[0]["path"] == "Prosa_Laurel_and_Hardy_24.08.2026.md"
 
 def test_generate_quarto_yml_reads_toml_metadata(tmp_path):
     toml = tmp_path / "_book_studio.toml"

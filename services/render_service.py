@@ -375,6 +375,25 @@ class RenderService:
             if children:
                 yield from RenderService.iter_tree_paths(children)
 
+    @staticmethod
+    def count_content_chapters(tree_data: Optional[Iterable[dict]]) -> int:
+        """Anzahl renderbarer Inhaltskapitel (``.md``, ohne ``index.md`` / PART).
+
+        Ein Render ohne Inhaltskapitel erzeugt nur die stille ``index.md``
+        → einseitiges leeres PDF. Diese Zählung erkennt das.
+        """
+        count = 0
+        for path in RenderService.iter_tree_paths(tree_data):
+            normalized = path.replace("\\", "/").strip()
+            if not normalized or normalized.startswith("PART:"):
+                continue
+            if not normalized.lower().endswith(".md"):
+                continue
+            if Path(normalized).name.lower() == "index.md":
+                continue
+            count += 1
+        return count
+
     # --- Render-Orchestrierung (Phase 2 / 2.3c-Mini) -------------------
 
     @staticmethod
@@ -505,6 +524,16 @@ class RenderService:
         "epub": {".epub"},
         "docx": {".docx"},
     }
+    # Primaer-Ausgabe pro Format: wenn Quarto z. B. Titel-PDF + alten Stem
+    # gleichzeitig in export/_book laesst, darf nicht alphabetisch die
+    # stale Convenience-Kopie gewinnen (Leer-PDF oeffnen nach gutem Render).
+    PRIMARY_RENDER_SUFFIX: dict[str, str] = {
+        "typst": ".pdf",
+        "pdf": ".pdf",
+        "html": ".html",
+        "epub": ".epub",
+        "docx": ".docx",
+    }
     DEFAULT_ALLOWED_SUFFIXES: set = {".pdf", ".html", ".epub", ".docx"}
 
     @classmethod
@@ -513,15 +542,16 @@ class RenderService:
         in der Whitelist fuer `fmt` enthalten ist (`None`, falls keine
         passt oder `dir_path` nicht existiert).
 
-        Fuer Archiv-Ordner (`tools.publish_map.store.snapshot_render_dir`)
-        gedacht, die mehrere zeitstempel-benannte Artefakte enthalten
-        koennen - im Unterschied zu `export_manager._pick_rendered_artifact`,
-        das nur eine Datei pro festem Pfad erwartet und alphabetisch waehlt.
+        Bevorzugt das Primaer-Suffix (Typst → ``.pdf``), sonst jedes
+        erlaubte. Sortierung nach ``mtime`` — nicht alphabetisch: Quarto
+        benennt oft nach Buchtitel (``Stan-….pdf``), waehrend ein alter
+        Stem (``Prosa_….pdf``) alphabetisch zuerst kaeme.
         """
         if not dir_path or not Path(dir_path).is_dir():
             return None
+        fmt_key = (fmt or "").lower()
         allowed = cls.ALLOWED_RENDER_SUFFIXES.get(
-            (fmt or "").lower(), cls.DEFAULT_ALLOWED_SUFFIXES
+            fmt_key, cls.DEFAULT_ALLOWED_SUFFIXES
         )
         candidates = [
             p for p in Path(dir_path).iterdir()
@@ -529,6 +559,11 @@ class RenderService:
         ]
         if not candidates:
             return None
+        primary = cls.PRIMARY_RENDER_SUFFIX.get(fmt_key)
+        if primary:
+            preferred = [p for p in candidates if p.suffix.lower() == primary]
+            if preferred:
+                candidates = preferred
         return max(candidates, key=lambda p: p.stat().st_mtime)
 
     @classmethod

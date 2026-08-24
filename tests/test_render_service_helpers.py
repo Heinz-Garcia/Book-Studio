@@ -430,6 +430,20 @@ def test_iter_handles_none_tree():
     assert list(RenderService.iter_tree_paths(None)) == []  # type: ignore[arg-type]
 
 
+def test_count_content_chapters_ignores_index_and_parts():
+    tree = [
+        {"path": "index.md", "children": []},
+        {"path": "PART:Teil A", "children": [
+            {"path": "Prosa_Laurel_and_Hardy_24.08.2026.md", "children": []},
+        ]},
+        {"path": "readme.txt", "children": []},
+    ]
+    assert RenderService.count_content_chapters([]) == 0
+    assert RenderService.count_content_chapters(None) == 0  # type: ignore[arg-type]
+    assert RenderService.count_content_chapters([{"path": "index.md"}]) == 0
+    assert RenderService.count_content_chapters(tree) == 1
+
+
 # --- Konstanten ----------------------------------------------------------
 
 

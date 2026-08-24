@@ -233,20 +233,15 @@ class ExportManager:
 
     @classmethod
     def _pick_rendered_artifact(cls, out_dir: Path, fmt: str):
-        """Wählt die erste Datei in `out_dir`, deren Suffix in der
-        Whitelist für `fmt` enthalten ist. Liefert `None`, falls keine
-        passende Datei gefunden wurde. **Es werden KEINE anderen
-        Suffixe geöffnet.**"""
-        if not out_dir or not out_dir.exists() or not out_dir.is_dir():
-            return None
-        allowed = cls._ALLOWED_RENDER_SUFFIXES.get(
-            (fmt or "").lower(), cls._DEFAULT_ALLOWED_SUFFIXES
-        )
-        candidates = sorted(
-            p for p in out_dir.iterdir()
-            if p.is_file() and p.suffix.lower() in allowed
-        )
-        return candidates[0] if candidates else None
+        """Wählt das neueste Render-Artefakt in `out_dir` (SSOT:
+        ``RenderService.pick_latest_artifact`` — mtime, Primärsuffix).
+
+        Früher: alphabetisch erste Datei. Dann gewann z. B. eine alte
+        leere ``Prosa_….pdf`` gegen die frische Titel-PDF
+        ``Stan-….pdf`` → Zwischenablage/Auto-Open zeigten Leer-PDF
+        obwohl der Render erfolgreich war.
+        """
+        return _RenderService.pick_latest_artifact(out_dir, fmt)
 
     def _read_config(self):
         reader = getattr(self.studio, "read_config", None)
@@ -842,7 +837,33 @@ class ExportManager:
         self._render_running = True
         dispatched = False
         try:
+            # Auto-Healing zuerst: darf die rechte Struktur NICHT aus Disk-YAML
+            # neu laden (siehe studio_bridge.refresh_ui_titles). Danach zählen.
             self._prepare_book_for_render()
+            tree_data = self._get_tree_data_for_engine()
+            content_chapters = _RenderService.count_content_chapters(tree_data)
+            if content_chapters < 1:
+                messagebox.showwarning(
+                    "Keine Kapitel in der Struktur",
+                    "Im aktuellen Buchbaum (rechte Seite) steht kein "
+                    "Inhaltskapitel — nur index.md würde gerendert "
+                    "(leere PDF-Seite).\n\n"
+                    "Bitte prüfen, ob die Inhalts-Markdown rechts in der "
+                    "Buchstruktur sichtbar ist, dann speichern und erneut "
+                    "rendern. Skeleton-Dateien sind dafür nicht nötig.",
+                    parent=self._root(),
+                )
+                self._log(
+                    "⛔ Render abgebrochen: Buchstruktur ohne Inhaltskapitel "
+                    "(nur index.md → leeres PDF).",
+                    "error",
+                )
+                self._set_status(
+                    "Render abgebrochen — Kapitel in Struktur ziehen",
+                    _StatusFg.WARNING_ALT,
+                )
+                return
+
             is_healthy, analysis = self._run_doctor_preflight(
                 "Render-Vorabcheck", emit_success_log=True
             )

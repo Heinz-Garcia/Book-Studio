@@ -43,7 +43,10 @@ _UMLAUT_MAP = str.maketrans(
 )
 _NON_SLUG_CHARS = re.compile(r"[^a-z0-9]+")
 _ATX_HEADING = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
-_EXPLICIT_ID = re.compile(r"\{[^}]*#[^}]+\}\s*$")
+# Pandoc wertet nur EINEN trailing ``{…}``-Block als Attribute.
+# Mehrere Bloecke (``{.unnumbered} {#id}``) → der erste landet als Klartext.
+_TRAILING_ATTR = re.compile(r"\s*(\{[^}]*\})\s*$")
+_HAS_EXPLICIT_ID = re.compile(r"(^|\s)#[A-Za-z][\w:-]*")
 
 
 def slugify_ascii_id(text: str) -> str:
@@ -73,12 +76,49 @@ def unique_ascii_id(text: str, *, used_ids: set[str]) -> str:
     return slug
 
 
+def split_heading_title_and_attrs(title: str) -> tuple[str, str]:
+    """Trenne sichtbaren Titel und Pandoc-Attribute (alle trailing ``{…}``).
+
+    Mehrere Bloecke werden zu einem Attribut-Innenstring zusammengefuehrt
+    (Reihenfolge von links nach rechts), damit spaeter genau EIN ``{…}``
+    geschrieben werden kann.
+    """
+    rest = str(title or "").rstrip()
+    chunks: list[str] = []
+    while True:
+        match = _TRAILING_ATTR.search(rest)
+        if not match:
+            break
+        inner = match.group(1)[1:-1].strip()
+        if inner:
+            chunks.append(inner)
+        rest = rest[: match.start()].rstrip()
+    chunks.reverse()
+    return rest, " ".join(chunks).strip()
+
+
+def merge_heading_attrs(*, existing_inner: str, ascii_id: str) -> str:
+    """Baue einen Attribut-Innenstring mit ``#id`` und bestehenden Klassen."""
+    existing = (existing_inner or "").strip()
+    if _HAS_EXPLICIT_ID.search(existing):
+        return existing
+    if not existing:
+        return f"#{ascii_id}"
+    return f"#{ascii_id} {existing}"
+
+
 def ensure_ascii_heading_ids(body: str, *, used_ids: set[str]) -> str:
     """Haengt an jede Level 2–6 Markdown-Ueberschrift ohne eigene ``{#id}``
     eine eindeutige ASCII-ID an (Level 1 laeuft separat ueber
     ``chapter_title_render.build_visible_chapter_title_injection`` — dort
     wird das Kapitel-Label direkt in den injizierten Typst-Block
     geschrieben statt in Markdown-Syntax).
+
+    Vorhandene Attribute (z. B. ``{.unnumbered}`` vom Book Aggregator) werden
+    in denselben ``{…}``-Block gemerged — Pandoc akzeptiert nur den letzten
+    Brace-Block; ein angehaengtes ``{#id}`` hinter ``{.unnumbered}`` wuerde
+    sonst die Klasse als Klartext im PDF belassen und Nummerierung nicht
+    unterdruecken.
 
     Ueberschriften innerhalb von Codefences werden uebersprungen (SSOT
     ``quarto_block_parser.iter_body_lines_outside_code_fences``), damit
@@ -93,10 +133,18 @@ def ensure_ascii_heading_ids(body: str, *, used_ids: set[str]) -> str:
             out_lines.append(line)
             continue
         match = _ATX_HEADING.match(line)
-        if not match or _EXPLICIT_ID.search(line):
+        if not match:
             out_lines.append(line)
             continue
-        slug = unique_ascii_id(match.group(2), used_ids=used_ids)
-        out_lines.append(f"{line} {{#{slug}}}")
+        hashes, raw_title = match.group(1), match.group(2)
+        plain_title, existing_inner = split_heading_title_and_attrs(raw_title)
+        if _HAS_EXPLICIT_ID.search(existing_inner):
+            out_lines.append(line)
+            continue
+        slug = unique_ascii_id(plain_title, used_ids=used_ids)
+        merged_inner = merge_heading_attrs(
+            existing_inner=existing_inner, ascii_id=slug
+        )
+        out_lines.append(f"{hashes} {plain_title} {{{merged_inner}}}")
     trailing = "\n" if body.endswith("\n") else ""
     return "\n".join(out_lines) + trailing

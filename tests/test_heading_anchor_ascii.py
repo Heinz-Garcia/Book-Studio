@@ -36,8 +36,33 @@ def test_ensure_ascii_heading_ids_appends_explicit_id():
     assert "{#wie-finde-ich-ein-brustzentrum-in-meiner-naehe}" in out
 
 
+def test_ensure_ascii_heading_ids_merges_unnumbered_class():
+    """Regression: ``{.unnumbered} {#id}`` → Klartext im PDF; ein Block nötig."""
+    from heading_anchor_ascii import split_heading_title_and_attrs
+
+    plain, attrs = split_heading_title_and_attrs(
+        "Vor dem Ruhm: Stan Laurel {.unnumbered}"
+    )
+    assert plain == "Vor dem Ruhm: Stan Laurel"
+    assert attrs == ".unnumbered"
+
+    body = "## Vor dem Ruhm: Stan Laurel {.unnumbered}\n\nText.\n"
+    out = ensure_ascii_heading_ids(body, used_ids=set())
+    assert "{.unnumbered}" not in out or "{#" in out
+    # Exactly one brace group, containing both id and class
+    assert out.count("{#") == 1
+    assert "{#vor-dem-ruhm-stan-laurel .unnumbered}" in out
+    assert "{.unnumbered} {#" not in out
+
+
 def test_ensure_ascii_heading_ids_skips_existing_explicit_id():
     body = "## Frage {#custom-id}\n\nText.\n"
+    out = ensure_ascii_heading_ids(body, used_ids=set())
+    assert out == body
+
+
+def test_ensure_ascii_heading_ids_skips_unnumbered_with_existing_id():
+    body = "## Frage {#custom-id .unnumbered}\n\nText.\n"
     out = ensure_ascii_heading_ids(body, used_ids=set())
     assert out == body
 

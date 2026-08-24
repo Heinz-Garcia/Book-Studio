@@ -79,3 +79,40 @@ def test_refresh_from_disk_keep_structure(tmp_path: Path) -> None:
     session.refresh_from_disk_keep_structure()
     assert session.book_nodes[0]["title"] == "Handgebaut"
     assert any(p == "content/Widmung.md" for p, _t in session.avail)
+
+
+def test_session_load_wipes_unsaved_structure_empty_yml(tmp_path: Path) -> None:
+    """Regression: volles load() nach Import mit chapters:[] zerstört GUI-Baum.
+
+    Render-Prep rief früher refresh_ui_titles → session.load() und speicherte
+    danach den leeren Baum — leeres PDF trotz Kapitel rechts in der GUI.
+    """
+    book = _make_book(tmp_path, "Band_EmptyChapters", with_struct=False)
+    # Nur index — wie nach altem Import ohne Payload in chapters
+    (book / "_quarto.yml").write_text(
+        "project:\n  type: book\nbook:\n  chapters:\n    - index.md\n",
+        encoding="utf-8",
+    )
+    payload = "Prosa_Demo.md"
+    (book / payload).write_text("---\ntitle: Demo\n---\nText\n", encoding="utf-8")
+    session = StructureSession(book)
+    session.load()
+    session.book_nodes = [
+        {"path": "index.md", "title": "Index", "children": []},
+        {"path": payload, "title": "Demo", "children": []},
+    ]
+    session.dirty = True
+    # Was refresh_ui_titles früher tat:
+    session.load()
+    paths = [n.get("path") for n in session.book_nodes]
+    assert payload not in paths
+
+    # Korrektes Verhalten (wie refresh_ui_titles jetzt):
+    session.book_nodes = [
+        {"path": "index.md", "title": "Index", "children": []},
+        {"path": payload, "title": "Demo", "children": []},
+    ]
+    session.dirty = True
+    session.refresh_from_disk_keep_structure()
+    paths = [n.get("path") for n in session.book_nodes]
+    assert payload in paths

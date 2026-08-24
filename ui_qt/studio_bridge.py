@@ -239,10 +239,18 @@ class QtStudioBridge:
         return discover_books()
 
     def refresh_ui_titles(self) -> None:
+        """Titel/Pool von Disk neu lesen — rechte Buchstruktur behalten.
+
+        Früher: ``session.load()`` baute den Baum aus ``_quarto.yml`` neu.
+        Wenn die YAML noch ``chapters: []`` hatte (Import) und der Nutzer die
+        Payload-MD nur in der GUI-Struktur hatte, wischte Render-Prep
+        (``export_manager._prepare_book_for_render`` → hierher) die rechte
+        Seite leer → Save → leeres PDF. Gleiches Muster wie ``load_book``.
+        """
         session = self._window._session
         if session is None:
             return
-        session.load()
+        session.refresh_from_disk_keep_structure()
         self._window.structure.reload_from_session()
         self._sync_from_window()
 

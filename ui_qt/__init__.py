@@ -10,8 +10,8 @@ from ui_qt.toolkit import is_tk_requested, resolve_ui_toolkit, wants_qt_ui
 __all__ = ["is_tk_requested", "resolve_ui_toolkit", "run_qt_app", "wants_qt_ui"]
 
 
-def run_qt_app(*, import_path=None) -> int:
+def run_qt_app(*, import_path=None, activate_book=None) -> int:
     """Lazy-Import: PySide6 wird erst beim Qt-Start geladen."""
     from ui_qt.app import run_qt_app as _run
 
-    return _run(import_path=import_path)
+    return _run(import_path=import_path, activate_book=activate_book)

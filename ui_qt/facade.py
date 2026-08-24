@@ -22,9 +22,13 @@ class StudioFacade:
         self,
         *,
         import_path: Optional[Path] = None,
+        activate_book: Optional[Path] = None,
         log_hook: Optional[LogHook] = None,
     ) -> None:
+        # Roh-Lieferung (inbox/…) für Provenance-Hooks
         self.import_path = Path(import_path) if import_path else None
+        # Arbeitsbuch unter books/ — wenn gesetzt, hat Vorrang vor import_path
+        self.activate_book = Path(activate_book) if activate_book else None
         self.current_book: Optional[Path] = None
         self._log_hook = log_hook
 

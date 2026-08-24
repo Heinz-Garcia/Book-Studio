@@ -13,7 +13,11 @@ from ui_qt.shell import MainWindow
 from ui_qt.theme import apply_theme
 
 
-def run_qt_app(*, import_path: Optional[Union[Path, str]] = None) -> int:
+def run_qt_app(
+    *,
+    import_path: Optional[Union[Path, str]] = None,
+    activate_book: Optional[Union[Path, str]] = None,
+) -> int:
     """Startet die Qt-Shell und blockiert bis zum Beenden (``QApplication.exec``)."""
     app = QApplication.instance()
     if app is None:
@@ -21,7 +25,8 @@ def run_qt_app(*, import_path: Optional[Union[Path, str]] = None) -> int:
 
     apply_theme(app)
     path = Path(import_path) if import_path else None
-    facade = StudioFacade(import_path=path)
+    book = Path(activate_book) if activate_book else None
+    facade = StudioFacade(import_path=path, activate_book=book)
     window = MainWindow(facade)
 
     from ui_qt.dialogs.messagebox_shim import install_export_manager_ui, uninstall_export_manager_ui

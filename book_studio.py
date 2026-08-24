@@ -10,13 +10,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from import_helpers import generate_quarto_yml_for_import
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Quarto Book Studio")
     parser.add_argument("command", nargs="?", choices=["import"], help="Befehl (import)")
-    parser.add_argument("path", nargs="?", help="Pfad zum Publish-Verzeichnis")
+    parser.add_argument("path", nargs="?", help="Pfad zum Publish-/Inbox-Verzeichnis")
     parser.add_argument("--index-title", type=str, default="", help="Titel fuer index.md")
     parser.add_argument("--index-author", type=str, default="", help="Autor fuer index.md")
     parser.add_argument(
@@ -44,18 +42,30 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     import_path: Path | None = None
+    activate_book: Path | None = None
     if args.command == "import" and args.path:
         candidate = Path(args.path).resolve()
         if candidate.is_dir():
-            if generate_quarto_yml_for_import(
-                candidate,
-                index_title=args.index_title,
-                index_author=args.index_author,
-                index_description=args.index_description,
-            ):
-                import_path = candidate
+            from tools.book_projects.import_delivery import (
+                materialize_delivery_as_working_book,
+            )
 
-    return int(run_qt_app(import_path=import_path))
+            try:
+                # Inbox-/Publish-Lieferung → production/books/<Projekt>/
+                # (nicht den Lauf-Zeitstempel als Buch öffnen)
+                activate_book = materialize_delivery_as_working_book(
+                    candidate,
+                    index_title=args.index_title,
+                    index_author=args.index_author,
+                    index_description=args.index_description,
+                )
+                import_path = candidate
+                print(f"[Import] Arbeitsbuch: {activate_book}", flush=True)
+            except (OSError, ValueError, TypeError) as exc:
+                print(f"[Import] Fehler: {exc}", file=sys.stderr)
+                return 1
+
+    return int(run_qt_app(import_path=import_path, activate_book=activate_book))
 
 
 if __name__ == "__main__":

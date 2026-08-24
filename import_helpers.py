@@ -241,6 +241,45 @@ def extract_all_inline_svgs(publish_dir: Path) -> int:
     return total
 
 
+def _resolve_import_content_chapters(publish_dir: Path) -> list[str]:
+    """GrammarGraph-Payload-Kapitel für ``book.chapters`` (ohne Skeleton/index).
+
+    Priorität:
+    1. ``publish_meta.json`` → ``book_files`` (existierende ``.md``)
+    2. Fallback: ``*.md`` in der Lieferungs-Wurzel außer ``index.md`` /
+       ``Erstellungsprotokoll.md``
+
+    Skeleton-Dateien unter ``content/`` bleiben bewusst unzugeordnet.
+    """
+    skip_names = {"index.md", "erstellungsprotokoll.md"}
+    from_meta: list[str] = []
+    meta_path = publish_dir / "publish_meta.json"
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            meta = {}
+        raw = meta.get("book_files") if isinstance(meta, dict) else None
+        if isinstance(raw, list):
+            for item in raw:
+                rel = str(item or "").replace("\\", "/").strip()
+                if not rel or not rel.lower().endswith(".md"):
+                    continue
+                if Path(rel).name.lower() in skip_names:
+                    continue
+                if (publish_dir / rel).is_file():
+                    from_meta.append(rel)
+    if from_meta:
+        return list(dict.fromkeys(from_meta))
+
+    found: list[str] = []
+    for path in sorted(publish_dir.glob("*.md")):
+        if path.name.lower() in skip_names or path.name.startswith("_"):
+            continue
+        found.append(path.name)
+    return found
+
+
 def generate_quarto_yml_for_import(
     publish_dir: Path,
     *,
@@ -248,16 +287,16 @@ def generate_quarto_yml_for_import(
     index_author: str = "",
     index_description: str = "",
 ) -> Optional[Path]:
-    """Erzeuge eine minimale ``_quarto.yml`` im Publish-Verzeichnis, falls
-    noch keine existiert.  Liest Metadaten aus ``_book_studio.toml`` /
-    ``publish_meta.json`` (Titel-SSOT, siehe ``resolve_import_book_title``).
+    """Erzeuge/überschreibe ``_quarto.yml`` + ``index.md`` für einen Import.
 
-    Die ``chapters``-Liste bleibt **leer**, damit saemtliche .md-Dateien
-    zunaechst im linken Fenster ("nicht zugeordnete Kapitel") erscheinen.
+    GrammarGraph-Payload-MDs (``publish_meta.book_files`` bzw. Root-``.md``)
+    landen direkt in ``book.chapters`` (nach ``index.md``), damit ein Render
+    ohne manuelles Ziehen nicht nur die stille index.md erzeugt.
+
+    Skeleton-Dateien (Einleitung, IVZ, … unter ``content/``) bleiben
+    unzugeordnet — sie müssen weiterhin bewusst übernommen werden.
     """
     quarto_yml = publish_dir / "_quarto.yml"
-    # Immer ueberschreiben – die chapters-Liste muss LEER sein, damit alle
-    # .md-Dateien im linken Fenster ("nicht zugeordnete Kapitel") landen.
 
     # Autor / Beschreibung / Sprache / Keywords / ISBN aus _book_studio.toml
     # (Export-Meta-Tab); CLI-Overrides gewinnen nur wenn gesetzt.
@@ -325,6 +364,15 @@ def generate_quarto_yml_for_import(
     if author and author.casefold() == title.casefold() and ("_" in author or "rev." in author.casefold()):
         author = ""
 
+    content_chapters = _resolve_import_content_chapters(publish_dir)
+    if content_chapters:
+        chapter_lines = "\n".join(
+            f"  - {rel}" for rel in (["index.md", *content_chapters])
+        )
+        chapters_block = f"  chapters:\n{chapter_lines}\n"
+    else:
+        chapters_block = "  chapters: []\n"
+
     # Keine .md-Dateien in chapters eintragen → alle landen in list_avail
     kw_yaml = ""
     if keywords:
@@ -340,7 +388,7 @@ def generate_quarto_yml_for_import(
         f"  title: {_yaml_double_quoted(title)}\n"
         f"  author: {_yaml_double_quoted(author)}\n"
         f"  date: last-modified\n"
-        f"  chapters: []\n"
+        f"{chapters_block}"
         f"lang: {_yaml_double_quoted(lang)}\n"
         f"format:\n"
         f"  typst:\n"
@@ -372,12 +420,25 @@ def generate_quarto_yml_for_import(
     # inline HTML nicht nach PDF konvertieren)
     extract_all_inline_svgs(publish_dir)
 
-    # GUI-State aus vorherigen Importen entfernen, sonst uebersteuert
-    # parse_chapters() die leere chapters-Liste in der _quarto.yml
+    # GUI-State: Payload-Kapitel in die rechte Struktur schreiben (nicht leer
+    # lassen — sonst Render nur index.md → leere PDF-Seite). Alte Reste weg.
     gui_state_file = publish_dir / GUI_STATE_DIR / GUI_STATE_FILENAME
-    if gui_state_file.is_file():
+    if content_chapters:
+        gui_state_file.parent.mkdir(parents=True, exist_ok=True)
+        tree = [
+            {
+                "path": rel,
+                "title": Path(rel).stem.replace("_", " "),
+                "children": [],
+            }
+            for rel in content_chapters
+        ]
+        gui_state_file.write_text(
+            json.dumps(tree, indent=4, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    elif gui_state_file.is_file():
         gui_state_file.unlink()
-        # Leeres bookconfig-Verzeichnis aufraeumen
         parent = gui_state_file.parent
         if parent.is_dir() and not any(parent.iterdir()):
             parent.rmdir()

@@ -132,8 +132,13 @@ class CommandHost:
         self.w._refresh_book_list()
 
     def refresh_ui_titles(self) -> None:
+        """Titel/Pool aktualisieren ohne die rechte Buchstruktur zu verwerfen.
+
+        Volles ``session.load()`` würde unsaved/GUI-Struktur mit Disk-YAML
+        überschreiben (leeres ``chapters:`` nach Import → leerer Baum).
+        """
         if self.w._session:
-            self.w._session.load()
+            self.w._session.refresh_from_disk_keep_structure()
             self.w.structure.reload_from_session()
             self.w._facade.log("Anzeige aktualisiert.", "info")
 

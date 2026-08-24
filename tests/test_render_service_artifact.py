@@ -147,6 +147,39 @@ def test_pick_latest_artifact_picks_most_recently_modified(tmp_path):
     assert result == newer
 
 
+def test_pick_latest_artifact_prefers_newest_pdf_not_alpha_stale(tmp_path):
+    """Regression Laurel/Hardy: alphabetisch erste PDF war die leere alte Stem-Kopie."""
+    import os
+
+    stale = tmp_path / "Prosa_Laurel_and_Hardy.pdf"
+    fresh = tmp_path / "Stan-Laurel-und-Oliver-Hardy.pdf"
+    stale.write_bytes(b"empty")
+    fresh.write_bytes(b"full-book-content-here")
+    now = os.path.getmtime(fresh)
+    os.utime(stale, (now - 200, now - 200))
+    # .typ darf PDF nicht schlagen (Primaersuffix)
+    (tmp_path / "aaa_index.typ").write_text("// typst", encoding="utf-8")
+    os.utime(tmp_path / "aaa_index.typ", (now + 50, now + 50))
+
+    result = RenderService.pick_latest_artifact(tmp_path, "typst")
+    assert result == fresh
+
+
+def test_export_manager_pick_rendered_uses_mtime_not_alpha(tmp_path):
+    import os
+
+    from export_manager import ExportManager
+
+    stale = tmp_path / "AAA_old.pdf"
+    fresh = tmp_path / "ZZZ_new.pdf"
+    stale.write_bytes(b"old")
+    fresh.write_bytes(b"new")
+    now = os.path.getmtime(fresh)
+    os.utime(stale, (now - 100, now - 100))
+
+    assert ExportManager._pick_rendered_artifact(tmp_path, "typst") == fresh
+
+
 # --- pick_latest_source_archive -----------------------------------------
 
 
