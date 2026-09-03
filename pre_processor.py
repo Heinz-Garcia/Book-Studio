@@ -1,5 +1,6 @@
 import re
 import shutil
+import json
 from pathlib import Path
 import yaml
 
@@ -14,6 +15,34 @@ from heading_anchor_ascii import ensure_ascii_heading_ids
 # unverändert weitergereicht — Quarto kümmert sich um die Auflösung.
 # Die frühere `_namespace_local_footnotes` / `_inject_footnote_backlinks`
 # / `_uses_harvester` / `FootnoteHarvester`-Logik existiert nicht mehr.
+
+
+def _load_unnumbered_heading_levels(book_path: Path) -> frozenset[int]:
+    """Read ``dialog_state.unnumbered_heading_levels`` from publish_meta.json."""
+    meta_path = Path(book_path) / "publish_meta.json"
+    if not meta_path.is_file():
+        return frozenset()
+    try:
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return frozenset()
+    if not isinstance(data, dict):
+        return frozenset()
+    dialog_state = data.get("dialog_state")
+    raw: object = []
+    if isinstance(dialog_state, dict):
+        raw = dialog_state.get("unnumbered_heading_levels", [])
+    if not isinstance(raw, list):
+        return frozenset()
+    levels: set[int] = set()
+    for item in raw:
+        try:
+            level = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= level <= 6:
+            levels.add(level)
+    return frozenset(levels)
 
 
 class PreProcessor:
@@ -32,6 +61,14 @@ class PreProcessor:
         # heading_anchor_ascii.py). Quartos crossref macht IDs buchglobal
         # sichtbar (nicht nur pro Datei), daher EIN Set fuer den ganzen Lauf.
         self._used_heading_ids: set = set()
+        self._unnumbered_heading_levels = _load_unnumbered_heading_levels(self.book_path)
+
+    def _ensure_heading_ids(self, body: str) -> str:
+        return ensure_ascii_heading_ids(
+            body,
+            used_ids=self._used_heading_ids,
+            unnumbered_levels=self._unnumbered_heading_levels,
+        )
 
     def _extract_parts(self, content):
         """Trennt Frontmatter extrem robust vom Text ab, selbst bei Windows-BOMs."""
@@ -265,7 +302,7 @@ class PreProcessor:
 
         # 2b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround Typst-PDF-
         # Named-Destination-Bug bei Umlauten, siehe heading_anchor_ascii.py)
-        body = ensure_ascii_heading_ids(body, used_ids=self._used_heading_ids)
+        body = self._ensure_heading_ids(body)
 
         # 3. Sichtbare Kapitelüberschrift nur bei Opt-in (Typst)
         body = maybe_inject_chapter_title(
@@ -310,7 +347,7 @@ class PreProcessor:
 
         # 2b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround Typst-PDF-
         # Named-Destination-Bug bei Umlauten, siehe heading_anchor_ascii.py)
-        body = ensure_ascii_heading_ids(body, used_ids=self._used_heading_ids)
+        body = self._ensure_heading_ids(body)
 
         # 3. Sichtbare Kapitelüberschrift nur bei Opt-in (Typst)
         body = maybe_inject_chapter_title(
@@ -365,7 +402,7 @@ class PreProcessor:
                 # Typst-PDF-Named-Destination-Bug bei Umlauten, siehe
                 # heading_anchor_ascii.py) — hier landen die eigentlichen
                 # Fragen-Ueberschriften der amalgamierten Kapitel.
-                body = ensure_ascii_heading_ids(body, used_ids=self._used_heading_ids)
+                body = self._ensure_heading_ids(body)
 
                 # B4: Footnote-Harvesting-Block entfernt (war 2).
                 # Überschriften-Shift entfernt: Quellen sind bereits eingerückt.

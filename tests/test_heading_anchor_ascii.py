@@ -36,6 +36,14 @@ def test_ensure_ascii_heading_ids_appends_explicit_id():
     assert "{#wie-finde-ich-ein-brustzentrum-in-meiner-naehe}" in out
 
 
+def test_ensure_ascii_heading_ids_applies_unnumbered_levels_from_metadata():
+    body = "### Welche Angaben sind zwingend zu machen?\n\nText.\n"
+    out = ensure_ascii_heading_ids(body, used_ids=set(), unnumbered_levels={3})
+    assert "{.unnumbered}" not in out
+    assert ".unnumbered" in out
+    assert "{#" in out
+
+
 def test_ensure_ascii_heading_ids_merges_unnumbered_class():
     """Regression: ``{.unnumbered} {#id}`` → Klartext im PDF; ein Block nötig."""
     from heading_anchor_ascii import split_heading_title_and_attrs

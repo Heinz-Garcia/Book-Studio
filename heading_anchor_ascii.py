@@ -107,18 +107,22 @@ def merge_heading_attrs(*, existing_inner: str, ascii_id: str) -> str:
     return f"#{ascii_id} {existing}"
 
 
-def ensure_ascii_heading_ids(body: str, *, used_ids: set[str]) -> str:
+def ensure_ascii_heading_ids(
+    body: str,
+    *,
+    used_ids: set[str],
+    unnumbered_levels: set[int] | frozenset[int] | None = None,
+) -> str:
     """Haengt an jede Level 2–6 Markdown-Ueberschrift ohne eigene ``{#id}``
     eine eindeutige ASCII-ID an (Level 1 laeuft separat ueber
     ``chapter_title_render.build_visible_chapter_title_injection`` — dort
     wird das Kapitel-Label direkt in den injizierten Typst-Block
     geschrieben statt in Markdown-Syntax).
 
-    Vorhandene Attribute (z. B. ``{.unnumbered}`` vom Book Aggregator) werden
-    in denselben ``{…}``-Block gemerged — Pandoc akzeptiert nur den letzten
-    Brace-Block; ein angehaengtes ``{#id}`` hinter ``{.unnumbered}`` wuerde
-    sonst die Klasse als Klartext im PDF belassen und Nummerierung nicht
-    unterdruecken.
+    Vorhandene Attribute (legacy ``{.unnumbered}`` vom Book Aggregator) werden
+    in denselben ``{…}``-Block gemerged. Neuere Exporte liefern stattdessen
+    ``unnumbered_heading_levels`` in ``publish_meta.json``; fehlende Klassen
+    werden hier anhand der Heading-Ebene ergänzt.
 
     Ueberschriften innerhalb von Codefences werden uebersprungen (SSOT
     ``quarto_block_parser.iter_body_lines_outside_code_fences``), damit
@@ -137,7 +141,15 @@ def ensure_ascii_heading_ids(body: str, *, used_ids: set[str]) -> str:
             out_lines.append(line)
             continue
         hashes, raw_title = match.group(1), match.group(2)
+        level = len(hashes)
         plain_title, existing_inner = split_heading_title_and_attrs(raw_title)
+        if unnumbered_levels and level in unnumbered_levels:
+            if not re.search(r"(^|\s)\.unnumbered(\s|$)", existing_inner):
+                existing_inner = (
+                    f"{existing_inner} .unnumbered".strip()
+                    if existing_inner
+                    else ".unnumbered"
+                )
         if _HAS_EXPLICIT_ID.search(existing_inner):
             out_lines.append(line)
             continue
