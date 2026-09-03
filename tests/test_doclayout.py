@@ -415,3 +415,104 @@ def test_with_style_returns_a_copy(ifjn: LayoutDefinition):
 
 def test_namespace_constant_matches_ooxml():
     assert W_NS.endswith("wordprocessingml/2006/main")
+
+
+# ---------------------------------------------------------------------------
+# Bruecke zu tools/layout_profiles -- die Masse duerfen nicht auseinanderlaufen
+# ---------------------------------------------------------------------------
+
+
+def _profile_ids() -> list[str]:
+    from tools.layout_profiles.catalog import LAYOUT_PROFILES
+
+    return [p.id for p in LAYOUT_PROFILES]
+
+
+def test_every_layout_profile_yields_a_page(ifjn: LayoutDefinition):
+    from tools.doclayout.profiles import page_from_profile
+
+    for profile_id in _profile_ids():
+        page = page_from_profile(profile_id)
+        assert page.width_mm > 0 and page.height_mm > 0
+        assert page.text_width_mm > 0, f"{profile_id}: keine Textbreite uebrig"
+
+
+@pytest.mark.parametrize("profile_id", _profile_ids())
+def test_page_geometry_matches_the_profile(ifjn: LayoutDefinition, profile_id: str):
+    """Profil -> Definition -> Typst-Metadaten muss wieder beim Profil landen.
+
+    Das ist die eigentliche Zusage der Bruecke: Word-Fassung und PDF duerfen
+    nicht unterschiedlich gross werden.
+    """
+    from tools.doclayout.profiles import definition_from_profile, typst_format_options
+    from tools.layout_profiles.catalog import get_profile
+
+    expected = get_profile(profile_id).format_options()
+    actual = typst_format_options(definition_from_profile(ifjn, profile_id))
+
+    assert actual["fontsize"] == expected["fontsize"]
+    assert actual["linestretch"] == pytest.approx(expected["linestretch"])
+    assert _geometry_mm(actual) == pytest.approx(_geometry_mm(expected), abs=0.05)
+
+
+def _geometry_mm(options: dict) -> tuple[float, float]:
+    from tools.doclayout.profiles import PAPER_SIZES_MM
+    from tools.layout_profiles.units import parse_length_mm
+
+    width = parse_length_mm(str(options.get("typst-page-width") or ""))
+    height = parse_length_mm(str(options.get("typst-page-height") or ""))
+    if width and height:
+        return width, height
+    return PAPER_SIZES_MM[str(options.get("papersize", "a4")).lower()]
+
+
+def test_bleed_profile_is_larger_than_its_unbled_twin(ifjn: LayoutDefinition):
+    """Regression: die Rohfelder des Profils enthalten den Bleed NICHT.
+
+    ``page_from_profile`` muss ueber ``format_options()`` lesen, sonst waere
+    eine Vorlage fuer ``paperback-bleed`` 3,2 mm zu schmal -- ein Fehler, der
+    erst auf gedrucktem Papier auffaellt.
+    """
+    from tools.doclayout.profiles import page_from_profile
+
+    plain = page_from_profile("paperback")
+    bled = page_from_profile("paperback-bleed")
+    assert bled.width_mm > plain.width_mm
+    assert bled.height_mm > plain.height_mm
+
+
+def test_profile_without_margins_uses_the_page_typ_fallback():
+    """``standard`` setzt kein page-margin; page.typ nimmt dann 1.25in."""
+    from tools.doclayout.profiles import PAGE_TYP_DEFAULT_MARGIN_MM, page_from_profile
+
+    page = page_from_profile("standard")
+    assert page.margin.top_mm == pytest.approx(PAGE_TYP_DEFAULT_MARGIN_MM)
+    assert page.margin.inner_mm == pytest.approx(PAGE_TYP_DEFAULT_MARGIN_MM)
+
+
+def test_mirrored_margins_are_detected_for_bound_books(ifjn: LayoutDefinition):
+    from tools.doclayout.profiles import page_from_profile, typst_format_options
+    from dataclasses import replace
+
+    page = page_from_profile("paperback")
+    assert page.mirrored, "Bundsteg-Profil muss gespiegelt sein"
+    options = typst_format_options(replace(ifjn, page=page))
+    assert set(options["page-margin"]) == {"inside", "outside", "top", "bottom"}
+
+
+def test_unmirrored_margins_use_left_right(ifjn: LayoutDefinition):
+    options = typst_format_options_for(ifjn)
+    assert set(options["page-margin"]) == {"left", "right", "top", "bottom"}
+
+
+def typst_format_options_for(definition: LayoutDefinition) -> dict:
+    from tools.doclayout.profiles import typst_format_options
+
+    return typst_format_options(definition)
+
+
+def test_unknown_profile_names_alternatives():
+    from tools.doclayout.profiles import page_from_profile
+
+    with pytest.raises(LayoutError, match="unbekannt"):
+        page_from_profile("gibt_es_nicht")
