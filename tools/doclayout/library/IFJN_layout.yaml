@@ -1,0 +1,242 @@
+name: IFJN_layout
+label: IFJN Reiseführer
+description: >-
+  Layout der IFJN-Bände: Prompt-Frage im Kasten mit Akzentbalken, Themenblock
+  auf neuer Seite, dreistufiges Inhaltsverzeichnis. Übernommen aus der
+  Layout-Reparatur layout_fix.py, dort in Twips und Halbpunkten notiert.
+
+page:
+  width_mm: 210.0
+  height_mm: 297.0
+  mirrored: false
+  margin:
+    top_mm: 20.0
+    bottom_mm: 20.0
+    inner_mm: 25.0
+    outer_mm: 20.0
+  header_distance_mm: 12.5
+  footer_distance_mm: 12.5
+  footer:
+    page_number: true
+    align: center
+
+typography:
+  body_font: Calibri
+  heading_font: ''
+  mono_font: Consolas
+  base_size_pt: 11.0
+  line_height: 1.15
+  language: de-DE
+  hyphenation: true
+  hyphenation_zone_mm: 5.0
+  hyphenate_caps: false
+
+# Alle Farben an einer Stelle. Formate verweisen über den Token-Namen.
+colors:
+  accent: '1F3864'        # Dunkelblau — Titel, Überschriften, Fragetext
+  accent2: '2E5C8A'       # Mittelblau — Akzentbalken, H3/H4
+  fill: 'EEF3F9'          # Hellblau — Füllung des Fragenkastens
+  rule: '9DB2CE'          # Graublau — Trenner, feine Rahmen
+  table_header: 'F2F4F7'  # Hellgrau — Tabellenkopf
+  table_border: 'BFBFBF'
+  table_border_light: 'DCDCDC'
+  muted: '595959'
+  footer: '7F7F7F'
+
+# Typoskala: 9 / 9,5 / 10 / 11 / 12 / 13 / 14 / 17 / 20 / 26 pt
+styles:
+
+  # -- Titelblock ---------------------------------------------------------
+  Title:
+    size_pt: 26.0
+    color: accent
+    space_before_pt: 0.0
+    space_after_pt: 6.0
+    line_height: 1.0
+  Subtitle:
+    size_pt: 13.0
+    space_before_pt: 0.0
+    space_after_pt: 4.0
+  Author:
+    size_pt: 11.0
+    space_before_pt: 0.0
+    space_after_pt: 2.0
+  Date:
+    size_pt: 10.0
+    space_before_pt: 0.0
+    space_after_pt: 24.0
+
+  # -- Überschriften ------------------------------------------------------
+  Heading1:
+    size_pt: 17.0
+    color: accent
+    space_before_pt: 20.0
+    space_after_pt: 7.0
+    keep_next: true
+    keep_lines: true
+  Heading2:
+    size_pt: 14.0
+    color: accent
+    space_before_pt: 14.0
+    space_after_pt: 5.0
+    keep_next: true
+    keep_lines: true
+  Heading3:
+    size_pt: 12.0
+    color: accent2
+    space_before_pt: 11.0
+    space_after_pt: 4.0
+    keep_next: true
+    keep_lines: true
+  Heading4:
+    size_pt: 11.0
+    bold: true
+    color: accent2
+    space_before_pt: 9.0
+    space_after_pt: 3.0
+    keep_next: true
+    keep_lines: true
+  Heading5:
+    size_pt: 11.0
+    space_before_pt: 8.0
+    space_after_pt: 2.0
+    keep_next: true
+    keep_lines: true
+  Heading6:
+    size_pt: 11.0
+    space_before_pt: 8.0
+    space_after_pt: 2.0
+    keep_next: true
+    keep_lines: true
+
+  # -- Fließtext ----------------------------------------------------------
+  BodyText:
+    space_before_pt: 0.0
+    space_after_pt: 7.0
+  FirstParagraph:
+    based_on: BodyText
+    space_before_pt: 0.0
+    space_after_pt: 7.0
+  Compact:
+    space_before_pt: 0.0
+    space_after_pt: 3.0
+  BlockText:
+    space_before_pt: 6.0
+    space_after_pt: 6.0
+    indent:
+      left_mm: 8.0
+      right_mm: 5.0
+    borders:
+      left: {width_pt: 1.5, color: rule, space_pt: 4.0}
+  FootnoteText:
+    size_pt: 9.0
+    space_before_pt: 0.0
+    space_after_pt: 2.0
+  Caption:
+    size_pt: 9.5
+    space_before_pt: 3.0
+    space_after_pt: 8.0
+
+  # -- Die semantischen Formate: hierher zeigt die classmap ---------------
+  Prompt-Frage:
+    name: Prompt-Frage
+    based_on: BodyText
+    next: BodyText
+    size_pt: 13.0
+    bold: true
+    color: accent
+    shading: fill
+    space_before_pt: 3.0
+    space_after_pt: 12.0
+    line_height: 1.1
+    keep_next: true
+    keep_lines: true
+    outline_level: 1
+    indent:
+      left_mm: 9.0
+      right_mm: 2.0
+      hanging_mm: 7.0
+    borders:
+      top: {width_pt: 0.25, color: rule, space_pt: 3.0}
+      left: {width_pt: 2.25, color: accent2, space_pt: 4.0}
+      bottom: {width_pt: 0.25, color: rule, space_pt: 3.0}
+      right: {width_pt: 0.25, color: rule, space_pt: 3.0}
+
+  Fachtext:
+    name: Fachtext
+    based_on: BodyText
+    next: Fachtext
+    space_before_pt: 0.0
+    space_after_pt: 7.0
+
+  Prompt-Trenner:
+    name: Prompt-Trenner
+    next: Prompt-Frage
+    align: center
+    color: rule
+    size_pt: 14.0
+    letter_spacing_pt: 3.0
+    space_before_pt: 20.0
+    space_after_pt: 6.0
+    line_height: 1.0
+    keep_next: true
+
+  Themenblock:
+    name: Themenblock
+    based_on: Heading2
+    next: BodyText
+    size_pt: 20.0
+    bold: true
+    color: accent
+    space_before_pt: 0.0
+    space_after_pt: 16.0
+    keep_next: true
+    keep_lines: true
+    page_break_before: true
+    outline_level: 0
+    borders:
+      bottom: {width_pt: 1.5, color: accent2, space_pt: 3.0}
+
+  # -- Inhaltsverzeichnis -------------------------------------------------
+  TOC1:
+    size_pt: 12.0
+    bold: true
+    color: accent
+    space_before_pt: 14.0
+    space_after_pt: 3.0
+  TOC2:
+    size_pt: 11.0
+    space_before_pt: 3.0
+    space_after_pt: 0.0
+    indent:
+      left_mm: 13.0
+      hanging_mm: 7.0
+  TOC3:
+    size_pt: 10.0
+    italic: true
+    color: muted
+    space_before_pt: 0.0
+    space_after_pt: 0.0
+    indent:
+      left_mm: 18.0
+  TOCHeading:
+    based_on: Heading1
+    size_pt: 17.0
+    space_before_pt: 0.0
+    space_after_pt: 10.0
+    keep_next: true
+
+  Footer:
+    size_pt: 9.0
+    color: footer
+    space_before_pt: 0.0
+    space_after_pt: 0.0
+    line_height: 1.0
+
+# Markdown-Klasse -> Absatzformat. Das ist die Brücke zwischen dem, was
+# GrammarGraph auszeichnet, und dem, was hier gestaltet wird.
+classmap:
+  prompt: Prompt-Frage
+  fachtext: Fachtext
+  prompt-separator: Prompt-Trenner
+  themenblock: Themenblock
