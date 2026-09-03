@@ -5,6 +5,7 @@
     build  IFJN_layout -o DIR reference.docx und classmap.lua erzeugen
     apply  IFJN_layout -b BUCH  dasselbe ins Buchprojekt + _quarto.yml
     snippet IFJN_layout       die _quarto.yml-Eintraege ausgeben
+    import  ALT.docx -n NAME  bestehende Word-Datei als Layout uebernehmen
 
 ``print`` ist hier zulaessig (CLI-Werkzeug unter ``tools/``, siehe AGENTS.md).
 """
@@ -22,7 +23,13 @@ from tools.doclayout.apply import (
     quarto_snippet,
 )
 from tools.doclayout.classmap import write_lua_filter
-from tools.doclayout.library import LIBRARY_DIR, available_layouts, load_layout
+from tools.doclayout.importer import import_docx
+from tools.doclayout.library import (
+    LIBRARY_DIR,
+    available_layouts,
+    layout_path,
+    load_layout,
+)
 from tools.doclayout.schema import LayoutDefinition, LayoutError
 from tools.doclayout.targets.docx import build_reference_docx, find_pandoc
 
@@ -136,6 +143,36 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if pandoc and not broken else 1
 
 
+def cmd_import(args: argparse.Namespace) -> int:
+    definition = import_docx(
+        args.docx, name=args.name, keep_all_styles=args.keep_all
+    )
+    target = Path(args.out) if args.out else layout_path(definition.name, args.library)
+    if target.exists() and not args.force:
+        print(
+            f"FEHLER: {target} existiert bereits -- --force zum Ueberschreiben.",
+            file=sys.stderr,
+        )
+        return 2
+    definition.save(target)
+    print(f"Layout : {target}")
+    print(f"Formate: {len(definition.styles)}")
+    print(f"Farben : {', '.join(sorted(definition.colors)) or 'keine'}")
+    print(
+        f"Seite  : {definition.page.width_mm:g} x {definition.page.height_mm:g} mm"
+    )
+    problems = definition.validate()
+    if problems:
+        print("\nHinweise:")
+        for problem in problems:
+            print(f"  - {problem}")
+    print(
+        "\nDie classmap ist noch leer -- welche Markdown-Klasse auf welches "
+        "Format zeigt, weiss nur die Quelle. Im Editor ergaenzen."
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m tools.doclayout",
@@ -174,6 +211,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp_snippet = sub.add_parser("snippet", help="_quarto.yml-Eintraege ausgeben")
     add_layout_arg(sp_snippet)
     sp_snippet.set_defaults(func=cmd_snippet)
+
+    sp_import = sub.add_parser(
+        "import", help="bestehende .docx als Layout-Definition uebernehmen"
+    )
+    sp_import.add_argument("docx", help="Quelldatei (.docx)")
+    sp_import.add_argument("-n", "--name", help="Name des Layouts (Standard: Dateiname)")
+    sp_import.add_argument("-o", "--out", help="Zieldatei (Standard: Bibliothek)")
+    sp_import.add_argument("--keep-all", action="store_true",
+                           help="auch Formate ohne eigene Gestaltung uebernehmen")
+    sp_import.add_argument("--force", action="store_true", help="vorhandenes Layout ersetzen")
+    sp_import.set_defaults(func=cmd_import)
 
     sp_doctor = sub.add_parser("doctor", help="Voraussetzungen pruefen")
     sp_doctor.set_defaults(func=cmd_doctor)

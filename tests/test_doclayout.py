@@ -516,3 +516,175 @@ def test_unknown_profile_names_alternatives():
 
     with pytest.raises(LayoutError, match="unbekannt"):
         page_from_profile("gibt_es_nicht")
+
+
+# ---------------------------------------------------------------------------
+# Import: bestehende .docx -> Definition
+# ---------------------------------------------------------------------------
+
+
+@pandoc_required
+def test_import_reads_back_every_generated_style(ifjn: LayoutDefinition, tmp_path: Path):
+    from tools.doclayout.importer import import_docx
+
+    built = build_reference_docx(ifjn, tmp_path / "reference.docx")
+    imported = import_docx(built, name="zurueck")
+
+    missing = sorted(set(ifjn.styles) - set(imported.styles))
+    assert not missing, f"nicht zurueckgelesen: {missing}"
+
+
+@pandoc_required
+def test_import_preserves_style_values(ifjn: LayoutDefinition, tmp_path: Path):
+    from tools.doclayout.importer import import_docx
+
+    built = build_reference_docx(ifjn, tmp_path / "reference.docx")
+    back = import_docx(built, name="zurueck").styles["Prompt-Frage"]
+    original = ifjn.styles["Prompt-Frage"]
+
+    assert back.size_pt == original.size_pt
+    assert back.bold == original.bold
+    assert back.space_after_pt == original.space_after_pt
+    assert back.line_height == original.line_height
+    assert back.outline_level == original.outline_level
+    assert back.keep_next == original.keep_next
+    assert set(back.borders) == set(original.borders)
+    assert back.indent.left_mm == pytest.approx(original.indent.left_mm, abs=0.05)
+    assert back.indent.hanging_mm == pytest.approx(original.indent.hanging_mm, abs=0.05)
+
+
+@pandoc_required
+def test_import_preserves_page_and_typography(ifjn: LayoutDefinition, tmp_path: Path):
+    from tools.doclayout.importer import import_docx
+
+    built = build_reference_docx(ifjn, tmp_path / "reference.docx")
+    back = import_docx(built, name="zurueck")
+
+    assert back.page.width_mm == pytest.approx(ifjn.page.width_mm, abs=0.05)
+    assert back.page.margin.inner_mm == pytest.approx(ifjn.page.margin.inner_mm, abs=0.05)
+    assert back.typography.base_size_pt == pytest.approx(ifjn.typography.base_size_pt)
+    assert back.typography.line_height == pytest.approx(ifjn.typography.line_height)
+    assert back.typography.language == ifjn.typography.language
+
+
+@pandoc_required
+def test_import_build_import_is_stable(ifjn: LayoutDefinition, tmp_path: Path):
+    """Zweimal durch die Muehle muss dasselbe ergeben.
+
+    Ohne diese Eigenschaft wanderten Werte bei jedem Bearbeiten im Editor ein
+    Stueck -- Rundungsfehler, die sich aufaddieren.
+    """
+    from tools.doclayout.importer import import_docx
+
+    build_reference_docx(ifjn, tmp_path / "a.docx")
+    first = import_docx(tmp_path / "a.docx", name="rt")
+    build_reference_docx(first, tmp_path / "b.docx")
+    second = import_docx(tmp_path / "b.docx", name="rt")
+
+    for key in ("page", "typography", "colors", "styles"):
+        assert first.to_dict()[key] == second.to_dict()[key], f"{key} driftet"
+
+
+@pandoc_required
+def test_import_names_colours_by_role(ifjn: LayoutDefinition, tmp_path: Path):
+    """Ein Token soll etwas bedeuten -- 'accent' ist die Ueberschriftenfarbe."""
+    from tools.doclayout.importer import import_docx
+
+    built = build_reference_docx(ifjn, tmp_path / "reference.docx")
+    back = import_docx(built, name="zurueck")
+
+    assert back.colors.get("accent") == ifjn.colors["accent"]
+    assert back.colors.get("accent2") == ifjn.colors["accent2"]
+    assert back.colors.get("rule") == ifjn.colors["rule"]
+
+
+@pandoc_required
+def test_import_skips_styles_that_carry_no_formatting(ifjn: LayoutDefinition, tmp_path: Path):
+    """Die Pandoc-Basis bringt ~50 Formate mit, die meisten nur Namen."""
+    from tools.doclayout.importer import import_docx
+
+    built = build_reference_docx(ifjn, tmp_path / "reference.docx")
+    lean = import_docx(built, name="schlank")
+    fat = import_docx(built, name="voll", keep_all_styles=True)
+    assert len(lean.styles) < len(fat.styles)
+
+
+@pandoc_required
+def test_imported_definition_can_be_built_again(ifjn: LayoutDefinition, tmp_path: Path):
+    """Der Import muss etwas Erzeugbares liefern, nicht nur etwas Lesbares."""
+    from tools.doclayout.importer import import_docx
+
+    built = build_reference_docx(ifjn, tmp_path / "reference.docx")
+    back = import_docx(built, name="zurueck")
+    assert back.validate() == []
+    again = build_reference_docx(back, tmp_path / "wieder.docx")
+    assert again.is_file()
+
+
+def test_import_rejects_a_non_docx(tmp_path: Path):
+    from tools.doclayout.importer import DocxImportError, import_docx
+
+    bogus = tmp_path / "kein.docx"
+    bogus.write_text("das ist kein zip", encoding="utf-8")
+    with pytest.raises(DocxImportError, match="kein lesbares DOCX"):
+        import_docx(bogus)
+
+
+def test_import_rejects_a_zip_without_styles(tmp_path: Path):
+    from tools.doclayout.importer import DocxImportError, import_docx
+
+    bogus = tmp_path / "leer.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("hallo.txt", "nichts")
+    with pytest.raises(DocxImportError, match="keine word/styles.xml"):
+        import_docx(bogus)
+
+
+def test_import_rejects_a_missing_file(tmp_path: Path):
+    from tools.doclayout.importer import DocxImportError, import_docx
+
+    with pytest.raises(DocxImportError, match="nicht gefunden"):
+        import_docx(tmp_path / "gibt_es_nicht.docx")
+
+
+@pandoc_required
+def test_import_reproduces_every_style_value_exactly(ifjn: LayoutDefinition, tmp_path: Path):
+    """Erzeugen und Zurueckimportieren darf keinen einzigen Wert veraendern.
+
+    Millimeter werden dabei auf 0,1 mm gerundet: Twips loesen 0,0176 mm auf,
+    feiner zu runden erzeugt nur Artefakte (210 mm kaeme als 210,01 zurueck).
+    """
+    from tools.doclayout.importer import import_docx
+
+    built = build_reference_docx(ifjn, tmp_path / "reference.docx")
+    back = import_docx(built, name=ifjn.name)
+
+    fields = (
+        "size_pt", "bold", "italic", "align", "space_before_pt", "space_after_pt",
+        "line_height", "keep_next", "keep_lines", "page_break_before", "outline_level",
+    )
+    differences = []
+    for style_id, original in ifjn.styles.items():
+        imported = back.styles[style_id]
+        for field_name in fields:
+            if getattr(original, field_name) != getattr(imported, field_name):
+                differences.append(
+                    f"{style_id}.{field_name}: "
+                    f"{getattr(original, field_name)} -> {getattr(imported, field_name)}"
+                )
+        if original.indent != imported.indent:
+            differences.append(f"{style_id}.indent: {original.indent} -> {imported.indent}")
+
+    assert not differences, "Werte veraendert:\n  " + "\n  ".join(differences)
+
+
+@pandoc_required
+def test_import_keeps_page_size_free_of_rounding_artefacts(
+    ifjn: LayoutDefinition, tmp_path: Path
+):
+    from tools.doclayout.importer import import_docx
+
+    built = build_reference_docx(ifjn, tmp_path / "reference.docx")
+    page = import_docx(built, name="zurueck").page
+    assert page.width_mm == ifjn.page.width_mm
+    assert page.height_mm == ifjn.page.height_mm
