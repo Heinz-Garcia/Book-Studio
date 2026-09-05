@@ -68,6 +68,27 @@ def _default_pdf_stem(
     return ""
 
 
+#: Was in der Auswahl steht, wenn keine Formatvorlage gewuenscht ist. Dann
+#: rendert Quarto wie bisher -- mit dem, was in der ``_quarto.yml`` steht.
+DOCLAYOUT_NONE = "— keine (wie im Buch eingetragen)"
+
+
+def _doclayout_choices() -> list[str]:
+    """Die Formatvorlagen der Bibliothek, alphabetisch, mit Leereintrag zuerst.
+
+    Faellt die Bibliothek aus (fehlendes Paket, kaputte Datei), bleibt die
+    Auswahl auf dem Leereintrag stehen statt den Dialog mitzureissen: Der
+    Export ist wichtiger als diese eine Zeile.
+    """
+    try:
+        from tools.doclayout.library import available_layouts
+
+        namen = sorted(p.stem for p in available_layouts())
+    except Exception:  # noqa: BLE001 - der Dialog muss trotzdem aufgehen
+        namen = []
+    return [DOCLAYOUT_NONE, *namen]
+
+
 class ExportDialog(QDialog):
     def __init__(
         self,
@@ -123,7 +144,22 @@ class ExportDialog(QDialog):
         self.profile_combo = QComboBox()
         self.profile_combo.addItems(profile_labels())
         self.profile_combo.setCurrentText(initial_profile.label)
-        form.addRow("Layout-Profil:", self.profile_combo)
+        self.profile_row_label = QLabel("Layout-Profil:")
+        form.addRow(self.profile_row_label, self.profile_combo)
+
+        # Die Word-Entsprechung zum Layout-Profil. Sie steht hier und nicht im
+        # Layout-Editor, weil sie zur Entscheidung "wie soll dieser Render
+        # aussehen" gehoert, nicht zur Entwurfsarbeit an der Vorlage selbst.
+        # Vorher entschied darueber, was zuletzt jemand mit »Auf Buchprojekt
+        # anwenden« in die ``_quarto.yml`` geschrieben hatte -- ein unsichtbarer
+        # Zustand im Buch, den man nur durch Nachsehen erfuhr.
+        self.doclayout_combo = QComboBox()
+        self.doclayout_combo.addItems(_doclayout_choices())
+        gewaehlt = str(initial.get("doclayout") or "") if initial else ""
+        if gewaehlt and gewaehlt in _doclayout_choices():
+            self.doclayout_combo.setCurrentText(gewaehlt)
+        self.doclayout_row_label = QLabel("Formatvorlage:")
+        form.addRow(self.doclayout_row_label, self.doclayout_combo)
 
         self.linestretch_combo = QComboBox()
         self.linestretch_combo.addItems([opt.label for opt in LINE_STRETCH_OPTIONS])
@@ -243,6 +279,7 @@ class ExportDialog(QDialog):
         self.notes_edit.textChanged.connect(self._on_notes_changed)
         self.pdf_stem_edit.textChanged.connect(self._on_stem_changed)
         self.format_combo.currentTextChanged.connect(self._refresh_path_preview)
+        self.format_combo.currentTextChanged.connect(self._sync_format_rows)
         self.channel_combo.currentTextChanged.connect(self._on_channel_changed)
         self._on_channel_changed()
 
@@ -268,6 +305,27 @@ class ExportDialog(QDialog):
                     "falls es nicht ins KDP-Interior soll."
                 )
         self._refresh_path_preview()
+
+    def _selected_doclayout(self) -> str:
+        """Der Name der gewaehlten Formatvorlage -- oder "" fuer "wie im Buch"."""
+        if self.format_combo.currentText().lower() != "docx":
+            return ""
+        gewaehlt = self.doclayout_combo.currentText()
+        return "" if gewaehlt == DOCLAYOUT_NONE else gewaehlt
+
+    def _sync_format_rows(self) -> None:
+        """Zeigt je Format nur, was dort auch wirkt.
+
+        Ein Layout-Profil bestimmt die Typst-Seite, eine Formatvorlage die
+        Word-Fassung. Beide gleichzeitig anzubieten hiesse, eine Wahl zu
+        erfragen, die im gewaehlten Format nichts tut -- und genau daraus
+        entsteht die Erwartung, sie taete doch etwas.
+        """
+        ist_docx = self.format_combo.currentText().lower() == "docx"
+        for widget in (self.doclayout_row_label, self.doclayout_combo):
+            widget.setVisible(ist_docx)
+        for widget in (self.profile_row_label, self.profile_combo):
+            widget.setVisible(not ist_docx)
 
     def _artifact_suffix(self) -> str:
         fmt = (self.format_combo.currentText() or "typst").lower()
@@ -350,6 +408,7 @@ class ExportDialog(QDialog):
             "format": self.format_combo.currentText(),
             "template": self.template_combo.currentText(),
             "layout_profile": profile_id_from_label(self.profile_combo.currentText()),
+            "doclayout": self._selected_doclayout(),
             "linestretch": self._selected_linestretch(),
             "notes": self.notes_edit.text().strip(),
             "pdf_stem": stem,

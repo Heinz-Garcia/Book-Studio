@@ -346,24 +346,9 @@ class CommandHost:
         ).exec()
 
     def open_help_manual(self) -> None:
-        import app_config as _app_config
-        from tools.handbook_html import resolve_handbook_html_path
-        from tools.handbook_pdf import resolve_handbook_path
-        from ui_qt.dialogs.help_dialog import HelpDialog
+        from ui_qt.dialogs.help_dialog import open_manual
 
-        base = repo_root()
-        try:
-            cfg = _app_config.read_config(base / "app_config.json")
-            html_path = resolve_handbook_html_path(base, cfg)
-            md_path = None
-            try:
-                md_path = resolve_handbook_path(base, cfg)
-            except (ValueError, FileNotFoundError, OSError):
-                md_path = None
-        except (ValueError, FileNotFoundError, OSError, TypeError) as exc:
-            QMessageBox.warning(self.w, "Hilfe", str(exc))
-            return
-        HelpDialog(self.w, html_path, md_path=md_path).exec()
+        open_manual(self.w)
 
     def edit_help_manual_source(self) -> None:
         import app_config as _app_config

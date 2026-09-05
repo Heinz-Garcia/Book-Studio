@@ -206,6 +206,29 @@ def save_session(
     _session_state_service.write_session_state(path, payload)
 
 
+def update_ui_state(
+    updates: dict[str, Any], *, root: Optional[Path] = None
+) -> None:
+    """Aktualisiert ausschliesslich ``ui_state`` und laesst alles andere stehen.
+
+    ``save_session`` verlangt das aktive Buch und setzt es auf ``None``, wenn
+    man es nicht mitgibt -- ein Dialog, der nur seine Fenstergroesse ablegen
+    will, wuerde damit die Buchauswahl loeschen. Diese Funktion ruehrt an
+    nichts ausser dem uebergebenen Ausschnitt.
+    """
+    if not updates:
+        return
+    base = root or repo_root()
+    path = session_path(base)
+    existing = load_session(base)
+    raw_ui = existing.get("ui_state")
+    ui_state = dict(raw_ui) if isinstance(raw_ui, dict) else {}
+    ui_state.update(updates)
+    payload = dict(existing)
+    payload["ui_state"] = ui_state
+    _session_state_service.write_session_state(path, payload)
+
+
 def list_recent_books(
     *,
     current_book: Optional[Path] = None,
@@ -268,6 +291,7 @@ __all__ = [
     "MAX_RECENT_BOOKS",
     "book_key",
     "geometry_string",
+    "update_ui_state",
     "is_ephemeral_book_path",
     "list_recent_books",
     "load_session",

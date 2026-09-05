@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from ui_qt.pitugrafo_look import PITU_CORE_STYLESHEET
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QWidget
 
 # App-spezifische Ergänzungen (ObjectNames / Hauptfenster-Struktur).
 # Kernfarben/Checkboxen/Buttons kommen aus PITU_CORE_STYLESHEET.
@@ -188,3 +188,36 @@ def apply_theme(app: "QApplication") -> None:
     """Fusion + El-Pitugrafo-Kern + App-Extras — gilt für Hauptfenster und alle Dialoge."""
     app.setStyle("Fusion")
     app.setStyleSheet(PITU_CORE_STYLESHEET + "\n" + _APP_EXTRAS)
+
+
+def is_dark(widget: "QWidget | None" = None) -> bool:
+    """Ob der gerade wirksame Look dunkel ist.
+
+    Wer eigene Farben setzt (eine Warnfarbe, eine Hervorhebung in einer Liste),
+    muss wissen, worauf sie liegen. Die naheliegende Antwort -- die QPalette
+    befragen -- ist falsch: das Thema dieser App ist ein **Stylesheet**, und
+    ein Stylesheet laesst die Palette unberuehrt. Ein Dialog bekaeme dort die
+    Auskunft des Betriebssystems und faerbte im Zweifel hell auf hell.
+
+    Deshalb entscheidet diese Stelle, nicht der Aufrufer:
+
+    * Liegt das App-Stylesheet an, gilt dessen Look. Der El-Pitugrafo-Look ist
+      hell; kommt spaeter ein dunkler dazu, wird das hier vermerkt und wirkt
+      ueberall zugleich.
+    * Ohne App-Stylesheet -- ein Dialog, der einzeln gestartet wurde -- bleibt
+      nur die Palette, und dann ist sie auch die richtige Quelle.
+    """
+    from PySide6.QtGui import QPalette
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is not None and app.styleSheet().strip():
+        return False
+
+    source = widget if widget is not None else app
+    palette = source.palette() if source is not None else QPalette()
+    colour = palette.color(QPalette.ColorRole.Window)
+    # Wahrgenommene Helligkeit (ITU-R BT.601); ein reiner Mittelwert laege bei
+    # Blau- und Gruentoenen deutlich daneben.
+    luminance = 0.299 * colour.red() + 0.587 * colour.green() + 0.114 * colour.blue()
+    return luminance < 128

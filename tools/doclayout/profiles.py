@@ -16,8 +16,23 @@ Deshalb zwei Richtungen:
 ``typst_format_options``
     Umgekehrt: die Definition liefert die ``format.typst``-Metadaten in genau
     der Form, die ``page.typ`` liest (``typst-page-width``, ``page-margin``,
-    ``papersize``). Damit kann die Definition die Typst-Seite treiben, ohne
-    dass an den Typst-Partials etwas geaendert wird.
+    ``papersize``).
+
+    **Noch nicht verdrahtet.** Beim Rendern aus Book Studio wird immer ein
+    Layout-Profil angewandt (``export_manager``, Vorgabe ``taschenbuch-bod``),
+    und ``yaml_engine.save_chapters`` schreibt dessen Optionen ueber die der
+    ``_quarto.yml``. Von den fuenf Schluesseln hier ueberlebte nur ``lang``.
+    Diese Metadaten in die ``_quarto.yml`` zu schreiben waere deshalb tot --
+    wirksam nur bei einem ``quarto render`` von Hand ausserhalb der App. Die
+    Funktion bleibt, weil sie die Uebersetzung korrekt beschreibt und beim
+    spaeteren Verdrahten gebraucht wird; wer sie heute aufruft, sollte wissen,
+    dass ihr Ergebnis den Druck nicht erreicht.
+
+``compare_with_profile``
+    Die Antwort auf dasselbe Problem, solange die Verdrahtung fehlt: Sie sagt,
+    **wo** Definition und Druckprofil auseinanderlaufen. Eine Abweichung ist
+    kein Fehler -- die Word-Fassung darf anders aussehen als der Druck --, aber
+    sie soll sichtbar sein, statt erst auf Papier aufzufallen.
 
 Was hier bewusst **nicht** passiert: die Partials selbst erzeugen.
 ``typst-show.typ`` ist eine Pandoc-Template mit empirisch erarbeiteter Logik
@@ -29,6 +44,7 @@ nachzuentwickeln, und waere die Gefaehrdung des Print-Pfads, die
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from tools.doclayout.schema import LayoutDefinition, LayoutError, Page, PageMargin, Typography
@@ -171,6 +187,116 @@ def typst_format_options(definition: LayoutDefinition) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Abgleich mit dem Druckprofil
+# ---------------------------------------------------------------------------
+
+#: Ab wann zwei Laengen als verschieden gelten. Die Profile rechnen ueber
+#: ``parse_length_mm`` und runden dabei; 0,05 mm liegt weit unter jeder
+#: Drucktoleranz und verhindert, dass Rundungsreste als Abweichung erscheinen.
+_MM_TOLERANZ = 0.05
+
+#: Dasselbe fuer Punktwerte und das Verhaeltnis Zeilenhoehe.
+_PT_TOLERANZ = 0.01
+_FAKTOR_TOLERANZ = 0.005
+
+
+@dataclass(frozen=True)
+class GeometryDifference:
+    """Ein Wert, in dem Definition und Druckprofil nicht uebereinstimmen."""
+
+    #: Wie das Feld im Editor heisst ("Breite", "Innen (Bund)" ...).
+    label: str
+    #: Was die Definition sagt, fertig formatiert ("148 mm").
+    definition: str
+    #: Was das Profil sagt.
+    profile: str
+
+
+@dataclass(frozen=True)
+class GeometryComparison:
+    """Definition und Druckprofil nebeneinander."""
+
+    profile_id: str
+    profile_label: str
+    differences: tuple[GeometryDifference, ...] = ()
+
+    @property
+    def matches(self) -> bool:
+        """Wahr, wenn die Word-Vorlage die Druckgeometrie trifft."""
+        return not self.differences
+
+    def summary(self) -> str:
+        """Ein Satz fuer Statuszeile oder CLI."""
+        if self.matches:
+            return f"Deckt sich mit dem Druckprofil «{self.profile_label}»."
+        felder = ", ".join(d.label for d in self.differences)
+        return (
+            f"Weicht vom Druckprofil «{self.profile_label}» ab: {felder}."
+        )
+
+
+def compare_with_profile(
+    definition: LayoutDefinition, profile_id: str
+) -> GeometryComparison:
+    """Haelt die Geometrie einer Definition gegen ein Druckprofil.
+
+    Verglichen wird genau das, was :func:`definition_from_profile` setzen
+    wuerde -- Seitenmasse, Raender, Grundschriftgrad, Zeilenhoehe. So bedeutet
+    "keine Abweichung" dasselbe wie "Uebernehmen aendert nichts", und der
+    Knopf daneben tut, was die Meldung ankuendigt.
+
+    Eine Abweichung ist **kein Fehler**: Eine Word-Fassung fuer das Lektorat
+    darf grosszuegiger gesetzt sein als der Druck. Sie soll nur nicht
+    unbemerkt bleiben -- genau das war der Fall, den dieses Modul in seiner
+    Einleitung als Grund fuer seine Existenz nennt.
+    """
+    profil_seite = page_from_profile(profile_id)
+    profil_typo = typography_from_profile(profile_id, definition.typography)
+    profil = _require_profile(profile_id)
+
+    eigene = definition.page
+    eigene_typo = definition.typography
+
+    unterschiede: list[GeometryDifference] = []
+
+    def laenge(label: str, mein: float, seins: float) -> None:
+        if abs(mein - seins) > _MM_TOLERANZ:
+            unterschiede.append(
+                GeometryDifference(label, f"{mein:g} mm", f"{seins:g} mm")
+            )
+
+    laenge("Breite", eigene.width_mm, profil_seite.width_mm)
+    laenge("Höhe", eigene.height_mm, profil_seite.height_mm)
+    laenge("Rand oben", eigene.margin.top_mm, profil_seite.margin.top_mm)
+    laenge("Rand unten", eigene.margin.bottom_mm, profil_seite.margin.bottom_mm)
+    laenge("Innen (Bund)", eigene.margin.inner_mm, profil_seite.margin.inner_mm)
+    laenge("Außen", eigene.margin.outer_mm, profil_seite.margin.outer_mm)
+
+    if abs(eigene_typo.base_size_pt - profil_typo.base_size_pt) > _PT_TOLERANZ:
+        unterschiede.append(
+            GeometryDifference(
+                "Grundgröße",
+                f"{eigene_typo.base_size_pt:g} pt",
+                f"{profil_typo.base_size_pt:g} pt",
+            )
+        )
+    if abs(eigene_typo.line_height - profil_typo.line_height) > _FAKTOR_TOLERANZ:
+        unterschiede.append(
+            GeometryDifference(
+                "Zeilenhöhe",
+                f"{eigene_typo.line_height:g}",
+                f"{profil_typo.line_height:g}",
+            )
+        )
+
+    return GeometryComparison(
+        profile_id=profile_id,
+        profile_label=str(getattr(profil, "label", profile_id)),
+        differences=tuple(unterschiede),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Intern
 # ---------------------------------------------------------------------------
 
@@ -238,6 +364,9 @@ def _matching_paper_preset(width_mm: float, height_mm: float) -> Optional[str]:
 __all__ = [
     "PAGE_TYP_DEFAULT_MARGIN_MM",
     "PAPER_SIZES_MM",
+    "GeometryComparison",
+    "GeometryDifference",
+    "compare_with_profile",
     "definition_from_profile",
     "list_profiles",
     "page_from_profile",

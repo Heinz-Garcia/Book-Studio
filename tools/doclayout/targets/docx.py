@@ -24,8 +24,9 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
+from tools.doclayout.process import run_hidden
 from tools.doclayout.ooxml import (
     apply_section_properties,
     build_footer_xml,
@@ -34,6 +35,12 @@ from tools.doclayout.ooxml import (
     qn,
     register_namespaces,
 )
+
+# Die Kindreihenfolgen und das schemakonforme Einhaengen sind die eine Sache,
+# die dieses Modul mit ``ooxml`` teilt, ohne sie erneut zu beschreiben: beide
+# Haelften erzeugen dieselbe Datei, und zwei Fassungen derselben Reihenfolge
+# waeren die sichere Art, sie auseinanderlaufen zu lassen.
+from tools.doclayout.ooxml import _PPR_ORDER, _RPR_ORDER, _STYLE_ORDER, _ordered_append
 from tools.doclayout.schema import LayoutDefinition, LayoutError
 from tools.doclayout.units import mm_to_twips
 
@@ -41,8 +48,12 @@ _STYLES_PART = "word/styles.xml"
 _SETTINGS_PART = "word/settings.xml"
 _DOCUMENT_PART = "word/document.xml"
 _FOOTER_PART = "word/footer1.xml"
+_THEME_PART = "word/theme/theme1.xml"
 _DOC_RELS_PART = "word/_rels/document.xml.rels"
 _CONTENT_TYPES_PART = "[Content_Types].xml"
+
+#: DrawingML -- dort steht das Schriftpaar des Themas.
+_A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 _FOOTER_REL_ID = "rIdDocLayoutFooter"
 _FOOTER_CONTENT_TYPE = (
@@ -92,8 +103,18 @@ class DocxTargetError(LayoutError):
 
 
 def find_pandoc(explicit: Optional[str] = None) -> Optional[str]:
-    """Sucht Pandoc -- eigenstaendig oder das von Quarto mitgelieferte."""
-    candidates: list[Optional[str]] = [explicit, shutil.which("pandoc")]
+    """Sucht Pandoc -- eigenstaendig oder das von Quarto mitgelieferte.
+
+    Ein ausdruecklich genannter Pfad gilt allein: existiert er nicht, wird
+    ``None`` gemeldet, statt ersatzweise ein anderes Pandoc zu nehmen. Sonst
+    liefe ein Vertipper in ``--pandoc`` auf eine fremde Version hinaus, deren
+    Ausgabe sich unterscheidet -- ein Fehler, der sich spaeter kaum noch auf
+    seine Ursache zurueckfuehren laesst.
+    """
+    if explicit:
+        return explicit if Path(explicit).is_file() else None
+
+    candidates: list[Optional[str]] = [shutil.which("pandoc")]
     for quarto in (shutil.which("quarto"), r"C:\Program Files\Quarto\bin\quarto.exe"):
         if quarto:
             root = Path(quarto).resolve().parent
@@ -119,7 +140,7 @@ def fetch_base_reference(target: Path, *, pandoc: Optional[str] = None) -> Path:
         )
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        result = subprocess.run(
+        result = run_hidden(
             [executable, "--print-default-data-file", "reference.docx"],
             capture_output=True,
             check=True,
@@ -186,6 +207,9 @@ def build_reference_docx(
 
         parts[_STYLES_PART] = _patch_styles(definition, parts[_STYLES_PART])
         parts[_SETTINGS_PART] = _patch_settings(definition, parts[_SETTINGS_PART])
+        theme = _patch_theme(definition, parts.get(_THEME_PART))
+        if theme is not None:
+            parts[_THEME_PART] = theme
         parts[_FOOTER_PART] = build_footer_xml(definition).encode("utf-8")
         parts[_DOC_RELS_PART] = _patch_relationships(parts.get(_DOC_RELS_PART))
         parts[_CONTENT_TYPES_PART] = _patch_content_types(parts.get(_CONTENT_TYPES_PART))
@@ -222,11 +246,54 @@ def _patch_styles(definition: LayoutDefinition, blob: bytes) -> bytes:
         existing[style_id] = element
 
     _patch_doc_defaults(definition, root)
+    _patch_table_style(definition, root)
     return _serialize(root)
 
 
+def _patch_table_style(definition: LayoutDefinition, root: ET.Element) -> None:
+    """Schriftgrad fuer Tabellenzellen -- in der Tabellen-Formatvorlage.
+
+    Warum nicht ueber ein Absatzformat: Pandoc legt Tabellenzellen **und**
+    enggesetzte Aufzaehlungen in dasselbe ``Compact``. Wer dort den Grad senkt,
+    schrumpft jede Liste des Buches mit. Die Tabellen-Formatvorlage ``Table``
+    trifft dagegen nur, was in einer Tabelle steht.
+
+    Dass es ueberhaupt wirkt, liegt an der Rangfolge in OOXML: Tabellenformate
+    stehen ueber den Grundeinstellungen, aber unter den Absatzformaten. Solange
+    ``Compact`` keinen eigenen Grad nennt -- und das tut es nicht, es erbt ihn
+    von ``docDefaults`` --, gewinnt hier das Tabellenformat. Nachgemessen an
+    einer fuenfspaltigen Klinikliste: aus drei Seiten wurde eine, und die
+    Telefonnummern stehen wieder in einer Zeile.
+    """
+    size = definition.typography.table_size_pt
+    if size is None:
+        return
+    for style in root.findall(qn("style")):
+        if style.get(qn("styleId")) != "Table":
+            continue
+        rpr = style.find(qn("rPr"))
+        if rpr is None:
+            rpr = ET.Element(qn("rPr"))
+            _ordered_append(style, rpr, _STYLE_ORDER)
+        half_points = str(int(round(size * 2)))
+        _replace_child(rpr, "sz", {"val": half_points}, _RPR_ORDER)
+        _replace_child(rpr, "szCs", {"val": half_points}, _RPR_ORDER)
+        return
+
+
 def _patch_doc_defaults(definition: LayoutDefinition, root: ET.Element) -> None:
-    """Grundschrift und Grundzeilenabstand fuer alles, was nichts eigenes sagt."""
+    """Grundschrift und Grundzeilenabstand fuer alles, was nichts eigenes sagt.
+
+    Die Grundschrift gehoert genau hierher und nicht in jedes einzelne Format:
+    Word vererbt sie an alles, was nichts anderes sagt, und ein spaeterer
+    Wechsel bleibt damit eine Aenderung an einer Stelle.
+
+    ``w:rFonts`` wird dabei **ersetzt**, nicht ergaenzt. Pandocs Basisvorlage
+    traegt dort Themenverweise (``w:asciiTheme="minorHAnsi"``); stuenden sie
+    neben einem ausdruecklichen ``w:ascii``, entschiede das Textprogramm,
+    welcher der beiden gilt -- und die eingetragene Schrift waere ein Vorschlag
+    statt einer Ansage.
+    """
     typography = definition.typography
     defaults = root.find(qn("docDefaults"))
     if defaults is None:
@@ -237,9 +304,24 @@ def _patch_doc_defaults(definition: LayoutDefinition, root: ET.Element) -> None:
         rpr = rpr_default.find(qn("rPr"))
         if rpr is None:
             rpr = ET.SubElement(rpr_default, qn("rPr"))
-        _replace_child(rpr, "sz", {"val": str(int(round(typography.base_size_pt * 2)))})
-        _replace_child(rpr, "szCs", {"val": str(int(round(typography.base_size_pt * 2)))})
-        _replace_child(rpr, "lang", {"val": typography.language})
+        body_font = typography.body_font.strip()
+        if body_font:
+            _replace_child(
+                rpr, "rFonts",
+                {"ascii": body_font, "hAnsi": body_font, "cs": body_font},
+                _RPR_ORDER,
+            )
+        _replace_child(
+            rpr, "sz",
+            {"val": str(int(round(typography.base_size_pt * 2)))},
+            _RPR_ORDER,
+        )
+        _replace_child(
+            rpr, "szCs",
+            {"val": str(int(round(typography.base_size_pt * 2)))},
+            _RPR_ORDER,
+        )
+        _replace_child(rpr, "lang", {"val": typography.language}, _RPR_ORDER)
 
     ppr_default = defaults.find(qn("pPrDefault"))
     if ppr_default is not None:
@@ -253,17 +335,80 @@ def _patch_doc_defaults(definition: LayoutDefinition, root: ET.Element) -> None:
                 "line": str(int(round(typography.line_height * 240))),
                 "lineRule": "auto",
             },
+            _PPR_ORDER,
         )
 
 
-def _replace_child(parent: ET.Element, tag: str, attrs: dict[str, str]) -> ET.Element:
+def _replace_child(
+    parent: ET.Element,
+    tag: str,
+    attrs: dict[str, str],
+    order: Iterable[str] = (),
+) -> ET.Element:
+    """Ersetzt ein gleichnamiges Kind -- an der vom Schema verlangten Stelle.
+
+    Ohne *order* wird angehaengt (das war das bisherige Verhalten). Sobald
+    mehrere Geschwister ersetzt werden, genuegt das nicht mehr: Jedes Anhaengen
+    schiebt das zuletzt geschriebene ans Ende, und ``w:rFonts`` hinter
+    ``w:lang`` ist laut CT_RPr ungueltig -- Word oeffnet die Datei dann ohne
+    Formate.
+    """
     for child in list(parent):
         if local_name(child.tag) == tag:
             parent.remove(child)
-    element = ET.SubElement(parent, qn(tag))
+    element = ET.Element(qn(tag))
     for key, value in attrs.items():
         element.set(qn(key), value)
+    _ordered_append(parent, element, order)
     return element
+
+
+def _patch_theme(definition: LayoutDefinition, blob: Optional[bytes]) -> Optional[bytes]:
+    """Setzt das Schriftpaar des Themas auf die Typografie der Definition.
+
+    Ohne diesen Schritt bleibt die Schriftwahl auf halbem Weg stehen. Pandocs
+    Basisvorlage benennt in ihren Formaten naemlich keine Schrift, sondern
+    verweist auf das Thema: ``w:asciiTheme="majorHAnsi"`` bei allem, was
+    Ueberschrift ist, ``minorHAnsi`` beim Rest. Ein solcher Verweis schlaegt
+    die Dokumentvorgaben. Wer nur ``docDefaults`` setzt, aendert deshalb den
+    Fliesstext und sieht die ``Heading1..9`` weiter in der Themenschrift --
+    ausgerechnet die Formate, die am meisten auffallen.
+
+    Also wird das Thema selbst gefuellt: ``minorFont`` bekommt die Grundschrift,
+    ``majorFont`` die der Ueberschriften (und ohne eigene Angabe ebenfalls die
+    Grundschrift -- "leer = wie Grundschrift" gilt auch hier). Ein Format, das
+    seine Schrift ausdruecklich nennt, bleibt davon unberuehrt; das Thema ist
+    die Vorgabe, nicht die Ansage.
+
+    ``panose`` wird entfernt: Die Kennung beschreibt den Bau der **alten**
+    Schrift. Bliebe sie stehen, suchte ein Textprogramm ohne die neue Schrift
+    einen Ersatz nach den Merkmalen der falschen.
+    """
+    if blob is None:
+        return None
+    typography = definition.typography
+    body = typography.body_font.strip()
+    heading = typography.heading_font.strip() or body
+    if not body:
+        return blob
+
+    ET.register_namespace("a", _A_NS)
+    root = ET.fromstring(blob)
+    scheme = root.find(f".//{{{_A_NS}}}fontScheme")
+    if scheme is None:
+        return blob
+
+    for tag, font in (("majorFont", heading), ("minorFont", body)):
+        gruppe = scheme.find(f"{{{_A_NS}}}{tag}")
+        if gruppe is None:
+            continue
+        latin = gruppe.find(f"{{{_A_NS}}}latin")
+        if latin is None:
+            latin = ET.Element(f"{{{_A_NS}}}latin")
+            gruppe.insert(0, latin)
+        latin.set("typeface", font)
+        latin.attrib.pop("panose", None)
+    return _serialize(root)
 
 
 def _patch_settings(definition: LayoutDefinition, blob: bytes) -> bytes:
@@ -387,6 +532,31 @@ def _verify(definition: LayoutDefinition, path: Path) -> None:
     if missing:
         raise DocxTargetError(
             "Diese Formate fehlen in der erzeugten Vorlage: " + ", ".join(missing)
+        )
+
+    _verify_body_font(definition, root)
+
+
+def _verify_body_font(definition: LayoutDefinition, styles_root: ET.Element) -> None:
+    """Prueft, dass die Grundschrift wirklich in den Dokumentvorgaben steht.
+
+    Die Schrift war lange das eine Feld, das der Editor anbot, das Schema
+    speicherte und das Zielformat still verwarf: eingetippt, gespeichert,
+    wirkungslos. Genau solche Ausfaelle soll die Rueckpruefung fangen -- ein
+    Erzeuger, der nichts tut und Erfolg meldet, ist schlimmer als einer, der
+    abbricht.
+    """
+    gewuenscht = definition.typography.body_font.strip()
+    if not gewuenscht:
+        return
+    defaults = styles_root.find(qn("docDefaults"))
+    rpr_default = defaults.find(qn("rPrDefault")) if defaults is not None else None
+    rpr = rpr_default.find(qn("rPr")) if rpr_default is not None else None
+    fonts = rpr.find(qn("rFonts")) if rpr is not None else None
+    if fonts is None or fonts.get(qn("ascii")) != gewuenscht:
+        raise DocxTargetError(
+            f"Die Grundschrift '{gewuenscht}' steht nicht in den Dokumentvorgaben "
+            f"der erzeugten Vorlage -- sie waere im .docx wirkungslos geblieben."
         )
 
 

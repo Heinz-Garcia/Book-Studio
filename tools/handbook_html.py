@@ -77,7 +77,11 @@ def _format_inline(text: str) -> str:
     protect(_BOLD_RE, lambda m: f"<strong>{_escape(m.group(1))}</strong>")
     protect(_ITALIC_RE, lambda m: f"<em>{_escape(m.group(1))}</em>")
     text = _escape(text)
-    for key, value in tokens.items():
+    # Rueckwaerts einsetzen: ein spaeter geschuetztes Muster (etwa **fett**)
+    # kann ein frueheres enthalten (etwa `code`). In Einfuegereihenfolge waere
+    # der innere Platzhalter schon abgearbeitet, bevor der aeussere ihn
+    # ueberhaupt in den Text bringt -- er bliebe als @@TOK0@@ stehen.
+    for key, value in reversed(tokens.items()):
         text = text.replace(_escape(key), value)
     return text
 

@@ -70,6 +70,17 @@ _ALIGN_TO_JC = {
     "justify": "both",
 }
 
+#: Absatzformate, die die Ueberschriftenschrift bekommen. Es sind die
+#: Bezeichner, die Pandoc beim Schreiben fuer Ueberschriften vergibt; eigene
+#: Formate kommen ueber ``outline_level`` dazu (siehe :func:`font_for`).
+HEADING_STYLE_IDS = frozenset(
+    {"Title", "Subtitle", "TOCHeading"} | {f"Heading{level}" for level in range(1, 10)}
+)
+
+#: Absatzformate, die die Schrift fester Breite bekommen -- Pandocs Codeblock
+#: und sein Inline-Gegenstueck.
+MONOSPACE_STYLE_IDS = frozenset({"SourceCode", "VerbatimChar"})
+
 
 def qn(tag: str) -> str:
     """``"pPr"`` -> ``"{...wordprocessingml...}pPr"``."""
@@ -111,10 +122,55 @@ def _sub(parent: ET.Element, tag: str, order: Iterable[str], **attrs: str) -> ET
     return element
 
 
-def _flag(parent: ET.Element, tag: str, order: Iterable[str], value: bool) -> None:
-    """OOXML-Schalter: vorhandenes Element = an, ``w:val="0"`` = aus."""
+def inherits_flag(
+    definition: LayoutDefinition, style: ParagraphStyle, attribut: str
+) -> bool:
+    """Setzt ein Vorfahre von *style* diesen Schalter auf wahr?
+
+    Gebraucht fuer die Frage, ob ein weggenommener Haken ausdruecklich
+    abgeschaltet werden muss. Ringschluesse beenden die Suche, statt sie
+    endlos laufen zu lassen -- eine kaputte Definition darf die Erzeugung
+    nicht einfrieren.
+    """
+    gesehen: set[str] = set()
+    aktuell = style.based_on
+    while aktuell and aktuell not in gesehen:
+        gesehen.add(aktuell)
+        vorfahr = definition.styles.get(aktuell)
+        if vorfahr is None:
+            # Aus der Pandoc-Basisvorlage; deren Formate setzen keinen dieser
+            # Schalter, sonst waeren sie hier bekannt.
+            return False
+        if getattr(vorfahr, attribut, False):
+            return True
+        aktuell = vorfahr.based_on
+    return False
+
+
+def _flag(
+    parent: ET.Element,
+    tag: str,
+    order: Iterable[str],
+    value: bool,
+    *,
+    ausdruecklich_aus: bool = False,
+) -> None:
+    """OOXML-Schalter: ``<w:b/>`` = an, ``<w:b w:val="0"/>`` = aus, nichts = erbt.
+
+    Alle drei Faelle werden gebraucht, und der mittlere fehlte. Wer den Haken
+    bei einem Format wegnahm, das auf einem fetten aufbaut, bekam nichts
+    geschrieben -- und "nichts" heisst in OOXML "erbe". Das Format blieb fett,
+    egal was der Editor zeigte; abschalten war schlicht nicht moeglich.
+
+    Geschrieben wird die ausdrueckliche Null nur, wenn es wirklich etwas zu
+    ueberschreiben gibt (*ausdruecklich_aus*). Sie ueberall hinzuschreiben
+    waere ebenfalls richtig, blaehte aber jedes schlichte Format mit vier
+    Nullen auf, die nichts bewirken.
+    """
     if value:
         _sub(parent, tag, order)
+    elif ausdruecklich_aus:
+        _sub(parent, tag, order).set(qn("val"), "0")
 
 
 # ---------------------------------------------------------------------------
@@ -168,9 +224,15 @@ def apply_paragraph_properties(
     _drop(ppr, ("keepNext", "keepLines", "pageBreakBefore", "pBdr", "shd",
                 "spacing", "ind", "jc", "outlineLvl"))
 
-    _flag(ppr, "keepNext", _PPR_ORDER, style.keep_next)
-    _flag(ppr, "keepLines", _PPR_ORDER, style.keep_lines)
-    _flag(ppr, "pageBreakBefore", _PPR_ORDER, style.page_break_before)
+    for tag, attribut, wert in (
+        ("keepNext", "keep_next", style.keep_next),
+        ("keepLines", "keep_lines", style.keep_lines),
+        ("pageBreakBefore", "page_break_before", style.page_break_before),
+    ):
+        _flag(
+            ppr, tag, _PPR_ORDER, wert,
+            ausdruecklich_aus=inherits_flag(definition, style, attribut),
+        )
 
     if style.borders:
         pbdr = ET.Element(qn("pBdr"))
@@ -223,6 +285,30 @@ def apply_paragraph_properties(
         _sub(ppr, "outlineLvl", _PPR_ORDER, val=str(style.outline_level))
 
 
+def font_for(definition: LayoutDefinition, style: ParagraphStyle) -> Optional[str]:
+    """Die Schrift dieses Formats -- ``None`` heisst: die Grundschrift gilt.
+
+    Nur zwei Rollen weichen von der Grundschrift ab, und beide stehen so in der
+    Typografie: Ueberschriften und Text fester Breite. Alles andere bekommt
+    **kein** eigenes ``w:rFonts``, sondern erbt aus den Dokumentvorgaben -- ein
+    Wechsel der Grundschrift wirkt dann an einer Stelle statt in vierzig.
+
+    Eigene Formate zaehlen ueber ``outline_level`` zu den Ueberschriften: Wer
+    einem Format eine Gliederungsebene gibt, hat damit gesagt, dass es eine
+    Ueberschrift ist. Auf den Bezeichner allein zu hoeren hiesse, dass ein
+    ``Kapitelkopf`` leer ausginge, nur weil er nicht ``Heading1`` heisst.
+
+    Eine leere Angabe in der Typografie ist keine Schrift, sondern die
+    Abwesenheit einer Wahl -- das Feld sagt "leer = wie Grundschrift".
+    """
+    typography = definition.typography
+    if style.style_id in MONOSPACE_STYLE_IDS:
+        return typography.mono_font.strip() or None
+    if style.style_id in HEADING_STYLE_IDS or style.outline_level is not None:
+        return typography.heading_font.strip() or None
+    return None
+
+
 def apply_run_properties(
     definition: LayoutDefinition,
     style: ParagraphStyle,
@@ -231,16 +317,31 @@ def apply_run_properties(
     """Schreibt die Zeicheneigenschaften von *style* in ein ``w:rPr``."""
     _drop(rpr, ("b", "bCs", "i", "iCs", "color", "spacing", "sz", "szCs"))
 
-    _flag(rpr, "b", _RPR_ORDER, style.bold)
-    _flag(rpr, "bCs", _RPR_ORDER, style.bold)
-    _flag(rpr, "i", _RPR_ORDER, style.italic)
-    _flag(rpr, "iCs", _RPR_ORDER, style.italic)
+    # ``w:rFonts`` faellt bewusst aus der Liste oben heraus: Es wird nur dann
+    # entfernt, wenn auch eines geschrieben wird. Sonst nähme dieses Format
+    # einer gepatchten Basisvorlage ihre Schrift weg, ohne eine eigene zu
+    # setzen -- ein Verlust ohne Gegenwert.
+    font = font_for(definition, style)
+    if font:
+        _drop(rpr, ("rFonts",))
+        _sub(rpr, "rFonts", _RPR_ORDER, ascii=font, hAnsi=font, cs=font)
+
+    fett_geerbt = inherits_flag(definition, style, "bold")
+    kursiv_geerbt = inherits_flag(definition, style, "italic")
+    _flag(rpr, "b", _RPR_ORDER, style.bold, ausdruecklich_aus=fett_geerbt)
+    _flag(rpr, "bCs", _RPR_ORDER, style.bold, ausdruecklich_aus=fett_geerbt)
+    _flag(rpr, "i", _RPR_ORDER, style.italic, ausdruecklich_aus=kursiv_geerbt)
+    _flag(rpr, "iCs", _RPR_ORDER, style.italic, ausdruecklich_aus=kursiv_geerbt)
 
     color = definition.resolve_color(style.color)
     if color:
         _sub(rpr, "color", _RPR_ORDER, val=color)
 
-    if style.letter_spacing_pt:
+    # ``is not None`` und nicht Wahrheitswert: ``0.0`` heisst "ausdruecklich
+    # keine Sperrung" und muss geschrieben werden, sonst erbt das Format die
+    # Laufweite seiner Grundlage. ``None`` heisst "geerbt" -- das schreibt
+    # nichts, und genau das ist dann auch gemeint.
+    if style.letter_spacing_pt is not None:
         _sub(rpr, "spacing", _RPR_ORDER, val=str(pt_to_twips(style.letter_spacing_pt)))
 
     if style.size_pt is not None:
@@ -324,6 +425,8 @@ def build_footer_xml(definition: LayoutDefinition) -> str:
 
 
 __all__ = [
+    "HEADING_STYLE_IDS",
+    "MONOSPACE_STYLE_IDS",
     "R_NS",
     "W_NS",
     "apply_paragraph_properties",
@@ -331,6 +434,8 @@ __all__ = [
     "apply_section_properties",
     "build_footer_xml",
     "build_style_element",
+    "font_for",
+    "inherits_flag",
     "local_name",
     "qn",
     "register_namespaces",

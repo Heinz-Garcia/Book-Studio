@@ -1,7 +1,7 @@
 """Eine bestehende ``.docx`` einlesen und daraus eine Layout-Definition machen.
 
 Damit muss die in einem gewachsenen Dokument steckende Gestaltungsarbeit nicht
-von Hand abgetippt werden: Word-Datei oeffnen, Definition speichern, im Editor
+von Hand abgetippt werden: .docx einlesen, Definition speichern, im Editor
 weiterarbeiten. Es ist die Umkehrung von :mod:`tools.doclayout.ooxml` und liest
 dieselben Elemente, die dort geschrieben werden.
 
@@ -86,7 +86,7 @@ def import_docx(
             if "word/styles.xml" not in names:
                 raise DocxImportError(
                     f"{source.name} enthaelt keine word/styles.xml -- "
-                    f"das ist keine Word-Datei."
+                    f"das ist keine .docx-Datei."
                 )
             styles_root = ET.fromstring(archive.read("word/styles.xml"))
             document_root = (
@@ -214,26 +214,12 @@ def _read_borders(element: Optional[ET.Element]) -> dict[str, Border]:
 
 
 def _has_formatting(style: ParagraphStyle) -> bool:
-    """Traegt das Format eigene Gestaltung -- oder ist es nur ein Name?"""
-    return any(
-        (
-            style.size_pt is not None,
-            style.bold,
-            style.italic,
-            style.color,
-            style.align,
-            style.space_before_pt is not None,
-            style.space_after_pt is not None,
-            style.line_height is not None,
-            not style.indent.is_empty(),
-            style.keep_next,
-            style.keep_lines,
-            style.page_break_before,
-            style.outline_level is not None,
-            style.shading,
-            style.borders,
-        )
-    )
+    """Traegt das Format eigene Gestaltung -- oder ist es nur ein Name?
+
+    Die Antwort steht beim Format selbst (:meth:`ParagraphStyle.carries_formatting`);
+    hier bleibt nur der vertraute Name fuer die Aufrufer in diesem Modul.
+    """
+    return style.carries_formatting()
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,11 @@
+{
+  "name": "doclayout_editor",
+  "label": "🖋️ Layout-Editor (Word/Writer-Vorlagen)…",
+  "description": "Formatvorlagen für die Word-/DOCX-Fassung pflegen: eine Definition erzeugt reference.docx und die Klassen-Abbildung.",
+  "entrypoint": "plugins.doclayout_editor:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 3,
+  "help_text": "Wirkt nur in der Word-/DOCX-Fassung. Das Typst-PDF (F5) übernimmt Absatzformate und Kästen (prompt, fachtext, …) aus diesem Editor NICHT. Links die Bestandteile (Seite, Typografie, Farben, Absatzformate), rechts eine echt gesetzte Vorschau — sie läuft von selbst rund eine Sekunde nach der letzten Eingabe. Eine Klasse ohne Eintrag unter „Klassen-Abbildung“ bleibt im .docx unformatiert; das ist die häufigste Ursache für einen fehlenden Kasten. „Auf Buchprojekt anwenden“ schreibt reference.docx und classmap.lua ins Buch und trägt sie unter format.docx in dessen _quarto.yml ein; die Typst/PDF-Pipeline wird dabei nicht angefasst und übernimmt von hier auch nichts. Word wird nicht gebraucht: gesetzt wird von LibreOffice, die Vorschau zeigt die Writer-Fassung. Ausführlich im Handbuch, Kapitel 23; ohne Oberfläche: python -m tools.doclayout --help"
+}

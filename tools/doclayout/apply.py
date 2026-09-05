@@ -27,6 +27,21 @@ from tools.doclayout.targets.docx import build_reference_docx
 REFERENCE_DOCX_NAME = "reference.docx"
 LUA_FILTER_NAME = "classmap.lua"
 
+# ``ruamel.yaml`` liest und schreibt YAML, ohne Kommentare, Anfuehrungszeichen
+# und Reihenfolge zu verlieren. PyYAML kann das nicht: ``safe_dump`` baut die
+# Datei aus der Datenstruktur neu auf, und alles, was nicht Daten ist, faellt
+# dabei weg -- in einer ``_quarto.yml`` also Notizen wie "Reihenfolge mit dem
+# Lektorat abgestimmt -- nicht umsortieren!".
+#
+# Bewusst als Kann-Abhaengigkeit: Fehlt das Paket, wird weiterhin mit PyYAML
+# geschrieben, und der Bericht sagt dann ausdruecklich, dass Kommentare
+# verlorengingen. Ein hartes Erfordernis waere fuer eine Bequemlichkeit zu
+# teuer; es stillschweigend zu verschlucken waere zu billig.
+try:  # pragma: no cover - haengt an der Installation
+    from ruamel.yaml import YAML as _RuamelYAML
+except ImportError:  # pragma: no cover
+    _RuamelYAML = None
+
 
 @dataclass
 class ApplyResult:
@@ -91,9 +106,10 @@ def apply_layout(
         return result
 
     result.quarto_yml = quarto_yml
-    changed, backup = _patch_quarto_yml(quarto_yml, definition)
+    changed, backup, hinweise = _patch_quarto_yml(quarto_yml, definition)
     result.quarto_changed = changed
     result.quarto_backup = backup
+    result.notes.extend(hinweise)
     return result
 
 
@@ -122,23 +138,51 @@ def _posix(path: Path) -> str:
     return path.as_posix()
 
 
+def _roundtrip_yaml() -> Any:
+    """Ein kommentarerhaltender YAML-Umgang -- oder ``None``."""
+    if _RuamelYAML is None:
+        return None
+    yml = _RuamelYAML()
+    yml.preserve_quotes = True
+    # Keine erzwungenen Zeilenumbrueche: Ein umbrochener Kapitelpfad waere
+    # zwar gueltiges YAML, saehe in der Datei aber nach einem Fehler aus.
+    yml.width = 4096
+    yml.indent(mapping=2, sequence=4, offset=2)
+    return yml
+
+
 def _patch_quarto_yml(
     path: Path, definition: LayoutDefinition
-) -> tuple[bool, Optional[Path]]:
+) -> tuple[bool, Optional[Path], list[str]]:
     """Traegt ``reference-doc`` und ``filters`` unter ``format.docx`` ein.
 
     Idempotent: stehen die Werte schon richtig da, wird nichts geschrieben und
     keine Sicherung angelegt. Vor jeder tatsaechlichen Aenderung entsteht eine
     ``.bak`` -- ``_quarto.yml`` ist die Struktur-SSOT des Buchs.
+
+    Geschrieben wird kommentarerhaltend, wo ``ruamel.yaml`` zur Verfuegung
+    steht. Vorher baute ``yaml.safe_dump`` die Datei aus der Datenstruktur neu
+    auf; Kapitel und Schluessel ueberlebten das, jede Notiz daneben nicht --
+    und die Rueckpruefung meldete Erfolg, weil sie nur nach Daten sah.
+
+    Liefert ``(geaendert, Sicherung, Hinweise)``.
     """
     _ = definition
+    umgang = _roundtrip_yaml()
     try:
         original = path.read_text(encoding="utf-8")
-        data = yaml.safe_load(original)
+        if umgang is not None:
+            from io import StringIO
+
+            data = umgang.load(StringIO(original))
+        else:
+            data = yaml.safe_load(original)
     except OSError as exc:
         raise LayoutError(f"_quarto.yml nicht lesbar: {path} ({exc})") from exc
-    except yaml.YAMLError as exc:
-        raise LayoutError(f"_quarto.yml ist kein gueltiges YAML: {path} ({exc})") from exc
+    except Exception as exc:  # ruamel und PyYAML werfen verschiedene Typen
+        raise LayoutError(
+            f"_quarto.yml ist kein gueltiges YAML: {path} ({exc})"
+        ) from exc
 
     if data is None:
         data = {}
@@ -185,7 +229,7 @@ def _patch_quarto_yml(
         changed = True
 
     if not changed:
-        return False, None
+        return False, None, []
 
     formats["docx"] = docx_cfg
     data["format"] = formats
@@ -193,11 +237,47 @@ def _patch_quarto_yml(
     backup = path.with_suffix(path.suffix + ".doclayout.bak")
     shutil.copy2(path, backup)
 
-    text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    hinweise: list[str] = []
+    if umgang is not None:
+        from io import StringIO
+
+        puffer = StringIO()
+        umgang.dump(data, puffer)
+        text = puffer.getvalue()
+    else:
+        text = yaml.safe_dump(
+            data, allow_unicode=True, sort_keys=False, default_flow_style=False
+        )
+        if _hat_kommentare(original):
+            hinweise.append(
+                "Kommentare in _quarto.yml gingen beim Schreiben verloren "
+                "(ruamel.yaml ist nicht installiert) -- die alte Fassung steht "
+                f"in {backup.name}."
+            )
     path.write_text(text, encoding="utf-8")
 
-    _verify_quarto_yml(path, original)
-    return True, backup
+    try:
+        _verify_quarto_yml(path, original)
+    except LayoutError:
+        # Die Datei liegt jetzt beschaedigt da, und die Sicherung steht
+        # daneben. Sie von Hand zurueckspielen zu lassen -- so stand es in der
+        # Meldung -- war die falsche Arbeitsteilung: Wer den Schaden erkennt,
+        # kann ihn auch zuruecknehmen, und zwar sofort.
+        shutil.copy2(backup, path)
+        raise
+
+    return True, backup, hinweise
+
+
+def _hat_kommentare(text: str) -> bool:
+    """Grobe Auskunft, ob in *text* Kommentare stehen.
+
+    Bewusst grob: Ein ``#`` in einer Zeichenkette faende sie als Kommentar,
+    was hoechstens einen ueberfluessigen Hinweis erzeugt. Umgekehrt einen
+    echten Verlust zu verschweigen waere der teurere Fehler.
+    """
+    return any(zeile.lstrip().startswith("#") or " #" in zeile
+               for zeile in text.splitlines())
 
 
 def _verify_quarto_yml(path: Path, original_text: str) -> None:
@@ -215,15 +295,17 @@ def _verify_quarto_yml(path: Path, original_text: str) -> None:
 
     if chapters(before) != chapters(after):
         raise LayoutError(
-            f"_quarto.yml: Kapitelliste hat sich beim Schreiben veraendert -- "
-            f"Aenderung zurueckgenommen werden sollte ueber die .bak-Datei: {path}"
+            f"_quarto.yml: Die Kapitelliste haette sich beim Schreiben "
+            f"veraendert. Die Datei wurde aus der Sicherung wiederhergestellt, "
+            f"das Layout ist nicht eingetragen: {path}"
         )
 
     lost = sorted(set(_flat_keys(before)) - set(_flat_keys(after)))
     if lost:
         raise LayoutError(
-            f"_quarto.yml: diese Schluessel fehlen nach dem Schreiben: "
-            f"{', '.join(lost)} -- bitte .bak zurueckspielen."
+            f"_quarto.yml: diese Schluessel haetten nach dem Schreiben gefehlt: "
+            f"{', '.join(lost)}. Die Datei wurde aus der Sicherung "
+            f"wiederhergestellt, das Layout ist nicht eingetragen."
         )
 
 

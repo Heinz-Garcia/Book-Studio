@@ -84,6 +84,13 @@ def test_run_quarto_render_auto_heals_before_preflight(tmp_path: Path) -> None:
         def _get_all_used_paths(self):
             return ["content/chapter.md"]
 
+        def get_tree_data_for_engine(self):
+            # Ohne Inhaltskapitel bricht ``run_quarto_render`` seit dem
+            # Leer-PDF-Schutz vor dem Vorabcheck ab -- und dieser Test prueft
+            # gerade, dass das Auto-Healing **davor** und der Vorabcheck
+            # **danach** laeuft.
+            return [{"path": "index.md"}, {"path": "content/chapter.md"}]
+
         def log(self, message, level="info"):
             self.logged.append((message, level))
 

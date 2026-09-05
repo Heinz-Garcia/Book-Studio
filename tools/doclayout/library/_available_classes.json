@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-05T20:42:32",
+  "library": "C:\\Users\\RDP-Nutzer\\IDE\\Book_Studio_Unleashed\\tools\\doclayout\\library",
+  "layouts": [
+    "Formate_Backup",
+    "IFJN_Referenz",
+    "IFJN_layout",
+    "Prosa_Layout",
+    "Reisefuehrer_Andalusien"
+  ],
+  "names": [
+    "fachtext",
+    "prompt",
+    "prompt-separator",
+    "themenblock"
+  ],
+  "classes": {
+    "fachtext": {
+      "layouts": [
+        "Formate_Backup",
+        "IFJN_Referenz",
+        "IFJN_layout",
+        "Prosa_Layout",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Fachtext"
+      ]
+    },
+    "prompt": {
+      "layouts": [
+        "Formate_Backup",
+        "IFJN_Referenz",
+        "IFJN_layout",
+        "Prosa_Layout",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Prompt-Frage"
+      ]
+    },
+    "prompt-separator": {
+      "layouts": [
+        "Formate_Backup",
+        "IFJN_Referenz",
+        "IFJN_layout",
+        "Prosa_Layout",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Prompt-Trenner"
+      ]
+    },
+    "themenblock": {
+      "layouts": [
+        "Formate_Backup",
+        "IFJN_Referenz",
+        "IFJN_layout",
+        "Prosa_Layout",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Themenblock"
+      ]
+    }
+  }
+}

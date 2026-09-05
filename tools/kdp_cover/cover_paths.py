@@ -17,6 +17,29 @@ COVERS_DIR_NAME = "covers"
 CoverRoleName = Literal["primary", "alternative"]
 
 
+def cover_filename_stem(
+    *, book_name: str = "", title: str = "", fallback: str = "cover"
+) -> str:
+    """Der Dateiname-Stamm eines Cover-Layouts -- **die** Regel dafuer.
+
+    Sie stand zweimal im Code, mit vertauschter Reihenfolge: Der Dialog nahm
+    den Buchnamen zuerst und schrieb die Datei danach, ``assign_cover_to_uuid``
+    nahm den Titel zuerst und trug den Pfad in die Registry ein. Bei einem Buch
+    ``book`` mit dem Titel ``T`` ergab dasselbe Speichern zwei Namen --
+    ``book_kdp_cover.json`` auf der Platte und ``T_kdp_cover.json`` in der
+    Registry. Die Registry zeigte also auf eine Datei, die es nie gab, und
+    sammelte bei jedem Speichern einen weiteren solchen Eintrag an.
+
+    Der Buchname gewinnt, weil er die Datei benennt, die tatsaechlich
+    entsteht: Ein Titel aendert sich beim Ueberarbeiten, ein Buchordner nicht.
+    """
+    for kandidat in (book_name, title):
+        sauber = str(kandidat or "").strip()
+        if sauber:
+            return sanitize_book_filename_stem(sauber)
+    return fallback
+
+
 def covers_root(repo: Path | None = None) -> Path:
     """``<repo>/production/covers``."""
     return default_production_root(repo) / COVERS_DIR_NAME
@@ -106,6 +129,7 @@ __all__ = [
     "canonical_cover_dir",
     "canonical_layout_path",
     "canonical_wrap_pdf_path",
+    "cover_filename_stem",
     "covers_root",
     "label_slug",
     "mirror_book_layout_path",

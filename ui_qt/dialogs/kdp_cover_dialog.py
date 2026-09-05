@@ -2372,12 +2372,18 @@ class KdpCoverQtDialog(QDialog):
         return resolve_studio_repo(self._studio)
 
     def _cover_filename_stem(self) -> str:
-        if self._book:
-            return sanitize_book_filename_stem(self._book.name)
-        title = self.title_edit.text().strip()
-        if title:
-            return sanitize_book_filename_stem(title)
-        return "cover"
+        """Der Dateiname dieses Cover-Layouts -- ueber die gemeinsame Regel.
+
+        Frueher stand die Reihenfolge hier ein zweites Mal, und zwar
+        andersherum als in ``assign_cover_to_uuid``. Ergebnis war ein
+        Registry-Eintrag auf eine Datei, die nie geschrieben wurde.
+        """
+        from tools.kdp_cover.cover_paths import cover_filename_stem
+
+        return cover_filename_stem(
+            book_name=self._book.name if self._book else "",
+            title=self.title_edit.text(),
+        )
 
     def _cover_role_name(self) -> str:
         return (

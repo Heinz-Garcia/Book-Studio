@@ -1,0 +1,143 @@
+name: Prosa_Layout
+label: IFJN Reiseführer
+description: 'Layout der IFJN-Bände: Prompt-Frage im Kasten mit Akzentbalken, Themenblock auf neuer Seite,
+  dreistufiges Inhaltsverzeichnis. Übernommen aus der Layout-Reparatur layout_fix.py, dort in Twips und
+  Halbpunkten notiert.'
+page:
+  width_mm: 210.0
+  height_mm: 297.0
+  mirrored: false
+  margin:
+    top_mm: 20.0
+    bottom_mm: 20.0
+    inner_mm: 25.0
+    outer_mm: 20.0
+  header_distance_mm: 12.5
+  footer_distance_mm: 12.5
+  footer:
+    page_number: true
+    align: center
+typography:
+  body_font: Calibri
+  heading_font: ''
+  mono_font: Consolas
+  base_size_pt: 11.0
+  line_height: 1.15
+  language: de-DE
+  hyphenation: true
+  hyphenation_zone_mm: 5.0
+  hyphenate_caps: false
+colors:
+  accent: 1F3864
+  accent2: 2E5C8A
+  fill: EEF3F9
+  footer: 7F7F7F
+  muted: '595959'
+  rule: 9DB2CE
+  table_border: BFBFBF
+  table_border_light: DCDCDC
+  table_header: F2F4F7
+styles:
+  Title:
+    size_pt: 26.0
+    color: accent
+    space_before_pt: 0.0
+    space_after_pt: 6.0
+    line_height: 1.0
+  Author:
+    size_pt: 11.0
+    space_before_pt: 0.0
+    space_after_pt: 2.0
+  Prompt-Frage:
+    name: Prompt-Frage
+    based_on: BodyText
+    next: BodyText
+    size_pt: 13.0
+    color: accent
+    space_before_pt: 3.0
+    space_after_pt: 12.0
+    line_height: 1.1
+    outline_level: 1
+    shading: fill
+    bold: true
+    keep_next: true
+    keep_lines: true
+    indent:
+      left_mm: 9.0
+      right_mm: 2.0
+      hanging_mm: 7.0
+      first_line_mm: 0.0
+    borders:
+      bottom:
+        width_pt: 0.25
+        color: rule
+        space_pt: 3.0
+        style: single
+      left:
+        width_pt: 2.25
+        color: accent2
+        space_pt: 4.0
+        style: single
+      right:
+        width_pt: 0.25
+        color: rule
+        space_pt: 3.0
+        style: single
+      top:
+        width_pt: 0.25
+        color: rule
+        space_pt: 3.0
+        style: single
+  Fachtext:
+    name: Fachtext
+    based_on: BodyText
+    next: Fachtext
+    align: justify
+    space_before_pt: 0.0
+    space_after_pt: 7.0
+    indent:
+      left_mm: 0.0
+      right_mm: 0.0
+      hanging_mm: 0.0
+      first_line_mm: 4.0
+  Prompt-Trenner:
+    name: Prompt-Trenner
+    next: Prompt-Frage
+    size_pt: 14.0
+    color: rule
+    letter_spacing_pt: 3.0
+    align: center
+    space_before_pt: 20.0
+    space_after_pt: 6.0
+    line_height: 1.0
+    keep_lines: true
+  Themenblock:
+    name: Themenblock
+    based_on: Heading2
+    next: BodyText
+    size_pt: 20.0
+    color: accent
+    space_before_pt: 0.0
+    space_after_pt: 16.0
+    outline_level: 0
+    bold: true
+    keep_next: true
+    keep_lines: true
+    page_break_before: true
+    borders:
+      bottom:
+        width_pt: 1.5
+        color: accent2
+        space_pt: 3.0
+        style: single
+  TOC1:
+    size_pt: 12.0
+    color: accent
+    space_before_pt: 14.0
+    space_after_pt: 3.0
+    bold: true
+classmap:
+  fachtext: Fachtext
+  prompt: Prompt-Frage
+  prompt-separator: Prompt-Trenner
+  themenblock: Themenblock

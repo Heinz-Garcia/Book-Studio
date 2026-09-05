@@ -1,0 +1,341 @@
+name: IFJN_Referenz
+label: IFJN Referenz (vollstaendig)
+description: 'Vollstaendige Rueckfallebene: alle Absatzformate aus Pandocs Basisvorlage plus die Inhaltsformate
+  der IFJN-Baende. Zum Duplizieren gedacht, nicht zum Bearbeiten - wer hier etwas loescht, verliert die
+  Rueckfallebene.'
+page:
+  width_mm: 210.0
+  height_mm: 297.0
+  mirrored: false
+  margin:
+    top_mm: 20.0
+    bottom_mm: 20.0
+    inner_mm: 25.0
+    outer_mm: 20.0
+  header_distance_mm: 12.5
+  footer_distance_mm: 12.5
+  footer:
+    page_number: true
+    align: center
+typography:
+  body_font: Calibri
+  heading_font: ''
+  mono_font: Consolas
+  base_size_pt: 11.0
+  line_height: 1.15
+  language: de-DE
+  hyphenation: true
+  hyphenation_zone_mm: 5.0
+  hyphenate_caps: false
+colors:
+  accent: 1F3864
+  accent2: 2E5C8A
+  fill: EEF3F9
+  footer: 7F7F7F
+  muted: '595959'
+  rule: 9DB2CE
+  table_border: BFBFBF
+  table_border_light: DCDCDC
+  table_header: F2F4F7
+styles:
+  Normal:
+    name: Normal
+  BodyText:
+    space_before_pt: 0.0
+    space_after_pt: 7.0
+  FirstParagraph:
+    based_on: BodyText
+    space_before_pt: 0.0
+    space_after_pt: 7.0
+  Compact:
+    space_before_pt: 0.0
+    space_after_pt: 3.0
+  Title:
+    size_pt: 26.0
+    color: accent
+    space_before_pt: 0.0
+    space_after_pt: 6.0
+    line_height: 1.0
+  Subtitle:
+    size_pt: 13.0
+    space_before_pt: 0.0
+    space_after_pt: 4.0
+  Author:
+    size_pt: 11.0
+    space_before_pt: 0.0
+    space_after_pt: 2.0
+  Date:
+    size_pt: 10.0
+    space_before_pt: 0.0
+    space_after_pt: 24.0
+  AbstractTitle:
+    name: Abstract Title
+    based_on: Normal
+    next: Abstract
+    size_pt: 10.0
+    align: center
+    space_before_pt: 15.0
+    space_after_pt: 0.0
+    bold: true
+    keep_next: true
+    keep_lines: true
+  Abstract:
+    name: Abstract
+    based_on: Normal
+    next: BodyText
+    size_pt: 10.0
+    space_before_pt: 5.0
+    space_after_pt: 15.0
+    keep_next: true
+    keep_lines: true
+  Bibliography:
+    name: Bibliography
+    based_on: Normal
+    next: Bibliography
+  Heading1:
+    size_pt: 17.0
+    color: accent
+    space_before_pt: 20.0
+    space_after_pt: 7.0
+    keep_next: true
+    keep_lines: true
+  Heading2:
+    size_pt: 14.0
+    color: accent
+    space_before_pt: 14.0
+    space_after_pt: 5.0
+    keep_next: true
+    keep_lines: true
+  Heading3:
+    size_pt: 12.0
+    color: accent2
+    space_before_pt: 11.0
+    space_after_pt: 4.0
+    keep_next: true
+    keep_lines: true
+  Heading4:
+    size_pt: 11.0
+    color: accent2
+    space_before_pt: 9.0
+    space_after_pt: 3.0
+    bold: true
+    keep_next: true
+    keep_lines: true
+  Heading5:
+    size_pt: 11.0
+    space_before_pt: 8.0
+    space_after_pt: 2.0
+    keep_next: true
+    keep_lines: true
+  Heading6:
+    size_pt: 11.0
+    space_before_pt: 8.0
+    space_after_pt: 2.0
+    keep_next: true
+    keep_lines: true
+  Heading7:
+    name: heading 7
+    based_on: Normal
+    next: BodyText
+    color: accent2
+    space_before_pt: 2.0
+    space_after_pt: 0.0
+    outline_level: 6
+    keep_next: true
+    keep_lines: true
+  Heading8:
+    name: heading 8
+    based_on: Normal
+    next: BodyText
+    color: muted
+    space_after_pt: 0.0
+    outline_level: 7
+    italic: true
+    keep_next: true
+    keep_lines: true
+  Heading9:
+    name: heading 9
+    based_on: Normal
+    next: BodyText
+    color: muted
+    space_after_pt: 0.0
+    outline_level: 8
+    keep_next: true
+    keep_lines: true
+  BlockText:
+    space_before_pt: 6.0
+    space_after_pt: 6.0
+    indent:
+      left_mm: 8.0
+      right_mm: 5.0
+      hanging_mm: 0.0
+      first_line_mm: 0.0
+    borders:
+      left:
+        width_pt: 1.5
+        color: rule
+        space_pt: 4.0
+        style: single
+  FootnoteText:
+    size_pt: 9.0
+    space_before_pt: 0.0
+    space_after_pt: 2.0
+  FootnoteBlockText:
+    name: Footnote Block Text
+    based_on: FootnoteText
+    next: FootnoteText
+    space_before_pt: 5.0
+    space_after_pt: 5.0
+    indent:
+      left_mm: 8.5
+      right_mm: 8.5
+      hanging_mm: 0.0
+      first_line_mm: 0.0
+  DefinitionTerm:
+    name: Definition Term
+    based_on: Normal
+    next: Definition
+    space_after_pt: 0.0
+    bold: true
+    keep_next: true
+    keep_lines: true
+  Definition:
+    name: Definition
+    based_on: Normal
+  Caption:
+    size_pt: 9.5
+    space_before_pt: 3.0
+    space_after_pt: 8.0
+  TableCaption:
+    name: Table Caption
+    based_on: Caption
+    keep_next: true
+  ImageCaption:
+    name: Image Caption
+    based_on: Caption
+  Figure:
+    name: Figure
+    based_on: Normal
+  CaptionedFigure:
+    name: Captioned Figure
+    based_on: Figure
+    keep_next: true
+  TOCHeading:
+    based_on: Heading1
+    size_pt: 17.0
+    space_before_pt: 0.0
+    space_after_pt: 10.0
+    keep_next: true
+  Prompt-Frage:
+    name: Prompt-Frage
+    based_on: BodyText
+    next: BodyText
+    size_pt: 13.0
+    color: accent
+    space_before_pt: 3.0
+    space_after_pt: 12.0
+    line_height: 1.1
+    outline_level: 1
+    shading: fill
+    bold: true
+    keep_next: true
+    keep_lines: true
+    indent:
+      left_mm: 9.0
+      right_mm: 2.0
+      hanging_mm: 7.0
+      first_line_mm: 0.0
+    borders:
+      bottom:
+        width_pt: 0.25
+        color: rule
+        space_pt: 3.0
+        style: single
+      left:
+        width_pt: 2.25
+        color: accent2
+        space_pt: 4.0
+        style: single
+      right:
+        width_pt: 0.25
+        color: rule
+        space_pt: 3.0
+        style: single
+      top:
+        width_pt: 0.25
+        color: rule
+        space_pt: 3.0
+        style: single
+  Fachtext:
+    name: Fachtext
+    based_on: BodyText
+    next: Fachtext
+    space_before_pt: 0.0
+    space_after_pt: 7.0
+  Prompt-Trenner:
+    name: Prompt-Trenner
+    next: Prompt-Frage
+    size_pt: 14.0
+    color: rule
+    letter_spacing_pt: 3.0
+    align: center
+    space_before_pt: 20.0
+    space_after_pt: 6.0
+    line_height: 1.0
+    keep_next: true
+  Themenblock:
+    name: Themenblock
+    based_on: Heading2
+    next: BodyText
+    size_pt: 20.0
+    color: accent
+    space_before_pt: 0.0
+    space_after_pt: 16.0
+    outline_level: 0
+    bold: true
+    keep_next: true
+    keep_lines: true
+    page_break_before: true
+    borders:
+      bottom:
+        width_pt: 1.5
+        color: accent2
+        space_pt: 3.0
+        style: single
+  TOC1:
+    size_pt: 12.0
+    color: accent
+    space_before_pt: 14.0
+    space_after_pt: 3.0
+    bold: true
+  TOC2:
+    size_pt: 11.0
+    space_before_pt: 3.0
+    space_after_pt: 0.0
+    indent:
+      left_mm: 13.0
+      right_mm: 0.0
+      hanging_mm: 7.0
+      first_line_mm: 0.0
+  TOC3:
+    size_pt: 10.0
+    color: muted
+    space_before_pt: 0.0
+    space_after_pt: 0.0
+    italic: true
+    indent:
+      left_mm: 18.0
+      right_mm: 0.0
+      hanging_mm: 0.0
+      first_line_mm: 0.0
+  Footer:
+    size_pt: 9.0
+    color: footer
+    space_before_pt: 0.0
+    space_after_pt: 0.0
+    line_height: 1.0
+classmap:
+  fachtext: Fachtext
+  prompt: Prompt-Frage
+  prompt-separator: Prompt-Trenner
+  themenblock: Themenblock

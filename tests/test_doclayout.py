@@ -18,11 +18,37 @@ from tools.doclayout.apply import apply_layout, quarto_snippet
 from tools.doclayout.classmap import build_lua_filter, normalize_class
 from tools.doclayout.library import LIBRARY_DIR, available_layouts, load_layout
 from tools.doclayout.ooxml import W_NS, build_style_element, local_name, qn
+from tools.doclayout.process import NO_WINDOW, run_hidden
+from tools.doclayout.origins import (
+    PANDOC_STYLE_IDS,
+    StyleOrigin,
+    counts,
+    is_standard,
+    origin_of,
+    origins,
+)
+from tools.doclayout.requirements import (
+    check_requirements,
+    is_blocked,
+    missing,
+    summary,
+)
+from tools.doclayout.preview import (
+    PreviewError,
+    build_sample_markdown,
+    find_soffice,
+    render_preview,
+    toc_title_for,
+)
 from tools.doclayout.schema import LayoutDefinition, LayoutError, ParagraphStyle
 from tools.doclayout.targets.docx import build_reference_docx, find_pandoc
 
 pandoc_required = pytest.mark.skipif(
     find_pandoc() is None, reason="Pandoc (auch via Quarto) nicht gefunden"
+)
+
+soffice_required = pytest.mark.skipif(
+    find_soffice() is None, reason="LibreOffice nicht gefunden"
 )
 
 
@@ -587,15 +613,41 @@ def test_import_build_import_is_stable(ifjn: LayoutDefinition, tmp_path: Path):
 
 @pandoc_required
 def test_import_names_colours_by_role(ifjn: LayoutDefinition, tmp_path: Path):
-    """Ein Token soll etwas bedeuten -- 'accent' ist die Ueberschriftenfarbe."""
+    """Ein Token soll etwas bedeuten -- 'accent' ist die Ueberschriftenfarbe.
+
+    Die Farben werden aus den **Ueberschriften** abgeleitet. Das Layout aus der
+    Bibliothek darf jederzeit umgebaut werden -- auch so, dass es gar keine
+    Ueberschriften mehr enthaelt. Deshalb stellt dieser Test sie sich selbst,
+    statt sich auf eine Datei zu verlassen, die dem Benutzer gehoert.
+    """
+    from dataclasses import replace as _replace
+
     from tools.doclayout.importer import import_docx
 
-    built = build_reference_docx(ifjn, tmp_path / "reference.docx")
+    styles = dict(ifjn.styles)
+    styles["Heading1"] = ParagraphStyle(
+        style_id="Heading1", name="Heading 1", size_pt=18.0, bold=True, color="accent"
+    )
+    # Zwei Ueberschriften je Farbe: Der Importer vergibt einen Namen nur fuer
+    # Farben, die mehrfach vorkommen -- ein Token fuer ein Einzelvorkommen waere
+    # nur ein zweiter Name fuer dasselbe.
+    styles["Heading2"] = ParagraphStyle(
+        style_id="Heading2", name="Heading 2", size_pt=15.0, bold=True, color="accent"
+    )
+    styles["Heading3"] = ParagraphStyle(
+        style_id="Heading3", name="Heading 3", size_pt=13.0, bold=True, color="accent2"
+    )
+    styles["Heading4"] = ParagraphStyle(
+        style_id="Heading4", name="Heading 4", size_pt=12.0, bold=True, color="accent2"
+    )
+    quelle = _replace(ifjn, styles=styles)
+
+    built = build_reference_docx(quelle, tmp_path / "reference.docx")
     back = import_docx(built, name="zurueck")
 
-    assert back.colors.get("accent") == ifjn.colors["accent"]
-    assert back.colors.get("accent2") == ifjn.colors["accent2"]
-    assert back.colors.get("rule") == ifjn.colors["rule"]
+    assert back.colors.get("accent") == quelle.colors["accent"]
+    assert back.colors.get("accent2") == quelle.colors["accent2"]
+    assert back.colors.get("rule") == quelle.colors["rule"]
 
 
 @pandoc_required
@@ -688,3 +740,613 @@ def test_import_keeps_page_size_free_of_rounding_artefacts(
     page = import_docx(built, name="zurueck").page
     assert page.width_mm == ifjn.page.width_mm
     assert page.height_mm == ifjn.page.height_mm
+
+
+# ---------------------------------------------------------------------------
+# Vorschau
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        ("de-DE", "Inhaltsverzeichnis"),
+        ("de", "Inhaltsverzeichnis"),
+        ("DE_de", "Inhaltsverzeichnis"),
+        ("en-GB", "Table of Contents"),
+        ("nl", "Inhoudsopgave"),
+    ],
+)
+def test_toc_title_follows_the_language(language: str, expected: str):
+    assert toc_title_for(language) == expected
+
+
+@pytest.mark.parametrize("language", ["", "   ", "kl-KL", "zz"])
+def test_toc_title_stays_silent_for_unknown_languages(language: str):
+    """Lieber Pandocs Vorgabe als eine erfundene Uebersetzung."""
+    assert toc_title_for(language) is None
+
+
+def test_sample_markdown_exercises_every_mapped_class(ifjn: LayoutDefinition):
+    """Wer eine Klasse ergaenzt, muss sie in der Vorschau wiederfinden."""
+    sample = build_sample_markdown(ifjn)
+    for cls in ifjn.classmap:
+        assert f"::: {{.{cls}}}" in sample, f"Klasse .{cls} fehlt im Musterinhalt"
+
+
+def test_sample_markdown_reacts_to_a_new_class(ifjn: LayoutDefinition):
+    from dataclasses import replace
+
+    extended = ifjn.with_style(ParagraphStyle(style_id="Merksatz", name="Merksatz"))
+    extended = replace(
+        extended, classmap={**extended.classmap, "merksatz": "Merksatz"}
+    )
+    assert "::: {.merksatz}" in build_sample_markdown(extended)
+
+
+def test_sample_markdown_carries_the_layout_label(ifjn: LayoutDefinition):
+    assert ifjn.label in build_sample_markdown(ifjn)
+
+
+@pandoc_required
+def test_preview_without_pdf_still_yields_a_docx(ifjn: LayoutDefinition, tmp_path: Path):
+    result = render_preview(ifjn, tmp_path, to_pdf=False)
+    assert result.docx.is_file()
+    assert result.pdf is None
+    assert result.complete is False
+    assert zipfile.is_zipfile(result.docx)
+
+
+@pandoc_required
+def test_preview_writes_the_reference_and_filter_beside_it(
+    ifjn: LayoutDefinition, tmp_path: Path
+):
+    render_preview(ifjn, tmp_path, to_pdf=False)
+    assert (tmp_path / "reference.docx").is_file()
+    assert (tmp_path / "classmap.lua").is_file()
+    assert (tmp_path / "vorschau.md").is_file()
+
+
+@pandoc_required
+def test_preview_translates_the_table_of_contents(ifjn: LayoutDefinition, tmp_path: Path):
+    """Regression: ohne ``toc-title`` stand hier "Table of Contents"."""
+    result = render_preview(ifjn, tmp_path, to_pdf=False)
+    document = zipfile.ZipFile(result.docx).read("word/document.xml").decode("utf-8")
+    texts = [
+        node.text or ""
+        for node in ET.fromstring(document).iter(qn("t"))
+    ]
+    assert "Inhaltsverzeichnis" in texts
+    assert "Table of Contents" not in texts
+
+
+@pandoc_required
+def test_preview_applies_the_named_styles(ifjn: LayoutDefinition, tmp_path: Path):
+    """Der Lua-Filter muss die Klassen wirklich auf Formate abbilden."""
+    result = render_preview(ifjn, tmp_path, to_pdf=False)
+    document = zipfile.ZipFile(result.docx).read("word/document.xml").decode("utf-8")
+    used = {
+        node.get(qn("val"))
+        for node in ET.fromstring(document).iter(qn("pStyle"))
+    }
+    for style_id in ifjn.classmap.values():
+        assert style_id in used, f"Format {style_id} taucht im Dokument nicht auf"
+
+
+@pandoc_required
+def test_preview_accepts_its_own_sample(ifjn: LayoutDefinition, tmp_path: Path):
+    sample = "Nur ein Satz.\n"
+    result = render_preview(ifjn, tmp_path, sample_markdown=sample, to_pdf=False)
+    assert result.markdown.read_text(encoding="utf-8") == sample
+
+
+@pandoc_required
+def test_preview_reports_a_missing_libreoffice_instead_of_failing(
+    ifjn: LayoutDefinition, tmp_path: Path
+):
+    """Ohne LibreOffice gibt es die .docx -- und einen Hinweis, keinen Absturz."""
+    result = render_preview(ifjn, tmp_path, soffice="c:/gibt/es/nicht.exe")
+    assert result.pdf is None
+    assert result.docx.is_file()
+    assert result.complete is False
+    assert "c:/gibt/es/nicht.exe" in result.note
+
+
+def test_an_explicit_pandoc_path_is_binding():
+    """Ein Vertipper darf nicht heimlich ein anderes Pandoc benutzen."""
+    assert find_pandoc("c:/gibt/es/nicht.exe") is None
+
+
+def test_an_explicit_soffice_path_is_binding():
+    assert find_soffice("c:/gibt/es/nicht.exe") is None
+
+
+@pandoc_required
+def test_a_wrong_pandoc_path_names_itself_in_the_error(
+    ifjn: LayoutDefinition, tmp_path: Path
+):
+    with pytest.raises(PreviewError, match="gibt/es/nicht"):
+        render_preview(ifjn, tmp_path, pandoc="c:/gibt/es/nicht.exe", to_pdf=False)
+
+
+@pandoc_required
+@soffice_required
+@pytest.mark.slow
+def test_preview_produces_a_real_pdf(ifjn: LayoutDefinition, tmp_path: Path):
+    result = render_preview(ifjn, tmp_path)
+    assert result.complete, result.note
+    assert result.pdf is not None and result.pdf.stat().st_size > 1000
+    assert result.pdf.read_bytes().startswith(b"%PDF")
+
+
+# ---------------------------------------------------------------------------
+# Voraussetzungen
+# ---------------------------------------------------------------------------
+
+
+def test_requirements_name_both_programs():
+    names = [r.name for r in check_requirements()]
+    assert names == ["Pandoc", "LibreOffice"]
+
+
+def test_pandoc_is_essential_and_libreoffice_is_not():
+    by_name = {r.name: r for r in check_requirements()}
+    assert by_name["Pandoc"].essential is True
+    assert by_name["LibreOffice"].essential is False
+
+
+def test_a_missing_pandoc_blocks_but_a_missing_libreoffice_does_not():
+    """Ohne Pandoc geht nichts; ohne LibreOffice fehlt nur das Bild."""
+    assert is_blocked(check_requirements(pandoc="x/nein.exe")) is True
+    assert is_blocked(check_requirements(soffice="x/nein.exe")) is False
+
+
+def test_summary_is_empty_when_everything_is_there():
+    found = [r for r in check_requirements() if r.ok]
+    if len(found) == 2:
+        assert summary(check_requirements()) == ""
+
+
+def test_summary_explains_the_consequence_not_just_the_name():
+    text = summary(check_requirements(pandoc="x/nein.exe", soffice="x/nein.exe"))
+    assert "Pandoc fehlt." in text
+    assert "LibreOffice fehlt." in text
+    # Der Name allein hilft niemandem -- die Folge muss dastehen.
+    assert "Vorschau" in text
+    assert "Quarto" in text
+
+
+def test_missing_lists_the_essential_one_first():
+    gaps = missing(check_requirements(pandoc="x/nein.exe", soffice="x/nein.exe"))
+    assert [r.name for r in gaps] == ["Pandoc", "LibreOffice"]
+
+
+def test_missing_is_empty_when_nothing_is_missing():
+    assert missing([r for r in check_requirements() if r.ok]) == []
+
+
+# ---------------------------------------------------------------------------
+# Herkunft der Absatzformate
+# ---------------------------------------------------------------------------
+
+
+def test_styles_used_by_the_classmap_count_as_content(ifjn: LayoutDefinition):
+    by_style = origins(ifjn)
+    for style_id in ifjn.classmap.values():
+        assert by_style[style_id] is StyleOrigin.CONTENT
+
+
+def test_pandoc_styles_count_as_standard(ifjn: LayoutDefinition):
+    assert origin_of("BodyText", ifjn) is StyleOrigin.STANDARD
+    assert origin_of("Heading1", ifjn) is StyleOrigin.STANDARD
+    assert origin_of("Title", ifjn) is StyleOrigin.STANDARD
+
+
+def test_word_builtins_count_as_standard_too(ifjn: LayoutDefinition):
+    """Footer und die IVZ-Ebenen stehen nicht in Pandocs Basisvorlage."""
+    assert "Footer" not in PANDOC_STYLE_IDS
+    assert "TOC1" not in PANDOC_STYLE_IDS
+    assert origin_of("Footer", ifjn) is StyleOrigin.STANDARD
+    assert origin_of("TOC1", ifjn) is StyleOrigin.STANDARD
+
+
+def test_an_own_style_without_a_class_is_flagged_as_unused(ifjn: LayoutDefinition):
+    """Der eigentliche Gewinn: ein Format, auf das nichts zeigt."""
+    extended = ifjn.with_style(ParagraphStyle(style_id="Merksatz", name="Merksatz"))
+    assert origin_of("Merksatz", extended) is StyleOrigin.UNUSED
+
+
+def test_a_mapped_class_turns_a_standard_style_into_a_content_style(
+    ifjn: LayoutDefinition,
+):
+    """Wer BodyText an eine eigene Klasse haengt, macht es zu seinem Format."""
+    from dataclasses import replace
+
+    hooked = replace(ifjn, classmap={**ifjn.classmap, "flies": "BodyText"})
+    assert origin_of("BodyText", hooked) is StyleOrigin.CONTENT
+
+
+def test_every_style_gets_exactly_one_origin(ifjn: LayoutDefinition):
+    by_style = origins(ifjn)
+    assert set(by_style) == set(ifjn.styles)
+    assert sum(counts(ifjn).values()) == len(ifjn.styles)
+
+
+def test_is_standard_does_not_depend_on_a_definition():
+    assert is_standard("BodyText") is True
+    assert is_standard("Footer") is True
+    assert is_standard("Prompt-Frage") is False
+
+
+def test_ifjn_splits_into_four_own_and_the_rest_inherited(ifjn: LayoutDefinition):
+    tally = counts(ifjn)
+    assert tally[StyleOrigin.CONTENT] == 4
+    assert tally[StyleOrigin.UNUSED] == 0
+    assert tally[StyleOrigin.STANDARD] == len(ifjn.styles) - 4
+
+
+# ---------------------------------------------------------------------------
+# Unterprozesse ohne Konsolenfenster
+# ---------------------------------------------------------------------------
+
+
+def test_run_hidden_suppresses_the_console_window():
+    """Regression: beim Oeffnen blitzten Terminalfenster auf."""
+    from unittest import mock
+
+    with mock.patch("tools.doclayout.process.subprocess.run") as fake:
+        run_hidden(["irgendwas"], capture_output=True)
+    assert fake.call_args.kwargs["creationflags"] & NO_WINDOW == NO_WINDOW
+
+
+def test_run_hidden_adds_to_existing_flags_instead_of_replacing_them():
+    """Ein Aufrufer, der eigene Flags mitgibt, darf sie nicht verlieren."""
+    import subprocess as sp
+    from unittest import mock
+
+    own = getattr(sp, "CREATE_NEW_PROCESS_GROUP", 0x200)
+    with mock.patch("tools.doclayout.process.subprocess.run") as fake:
+        run_hidden(["irgendwas"], creationflags=own)
+    flags = fake.call_args.kwargs["creationflags"]
+    assert flags & own == own
+    assert flags & NO_WINDOW == NO_WINDOW
+
+
+def test_no_module_starts_a_process_without_the_helper():
+    """Jeder neue subprocess-Aufruf muss ueber run_hidden laufen."""
+    import re
+
+    package = Path(__file__).resolve().parent.parent / "tools" / "doclayout"
+    # ``_uno_worker.py`` ist die eine Ausnahme, und sie ist erzwungen: Der
+    # Vorgang laeuft mit dem Python von LibreOffice und kann ``run_hidden``
+    # deshalb gar nicht importieren. Er traegt die Regel stattdessen selbst --
+    # nachgeprueft im Test darunter.
+    ausnahmen = {"process.py", "_uno_worker.py"}
+    offenders = []
+    for source in package.rglob("*.py"):
+        if source.name in ausnahmen:
+            continue
+        text = source.read_text(encoding="utf-8")
+        if re.search(r"subprocess\.(run|Popen|call|check_output|check_call)\(", text):
+            offenders.append(source.name)
+    assert offenders == [], f"Prozessstart ohne run_hidden: {offenders}"
+
+
+def test_the_uno_worker_hides_its_window_on_its_own():
+    """Die Ausnahme darf nicht zum Schlupfloch werden.
+
+    Der Vorgang startet LibreOffice selbst. Ohne ``CREATE_NO_WINDOW`` blitzte
+    bei jeder Vorschau ein schwarzes Fenster auf -- genau das, wogegen
+    ``run_hidden`` ueberhaupt gebaut wurde.
+    """
+    worker = (
+        Path(__file__).resolve().parent.parent
+        / "tools" / "doclayout" / "_uno_worker.py"
+    )
+    text = worker.read_text(encoding="utf-8")
+    assert "CREATE_NO_WINDOW" in text
+    assert "creationflags=NO_WINDOW" in text
+
+
+
+# ---------------------------------------------------------------------------
+# Rueckfallebene
+# ---------------------------------------------------------------------------
+
+
+def test_the_reference_layout_exists():
+    """``IFJN_Referenz`` ist der Stand, auf den man immer zurueck kann."""
+    assert "IFJN_Referenz" in {p.stem for p in available_layouts()}
+
+
+def test_the_reference_layout_is_buildable():
+    assert load_layout("IFJN_Referenz").validate() == []
+
+
+def test_the_reference_layout_carries_every_pandoc_style():
+    """Fehlt eines, waere die Rueckfallebene keine mehr.
+
+    Die Liste stammt aus Pandocs Basisvorlage; wer im Referenz-Layout etwas
+    loescht, soll das hier erfahren und nicht erst an einer .docx, in der ein
+    Bildtitel oder ein Literaturverzeichnis unformatiert bleibt.
+    """
+    from tools.doclayout.origins import PANDOC_STYLE_IDS
+
+    vorhanden = set(load_layout("IFJN_Referenz").styles)
+    fehlend = sorted(PANDOC_STYLE_IDS - vorhanden)
+    assert fehlend == [], f"im Referenz-Layout fehlen: {fehlend}"
+
+
+def test_the_reference_layout_carries_the_word_builtins():
+    """Fusszeile und Verzeichnisebenen schreibt doclayout selbst."""
+    vorhanden = set(load_layout("IFJN_Referenz").styles)
+    for style_id in ("Footer", "TOC1", "TOC2", "TOC3", "TOCHeading"):
+        assert style_id in vorhanden, f"{style_id} fehlt im Referenz-Layout"
+
+
+def test_the_reference_layout_keeps_the_content_styles():
+    """Ohne sie waere es eine Vorlage fuer irgendein Buch, nicht fuer deines."""
+    definition = load_layout("IFJN_Referenz")
+    assert set(definition.classmap) >= {"prompt", "prompt-separator"}
+    for style_id in definition.classmap.values():
+        assert style_id in definition.styles
+
+
+# ---------------------------------------------------------------------------
+# Was «geerbt» bedeutet
+# ---------------------------------------------------------------------------
+
+
+def test_a_style_without_a_size_inherits_the_base_size(ifjn: LayoutDefinition):
+    """«geerbt» allein ist eine Auskunft, die nichts sagt."""
+    from dataclasses import replace as _replace
+
+    d = _replace(
+        ifjn,
+        styles={**ifjn.styles, "Ohne": ParagraphStyle(style_id="Ohne")},
+    )
+    assert d.styles["Ohne"].size_pt is None
+    assert d.resolve_size_pt("Ohne") == d.typography.base_size_pt
+    assert d.size_origin("Ohne") is None
+
+
+def test_a_size_is_inherited_through_the_chain(ifjn: LayoutDefinition):
+    from dataclasses import replace as _replace
+
+    d = _replace(
+        ifjn,
+        styles={
+            **ifjn.styles,
+            "Gross": ParagraphStyle(style_id="Gross", size_pt=22.0),
+            "Erbe": ParagraphStyle(style_id="Erbe", based_on="Gross"),
+            "Enkel": ParagraphStyle(style_id="Enkel", based_on="Erbe"),
+        },
+    )
+    assert d.resolve_size_pt("Enkel") == 22.0
+    assert d.size_origin("Enkel") == "Gross"
+
+
+def test_an_own_size_wins_over_the_inherited_one(ifjn: LayoutDefinition):
+    from dataclasses import replace as _replace
+
+    d = _replace(
+        ifjn,
+        styles={
+            **ifjn.styles,
+            "Gross": ParagraphStyle(style_id="Gross", size_pt=22.0),
+            "Eigen": ParagraphStyle(style_id="Eigen", based_on="Gross", size_pt=9.0),
+        },
+    )
+    assert d.resolve_size_pt("Eigen") == 9.0
+    assert d.size_origin("Eigen") == "Eigen"
+
+
+def test_a_circular_inheritance_does_not_hang(ifjn: LayoutDefinition):
+    """Eine kaputte Definition darf die Oberflaeche nicht einfrieren."""
+    from dataclasses import replace as _replace
+
+    d = _replace(
+        ifjn,
+        styles={
+            **ifjn.styles,
+            "A": ParagraphStyle(style_id="A", based_on="B"),
+            "B": ParagraphStyle(style_id="B", based_on="A"),
+        },
+    )
+    assert d.resolve_size_pt("A") == d.typography.base_size_pt
+    assert d.size_origin("A") is None
+
+
+def test_an_unknown_style_falls_back_to_the_base_size(ifjn: LayoutDefinition):
+    assert ifjn.resolve_size_pt("GibtsNicht") == ifjn.typography.base_size_pt
+
+
+# ---------------------------------------------------------------------------
+# Welche Grundlage ein Format haben darf
+# ---------------------------------------------------------------------------
+
+
+def test_inheritance_is_followed_across_steps(ifjn: LayoutDefinition):
+    from dataclasses import replace as _replace
+
+    d = _replace(
+        ifjn,
+        styles={
+            **ifjn.styles,
+            "Opa": ParagraphStyle(style_id="Opa"),
+            "Vater": ParagraphStyle(style_id="Vater", based_on="Opa"),
+            "Kind": ParagraphStyle(style_id="Kind", based_on="Vater"),
+        },
+    )
+    assert d.inherits_from("Kind", "Opa") is True
+    assert d.inherits_from("Opa", "Kind") is False
+
+
+def test_a_style_is_never_its_own_base(ifjn: LayoutDefinition):
+    assert "BodyText" not in ifjn.possible_bases("BodyText")
+
+
+def test_its_own_descendants_are_not_offered(ifjn: LayoutDefinition):
+    """Regression: »BodyText basiert auf Fachtext« ergab einen Ringschluss.
+
+    ``Fachtext`` baut selbst auf ``BodyText`` auf. Die Auswahl bot es
+    trotzdem an, und der Kreis fiel erst hinterher als Warnung auf.
+    """
+    assert ifjn.styles["Fachtext"].based_on == "BodyText"
+    assert "Fachtext" not in ifjn.possible_bases("BodyText")
+
+
+def test_an_unrelated_style_stays_available(ifjn: LayoutDefinition):
+    """Nur die Nachkommen fallen weg, nicht die halbe Bibliothek.
+
+    Die Formate stellt der Test sich selbst: Das Layout aus der Bibliothek
+    gehoert dem Benutzer und darf jederzeit anders aussehen.
+    """
+    from dataclasses import replace as _replace
+
+    d = _replace(
+        ifjn,
+        styles={
+            "Basis": ParagraphStyle(style_id="Basis"),
+            "Kind": ParagraphStyle(style_id="Kind", based_on="Basis"),
+            "Fremd": ParagraphStyle(style_id="Fremd"),
+        },
+        classmap={},
+    )
+    moeglich = d.possible_bases("Fremd")
+    assert "Basis" in moeglich
+    assert "Kind" in moeglich
+    assert d.possible_bases("Basis") == ["Fremd"]
+
+
+def test_no_offered_base_creates_a_cycle(ifjn: LayoutDefinition):
+    """Die eigentliche Zusicherung: Was angeboten wird, ist unbedenklich."""
+    from dataclasses import replace as _replace
+
+    for style_id in sorted(ifjn.styles):
+        for basis in ifjn.possible_bases(style_id):
+            geaendert = _replace(
+                ifjn,
+                styles={
+                    **ifjn.styles,
+                    style_id: _replace(ifjn.styles[style_id], based_on=basis),
+                },
+            )
+            zyklen = [p for p in geaendert.validate() if "zyklisch" in p]
+            assert zyklen == [], f"{style_id} auf {basis} ergibt {zyklen}"
+
+
+def test_an_existing_cycle_does_not_hang(ifjn: LayoutDefinition):
+    """Eine schon kaputte Definition darf die Auswahl nicht einfrieren."""
+    from dataclasses import replace as _replace
+
+    d = _replace(
+        ifjn,
+        styles={
+            **ifjn.styles,
+            "A": ParagraphStyle(style_id="A", based_on="B"),
+            "B": ParagraphStyle(style_id="B", based_on="A"),
+        },
+    )
+    assert d.inherits_from("A", "GibtsNicht") is False
+    assert isinstance(d.possible_bases("A"), list)
+
+
+# ---------------------------------------------------------------------------
+# Tabellensatz: der schmale Satzspiegel
+# ---------------------------------------------------------------------------
+#
+# In einem 135-mm-Band bleiben fuer eine fuenfspaltige Tabelle rund 20 mm je
+# Spalte. Im Grundgrad brach dort jede Telefonnummer um, und "Besonderheit"
+# fiel senkrecht auseinander -- die Klinikliste des Reisefuehrers belegte drei
+# Seiten statt einer. Der Schriftgrad muss deshalb getrennt einstellbar sein.
+
+
+def test_the_table_size_is_optional():
+    """Ohne Angabe bleibt alles wie bisher -- kein stiller Eingriff."""
+    from tools.doclayout.schema import Typography
+
+    assert Typography.from_dict({}).table_size_pt is None
+    assert "table_size_pt" not in Typography.from_dict({}).to_dict()
+
+
+def test_the_table_size_survives_a_round_trip():
+    from tools.doclayout.schema import Typography
+
+    typography = Typography.from_dict({"table_size_pt": 8.5})
+    assert typography.table_size_pt == 8.5
+    assert Typography.from_dict(typography.to_dict()).table_size_pt == 8.5
+
+
+def test_an_absurd_table_size_is_rejected():
+    from tools.doclayout.schema import Typography
+
+    with pytest.raises(LayoutError, match="table_size_pt"):
+        Typography.from_dict({"table_size_pt": 200})
+
+
+@pandoc_required
+def test_the_table_size_lands_in_the_table_style(tmp_path: Path, ifjn: LayoutDefinition):
+    """Es muss die Tabellen-Formatvorlage sein, nicht ein Absatzformat.
+
+    Pandoc legt Tabellenzellen **und** enggesetzte Aufzaehlungen in dasselbe
+    ``Compact``. Wer dort den Grad senkt, schrumpft jede Liste des Buches mit.
+    """
+    from dataclasses import replace as _replace
+
+    definition = _replace(
+        ifjn, typography=_replace(ifjn.typography, table_size_pt=8.5)
+    )
+    ziel = build_reference_docx(definition, tmp_path / "ref.docx")
+    styles = ET.fromstring(zipfile.ZipFile(ziel).read("word/styles.xml"))
+    tabelle = next(
+        s for s in styles.findall(qn("style")) if s.get(qn("styleId")) == "Table"
+    )
+    groessen = [
+        c.get(qn("val"))
+        for c in tabelle.find(qn("rPr"))
+        if local_name(c.tag) in ("sz", "szCs")
+    ]
+    assert groessen == ["17", "17"], "8,5 pt sind 17 Halbpunkte"
+
+    compact = next(
+        (s for s in styles.findall(qn("style")) if s.get(qn("styleId")) == "Compact"),
+        None,
+    )
+    if compact is not None and compact.find(qn("rPr")) is not None:
+        assert not [
+            c for c in compact.find(qn("rPr")) if local_name(c.tag) == "sz"
+        ], "Compact darf keinen eigenen Grad bekommen -- sonst schrumpfen die Listen"
+
+
+@pandoc_required
+def test_the_table_style_keeps_its_schema_order(tmp_path: Path, ifjn: LayoutDefinition):
+    """``w:rPr`` gehoert laut CT_Style vor ``w:tblPr``.
+
+    Steht es dahinter, oeffnet Word die Vorlage ohne Formate -- derselbe
+    Fehlermodus, der die Absatzeigenschaften schon einmal gekostet hat.
+    """
+    from dataclasses import replace as _replace
+
+    definition = _replace(
+        ifjn, typography=_replace(ifjn.typography, table_size_pt=9.0)
+    )
+    ziel = build_reference_docx(definition, tmp_path / "ref.docx")
+    styles = ET.fromstring(zipfile.ZipFile(ziel).read("word/styles.xml"))
+    tabelle = next(
+        s for s in styles.findall(qn("style")) if s.get(qn("styleId")) == "Table"
+    )
+    namen = [local_name(c.tag) for c in tabelle]
+    assert namen.index("rPr") < namen.index("tblPr")
+
+
+@pandoc_required
+def test_without_the_setting_the_table_style_stays_untouched(
+    tmp_path: Path, ifjn: LayoutDefinition
+):
+    ziel = build_reference_docx(ifjn, tmp_path / "ref.docx")
+    styles = ET.fromstring(zipfile.ZipFile(ziel).read("word/styles.xml"))
+    tabelle = next(
+        s for s in styles.findall(qn("style")) if s.get(qn("styleId")) == "Table"
+    )
+    assert tabelle.find(qn("rPr")) is None

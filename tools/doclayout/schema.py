@@ -6,8 +6,10 @@ Zielformaten, die sie erzeugt: eine ``reference.docx`` ist eine ZIP-Datei mit
 OOXML darin, die Typst-Partials sind Code.
 
     IFJN_layout.yaml  --+--> reference.docx   (Pandoc/DOCX)
-                        +--> page.typ         (Quarto/Typst)
-                        +--> classmap.lua     (Klasse -> Absatzformat)
+                        +--> classmap.lua    (Klasse -> Absatzformat)
+
+Mehr nicht: Die Schicht ist DOCX-only. Warum sie weder Typst-Partials erzeugt
+noch ``format.typst`` schreibt, steht in ``tools/doclayout/__init__.py``.
 
 Farbwerte duerfen entweder ein 6-stelliger Hex-Wert (``"1F3864"``) oder der
 Name eines Eintrags aus ``colors`` sein (``"accent"``). Die Indirektion ist der
@@ -36,6 +38,41 @@ class LayoutError(ValueError):
     """Ungueltige Layout-Definition -- mit einer Meldung fuer den Editor."""
 
 
+def _zahl(data: Any, key: str, default: float, *, wo: str) -> float:
+    """Ein Zahlenfeld aus einer YAML-Zuordnung -- oder eine lesbare Meldung.
+
+    ``float("breit")`` wirft ein rohes ``ValueError``, ``float(None)`` ein
+    ``TypeError``. Beides fing niemand: :class:`LayoutError` **erbt** von
+    ``ValueError``, weshalb ein ``except LayoutError`` daran vorbeigeht. Eine
+    von Hand geaenderte Datei riss damit den Editor mit -- beim Oeffnen, beim
+    Speichern (das Klassenverzeichnis liest alle Layouts) und an der CLI,
+    jedes Mal mit einem Traceback statt einer Auskunft.
+
+    Ein leerer Eintrag (``width_mm:`` ohne Wert) gilt als "nicht gesetzt" und
+    bekommt die Vorgabe. Das ist die freundliche Lesart und die einzige, die
+    einem halb ausgefuellten Layout nicht im Weg steht.
+    """
+    value = data.get(key) if isinstance(data, dict) else None
+    if value is None:
+        return float(default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise LayoutError(
+            f"{wo}: '{key}' muss eine Zahl sein, steht aber als {value!r} da."
+        ) from None
+
+
+def _ganzzahl(value: Any, *, wo: str, key: str) -> int:
+    """Wie :func:`_zahl`, nur ganzzahlig (Gliederungsebenen)."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise LayoutError(
+            f"{wo}: '{key}' muss eine ganze Zahl sein, steht aber als {value!r} da."
+        ) from None
+
+
 # ---------------------------------------------------------------------------
 # Bausteine
 # ---------------------------------------------------------------------------
@@ -55,9 +92,9 @@ class Border:
         if not isinstance(data, dict):
             raise LayoutError(f"Rahmen muss eine Zuordnung sein, nicht {type(data).__name__}")
         return cls(
-            width_pt=float(data.get("width_pt", 0.5)),
+            width_pt=_zahl(data, "width_pt", 0.5, wo="Rahmen"),
             color=str(data.get("color", "rule")),
-            space_pt=float(data.get("space_pt", 3.0)),
+            space_pt=_zahl(data, "space_pt", 3.0, wo="Rahmen"),
             style=str(data.get("style", "single")),
         )
 
@@ -84,10 +121,10 @@ class Indent:
         if not isinstance(data, dict):
             raise LayoutError(f"Einzug muss eine Zuordnung sein, nicht {type(data).__name__}")
         return cls(
-            left_mm=float(data.get("left_mm", 0.0)),
-            right_mm=float(data.get("right_mm", 0.0)),
-            hanging_mm=float(data.get("hanging_mm", 0.0)),
-            first_line_mm=float(data.get("first_line_mm", 0.0)),
+            left_mm=_zahl(data, "left_mm", 0.0, wo="Einzug"),
+            right_mm=_zahl(data, "right_mm", 0.0, wo="Einzug"),
+            hanging_mm=_zahl(data, "hanging_mm", 0.0, wo="Einzug"),
+            first_line_mm=_zahl(data, "first_line_mm", 0.0, wo="Einzug"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -133,6 +170,34 @@ class ParagraphStyle:
     shading: Optional[str] = None
     borders: dict[str, Border] = field(default_factory=dict)
 
+    def carries_formatting(self) -> bool:
+        """Traegt das Format eigene Gestaltung -- oder ist es nur ein Name?
+
+        ``based_on`` und ``next_style`` zaehlen bewusst nicht mit: Sie sagen,
+        woran sich das Format anlehnt, nicht wie es aussieht. Ein frisch
+        angelegtes Format hat beides und sieht trotzdem aus wie Fliesstext.
+        """
+        return any(
+            (
+                self.size_pt is not None,
+                self.bold,
+                self.italic,
+                self.color,
+                self.letter_spacing_pt is not None,
+                self.align,
+                self.space_before_pt is not None,
+                self.space_after_pt is not None,
+                self.line_height is not None,
+                not self.indent.is_empty(),
+                self.keep_next,
+                self.keep_lines,
+                self.page_break_before,
+                self.outline_level is not None,
+                self.shading,
+                self.borders,
+            )
+        )
+
     @property
     def display_name(self) -> str:
         return self.name or self.style_id
@@ -155,7 +220,9 @@ class ParagraphStyle:
 
         outline = data.get("outline_level")
         if outline is not None:
-            outline = int(outline)
+            outline = _ganzzahl(
+                outline, wo=f"Format '{style_id}'", key="outline_level"
+            )
             if not 0 <= outline <= 8:
                 raise LayoutError(
                     f"Format '{style_id}': outline_level={outline} ausserhalb 0..8"
@@ -174,8 +241,9 @@ class ParagraphStyle:
             borders[str(edge)] = Border.from_dict(spec)
 
         def _opt_float(key: str) -> Optional[float]:
-            value = data.get(key)
-            return None if value is None else float(value)
+            if data.get(key) is None:
+                return None
+            return _zahl(data, key, 0.0, wo=f"Format '{style_id}'")
 
         return cls(
             style_id=style_id,
@@ -250,10 +318,10 @@ class PageMargin:
         if not isinstance(data, dict):
             raise LayoutError("page.margin muss eine Zuordnung sein")
         return cls(
-            top_mm=float(data.get("top_mm", 20.0)),
-            bottom_mm=float(data.get("bottom_mm", 20.0)),
-            inner_mm=float(data.get("inner_mm", 25.0)),
-            outer_mm=float(data.get("outer_mm", 20.0)),
+            top_mm=_zahl(data, "top_mm", 20.0, wo="page.margin"),
+            bottom_mm=_zahl(data, "bottom_mm", 20.0, wo="page.margin"),
+            inner_mm=_zahl(data, "inner_mm", 25.0, wo="page.margin"),
+            outer_mm=_zahl(data, "outer_mm", 20.0, wo="page.margin"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -298,8 +366,8 @@ class Page:
                 f"page.footer.align='{align}' unbekannt "
                 f"(erlaubt: {', '.join(ALIGNMENTS)})"
             )
-        width = float(data.get("width_mm", 210.0))
-        height = float(data.get("height_mm", 297.0))
+        width = _zahl(data, "width_mm", 210.0, wo="page")
+        height = _zahl(data, "height_mm", 297.0, wo="page")
         if width <= 0 or height <= 0:
             raise LayoutError("page.width_mm und page.height_mm muessen > 0 sein")
         page = cls(
@@ -309,8 +377,8 @@ class Page:
             mirrored=bool(data.get("mirrored", False)),
             footer_page_number=bool(footer.get("page_number", True)),
             footer_align=align,
-            header_distance_mm=float(data.get("header_distance_mm", 12.5)),
-            footer_distance_mm=float(data.get("footer_distance_mm", 12.5)),
+            header_distance_mm=_zahl(data, "header_distance_mm", 12.5, wo="page"),
+            footer_distance_mm=_zahl(data, "footer_distance_mm", 12.5, wo="page"),
         )
         if page.text_width_mm <= 0:
             raise LayoutError(
@@ -342,6 +410,15 @@ class Typography:
     heading_font: str = ""
     mono_font: str = "Consolas"
     base_size_pt: float = 11.0
+    #: Schriftgrad in Tabellenzellen. ``None`` heisst: wie der Fliesstext.
+    #:
+    #: Der Grund ist ein schmaler Satzspiegel. In einem 135-mm-Band bleiben
+    #: fuer eine fuenfspaltige Tabelle rund 20 mm je Spalte -- im Grundgrad
+    #: bricht dort jede Telefonnummer um und ein Wort wie "Besonderheit" faellt
+    #: senkrecht auseinander. Der Wert landet in der Tabellen-Formatvorlage
+    #: ``Table``, nicht in den Absatzformaten: Aufzaehlungen benutzen dasselbe
+    #: ``Compact`` wie Tabellenzellen und duerfen nicht mitschrumpfen.
+    table_size_pt: Optional[float] = None
     line_height: float = 1.15
     language: str = "de-DE"
     hyphenation: bool = True
@@ -354,18 +431,26 @@ class Typography:
             data = {}
         if not isinstance(data, dict):
             raise LayoutError("typography muss eine Zuordnung sein")
-        size = float(data.get("base_size_pt", 11.0))
+        size = _zahl(data, "base_size_pt", 11.0, wo="typography")
         if not 4.0 <= size <= 72.0:
             raise LayoutError(f"typography.base_size_pt={size} ausserhalb 4..72")
+        tabelle = data.get("table_size_pt")
+        if tabelle is not None:
+            tabelle = _zahl(data, "table_size_pt", size, wo="typography")
+            if not 4.0 <= tabelle <= 72.0:
+                raise LayoutError(
+                    f"typography.table_size_pt={tabelle} ausserhalb 4..72"
+                )
         return cls(
             body_font=str(data.get("body_font", "Calibri")),
             heading_font=str(data.get("heading_font", "") or ""),
             mono_font=str(data.get("mono_font", "Consolas")),
             base_size_pt=size,
-            line_height=float(data.get("line_height", 1.15)),
+            table_size_pt=tabelle,
+            line_height=_zahl(data, "line_height", 1.15, wo="typography"),
             language=str(data.get("language", "de-DE")),
             hyphenation=bool(data.get("hyphenation", True)),
-            hyphenation_zone_mm=float(data.get("hyphenation_zone_mm", 5.0)),
+            hyphenation_zone_mm=_zahl(data, "hyphenation_zone_mm", 5.0, wo="typography"),
             hyphenate_caps=bool(data.get("hyphenate_caps", False)),
         )
 
@@ -375,6 +460,7 @@ class Typography:
             "heading_font": self.heading_font,
             "mono_font": self.mono_font,
             "base_size_pt": self.base_size_pt,
+            **({} if self.table_size_pt is None else {"table_size_pt": self.table_size_pt}),
             "line_height": self.line_height,
             "language": self.language,
             "hyphenation": self.hyphenation,
@@ -432,6 +518,79 @@ class LayoutDefinition:
 
     def style(self, style_id: str) -> Optional[ParagraphStyle]:
         return self.styles.get(style_id)
+
+    def inherits_from(self, style_id: str, ancestor: str) -> bool:
+        """Baut *style_id* -- direkt oder ueber Umwege -- auf *ancestor* auf?
+
+        Gebraucht wird das vor allem umgekehrt: Wer wissen will, welche
+        Formate ein anderes **nicht** als Grundlage nehmen duerfen, fragt
+        damit nach den eigenen Nachkommen. Ein Format auf einen seiner
+        Nachkommen zu stuetzen ergaebe einen Kreis.
+
+        Ein bereits vorhandener Kreis beendet die Suche, statt sie endlos
+        laufen zu lassen.
+        """
+        gesehen: set[str] = set()
+        aktuell: Optional[str] = style_id
+        while aktuell and aktuell not in gesehen:
+            gesehen.add(aktuell)
+            style = self.styles.get(aktuell)
+            if style is None:
+                return False
+            if style.based_on == ancestor:
+                return True
+            aktuell = style.based_on
+        return False
+
+    def possible_bases(self, style_id: str) -> list[str]:
+        """Formate, auf denen *style_id* aufbauen darf -- ohne Kreis.
+
+        Ausgeschlossen sind das Format selbst und alles, was seinerseits auf
+        ihm aufbaut.
+        """
+        return sorted(
+            name
+            for name in self.styles
+            if name != style_id and not self.inherits_from(name, style_id)
+        )
+
+    def resolve_size_pt(self, style_id: str) -> Optional[float]:
+        """Die Schriftgroesse, die fuer *style_id* tatsaechlich gilt.
+
+        Ein Format ohne eigene Groesse erbt sie von dem Format, auf dem es
+        aufbaut; hat auch das keine, gilt der Grundschriftgrad aus der
+        Typografie. «geerbt» allein ist eine Auskunft, die nichts sagt -- wer
+        gestaltet, will die Zahl sehen.
+
+        Ringschluesse (A baut auf B, B auf A) beenden die Suche, statt sie
+        endlos laufen zu lassen: Eine kaputte Definition darf die Oberflaeche
+        nicht einfrieren.
+        """
+        gesehen: set[str] = set()
+        aktuell: Optional[str] = style_id
+        while aktuell and aktuell not in gesehen:
+            gesehen.add(aktuell)
+            style = self.styles.get(aktuell)
+            if style is None:
+                break
+            if style.size_pt is not None:
+                return style.size_pt
+            aktuell = style.based_on
+        return self.typography.base_size_pt
+
+    def size_origin(self, style_id: str) -> Optional[str]:
+        """Von welchem Format die Groesse kommt -- ``None`` heisst: Typografie."""
+        gesehen: set[str] = set()
+        aktuell: Optional[str] = style_id
+        while aktuell and aktuell not in gesehen:
+            gesehen.add(aktuell)
+            style = self.styles.get(aktuell)
+            if style is None:
+                break
+            if style.size_pt is not None:
+                return aktuell
+            aktuell = style.based_on
+        return None
 
     def with_style(self, style: ParagraphStyle) -> "LayoutDefinition":
         """Kopie mit ersetztem/ergaenztem Format -- der Editor arbeitet so."""
@@ -586,7 +745,11 @@ def _style_cycles(styles: dict[str, ParagraphStyle]) -> Iterable[list[str]]:
         while current and current in styles:
             if current in chain:
                 cycle = chain[chain.index(current):] + [current]
-                key = tuple(cycle)
+                # Derselbe Ring, von einem anderen Format aus betreten, ergibt
+                # dieselbe Menge in anderer Reihenfolge (A->B->A und B->A->B).
+                # Verglichen wird deshalb die Menge, nicht die Kette -- sonst
+                # stand ein Ringschluss so oft in der Liste, wie er Glieder hat.
+                key = tuple(sorted(set(cycle)))
                 if key not in seen_cycles:
                     seen_cycles.add(key)
                     yield cycle

@@ -14,7 +14,10 @@ from frontmatter_parser import parse as fm_parse
 from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues
 from services.studio_adapter import StudioAdapter
 from services.constants import StatusFg as _StatusFg
+from services.render_progress import TYPESET_PHASES as _TYPESET_PHASES
+from services.render_progress import RenderProgress as _RenderProgress
 from services.render_service import RenderService as _RenderService
+from services.render_service import SAFE_RENDER_RC_CANCELLED as _SAFE_RENDER_RC_CANCELLED
 
 messagebox = ui_hooks.messagebox
 filedialog = ui_hooks.filedialog
@@ -940,6 +943,24 @@ class ExportManager:
             base_fmt = selected["format"]
             selected_tpl = selected["template"]
 
+            # --- Der Word-Weg ---
+            # Ist zum Format ``docx`` eine Formatvorlage gewaehlt, wird das Buch
+            # ueber Pandoc gesetzt statt ueber Quarto. Der Grund ist nicht
+            # Geschmack, sondern ein Unterschied im Ergebnis: Pandoc schreibt in
+            # die ``.docx`` nur ein Verzeichnis*feld*, und ``soffice
+            # --convert-to`` fuellt es nie -- die PDF traegt dann die
+            # Ueberschrift "Inhaltsverzeichnis" und darunter nichts. Der
+            # doclayout-Weg baut es auf (siehe ``tools/doclayout/uno_bridge``),
+            # setzt den Umbruch dahinter und liefert ``.docx`` **und** PDF.
+            #
+            # Ohne Formatvorlage bleibt alles wie bisher: Dann rendert Quarto mit
+            # dem, was in der ``_quarto.yml`` steht.
+            doclayout_name = str(selected.get("doclayout") or "").strip()
+            if base_fmt == "docx" and doclayout_name:
+                self._start_doclayout_typeset(doclayout_name)
+                dispatched = True
+                return
+
             # --- DIE NEUE EXTENSION-WEICHE ---
             # Phase 2 / Schritt 2.3a: Format-Auflösung an RenderService delegiert.
             # Logik lebt in `services/render_service.py::resolve_target_format`
@@ -1079,6 +1100,10 @@ class ExportManager:
             if render_channel:
                 self._log(f"📦 Ziel-Kanal: {render_channel}", "info")
             self._start_render_log(target_fmt, selected_tpl)
+            self._open_progress(
+                f"Buch wird gerendert ({target_fmt})",
+                Path(self._current_book()).name if self._current_book() else "",
+            )
 
             # Phase 2 / Schritt 2.3c-Mini: Render-Orchestrierung im RenderService.
             # Threading bleibt hier (UI-Lifecycle); die synchrone Orchestrierung
@@ -1086,9 +1111,21 @@ class ExportManager:
             def render_thread():
                 def on_failure(return_code):
                     # Status-Farbwert ist UI-Konzern (StatusFg-Enum); lebt hier.
+                    # Ein Abbruch durch den Benutzer ist kein Fehlschlag -- ihn
+                    # als solchen zu melden schickt ihn auf die Suche nach einer
+                    # Ursache, die er selbst war.
+                    abgebrochen = return_code == _SAFE_RENDER_RC_CANCELLED
+                    text = "Render abgebrochen" if abgebrochen else "Render fehlgeschlagen"
+                    farbe = _StatusFg.WARNING if abgebrochen else _StatusFg.DANGER
+                    if abgebrochen:
+                        self._after(0, lambda: self._log("⛔ Render vom Benutzer abgebrochen.", "warning"))
+                    self._after(0, lambda: self._set_status(text, farbe))
                     self._after(
                         0,
-                        lambda: self._set_status("Render fehlgeschlagen", _StatusFg.DANGER),
+                        lambda: self._progress_close(
+                            ok=False,
+                            label="Abgebrochen" if abgebrochen else "Fehlgeschlagen",
+                        ),
                     )
 
                 try:
@@ -1105,12 +1142,167 @@ class ExportManager:
                     )
                 finally:
                     self._after(0, lambda: setattr(self, "_render_running", False))
+                    self._after(0, lambda: self._progress_close(ok=True))
 
             threading.Thread(target=render_thread, daemon=True).start()
             dispatched = True
         finally:
             if not dispatched:
                 self._render_running = False
+
+    # -- Der Word-Weg: Formatvorlage statt Quarto ---------------------------
+
+    def _start_doclayout_typeset(self, layout_name):
+        """Setzt das Buch mit einer Formatvorlage aus dem Layout-Editor.
+
+        Laeuft in einem eigenen Faden: Ein Band mit tausend Seiten braucht eine
+        halbe Minute, und ein eingefrorenes Fenster laedt dazu ein, die
+        Anwendung mitten im Lauf abzuschiessen.
+        """
+        from tools.doclayout.library import load_layout
+        from tools.doclayout.schema import LayoutError
+        from tools.doclayout.typeset import typeset_book
+
+        book = self._current_book()
+        if not book:
+            self._log("Kein Buch gewaehlt.", "error")
+            self._set_status("Kein Buch gewaehlt", _StatusFg.DANGER)
+            self._render_running = False
+            return
+        try:
+            definition = load_layout(layout_name)
+        except LayoutError as exc:
+            self._log(f"Formatvorlage «{layout_name}» nicht lesbar: {exc}", "error")
+            self._set_status("Formatvorlage fehlerhaft", _StatusFg.DANGER)
+            self._render_running = False
+            return
+
+        self._log(f"📄 Formatvorlage: {definition.label or definition.name}", "header")
+        self._set_status(f"Setze Buch mit «{layout_name}» ...", _StatusFg.INFO)
+        buch_pfad = Path(book)
+        # Der Word-Weg gibt keine Zeilen aus, an denen sich ablesen liesse, wie
+        # weit er ist -- Pandoc setzt das ganze Buch in einem Zug. Statt einen
+        # Fortschritt zu erfinden, stehen hier die Phasen, die es wirklich gibt.
+        self._open_progress("Buch wird gesetzt", buch_pfad.name)
+        self._progress_phase(_TYPESET_PHASES[0])
+
+        def typeset_thread():
+            try:
+                self._after(0, lambda: self._progress_phase(_TYPESET_PHASES[1]))
+                result = typeset_book(definition, buch_pfad)
+            except (LayoutError, OSError) as exc:
+                # Beides erwartbar: eine unbrauchbare Definition bzw. ein
+                # nicht lesbares Buch. Alles andere darf durchschlagen -- ein
+                # verschluckter Programmfehler waere teurer als ein Absturz.
+                self._after(0, lambda e=exc: self._doclayout_failed(str(e)))
+            else:
+                self._after(0, lambda r=result: self._doclayout_finished(r))
+            finally:
+                self._after(0, lambda: setattr(self, "_render_running", False))
+
+        threading.Thread(target=typeset_thread, daemon=True).start()
+
+    def _doclayout_finished(self, result):
+        """Meldet das Ergebnis -- und was Pandoc unterwegs zu sagen hatte."""
+        self._progress_close(ok=True)
+        self._log(f"✅ {len(result.chapters)} Kapiteldatei(en) gesetzt", "success")
+        self._log(f"📄 DOCX: {result.docx}", "success")
+        if result.pdf is not None:
+            self._log(f"📕 PDF : {result.pdf}", "success")
+            self._set_status("Buch gesetzt", _StatusFg.SUCCESS)
+            self._copy_to_clipboard(str(result.pdf))
+        else:
+            self._set_status("DOCX gesetzt (keine PDF)", _StatusFg.WARNING)
+        if result.note:
+            self._log(f"Hinweis: {result.note}", "warning")
+        # Pandocs Meldungen betreffen das Manuskript, nicht dieses Werkzeug --
+        # sie zu verschlucken hiesse, dem Autor eine Auskunft vorzuenthalten.
+        for zeile in result.warnings[:10]:
+            self._log(f"   {zeile}", "warning")
+        if len(result.warnings) > 10:
+            self._log(f"   ... und {len(result.warnings) - 10} weitere", "dim")
+        if result.pdf is not None:
+            self._fire_after_render_hook("docx", str(result.pdf))
+
+    def _doclayout_failed(self, grund):
+        self._progress_close(ok=False, label="Fehlgeschlagen")
+        self._log(f"❌ Buch konnte nicht gesetzt werden: {grund}", "error")
+        self._set_status("Satz fehlgeschlagen", _StatusFg.DANGER)
+
+    # -- Fortschrittsanzeige ------------------------------------------------
+
+    def _open_progress(self, titel, gegenstand):
+        """Oeffnet den Fortschrittsdialog -- oder eben nicht.
+
+        Ohne Oberflaeche (Tests, kopfloser Lauf) gibt es keinen Dialog und auch
+        keinen Fehler: Der Render ist wichtiger als seine Anzeige. ``None`` ist
+        deshalb ein gueltiger Zustand, mit dem alle Aufrufer rechnen.
+        """
+        self._progress = _RenderProgress(start_label="Render startet")
+        self._progress_dialog = None
+        try:
+            from PySide6.QtWidgets import QApplication
+
+            from ui_qt.dialogs.render_progress_dialog import RenderProgressDialog
+        except ImportError:
+            return None
+        # Ohne laufende Anwendung **nicht** einfach versuchen: Qt bricht beim
+        # Bau eines Widgets ohne ``QApplication`` den ganzen Prozess ab, statt
+        # eine Ausnahme zu werfen -- ein try/except fuehe daran vorbei. Gefunden
+        # beim ersten Testlauf: pytest starb ohne Zusammenfassung.
+        if QApplication.instance() is None:
+            return None
+        try:
+            dialog = RenderProgressDialog(
+                self._root(), title=titel, subject=gegenstand
+            )
+        except (RuntimeError, TypeError):
+            # Kein Qt-Hauptfenster (kopfloser Lauf) -- kein Grund abzubrechen.
+            return None
+        self._progress_dialog = dialog
+        dialog.show()
+        return dialog
+
+    def _progress_feed(self, zeile):
+        """Reicht eine Ausgabezeile an den Balken weiter. Laeuft im UI-Faden."""
+        fortschritt = getattr(self, "_progress", None)
+        dialog = getattr(self, "_progress_dialog", None)
+        if fortschritt is None or dialog is None:
+            return
+        stand = fortschritt.feed(zeile)
+        if stand is not None:
+            dialog.apply_step(stand)
+
+    def _progress_phase(self, stand):
+        """Meldet eine Phase ohne Ausgabezeile (Word-Weg)."""
+        fortschritt = getattr(self, "_progress", None)
+        dialog = getattr(self, "_progress_dialog", None)
+        if fortschritt is None:
+            return
+        neuer = fortschritt.phase(stand)
+        if neuer is not None and dialog is not None:
+            dialog.apply_step(neuer)
+
+    def _progress_close(self, ok=True, label=""):
+        dialog = getattr(self, "_progress_dialog", None)
+        self._progress_dialog = None
+        if dialog is None:
+            return
+        try:
+            dialog.finish(ok=ok, label=label)
+            dialog.deleteLater()
+        except RuntimeError:
+            # Schon abgeraeumt (Fenster zu) -- kein Grund zur Aufregung.
+            pass
+
+    def _progress_cancelled(self):
+        dialog = getattr(self, "_progress_dialog", None)
+        if dialog is None:
+            return False
+        try:
+            return bool(dialog.was_cancelled)
+        except RuntimeError:
+            return False
 
     def _run_safe_render(self, target_fmt, profile_name=None, extra_format_options=None):
         """Phase 2 / Schritt 2.3c: Duenne Delegation an RenderService.
@@ -1123,7 +1315,11 @@ class ExportManager:
 
         def _on_log_line(line):
             # Phase 2 / 2.3c: Log-Zeile ins Studio (UI-Thread) + Render-Log-File.
+            # Dieselbe Zeile treibt den Fortschrittsbalken: Quarto meldet je
+            # Kapitel eine (``[3/57] kapitel.md``), und das ist echter
+            # Fortschritt statt einer Schaetzung.
             self._after(0, lambda ln=line: self._log_render_line(ln))
+            self._after(0, lambda ln=line: self._progress_feed(ln))
 
         def _on_abort_requested():
             self._after(
@@ -1168,6 +1364,7 @@ class ExportManager:
             should_abort_on_colon_warning=self.should_abort_on_first_render_colon_warning,
             has_structural_colon_occurrences=self.has_structural_colon_occurrences,
             on_abort_requested=_on_abort_requested,
+            should_cancel=self._progress_cancelled,
             on_safe_command_built=_on_safe_command_built,
             archive_dir=archive_dir,
             render_channel=self._pending_render_context.get("render_channel") or None,

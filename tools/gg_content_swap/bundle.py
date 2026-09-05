@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from tools.doclayout.usage import write_generator_classes
 from tools.gg_content_swap.export_sort import parse_export_path_datetime
 from tools.gg_content_swap.match import (
     _EXPORT_SKIP_NAMES,
@@ -31,6 +33,11 @@ class BundleApplyResult:
     swap: Optional[SwapApplyResult] = None
     protocol_copied: bool = False
     publish_meta_copied: bool = False
+    #: Namen der Fenced-Div-Klassen, die der Export laut eigener Auskunft
+    #: enthaelt. Der Layout-Editor braucht fuer jede eine Absatzvorlage.
+    generator_classes: list[str] = field(default_factory=list)
+    #: Klassen in der Form ``::: {name}`` -- von keiner Vorlage erreichbar.
+    malformed_classes: list[str] = field(default_factory=list)
     provenance: dict = field(default_factory=dict)
     images_copied: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -39,6 +46,47 @@ class BundleApplyResult:
     @property
     def ok(self) -> bool:
         return not self.errors
+
+
+def _adopt_generator_classes(source: Path, book: Path, result: "BundleApplyResult") -> None:
+    """Uebernimmt ``emitted_classes`` aus ``publish_meta.json`` ins Buchprojekt.
+
+    Der Generator weiss als Einziger sicher, welche Fenced-Div-Klassen er
+    geschrieben hat. Ohne diese Auskunft muesste der Layout-Editor den Text
+    durchsuchen -- was er auch kann, aber erst **nachdem** der Inhalt im Buch
+    liegt. Hier steht sie schon beim Uebernehmen zur Verfuegung, und eine
+    fehlende Absatzvorlage faellt auf, bevor jemand rendert.
+
+    Fehlt der Block (aeltere Exporte), passiert nichts: Der Abgleich im
+    Layout-Editor kommt ohne ihn aus.
+    """
+    meta_path = source / "publish_meta.json"
+    if not meta_path.is_file():
+        return
+    try:
+        raw = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        result.warnings.append(f"publish_meta.json nicht lesbar: {exc}")
+        return
+    block = raw.get("emitted_classes") if isinstance(raw, dict) else None
+    if not isinstance(block, dict):
+        return
+    try:
+        target = write_generator_classes(book, block, source=source.name)
+    except OSError as exc:
+        result.warnings.append(f"Klassenauskunft nicht ablegbar: {exc}")
+        return
+    result.generator_classes = [str(n) for n in (block.get("names") or [])]
+    malformed = block.get("malformed")
+    if isinstance(malformed, dict):
+        result.malformed_classes = sorted(str(k) for k in malformed)
+    if result.malformed_classes:
+        result.warnings.append(
+            "Der Export enthaelt Bloecke der Form '::: {name}' ohne Punkt: "
+            + ", ".join(result.malformed_classes)
+            + ". Diese Klassen kann keine Absatzvorlage ansprechen."
+        )
+    _ = target
 
 
 def _is_backup_name(name: str) -> bool:
@@ -270,6 +318,8 @@ def apply_gg_export_bundle(
     if _copy_if_present(source / "publish_meta.json", book / "publish_meta.json"):
         result.publish_meta_copied = True
 
+    _adopt_generator_classes(source, book, result)
+
     try:
         result.provenance = ingest_from_import_dir(book, source)
     except (OSError, TypeError, ValueError) as exc:
@@ -309,7 +359,9 @@ def format_bundle_summary(result: BundleApplyResult) -> str:
     )
     lines.append(
         "publish_meta.json: "
-        + ("aktualisiert" if result.publish_meta_copied else "nicht vorhanden")
+        + ("aktualisiert" if result.publish_meta_copied else "nicht vorhanden"),
+        "Klassen laut Export: "
+        + (", ".join(f".{n}" for n in result.generator_classes) or "keine Auskunft")
     )
     prov = result.provenance or {}
     if prov.get("written"):

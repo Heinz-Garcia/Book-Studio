@@ -936,6 +936,17 @@ def test_kdp_dialog_save_stamps_production_uuid(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: QMessageBox.StandardButton.Ok)
     monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    # ``_save_project`` laesst die kanonischen Pfade bestaetigen
+    # (``_confirm_canonical_paths`` -> ``QMessageBox.question``). Ohne diese
+    # Ersatzantwort steht dort ein echter modaler Dialog, den im Testlauf
+    # niemand schliesst: Der Lauf bleibt daran haengen -- ohne Meldung, ohne
+    # Ende und ohne Zusammenfassung fuer alles, was danach kaeme. Die uebrigen
+    # Tests dieser Datei setzen die Antwort bereits; hier fehlte sie.
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *a, **k: QMessageBox.StandardButton.Yes,
+    )
     app = QApplication.instance() or QApplication([])
     apply_theme(app)
 

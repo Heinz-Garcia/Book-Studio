@@ -3,6 +3,14 @@
 # Für das einfache Lesen und Schreiben von YAML Frontmatter in Markdown-Dateien
 PyYAML>=6.0.1
 
+# Kommentarerhaltendes YAML. Gebraucht von tools/doclayout, wenn ein Layout in
+# die _quarto.yml eines Buches eingetragen wird: PyYAML baut die Datei dabei
+# aus der Datenstruktur neu auf und verliert jede Notiz darin ("Reihenfolge mit
+# dem Lektorat abgestimmt -- nicht umsortieren!").
+# Kann-Abhängigkeit: Fehlt sie, wird weiterhin mit PyYAML geschrieben, und der
+# Bericht sagt ausdrücklich, dass Kommentare verlorengingen.
+ruamel.yaml>=0.18
+
 # Qt-UI (einzige UI nach Tk-Purge)
 PySide6>=6.6.0
 

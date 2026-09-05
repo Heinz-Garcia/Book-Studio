@@ -223,6 +223,10 @@ def _copy_fixture_to_tmp() -> Path:
     shutil.copy(STANDARD_PROFILE / "typst-show.typ", book / "typst-show.typ")
     shutil.copy(STANDARD_PROFILE / "page.typ", book / "page.typ")
     shutil.copy(STANDARD_PROFILE / "content" / "Impressum.md", book / "content" / "required" / "Impressum.md")
+    # Das Impressum des Skeletons verweist auf einen QR-Code. Ohne ihn bricht
+    # Typst die Uebersetzung ab ("file not found") -- der Test scheiterte dann
+    # an seiner eigenen Vorbereitung, nicht an dem, was er pruefen soll.
+    shutil.copytree(STANDARD_PROFILE / "img", book / "img", dirs_exist_ok=True)
     return book
 
 

@@ -100,6 +100,11 @@ RENDER_STATUS_SUCCESS = "success"
 RENDER_STATUS_FAILED = "failed"
 RENDER_STATUS_ABORTED_ON_COLON = "aborted_on_first_colon_warning"
 
+#: Der Benutzer hat den Lauf abgebrochen. Kein Fehler -- und deshalb ein
+#: eigener Rueckgabewert: Ein Abbruch, der als Fehlschlag gemeldet wird,
+#: schickt den Benutzer auf die Suche nach einer Ursache, die er selbst war.
+SAFE_RENDER_RC_CANCELLED = -99
+
 
 # Returncode-Werte, die `run_safe_render` an den Aufrufer liefert.
 SAFE_RENDER_RC_MISSING_SCRIPT = 2
@@ -628,6 +633,7 @@ class RenderService:
         on_abort_requested: Optional[OnAbortRequested] = None,
         popen_factory: Optional[PopenFactory] = None,
         popen_killer: Optional[PopenKiller] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
         on_safe_command_built: Optional[Callable[[list], None]] = None,
         archive_dir: Optional[Path] = None,
         render_channel: Optional[str] = None,
@@ -679,6 +685,11 @@ class RenderService:
         if popen_killer is None:
             def popen_killer(proc):
                 proc.terminate()
+        if should_cancel is None:
+            # Ohne Rueckfrage laeuft der Render wie bisher durch. Der Abbruch ist
+            # ein Angebot der Oberflaeche, keine Pflicht des Dienstes.
+            def should_cancel():
+                return False
         if executable is None:
             executable = sys.executable
 
@@ -723,6 +734,7 @@ class RenderService:
             env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
         )
         aborted_on_colon_warning = False
+        cancelled_by_user = False
         stream_error = False
         # B-Fix (Code-Review 2026-07-03): das Lesen von `proc.stdout` kann
         # (z. B. bei Encoding-/Pipe-Fehlern) eine Exception werfen. Vorher
@@ -735,6 +747,17 @@ class RenderService:
             stdout = getattr(proc, "stdout", None)
             if stdout is not None:
                 for raw_line in stdout:
+                    # Vor jeder Zeile: Will der Benutzer noch? Die Pruefung sitzt
+                    # hier und nicht in einem eigenen Faden, weil dies die einzige
+                    # Stelle ist, an der der Lauf ohnehin regelmaessig vorbeikommt
+                    # -- ohne Wecker, ohne zweite Schleife.
+                    if should_cancel():
+                        cancelled_by_user = True
+                        try:
+                            popen_killer(proc)
+                        except OSError:
+                            pass
+                        break
                     stripped = raw_line.rstrip() if isinstance(raw_line, str) else raw_line
                     if stripped:
                         on_log_line(stripped)
@@ -764,6 +787,8 @@ class RenderService:
                 except OSError:
                     pass
 
+        if cancelled_by_user:
+            return SAFE_RENDER_RC_CANCELLED, aborted_on_colon_warning
         if stream_error:
             return SAFE_RENDER_RC_STREAM_ERROR, aborted_on_colon_warning
         return getattr(proc, "returncode", 0), aborted_on_colon_warning

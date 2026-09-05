@@ -92,3 +92,23 @@ def test_write_handbook_html(tmp_path: Path) -> None:
     assert target.is_file()
     assert sections
     assert "sec-a" in target.read_text(encoding="utf-8")
+
+
+def test_inline_code_inside_bold_survives() -> None:
+    """Regression: der innere Platzhalter blieb als @@TOK0@@ im Handbuch stehen."""
+    from tools.handbook_html import _format_inline
+
+    assert _format_inline("**`UUID`**") == "<strong><code>UUID</code></strong>"
+    assert _format_inline("*`x`*") == "<em><code>x</code></em>"
+
+
+def test_no_placeholder_leaks_into_the_manual() -> None:
+    """Kein erzeugtes Handbuch darf Platzhalter des Konverters zeigen."""
+    from tools.handbook_html import build_handbook_html
+
+    source = Path(__file__).resolve().parent.parent / "doc" / "handbuch.md"
+    if not source.is_file():
+        pytest.skip("doc/handbuch.md nicht vorhanden")
+    html_doc, _ = build_handbook_html(source.read_text(encoding="utf-8"))
+    assert "@@TOK" not in html_doc
+

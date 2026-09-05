@@ -44,6 +44,7 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 20. Verzeichnisse (live aus README.md)
 21. Neuerungen 2026-08-02: PDF Manager-Ausbau, ISBN, Cover-Größe, Bleed
 22. KDP Cover-Designer (Wrap-PDF für Amazon)
+23. Layout-Editor (Word/Writer-Vorlagen)
 
 In Kapitel 16: optionaler Abschnitt **Marktvarianten** (AT/CH u. Ä.) — siehe [§ Marktvarianten](#sec-marktvarianten).
 
@@ -1434,6 +1435,517 @@ python -m tools.kdp_cover export --pages 120 --front pfad/zum/front.png ^
 - Amazons [Cover Creator](https://kdp.amazon.com/de_DE/help/topic/G201953020) / Online-Vorlagen — du kannst das lokale Wrap-PDF dort hochladen oder weiterbearbeiten.
 - Das Innenwerk-PDF und die Druck-Freigabe-Prüfung (die prüft das **Buch**-PDF, nicht das Wrap).
 - Gestaltung wie in Canva (kein freies Vektorzeichnen) — Bilder + Textfelder + Farben reichen für den Druck-Upload-Pfad.
+
+---
+
+## 23) Layout-Editor (Word/Writer-Vorlagen) {#sec-doclayout}
+
+Quarto kann ein Buch auch als **`.docx`** ausgeben — für Lektorat, Verlag oder
+Korrekturläufe. Wie das Ergebnis aussieht, entscheidet eine **`reference.docx`**:
+eine Datei, die keinen Text enthält, sondern nur Formatvorlagen.
+
+Der **Layout-Editor** pflegt diese Vorlage als lesbare Definition (YAML) und
+erzeugt daraus `reference.docx` und `classmap.lua`.
+
+> **Wirkt nur in der Word-/DOCX-Fassung. Das Typst-PDF (F5) übernimmt
+> Absatzformate und Kästen (prompt, fachtext, …) aus diesem Editor NICHT.**
+>
+> Das ist die eine Sache, die man über dieses Kapitel wissen muss. Der Editor
+> sieht aus, als bestimme er das Aussehen des Buches — er bestimmt aber nur
+> die Word-Fassung. Wer hier einen Kasten für `.prompt` baut, F5 drückt und im
+> PDF nichts davon findet, sucht den Fehler anschließend im Editor; dort ist er
+> nicht.
+>
+> Das PDF entsteht über Typst mit eigenen Vorlagen (`page.typ`,
+> `typst-show.typ`) und holt seine Seitengeometrie aus dem **Layout-Profil**
+> der Export-Einstellungen. Beide Wege stehen nebeneinander und wissen
+> nichts voneinander. Derselbe Satz steht als Banner oben im Editorfenster —
+> er ist keine Fußnote.
+
+### Kick-Start (für schnelle Ergebnisse)
+
+Sieben Schritte von nichts zu einer fertigen `.docx`. Erklärungen stehen weiter
+unten — hier steht nur, was zu tun ist.
+
+**1. Öffnen.** **Plugins → 🖋️ Layout-Editor (Word/Writer-Vorlagen)…**
+Der **`?`** rechts oben bringt dich jederzeit hierher zurück.
+Steht oben eine gelbe Meldung, fehlt ein Programm; lies unter
+[§ Voraussetzungen](#sec-doclayout-voraussetzungen) nach. Sonst: weiter.
+
+**2. Nicht bei null anfangen.** `Duplizieren…` auf ein vorhandenes Layout,
+Namen vergeben. Ein neues Layout bringt genau *ein* Absatzformat mit; ein
+Duplikat bringt alle Standardformate aus Pandoc und Word gleich mit — die
+brauchst du ohnehin, und von Hand nachzubauen kostet einen Nachmittag.
+
+**3. Seitenmaß in einem Zug.** Links **Seite und Ränder**, oben ein
+**Layout-Profil** wählen (z. B. *Taschenbuch / Book on Demand* oder
+*Manuskript / Lektorat*), `Übernehmen`. Das setzt Breite, Höhe und alle vier
+Ränder auf einmal — es **holt** die Werte aus dem Druckprofil in die
+Word-Vorlage. Die Richtung ist wichtig: Umgekehrt geht es nicht, dein Layout
+verändert das Druckprofil nicht. Weicht die Seite hier vom Profil ab, sagt es
+der Editor unter *Seite und Ränder*.
+Bindest du das Buch, zusätzlich **Doppelseitig** ankreuzen.
+
+**4. Zwei Angaben, die den Eindruck machen.** Links **Typografie**:
+Grundschrift und Grundgröße. Links **Farben**: das Token `accent`. Mehr nicht —
+alles Übrige ist Feinarbeit, die sich später lohnt.
+
+**5. Hinsehen.** Rechts läuft die Vorschau nach etwa einer Sekunde von selbst
+an. Das ist eine echt gesetzte Seite, kein Nachbau: Was dort steht, steht auch
+in der `.docx`. Passt es nicht, zurück zu Schritt 3.
+
+**6. Deine Klassen verbinden.** Links **Klassen-Abbildung**. Für jede Klasse,
+die du in deinem Text benutzt — `::: {.merksatz}` —, muss hier ein Eintrag
+stehen. **Ohne Eintrag bleibt der Absatz unformatiert.** Das ist mit Abstand
+die häufigste Ursache dafür, dass im fertigen Dokument ein Kasten fehlt.
+
+**6a. Oder alles auf einmal:** `Assistent…` oben in der Leiste führt dich systematisch durch
+**jedes** Formatierungsobjekt deines Buches — wahlweise nach Objekt oder Kapitel für
+Kapitel. Wer nicht weiß, wo er anfangen soll, fängt hier an.
+
+**6b. Gegenprüfen (der wichtigste Handgriff).** Im selben Bereich unten
+`Buch prüfen…` → dein Buchprojekt wählen. Der Editor sagt dann, welche Klassen
+dein Text benutzt und welche davon **noch keine Vorlage** haben — samt Knopf,
+der die fehlenden anlegt. Das ist die Antwort auf »warum ist mein Kasten weg?«,
+bevor die Frage entsteht.
+
+**7. Anwenden und rendern.** `Speichern`, dann
+`Auf Buchprojekt anwenden…` → Buchordner wählen. Danach im Studio `F5` und im
+Export-Dialog als Format **docx**. Fertig.
+
+> **Wenn du nur zehn Minuten hast:** Schritte 2, 3, 5, 7. Typografie und Farben
+> lassen sich jederzeit nachziehen — jedes erneute `Auf Buchprojekt anwenden…`
+> überschreibt die Vorlage im Buch, und Wiederholen ist gefahrlos.
+
+**Drei Dinge, die anfangs irritieren:**
+
+| Beobachtung | Grund |
+|-------------|-------|
+| Viele Formate, die du nie angelegt hast | Die meisten kommen aus Pandoc und Word — grau markiert, du brauchst sie kaum anzufassen |
+| Ein Format wirkt nicht | Es fehlt der Eintrag in der Klassen-Abbildung (Schritt 6); solche Formate stehen orange in der Liste |
+| Die Vorschau ist weiß und nüchtern | Sie zeigt, was **Writer** aus der Vorlage macht, nicht was Qt daraus malen würde. Genau darum ist sie brauchbar |
+
+### Voraussetzungen {#sec-doclayout-voraussetzungen}
+
+| Programm | Wofür | Fehlt es? |
+|----------|-------|-----------|
+| **Pandoc** | setzt die Vorlage | Vorschau und Anwenden sind gesperrt |
+| **LibreOffice** | wandelt in PDF für die Vorschau | Vorschau nur als `.docx`, kein Bild im Fenster |
+
+**Du musst das nicht selbst prüfen.** Der Editor prüft beim Öffnen und schreibt
+oben eine Meldung, die nicht nur den Namen des fehlenden Programms nennt,
+sondern auch dessen Folge. Fehlt Pandoc, sind `Vorschau erneuern` und
+`Auf Buchprojekt anwenden…` ausgegraut — Layouts bearbeiten und speichern geht
+weiterhin. Fehlt nur LibreOffice, arbeitet der Editor normal; es entfällt allein
+das Vorschaubild.
+
+Dieselbe Auskunft gibt es auf der Kommandozeile mit
+`python -m tools.doclayout doctor` — beide fragen dieselbe Stelle, damit sie
+nicht auseinanderlaufen können.
+
+**Microsoft Word wird nicht gebraucht.** Die Vorlage wird direkt als OOXML
+geschrieben. Gesetzt wird die Vorschau von LibreOffice — sie zeigt also die
+**Writer**-Fassung. Für die eigene Arbeit ist das die richtige Auskunft; geht
+die `.docx` an jemanden mit echtem Word, ist es eine sehr gute Näherung, aber
+keine Zusicherung.
+
+### Wo öffnen?
+
+**Plugins → 🖋️ Layout-Editor (Word/Writer-Vorlagen)…**
+
+### Die vier Bereiche
+
+| Bereich | Inhalt |
+|---------|--------|
+| **Oben** | Layout-Auswahl, `Neu…`, `Duplizieren…`, `Aus .docx übernehmen…`, **`Assistent…`**, `Speichern` |
+| **Links** | Bestandteile: Seite und Ränder, Typografie, Farben, Klassen-Abbildung, darunter die Absatzformate |
+| **Mitte** | Eigenschaften des links Gewählten |
+| **Rechts** | Die **echt gesetzte** Vorschau als PDF |
+
+Unten rechts: `Auf Buchprojekt anwenden…` und `Schließen`.
+
+**Ein 🛈 vor einer Beschriftung** heißt: Hier gibt es etwas zu wissen. Mit dem
+Mauszeiger darauf erscheint die Erklärung — was das Feld bewirkt, wo die
+Wirkung auftaucht und welche Falle es hat. Felder ohne Symbol erklären sich
+selbst; wäre es überall, würde es nichts mehr bedeuten.
+
+Rechts oben sitzt ein **`?`** — er öffnet dieses Kapitel direkt, ohne dass du
+im Handbuch danach suchen musst.
+
+Die **Fenstergröße merkt sich der Editor** — beim nächsten Öffnen steht er so
+da, wie du ihn verlassen hast, auch im Vollbild.
+
+### Layout wechseln
+
+Der Auswahlkasten oben links schaltet zwischen den Layouts der Bibliothek um.
+Hast du **ungespeicherte Änderungen**, fragt der Editor vorher nach:
+
+| Antwort | Wirkung |
+|---------|---------|
+| **Speichern** | schreibt in das Layout, das du gerade bearbeitest — dann wird gewechselt |
+| **Verwerfen** | die Änderungen sind weg, es wird gewechselt |
+| **Abbrechen** | der Kasten springt zurück, nichts geht verloren |
+
+Dieselbe Rückfrage kommt bei `Neu…` und `Aus .docx übernehmen…`. Bei
+`Duplizieren…` nicht: Die Kopie bekommt deinen aktuellen Stand mitsamt der
+offenen Änderungen.
+
+### Helle oder dunkle Oberfläche
+
+Rechts oben in der Leiste sitzt ein Schalter `Dunkel` / `Hell`.
+
+Der Grund ist nicht Geschmack: Die Vorschau zeigt ein **weißes Blatt Papier**.
+Liegt die Bedienung ringsum ebenfalls auf Weiß, verschwimmt die Grenze zwischen
+Werkzeug und Werkstück. Auf dunklem Grund steht das Dokument für sich, und man
+sieht auf einen Blick, was Papier ist und was Bedienung.
+
+Die Wahl gilt **nur für dieses Fenster** — der Rest von Book Studio bleibt hell.
+Sie wird gemerkt und ist beim nächsten Öffnen wieder da. Das Vorschaublatt
+selbst bleibt in beiden Fällen weiß: Es zeigt, was Writer aus der Vorlage macht,
+und es einzufärben hieße, die Vorschau zu fälschen.
+
+### Woher die Absatzformate kommen
+
+Ein Layout enthält rund 25 Absatzformate, aber nur eine Handvoll davon hat
+jemand für dieses Buch angelegt. Die übrigen stecken in Pandocs Basisvorlage
+oder gehören zu Words eingebautem Bestand. Damit die Liste nicht rätselhaft
+bleibt, ist sie **nach Herkunft gruppiert und eingefärbt**:
+
+| Gruppe | Farbe | Bedeutung |
+|--------|-------|-----------|
+| **aus deinem Inhalt** | blau, fett | Eine Klasse aus deinem Text zeigt darauf. Änderungen hier siehst du sofort im fertigen `.docx`. |
+| **eigen, ungenutzt** | orange | Du hast das Format angelegt, aber keine Klasse verweist darauf — es bleibt wirkungslos. |
+| **Standard** | grau | Aus Pandoc oder Word. Wird gebraucht, muss aber selten angefasst werden. |
+
+Die Farben sind für helle und dunkle Oberfläche getrennt gewählt; beide sind
+lesbar. **Leere Gruppen erscheinen nicht** — hast du kein verwaistes Format,
+fehlt die orange Gruppe ganz, und du siehst nur zwei Farben.
+
+Unter der Liste steht die Zählung, etwa *4 aus deinem Inhalt · 21 Standard*.
+
+Die orange Gruppe ist der eigentliche Nutzen: Sie zeigt Formate, die nichts
+bewirken, weil der Eintrag in der Klassen-Abbildung fehlt. Das ist derselbe
+Fehler, der weiter unten als häufigste Ursache für einen fehlenden Kasten
+genannt wird — hier siehst du ihn, bevor er auffällt.
+
+Die Herkunft wird **abgeleitet**, nicht gespeichert: Sie ergibt sich aus dem
+Namen des Formats und daraus, ob die Klassen-Abbildung darauf zeigt. Hängst du
+ein Standardformat wie `BodyText` an eine eigene Klasse, rückt es damit in die
+blaue Gruppe.
+
+### Abgleich mit dem Buch (findet fehlende Vorlagen)
+
+Die Klassen-Abbildung sagt, was zugeordnet **ist**. Erst der Blick in den Text
+sagt, was zugeordnet sein **müsste**. Genau dazwischen entsteht der Fehler, der
+sich am teuersten anfühlt: Man rendert, öffnet die `.docx` — und die Hälfte der
+Absätze ist Fließtext.
+
+Im Bereich **Klassen-Abbildung** sitzt dafür unten der Kasten
+**„Abgleich mit dem Buch"**:
+
+1. `Buch prüfen…` → aus der Liste deiner Buchprojekte wählen. Book Studio
+   kennt sie aus `content_root_path`; ein Buch von anderswo erreichst du über
+   `Anderen Ordner wählen…`. Der Editor durchsucht dann alle Markdown-Dateien
+   nach `::: {.klasse}`-Blöcken.
+2. Das Ergebnis steht darunter, nach Bedeutung getrennt.
+3. Gibt es Lücken, erscheint `Fehlende Klassen anlegen (N)`.
+
+| Meldung | Bedeutung | Was zu tun ist |
+|---------|-----------|----------------|
+| **N Klassen ohne Zuordnung** | Diese Absätze bleiben unformatiert | Knopf drücken — oder die Klassen bewusst ignorieren |
+| **N zugeordnet und benutzt** | alles in Ordnung | nichts |
+| **Von Quarto selbst bedient** | `.callout-note` und Verwandte | nichts — Quarto macht das |
+| **Zugeordnet, aber nicht benutzt** | Vorlage ohne Abnehmer | oft ein Tippfehler oder ein Format aus einem anderen Band |
+| **Fehlerhaft geschrieben** | `::: {name}` statt `::: {.name}` | **den Text korrigieren** — keine Vorlage kann das ansprechen |
+
+Die letzte Zeile ist wichtig: Ohne führenden Punkt liest Pandoc das nicht als
+Klasse, sondern vergibt den Namen wörtlich **mitsamt Klammern**. Solche Blöcke
+sind mit keiner Vorlage und keinem Filter erreichbar. Der Editor sagt das
+ausdrücklich, damit niemand vergeblich Formate dafür anlegt.
+
+`Fehlende Klassen anlegen` erzeugt für jede Lücke ein leeres Absatzformat
+(auf `BodyText` aufbauend) und verbindet es. **Gestaltet wird nichts** — das
+Werkzeug schließt die Lücke, die Gestaltung bleibt deine Sache. Vorhandene
+Formate werden nie überschrieben; kollidiert ein Name, bekommt der Vorschlag
+eine Ziffer.
+
+Dasselbe auf der Kommandozeile:
+
+```powershell
+python -m tools.doclayout usage IFJN_layout -b Band_Dummy
+```
+
+### Assistent: alle Formatierungsobjekte durchgehen
+
+Ein **Formatierungsobjekt** ist der *Adressat* eines Absatzformats — das,
+was formatiert wird: Überschrift, Fließtext, Aufzählung, Blockzitat, Codeblock,
+Fußnote oder ein `::: {.klasse}`-Block.
+
+Der Abgleich sagt, **was fehlt**. Der Assistent führt dich **durch alles** —
+Überschriften, Fließtext, Listen, Zitate, Codeblöcke, Fußnoten, Bilder,
+Definitionslisten und deine eigenen Klassen. Nur was in deinem Buch wirklich
+vorkommt; nichts auf Vorrat.
+
+Zu öffnen über **`Assistent…`** oben in der Werkzeugleiste.
+
+#### Zwei Wege, umschaltbar
+
+Oben im Assistenten steht ein Auswahlfeld:
+
+| Ansicht | Was du siehst | Wann sie hilft |
+|---------|---------------|----------------|
+| **Nach Formatierungsobjekt** | jedes genau einmal, über das ganze Buch | kurz, ohne Wiederholung — gut zum Fertigwerden |
+| **Nach Kapitel** | das Buch der Reihe nach, Datei für Datei | im Zusammenhang — man sieht, womit ein Kapitel gebaut ist |
+
+Welche intuitiver ist, entscheidet sich beim Benutzen. Deshalb steht der
+Umschalter oben und nicht in einer Einstellung.
+
+> **In der Kapitelansicht wichtig:** Ein Absatzformat gilt im **ganzen Buch**.
+> Was du in Kapitel 3 änderst, wirkt überall. Die Ansicht ordnet den Weg, nicht
+> die Wirkung — der Assistent schreibt das über jeden Kapitelschritt.
+
+#### Was ein Schritt zeigt
+
+- **Zustand**, in fünf Abstufungen:
+
+| Zustand | Bedeutung |
+|---------|-----------|
+| *Vorlage vorhanden* | Ein gestaltetes Absatzformat ist da. **Nicht**: dass *du* es gestaltet hast — es kann aus Pandocs Basisvorlage stammen. |
+| *Vorlage vorhanden, noch ohne eigene Gestaltung* | Das Format existiert, trägt aber keine eigenen Werte. Typisch direkt nachdem der Assistent es angelegt hat. |
+| *Vorlage fehlt* | Das Zielformat gibt es im Layout nicht — der Knopf legt es an. |
+| *keine Zuordnung* | Eine Klasse ohne Eintrag in der Klassen-Abbildung; der Block bleibt Fließtext. |
+| *nichts einzustellen* | Trennlinie, Quarto-eigene Klasse — hier ist nichts zu tun. |
+
+- **Absatzformat**, in das Pandoc dieses Objekt übersetzt
+- **eine Erklärung**, was dabei passiert
+- **echte Textausschnitte aus deinem Buch**, mit Datei und Zeile — keine Attrappen
+- den passenden **Handgriff**: Format anlegen oder Klasse zuordnen
+
+#### Einstellen, ohne den Assistenten zu verlassen
+
+Unter dem Text steht **dasselbe Formular wie im Editor** — Schrift, Absatz,
+Rahmen und Fläche. Es ist kein Nachbau: Was du hier änderst, ist dieselbe
+Einstellung wie dort.
+
+- Hat ein Objekt **mehrere** Zielformate (Fließtext heißt `BodyText` *und*
+  `FirstParagraph`), wählst du oben, welches du bearbeitest.
+- In der Kapitelansicht stehen dort alle Formate, die in diesem Kapitel
+  vorkommen.
+- Jede Änderung wirkt **sofort** im Layout — wer weiterblättert, verliert
+  nichts. Unten links liegt `Layout speichern`; er schreibt in die Bibliothek,
+  genau wie `Speichern` im Editor. Solange etwas offen ist, ist er aktiv.
+- Schließt du den Editor mit ungespeicherten Änderungen, fragt er nach —
+  Speichern, Verwerfen oder Abbrechen.
+- Ein gerade angelegtes Format lässt sich sofort gestalten; du musst den
+  Assistenten dafür nicht verlassen.
+
+Nach dem Schließen erneuert der Editor seine Vorschau von selbst, damit du
+siehst, was daraus geworden ist.
+
+#### Auf andere Bücher übertragen
+
+Ein Layout **gehört zu keinem Buch**. Es liegt als YAML in der Bibliothek und
+passt auf jedes Buchprojekt. Was du im Assistenten einstellst, ist damit
+automatisch übertragbar:
+
+1. Im Assistenten oder Editor `speichern` — der Stand liegt in
+   `tools/doclayout/library/<Name>.yaml`.
+2. `Auf Buchprojekt anwenden…` → Buch wählen. Beliebig oft, für beliebig viele
+   Bücher.
+
+Jedes Buch bekommt dabei seine eigene `reference.docx` und `classmap.lua` in
+`bookconfig/doclayout/`; das Layout selbst bleibt unberührt. Klassen, die ein
+Buch nicht benutzt, stören nicht — sie laufen einfach ins Leere.
+
+> **Tipp:** Für einen zweiten Band mit anderem Aussehen `Duplizieren…` statt
+> Ändern. Sonst zieht jede Änderung in beiden Bänden mit.
+
+Am Ende eine Übersicht: was angelegt, zugeordnet oder bearbeitet wurde und was
+noch offen ist.
+
+#### Die Zuordnung ist gemessen, nicht behauptet
+
+Welches Format Pandoc für welches Objekt vergibt, wurde ermittelt, indem je
+ein Musterdokument gesetzt und die erzeugte `.docx` ausgelesen wurde:
+
+| Formatierungsobjekt | Absatzformat |
+|---------|--------------|
+| Überschrift Ebene 1–6 | `Heading1` … `Heading6` |
+| Erster Absatz eines Kapitels | `FirstParagraph` |
+| Folgeabsätze | `BodyText` |
+| Aufzählung, nummerierte Liste, Tabelle | `Compact` |
+| Blockzitat | `BlockText` |
+| Codeblock | `SourceCode` |
+| Bildunterschrift | `ImageCaption` |
+| Fußnote | `FootnoteText` |
+| Definitionsliste | `DefinitionTerm` + `Definition` |
+| Trennlinie | keines — hier ist nichts einzustellen |
+
+**Merke `SourceCode`:** Dieses Format vergibt Pandoc, aber seine Basisvorlage
+enthält es nicht. Ohne eigene Vorlage fallen alle Codeblöcke auf
+Word-Standard zurück. Der Assistent legt es auf Wunsch an.
+
+Zwei Dinge liegen außerhalb dieser Schicht: Inline-Code (`VerbatimChar`) ist
+ein **Zeichen**format, Tabellenrahmen ein **Tabellen**format — der Layout-Editor
+schreibt nur Absatzformate. Der Assistent sagt das, statt es zu verschweigen.
+
+#### Eine bekannte Grenze
+
+Eine Trennlinie in der **allerersten** Zeile einer Datei wird nicht erkannt:
+Dort eröffnet `---` in einem Quarto-Projekt das YAML-Frontmatter. Das richtig
+zu lesen ist wichtiger, als diesen seltenen Fall zu retten.
+
+### Zusammenspiel mit GrammarGraph
+
+Die Klassennamen entstehen in **GrammarGraph** (Feld *Prompt-Wrap-Tag* im
+Manifest), die Vorlagen dafür in **Book Studio**. Zwei Programme, zwei
+Entscheidungen — und früher keine Verbindung dazwischen. Jetzt reden sie in
+beide Richtungen:
+
+**GrammarGraph → Book Studio.** Beim Export schreibt GrammarGraph in
+`publish_meta.json`, welche Klassen der erzeugte Text **tatsächlich** enthält
+(nicht, welche geplant waren). Beim Übernehmen über
+**Plugins → 🧬 GrammarGraph-Inhalt aktualisieren…** landet diese Auskunft als
+`bookconfig/generator_classes.json` im Buch. Der Abgleich zeigt sie als
+*„Laut letztem Generator-Export…"* — so siehst du eine Lücke, **bevor** du
+renderst. Enthält der Export bereits fehlerhaft geschriebene Blöcke, warnt
+schon die Übernahme.
+
+**Book Studio → GrammarGraph.** Bei jedem `Speichern` schreibt der
+Layout-Editor ein Verzeichnis der Klassen, für die es Vorlagen gibt. Im
+Manifest-Editor von GrammarGraph ist das Feld *Prompt-Wrap-Tag* deshalb kein
+leeres Textfeld mehr, sondern eine Auswahl — und unter dem Feld steht, ob es
+für den eingetippten Namen drüben schon eine Vorlage gibt. Ein Tippfehler
+fällt damit sofort auf statt Wochen später.
+
+```powershell
+python -m tools.doclayout classes --show   # was das Layout bedienen kann
+python -m tools.doclayout classes          # Verzeichnis neu schreiben
+```
+
+Beide Richtungen sind **Hilfen, keine Voraussetzungen**. Fehlt die Gegenseite,
+ist die Datei alt oder das Format unbekannt, arbeiten beide Programme wie
+vorher weiter — der Abgleich im Editor kommt ohne die Auskunft aus, und das
+Tag-Feld bleibt frei beschreibbar.
+
+### Schritt für Schritt
+
+**Schritt 1 — Layout anlegen**
+
+1. `Duplizieren…` auf ein vorhandenes Layout — der sicherste Start, weil alle
+   Formate schon da sind.
+2. Alternativ `Neu…` für ein leeres Layout.
+3. Alternativ `Aus .docx übernehmen…`: liest die Absatzformate einer
+   bestehenden `.docx` ein, damit die darin steckende Gestaltungsarbeit nicht
+   abgetippt werden muss.
+
+**Schritt 2 — Seite einrichten** (links: *Seite und Ränder*)
+
+4. Entweder oben ein **Layout-Profil** wählen und `Übernehmen` — das holt
+   Seitenmaße und Ränder aus denselben Druckprofilen, die auch die
+   PDF-Pipeline benutzt (siehe [§ Buch speichern und rendern](#sec-speichern-rendern)).
+5. Oder Breite, Höhe und Ränder von Hand setzen.
+6. **Doppelseitig** ankreuzen, wenn das Buch gebunden wird: die Ränder heißen
+   dann *Innen (Bund)* und *Außen*, und Word wie Writer spiegeln sie
+   automatisch auf geraden Seiten.
+7. **Textbreite** unten ist eine Anzeige, kein Eingabefeld — sie rechnet mit.
+
+**Schritt 3 — Typografie** (links: *Typografie*)
+
+8. Grundschrift, Überschriftenschrift, Grundgröße, Zeilenabstand.
+9. **Sprache** bestimmt Silbentrennung *und* die Überschrift des
+   Inhaltsverzeichnisses (`de-DE` → „Inhaltsverzeichnis").
+
+**Schritt 4 — Farben** (links: *Farben*)
+
+10. Farben stehen als **Token** an einer Stelle (`accent`, `fill`, `rule` …).
+    Eine Änderung wirkt in **allen** Formaten, die das Token benutzen — genau
+    dafür sind sie da.
+
+**Schritt 5 — Absatzformate** (links: ein Format wählen)
+
+11. Die Liste ist nach Herkunft gruppiert (siehe oben) — die Formate deines
+    Buches stehen oben in Blau.
+12. Reiter **Text** (Schrift, Größe, Farbe, Auszeichnung), **Absatz**
+    (Ausrichtung, Abstände, Einzug, Umbruchverhalten), **Rahmen**
+    (Linien, Füllung, Abstand).
+13. **Mehrere auf einmal:** Strg-Klick wählt einzelne Formate dazu,
+    Umschalt-Klick einen ganzen Bereich. Sind mehrere gewählt, zeigt die Mitte
+    kein Formular, sondern die Zahl der Auswahl — ein Formular könnte immer nur
+    eines ändern, und man sähe ihm nicht an, welches.
+14. `Format…` legt ein neues Absatzformat an, `Entfernen` löscht **alle
+    ausgewählten** (der Knopf sagt wie viele) — mit Rückfrage, die je Format
+    nennt, welche Klassen danach ins Leere zeigen würden. Ein neues Format
+    erscheint zunächst orange unter *eigen, ungenutzt*, bis du es im nächsten
+    Schritt mit einer Klasse verbindest.
+
+**Schritt 6 — Klassen-Abbildung** (links: *Klassen-Abbildung*)
+
+15. Hier wird eine Markdown-Klasse einem Absatzformat zugeordnet, etwa
+    `.prompt` → `Prompt-Frage`.
+16. **Ohne Eintrag bleibt ein `::: {.klasse}`-Block unformatiert.** Das ist die
+    häufigste Ursache, wenn ein Kasten im `.docx` fehlt.
+
+```markdown
+::: {.prompt}
+Dieser Absatz bekommt das Format, das .prompt zugeordnet ist.
+:::
+```
+
+**Schritt 7 — Vorschau lesen** (rechts)
+
+17. Die Vorschau läuft **von selbst**, rund eine Sekunde nach der letzten
+    Eingabe. Der Status oben rechts wechselt auf `gesetzt`.
+18. `Vorschau erneuern` erzwingt einen Lauf sofort.
+19. `.docx öffnen` öffnet das Ergebnis im Textprogramm.
+20. Der Musterinhalt wird **aus der Klassen-Abbildung abgeleitet** — eine neu
+    angelegte Klasse taucht sofort in der Vorschau auf, ohne Zutun.
+
+**Schritt 8 — Speichern**
+
+21. `Speichern` schreibt die Definition nach
+    `tools/doclayout/library/<name>.yaml`.
+22. Ungespeicherte Änderungen zeigt ein oranger Hinweis in der oberen Leiste.
+
+**Schritt 9 — Auf ein Buch anwenden**
+
+23. `Auf Buchprojekt anwenden…` → Buchordner wählen.
+24. Es entstehen `bookconfig/doclayout/reference.docx` und `classmap.lua`.
+25. Beide werden unter `format.docx` in die `_quarto.yml` des Buches
+    eingetragen — **mit Sicherung** der bisherigen Datei.
+26. Wiederholtes Anwenden ist gefahrlos: war der Eintrag schon da, bleibt die
+    `_quarto.yml` unverändert.
+
+### Ohne Oberfläche
+
+```powershell
+python -m tools.doclayout list                      # vorhandene Layouts
+python -m tools.doclayout show    IFJN_layout       # Zusammenfassung + Prüfung
+python -m tools.doclayout preview IFJN_layout -o VORSCHAU
+python -m tools.doclayout apply   IFJN_layout -b Band_Dummy
+python -m tools.doclayout snippet IFJN_layout       # nur die _quarto.yml-Zeilen
+python -m tools.doclayout import  ALT.docx -n MeinLayout
+python -m tools.doclayout doctor
+```
+
+Ein ausdrücklich angegebener Pfad (`--pandoc`, `--soffice`) **gilt allein**:
+Existiert er nicht, bricht der Lauf mit einer Meldung ab, statt ersatzweise ein
+anderes Programm zu nehmen. Sonst liefe ein Vertipper auf eine fremde Version
+hinaus, deren Ausgabe sich unterscheidet.
+
+### Wenn etwas nicht stimmt
+
+| Beobachtung | Ursache |
+|-------------|---------|
+| Vorschau bleibt leer, Status „nur als Datei" | LibreOffice fehlt — steht in der Meldung oben im Editor |
+| Ein `:::`-Block ist unformatiert | Klasse fehlt in der Klassen-Abbildung |
+| Verzeichnis heißt „Table of Contents" | Sprache in *Typografie* nicht gesetzt |
+| `.docx` im Buch ändert sich nicht | Layout nach dem Bearbeiten nicht erneut angewandt |
+| Änderung wirkt an unerwarteter Stelle | Ein Farb-**Token** wurde geändert, nicht eine einzelne Farbe |
+| Ein Format steht orange in der Liste | Keine Klasse zeigt darauf — es bleibt wirkungslos |
+| Viele Absätze bleiben Fließtext | `Buch prüfen…` im Bereich Klassen-Abbildung — vermutlich fehlen Zuordnungen |
+| Codeblöcke sehen aus wie Fließtext | Das Format `SourceCode` fehlt — der `Assistent…` legt es an |
+| Eine Klasse lässt sich partout nicht formatieren | Sie ist als `::: {name}` ohne Punkt geschrieben; der Text muss geändert werden |
 
 ---
 

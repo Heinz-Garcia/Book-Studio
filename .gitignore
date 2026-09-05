@@ -84,3 +84,6 @@ tools/kdp_cover/cover_uuid_registry.json.tmp
 tools/stylecloud/presets/*.json
 # Shipped factory preset (Freie Form, eng gepackt)
 !tools/stylecloud/presets/freeForm.json
+
+# Memo-Block: eine Notiz, nicht versioniert.
+tools/memo_pad/memo.json

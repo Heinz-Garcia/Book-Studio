@@ -5,7 +5,11 @@
     build  IFJN_layout -o DIR reference.docx und classmap.lua erzeugen
     apply  IFJN_layout -b BUCH  dasselbe ins Buchprojekt + _quarto.yml
     snippet IFJN_layout       die _quarto.yml-Eintraege ausgeben
-    import  ALT.docx -n NAME  bestehende Word-Datei als Layout uebernehmen
+    import  ALT.docx -n NAME  bestehende .docx-Vorlage als Layout uebernehmen
+    preview IFJN_layout       die Definition wirklich setzen (Pandoc + LibreOffice)
+    usage  IFJN_layout -b BUCH  Klassen des Buches gegen die Abbildung halten
+    typeset IFJN_layout -b BUCH das ganze Buch setzen (.docx + .pdf)
+    classes                   Klassenverzeichnis fuer den Generator schreiben
 
 ``print`` ist hier zulaessig (CLI-Werkzeug unter ``tools/``, siehe AGENTS.md).
 """
@@ -30,8 +34,17 @@ from tools.doclayout.library import (
     layout_path,
     load_layout,
 )
+from tools.doclayout.preview import render_preview
+from tools.doclayout.typeset import typeset_book
+from tools.doclayout.requirements import check_requirements, is_blocked, missing
+from tools.doclayout.registry import build_registry, registry_path, write_registry
 from tools.doclayout.schema import LayoutDefinition, LayoutError
-from tools.doclayout.targets.docx import build_reference_docx, find_pandoc
+from tools.doclayout.usage import (
+    compare,
+    read_generator_classes,
+    scan_book_detailed,
+)
+from tools.doclayout.targets.docx import build_reference_docx
 
 
 def _load(args: argparse.Namespace) -> LayoutDefinition:
@@ -124,11 +137,25 @@ def cmd_snippet(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Prueft die Voraussetzungen -- haeufigste Supportfrage zuerst."""
-    pandoc = find_pandoc(args.pandoc)
-    print(f"Pandoc         : {pandoc or 'NICHT GEFUNDEN'}")
-    print(f"Bibliothek     : {args.library or LIBRARY_DIR}")
+    # Dieselbe Quelle wie im Editor -- sonst laufen die Auskuenfte auseinander.
+    requirements = check_requirements(
+        pandoc=args.pandoc, soffice=getattr(args, "soffice", None)
+    )
+    for requirement in requirements:
+        state = requirement.path or (
+            "NICHT GEFUNDEN" if requirement.essential else "nicht gefunden"
+        )
+        print(f"{requirement.name:15s}: {state}")
+    for requirement in missing(requirements):
+        print(f"  -> {requirement.consequence} {requirement.hint}")
+    print(f"{'Bibliothek':15s}: {args.library or LIBRARY_DIR}")
+    verzeichnis = registry_path(args.library)
+    print(
+        f"{'Klassenliste':15s}: "
+        + (str(verzeichnis) if verzeichnis.is_file() else "noch nicht geschrieben")
+    )
     layouts = available_layouts(args.library)
-    print(f"Layouts        : {len(layouts)}")
+    print(f"{'Layouts':15s}: {len(layouts)}")
     broken = 0
     for path in layouts:
         try:
@@ -140,7 +167,134 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if problems:
             broken += 1
             print(f"  ! {path.stem}: {len(problems)} Problem(e)")
-    return 0 if pandoc and not broken else 1
+    return 0 if not is_blocked(requirements) and not broken else 1
+
+
+def cmd_preview(args: argparse.Namespace) -> int:
+    """Setzt die Definition wirklich -- derselbe Weg wie im Editor."""
+    definition = _load(args)
+    out = Path(args.out) if args.out else Path.cwd() / "doclayout_preview"
+    result = render_preview(
+        definition,
+        out,
+        pandoc=args.pandoc,
+        soffice=args.soffice,
+        to_pdf=not args.no_pdf,
+    )
+    print(f"Markdown       : {result.markdown}")
+    print(f"DOCX           : {result.docx}")
+    print(f"PDF            : {result.pdf or '-'}")
+    if result.note:
+        print(f"Hinweis        : {result.note}")
+    return 0 if (result.complete or args.no_pdf) else 1
+
+
+def cmd_typeset(args: argparse.Namespace) -> int:
+    """Setzt das ganze Buch -- der Schritt, der bisher von Hand getippt wurde."""
+    definition = _load(args)
+    result = typeset_book(
+        definition,
+        args.book,
+        out_dir=Path(args.out) if args.out else None,
+        to_pdf=not args.no_pdf,
+        toc=not args.no_toc,
+        toc_depth=args.toc_depth,
+        pandoc=args.pandoc,
+        soffice=args.soffice,
+        rebuild_template=not args.keep_template,
+    )
+    print(f"Kapitel : {len(result.chapters)}")
+    for name in result.chapters:
+        print(f"   {name}")
+    print(f"DOCX    : {result.docx}")
+    print(f"PDF     : {result.pdf or '-'}")
+    if result.note:
+        print(f"Hinweis : {result.note}")
+    if result.warnings:
+        # Pandocs Meldungen betreffen das Manuskript, nicht dieses Werkzeug --
+        # sie zu verschlucken hiesse, dem Autor eine Auskunft vorzuenthalten.
+        print("Meldungen von Pandoc:")
+        for zeile in result.warnings:
+            print(f"   {zeile}")
+    return 0 if (result.complete or args.no_pdf) else 1
+
+
+def cmd_usage(args: argparse.Namespace) -> int:
+    """Haelt die Klassen des Buches gegen die Klassen-Abbildung."""
+    definition = _load(args)
+    book = Path(args.book)
+    if not (book / "_quarto.yml").is_file():
+        print(f"FEHLER: {book} sieht nicht wie ein Quarto-Buchprojekt aus.", file=sys.stderr)
+        return 2
+    gueltig, altform = scan_book_detailed(book)
+    result = compare(
+        gueltig, definition, ignore_builtins=not args.all, legacy_form=altform
+    )
+    print(result.summary())
+    if result.unmapped:
+        print()
+        print("Ohne Vorlage (bleiben im .docx unformatiert):")
+        for entry in result.unmapped:
+            print(f"  .{entry.name:<22s} {entry.count:5d}x in {len(entry.files)} Datei(en)")
+    if result.mapped:
+        print()
+        print("Zugeordnet:")
+        for entry in result.mapped:
+            print(f"  .{entry.name:<22s} {entry.count:5d}x -> {definition.classmap[entry.name]}")
+    if result.builtin:
+        print()
+        print("Von Quarto selbst bedient:")
+        for entry in result.builtin:
+            print(f"  .{entry.name:<22s} {entry.count:5d}x")
+    if result.unused:
+        print()
+        print("Zugeordnet, aber im Buch nicht benutzt:")
+        for name in result.unused:
+            print(f"  .{name:<22s}      -> {definition.classmap[name]}")
+    if result.legacy_form:
+        print()
+        print("Altform ohne Punkt ('::: {name}' statt '::: {.name}'):")
+        print("  Funktioniert -- classmap.lua faengt diese Form ab, die Bloecke")
+        print("  bekommen ihr Absatzformat. Wer den Export geradezieht, wird")
+        print("  sie los; noetig ist es nicht.")
+        for entry in result.legacy_form:
+            print(f"  {entry.name:<23s} {entry.count:5d}x in {len(entry.files)} Datei(en)")
+    generator = read_generator_classes(book)
+    if generator and not generator.is_empty:
+        print()
+        quelle = f" (aus {generator.source})" if generator.source else ""
+        print(f"Laut Generator-Export{quelle}:")
+        print("  " + (", ".join(f".{n}" for n in generator.names) or "keine"))
+        if generator.malformed:
+            print(
+                "  In der Altform im Export: "
+                + ", ".join(f"{{{n}}}" for n in sorted(generator.malformed))
+            )
+    # Die Altform ist kein Fehlschlag: Sie wird gesetzt wie jede andere Form.
+    # Sie in den Rueckgabewert zu nehmen hiesse, ein Buch mit 240 solchen
+    # Bloecken dauerhaft als kaputt zu melden, obwohl nichts kaputt ist.
+    return 0 if result.is_complete else 1
+
+
+def cmd_classes(args: argparse.Namespace) -> int:
+    """Schreibt das Klassenverzeichnis, das der Generator auslesen kann."""
+    if args.show:
+        data = build_registry(args.library)
+        print(f"Bibliothek : {data['library']}")
+        print(f"Layouts    : {', '.join(data['layouts']) or 'keine'}")
+        for name in data["names"]:
+            entry = data["classes"][name]
+            layouts = ", ".join(entry["layouts"])
+            styles = ", ".join(entry["styles"])
+            print(f"  .{name:<22s} {styles:<20s} ({layouts})")
+        if not data["names"]:
+            print("  (keine Klassen zugeordnet)")
+        return 0
+    target = write_registry(args.library)
+    known = build_registry(args.library)["names"]
+    print(f"Geschrieben: {target}")
+    print(f"Klassen    : {', '.join(known) or 'keine'}")
+    return 0
 
 
 def cmd_import(args: argparse.Namespace) -> int:
@@ -223,7 +377,61 @@ def build_parser() -> argparse.ArgumentParser:
     sp_import.add_argument("--force", action="store_true", help="vorhandenes Layout ersetzen")
     sp_import.set_defaults(func=cmd_import)
 
+    sp_preview = sub.add_parser(
+        "preview", help="die Definition wirklich setzen (Pandoc + LibreOffice)"
+    )
+    sp_preview.add_argument("layout", nargs="?", help="Name aus der Bibliothek")
+    sp_preview.add_argument("-f", "--file", help="Layout-Datei statt Bibliotheksname")
+    sp_preview.add_argument("-o", "--out", help="Ausgabeverzeichnis")
+    sp_preview.add_argument("--soffice", help="Pfad zu soffice(.exe)")
+    sp_preview.add_argument(
+        "--no-pdf", action="store_true", help="nur die .docx erzeugen"
+    )
+    sp_preview.set_defaults(func=cmd_preview)
+
+    sp_typeset = sub.add_parser(
+        "typeset", help="das ganze Buch mit diesem Layout setzen (.docx + .pdf)"
+    )
+    sp_typeset.add_argument("layout", nargs="?", help="Name aus der Bibliothek")
+    sp_typeset.add_argument("-f", "--file", help="Layout-Datei statt Bibliotheksname")
+    sp_typeset.add_argument("-b", "--book", required=True, help="Buchprojekt")
+    sp_typeset.add_argument("-o", "--out", help="Ausgabeverzeichnis (Vorgabe: export/doclayout)")
+    sp_typeset.add_argument("--soffice", help="Pfad zu soffice(.exe)")
+    sp_typeset.add_argument("--no-pdf", action="store_true", help="nur die .docx erzeugen")
+    sp_typeset.add_argument(
+        "--no-toc", action="store_true", help="ohne Inhaltsverzeichnis setzen"
+    )
+    sp_typeset.add_argument(
+        "--toc-depth", type=int, default=1, help="Gliederungstiefe des Verzeichnisses"
+    )
+    sp_typeset.add_argument(
+        "--keep-template", action="store_true",
+        help="vorhandene reference.docx/classmap.lua benutzen, nicht neu erzeugen",
+    )
+    sp_typeset.set_defaults(func=cmd_typeset)
+
+    sp_usage = sub.add_parser(
+        "usage", help="Klassen des Buches gegen die Klassen-Abbildung halten"
+    )
+    sp_usage.add_argument("layout", nargs="?", help="Name aus der Bibliothek")
+    sp_usage.add_argument("-f", "--file", help="Layout-Datei statt Bibliotheksname")
+    sp_usage.add_argument("-b", "--book", required=True, help="Buchprojekt")
+    sp_usage.add_argument(
+        "--all", action="store_true",
+        help="auch Quarto-eigene Klassen als Luecke werten",
+    )
+    sp_usage.set_defaults(func=cmd_usage)
+
+    sp_classes = sub.add_parser(
+        "classes", help="Klassenverzeichnis fuer den Generator schreiben"
+    )
+    sp_classes.add_argument(
+        "--show", action="store_true", help="nur anzeigen, nichts schreiben"
+    )
+    sp_classes.set_defaults(func=cmd_classes)
+
     sp_doctor = sub.add_parser("doctor", help="Voraussetzungen pruefen")
+    sp_doctor.add_argument("--soffice", help="Pfad zu soffice(.exe)")
     sp_doctor.set_defaults(func=cmd_doctor)
 
     return parser

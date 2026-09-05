@@ -25,6 +25,11 @@ class _FakeStudio:
         self.preflight_calls = []
         self.save_calls = []
 
+    def get_tree_data_for_engine(self):
+        # Siehe Kommentar bei den uebrigen Fakes: ohne Inhaltskapitel bricht
+        # der Render vor dem Vorabcheck ab, und genau der wird hier geprueft.
+        return [{"path": "index.md"}, {"path": "content/chapter.md"}]
+
     def run_doctor_preflight(self, context_label, emit_success_log=False):
         self.preflight_calls.append((context_label, emit_success_log))
         return False, {"error_count": 1}
@@ -138,7 +143,12 @@ def test_run_quarto_render_logs_affected_title_for_error_line(tmp_path: Path, mo
             return True
 
         def get_tree_data_for_engine(self):
-            return []
+            # ``run_quarto_render`` bricht seit dem Leer-PDF-Schutz ab, wenn die
+            # Struktur kein Inhaltskapitel enthaelt -- und zwar **vor** dem
+            # Vorabcheck. Diese Tests pruefen, was danach passiert; ohne ein
+            # Kapitel kaemen sie nie dort an. (Den Schutz selbst prueft
+            # ``test_render_service_helpers.test_count_content_chapters_*``.)
+            return [{"path": "index.md"}, {"path": "content/chapter.md"}]
 
         def log(self, message, level="info"):
             self.logged.append((message, level))
@@ -312,7 +322,12 @@ def test_run_quarto_render_aborts_on_first_processed_preflight_error(tmp_path: P
             return True
 
         def get_tree_data_for_engine(self):
-            return []
+            # ``run_quarto_render`` bricht seit dem Leer-PDF-Schutz ab, wenn die
+            # Struktur kein Inhaltskapitel enthaelt -- und zwar **vor** dem
+            # Vorabcheck. Diese Tests pruefen, was danach passiert; ohne ein
+            # Kapitel kaemen sie nie dort an. (Den Schutz selbst prueft
+            # ``test_render_service_helpers.test_count_content_chapters_*``.)
+            return [{"path": "index.md"}, {"path": "content/chapter.md"}]
 
         def log(self, message, level="info"):
             self.logged.append((message, level))
@@ -532,7 +547,12 @@ def test_run_quarto_render_writes_detailed_render_log_file(tmp_path: Path, monke
             return True
 
         def get_tree_data_for_engine(self):
-            return []
+            # ``run_quarto_render`` bricht seit dem Leer-PDF-Schutz ab, wenn die
+            # Struktur kein Inhaltskapitel enthaelt -- und zwar **vor** dem
+            # Vorabcheck. Diese Tests pruefen, was danach passiert; ohne ein
+            # Kapitel kaemen sie nie dort an. (Den Schutz selbst prueft
+            # ``test_render_service_helpers.test_count_content_chapters_*``.)
+            return [{"path": "index.md"}, {"path": "content/chapter.md"}]
 
         def log(self, message, level="info"):
             self.logged.append((message, level))
