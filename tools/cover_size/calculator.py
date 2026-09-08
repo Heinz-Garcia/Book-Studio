@@ -99,11 +99,23 @@ def __getattr__(name: str):
 
 
 def get_paper_type(paper_type_id: str) -> PaperType:
+    """Der Papiertyp zu *paper_type_id*.
+
+    Wirft ``ValueError`` bei unbekannter ID. Frueher wurde hier wortlos
+    ``papers[0]`` (``white_bw``) zurueckgegeben -- und damit eine falsche
+    Papierdicke in eine Rechnung, die in den Druck geht: Fuer ein
+    cremefarbenes Buch mit 400 Seiten ergab das 22,9 statt 25,4 mm
+    Ruecken, ohne dass irgendwo eine Warnung erschien. Das Schwestermodul
+    :func:`get_trim_size` machte es zwei Zeilen tiefer schon immer richtig.
+    """
     papers = _papers()
     for paper in papers:
         if paper.id == paper_type_id:
             return paper
-    return papers[0]
+    bekannt = ", ".join(p.id for p in papers)
+    raise ValueError(
+        f"Unbekannter Papiertyp: {paper_type_id!r}. Bekannt sind: {bekannt}."
+    )
 
 
 def get_trim_size(trim_size_id: str) -> Optional[TrimSize]:

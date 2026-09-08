@@ -57,6 +57,41 @@ def write_json_atomic(
                 pass
 
 
+def quarantine_corrupt(path: Path) -> Path | None:
+    """Legt eine unlesbare Datei zur Seite, statt sie überschreiben zu lassen.
+
+    Gibt den Pfad der Sicherung zurück, oder ``None``, wenn nichts zu retten
+    war (Datei fehlt) bzw. das Umbenennen selbst scheiterte.
+
+    Der Grund für diese Funktion: Mehrere Zustandsdateien der Anwendung
+    (``publish_map.json``, ``publish_record.json``, ``grammargraph_export.json``)
+    wurden nach dem Muster "lesen; bei Fehler ein frisches, leeres Gebilde
+    schreiben" behandelt. Eine halb geschriebene Datei — genau das, wogegen
+    :func:`write_json_atomic` schützt — kostete damit die gesamte Historie
+    eines Buches, wortlos. Wegzuwerfen, was man nicht versteht, ist die eine
+    Sache; es *unbemerkt* wegzuwerfen die andere.
+
+    Der Zeitstempel im Namen sorgt dafür, dass auch mehrere Vorfälle
+    nebeneinander liegen bleiben und keiner den vorigen überschreibt.
+    """
+    from datetime import datetime
+
+    path = Path(path)
+    if not path.is_file():
+        return None
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    ziel = path.with_name(f"{path.name}.corrupt-{stamp}")
+    n = 1
+    while ziel.exists():
+        ziel = path.with_name(f"{path.name}.corrupt-{stamp}-{n}")
+        n += 1
+    try:
+        os.replace(path, ziel)
+    except OSError:
+        return None
+    return ziel
+
+
 def read_json_safe(path: Path, *, default: Any = None) -> Any:
     """Liest JSON aus `path`; bei Fehler (fehlend/korrupt) → `default`."""
     path = Path(path)

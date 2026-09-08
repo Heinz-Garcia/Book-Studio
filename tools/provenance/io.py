@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+import json_io
 from tools.provenance.schema import BOOKCONFIG_DIR, PROVENANCE_FILENAME, SCHEMA_VERSION
 
 
@@ -25,9 +26,9 @@ def read_provenance(book_path: Path) -> Optional[dict[str, Any]]:
 
 
 def write_provenance(book_path: Path, data: dict[str, Any]) -> Path:
+    """Schreibt den Herkunftsnachweis -- atomar (siehe ``json_io``)."""
     dest = provenance_path(book_path)
-    dest.parent.mkdir(parents=True, exist_ok=True)
     payload = dict(data)
     payload.setdefault("schema_version", SCHEMA_VERSION)
-    dest.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    json_io.write_json_atomic(dest, payload, indent=2)
     return dest

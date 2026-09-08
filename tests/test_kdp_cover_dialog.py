@@ -240,7 +240,7 @@ def test_kdp_dialog_keeps_preview_column(monkeypatch, tmp_path):
         "Vorderseite",
         "Rücken",
         "Rückseite",
-        "Layer",
+        "Experiment",
         "Frei",
     ]
     dlg.close()
@@ -328,7 +328,13 @@ def test_copy_size_writes_clipboard(monkeypatch, tmp_path):
     dlg.close()
 
 
-def test_cover_size_plugin_hidden_from_menu():
+def test_cover_size_plugin_is_hidden_from_menu():
+    """Cover-Groesse: kein eigener Menuepunkt (Rechnung steckt im KDP-Designer).
+
+    ``tools/cover_size`` bleibt der SSOT-Rechenkern; der Plugin-Adapter
+    oeffnet bei Direktaufruf weiterhin den Designer. Im Plugins-Menue
+    erscheint nur noch ``kdp_cover`` (siehe ``show_in_menu: false``).
+    """
     import json
     from pathlib import Path
 

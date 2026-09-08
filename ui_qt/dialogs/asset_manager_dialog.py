@@ -130,6 +130,9 @@ class AssetManagerQtDialog(QDialog):
         self._ref_index: dict[Path, list[RefHit]] = {}
         self._active_side: str = "pool"
         self._selected_path: Path | None = None
+        #: Waehrend eine Liste die andere abwaehlt, duerfen deren Handler nicht
+        #: dazwischenfunken -- siehe ``_on_pool_selection``.
+        self._syncing_selection = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14)
@@ -532,25 +535,51 @@ class AssetManagerQtDialog(QDialog):
         self._copy_btn.setEnabled(self._book is not None and bool(self._selected_pool_paths()))
 
     def _on_pool_selection(self) -> None:
+        # Das Abwaehlen der Gegenseite loest dort denselben Handler aus, und der
+        # setzte anschliessend Seite und Auswahl wieder um. Wer ein Pool-Bild
+        # anklickte, bekam deshalb das zuvor gewaehlte *Buch*-Bild samt seiner
+        # Referenzen zu sehen -- ``clearSelection()`` raeumt in Qt naemlich die
+        # Auswahl, nicht das ``currentItem``, sodass ``_selected_book_path()``
+        # weiter das alte Bild lieferte. Umgekehrt zeigte die Detailspalte nach
+        # einem Klick ins Buch "Keine Auswahl", obwohl etwas markiert war.
+        if self._syncing_selection:
+            return
         paths = self._selected_pool_paths()
         self._active_side = "pool"
         self._selected_path = paths[0] if paths else None
         if paths:
-            self._book_list.clearSelection()
+            self._clear_other_side(self._book_list)
         self._sync_copy_enabled()
+        self._sync_book_delete_enabled()
         self._update_detail()
         self._sync_pick_accept_enabled()
 
     def _on_book_selection(self) -> None:
+        if self._syncing_selection:
+            return
         path = self._selected_book_path()
         self._active_side = "book"
         self._selected_path = path
         if path is not None:
-            self._pool_list.clearSelection()
+            self._clear_other_side(self._pool_list)
             self._sync_copy_enabled()
         self._sync_book_delete_enabled()
         self._update_detail()
         self._sync_pick_accept_enabled()
+
+    def _clear_other_side(self, widget: QListWidget) -> None:
+        """Die andere Liste abwaehlen, ohne ihren Handler mitzuziehen.
+
+        ``setCurrentItem(None)`` zusaetzlich zu ``clearSelection()``: Sonst
+        bliebe das ``currentItem`` stehen, und der naechste Blick dorthin
+        lieferte ein Bild, das laengst nicht mehr markiert ist.
+        """
+        self._syncing_selection = True
+        try:
+            widget.clearSelection()
+            widget.setCurrentItem(None)
+        finally:
+            self._syncing_selection = False
 
     def _sync_pick_accept_enabled(self) -> None:
         if not self._pick_mode:
@@ -699,8 +728,13 @@ class AssetManagerQtDialog(QDialog):
         self._reload_all(reset_subdir=True)
 
     def _save_pool_as_default(self) -> None:
+        # Gespeichert wird der Ordner, den man **sieht** -- also samt gewaehltem
+        # Unterordner. Vorher ging immer die Pool-Wurzel in die Konfiguration,
+        # waehrend die Ansicht auf einem Unterordner stand: Der Knopf tat etwas
+        # anderes, als sein Tooltip ("Aktuellen Ordner") ankuendigte.
+        ziel = self._pool_active_dir
         try:
-            saved = write_configured_pool_path(self._pool_dir, self._repo)
+            saved = write_configured_pool_path(ziel, self._repo)
         except OSError as exc:
             QMessageBox.warning(self, "Asset Manager", f"Speichern fehlgeschlagen:\n{exc}")
             return
@@ -710,7 +744,9 @@ class AssetManagerQtDialog(QDialog):
             "Asset Manager",
             f"Standard-Pool gespeichert:\n{saved}",
         )
-        self._apply_pool_active_dir()
+        # Der gespeicherte Ordner ist jetzt die Wurzel; die Unterordner-Auswahl
+        # muss darauf neu aufgebaut werden, sonst zeigte sie Pfade von vorher.
+        self._reload_all(reset_subdir=True)
 
     def _copy_pool_to_book(self) -> None:
         if self._book is None:

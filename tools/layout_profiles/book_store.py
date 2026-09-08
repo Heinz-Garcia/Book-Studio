@@ -6,7 +6,11 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from tools.layout_profiles.catalog import DEFAULT_LAYOUT_PROFILE_ID, normalize_linestretch
+from tools.layout_profiles.catalog import (
+    DEFAULT_LAYOUT_PROFILE_ID,
+    normalize_linebreak_strictness,
+    normalize_linestretch,
+)
 
 BOOKCONFIG_DIR = "bookconfig"
 OVERRIDE_FILENAME = "layout_profile.json"
@@ -32,12 +36,18 @@ def write_book_layout_override(
     *,
     layout_profile: str,
     linestretch: float,
+    linebreak_strictness: Any = None,
 ) -> Path:
     dest = override_path(book_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "layout_profile": layout_profile,
         "linestretch": normalize_linestretch(linestretch),
+        "linebreak_strictness": normalize_linebreak_strictness(
+            linebreak_strictness
+            if linebreak_strictness is not None
+            else get_profile_default_strictness(layout_profile)
+        ),
     }
     dest.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return dest
@@ -51,6 +61,7 @@ def resolve_export_layout_defaults(
     """Kaskade: App-Default → Buch-Override → Session (zuletzt gewählt)."""
     profile_id = str(app_defaults.get("layout_profile") or DEFAULT_LAYOUT_PROFILE_ID)
     linestretch = app_defaults.get("linestretch")
+    strictness = app_defaults.get("linebreak_strictness")
 
     if book_path is not None:
         book_override = read_book_layout_override(book_path)
@@ -58,18 +69,25 @@ def resolve_export_layout_defaults(
             profile_id = str(book_override.get("layout_profile") or profile_id)
             if book_override.get("linestretch") is not None:
                 linestretch = book_override.get("linestretch")
+            if book_override.get("linebreak_strictness") is not None:
+                strictness = book_override.get("linebreak_strictness")
 
     if session_options.get("layout_profile"):
         profile_id = str(session_options["layout_profile"])
     if session_options.get("linestretch") is not None:
         linestretch = session_options.get("linestretch")
+    if session_options.get("linebreak_strictness") is not None:
+        strictness = session_options.get("linebreak_strictness")
 
     if linestretch is None:
         linestretch = get_profile_default_stretch(profile_id)
+    if strictness is None:
+        strictness = get_profile_default_strictness(profile_id)
 
     return {
         "layout_profile": profile_id,
         "linestretch": normalize_linestretch(linestretch),
+        "linebreak_strictness": normalize_linebreak_strictness(strictness),
     }
 
 
@@ -77,3 +95,10 @@ def get_profile_default_stretch(profile_id: str) -> float:
     from tools.layout_profiles.catalog import get_profile
 
     return get_profile(profile_id).linestretch
+
+
+def get_profile_default_strictness(profile_id: str) -> str:
+    """Umbruch-Strenge, die das Profil mitbringt (Export darf sie kippen)."""
+    from tools.layout_profiles.catalog import get_profile
+
+    return get_profile(profile_id).linebreak_strictness

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Optional
 
@@ -37,6 +38,7 @@ from tools.mapping_manager.deploy import deploy_pdf, resolve_pdf_deploy_folder
 from tools.mapping_manager.loader import load_renders, load_snapshots
 from tools.mapping_manager.models import RenderView, SnapshotView, layout_profile_label
 from tools.publish_map.store import read_map, remove_render, update_render_fields
+from ui_qt.widgets.help_bar import HelpBar
 from ui_qt.widgets.resize_grip import attach_resize_grip
 
 _COL_DATE = 0
@@ -50,6 +52,21 @@ _COL_SOURCE = 6
 _SOURCE_DOT_AVAILABLE = "#16a34a"
 _SOURCE_DOT_MISSING = "#dc2626"
 
+#: Fenstergroesse ueber Sitzungen hinweg. Schluessel wie beim Layout-Editor
+#: benannt (``<dialog>_size`` / ``<dialog>_maximized``), damit ein Blick in
+#: session_state.json verraet, wozu ein Eintrag gehoert.
+_SIZE_KEY = "pdf_manager_size"
+_MAXIMIZED_KEY = "pdf_manager_maximized"
+
+#: Groesse beim allerersten Oeffnen.
+_DEFAULT_SIZE = (1360, 720)
+
+#: Untergrenze, damit eine versehentlich winzige Groesse den Manager nicht
+#: unbedienbar zurueckbringt.
+_MIN_SIZE = (1200, 640)
+
+_LOG = logging.getLogger(__name__)
+
 
 class MappingManagerQtDialog(QDialog):
     def __init__(self, parent: Optional[QWidget], studio: Any) -> None:
@@ -57,8 +74,9 @@ class MappingManagerQtDialog(QDialog):
         self.studio = studio
         self.setObjectName("finishedPdfsDialog")
         self.setWindowTitle("PDF Manager")
-        self.setMinimumSize(1200, 640)
-        self.resize(1360, 720)
+        self.setMinimumSize(*_MIN_SIZE)
+        self._restore_maximized = False
+        self._apply_saved_size()
         self._snapshots: list[SnapshotView] = []
         self._renders: list[RenderView] = []
         self._all_renders: list[RenderView] = []
@@ -66,6 +84,7 @@ class MappingManagerQtDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         layout.setContentsMargins(16, 14, 16, 14)
+        HelpBar.create_and_prepend_for_plugin(layout, "mapping_manager")
 
         title = QLabel("PDF Manager")
         title_font = QFont(title.font())
@@ -997,6 +1016,61 @@ class MappingManagerQtDialog(QDialog):
         self._on_snapshot_changed(self.snapshot_combo.currentIndex())
         if errors:
             QMessageBox.critical(self, "PDF Manager", "\n".join(errors))
+
+    # -- Fenstergroesse ----------------------------------------------------
+
+    def _apply_saved_size(self) -> None:
+        """Stellt die zuletzt benutzte Groesse wieder her.
+
+        Eine unlesbare Sitzung darf den Manager nicht am Oeffnen hindern --
+        dann gilt die Vorgabegroesse.
+        """
+        from ui_qt import qt_session
+
+        width, height = _DEFAULT_SIZE
+        try:
+            state = qt_session.load_session()
+        except (OSError, ValueError):
+            _LOG.debug("Sitzung nicht lesbar — Vorgabegröße", exc_info=True)
+            state = {}
+        ui = state.get("ui_state") if isinstance(state, dict) else None
+        if isinstance(ui, dict):
+            saved = ui.get(_SIZE_KEY)
+            if isinstance(saved, (list, tuple)) and len(saved) == 2:
+                try:
+                    width, height = int(saved[0]), int(saved[1])
+                except (TypeError, ValueError):
+                    width, height = _DEFAULT_SIZE
+            self._restore_maximized = bool(ui.get(_MAXIMIZED_KEY))
+        self.resize(max(_MIN_SIZE[0], width), max(_MIN_SIZE[1], height))
+
+    def _persist_size(self) -> None:
+        """Legt die Groesse ab — im Vollbild die davor, sonst die aktuelle."""
+        from ui_qt import qt_session
+
+        maximized = bool(self.isMaximized())
+        geometry = self.normalGeometry() if maximized else None
+        width = int(geometry.width()) if geometry else int(self.width())
+        height = int(geometry.height()) if geometry else int(self.height())
+        try:
+            qt_session.update_ui_state(
+                {_SIZE_KEY: [width, height], _MAXIMIZED_KEY: maximized}
+            )
+        except OSError:
+            # Eine nicht gespeicherte Fenstergroesse ist kein Grund, das
+            # Schliessen des Dialogs scheitern zu lassen.
+            _LOG.debug("Fenstergröße konnte nicht abgelegt werden", exc_info=True)
+
+    def showEvent(self, event: Any) -> None:  # noqa: N802 - Qt-Vertrag
+        super().showEvent(event)
+        if self._restore_maximized:
+            self._restore_maximized = False
+            self.showMaximized()
+
+    def done(self, result: int) -> None:
+        """Jeder Ausgang laeuft hier durch — Knopf, Fensterkreuz und Esc."""
+        self._persist_size()
+        super().done(result)
 
 
 def open_mapping_manager_qt(studio: Any, parent: Optional[QWidget] = None) -> None:

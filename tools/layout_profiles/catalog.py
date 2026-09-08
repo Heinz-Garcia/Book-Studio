@@ -45,6 +45,113 @@ def normalize_linestretch(value: Any, *, default: float = 1.2) -> float:
     return parsed
 
 
+@dataclass(frozen=True)
+class LineBreakStrictnessOption:
+    label: str
+    #: Kennung, wie sie in session_state und im Buch-Override landet.
+    value: str
+    #: Erklaerungstext fuer die (i)-Zeile im Export-Dialog.
+    hint: str
+    #: Listeneintraege (Aufzaehlung + nummeriert) nicht ueber den
+    #: Seitenrand brechen lassen.
+    keep_lists: bool = False
+    #: Tabellen als Ganzes zusammenhalten.
+    keep_tables: bool = False
+
+
+#: Wie hartnaeckig Einzelzeilen am Seitenwechsel vermieden werden.
+#:
+#: **Wichtig, damit die Vorgeschichte sich nicht wiederholt:** Hier stand
+#: einmal eine Skala von Umbruchkosten (``text.costs``). Sie war wirkungslos.
+#: Empirisch am ganzen Buch und an isolierten Typst-Dokumenten geprueft:
+#: 0% aendert das Satzbild, 100% (Typsts Voreinstellung) und 2000% liefern
+#: identische Seiten. Typsts Absatz-Schutz laeuft also bereits -- ein zweites
+#: Setzen desselben oder eines hoeheren Werts bewegt nichts.
+#:
+#: Was die Einzelzeilen in einem listenlastigen Buch wirklich erzeugt, sind
+#: aufgespaltene Listeneintraege: In der Andalusien-Ausgabe entfielen 193
+#: von 892 Seitenuebergaengen darauf, gegenueber 8 echten Absatz-Hurenkindern.
+#: Deshalb steuern die Stufen jetzt ``block(breakable: false)`` auf
+#: Listeneintraegen bzw. Tabellen -- das ist der Hebel, der greift.
+LINE_BREAK_STRICTNESS_OPTIONS: tuple[LineBreakStrictnessOption, ...] = (
+    LineBreakStrictnessOption(
+        "Aus (Typst-Vorgabe)",
+        "off",
+        "Nur Typsts eingebauter Schutz für Absätze. Listeneinträge und "
+        "Tabellen dürfen über den Seitenrand brechen.",
+    ),
+    LineBreakStrictnessOption(
+        "Moderat",
+        "lists",
+        "Listeneinträge bleiben zusammen — die häufigste Ursache für "
+        "Einzelzeilen. Tabellen dürfen weiterhin umbrechen.",
+        keep_lists=True,
+    ),
+    LineBreakStrictnessOption(
+        "Streng",
+        "lists+tables",
+        "Zusätzlich bleiben Tabellen ganz auf einer Seite. Ruhigster Satz, "
+        "aber mehr Weißraum am Seitenfuß — und eine Tabelle, die länger "
+        "als eine Seite ist, läuft über.",
+        keep_lists=True,
+        keep_tables=True,
+    ),
+)
+
+LINE_BREAK_STRICTNESS_VALUES: tuple[str, ...] = tuple(
+    opt.value for opt in LINE_BREAK_STRICTNESS_OPTIONS
+)
+
+#: Vorgabe fuer Profile, die nichts eigenes sagen.
+DEFAULT_LINE_BREAK_STRICTNESS = "lists"
+
+#: Uebersetzung der frueheren Prozent-Skala, damit ein bereits
+#: gespeicherter Wert aus session_state oder bookconfig nicht als
+#: unbekannt durchfaellt.
+_LEGACY_STRICTNESS_BY_PERCENT = {100: "off", 300: "lists", 1000: "lists+tables"}
+
+
+def get_strictness_option(value: Any) -> LineBreakStrictnessOption:
+    kennung = normalize_linebreak_strictness(value)
+    for opt in LINE_BREAK_STRICTNESS_OPTIONS:
+        if opt.value == kennung:
+            return opt
+    return LINE_BREAK_STRICTNESS_OPTIONS[1]
+
+
+def linebreak_strictness_label(value: Any) -> str:
+    return get_strictness_option(value).label
+
+
+def linebreak_strictness_hint(value: Any) -> str:
+    """Erklaerungstext zum eingestellten Wert (fuer die (i)-Zeile)."""
+    return get_strictness_option(value).hint
+
+
+def normalize_linebreak_strictness(
+    value: Any, *, default: str = DEFAULT_LINE_BREAK_STRICTNESS
+) -> str:
+    """Nimmt Kennung, Label oder einen alten Prozentwert entgegen.
+
+    Ein unbekannter Eintrag aus einer von Hand geaenderten Datei soll den
+    Export nicht anhalten, sondern auf der Vorgabe landen.
+    """
+    if isinstance(value, str):
+        roh = value.strip()
+        if roh in LINE_BREAK_STRICTNESS_VALUES:
+            return roh
+        for opt in LINE_BREAK_STRICTNESS_OPTIONS:
+            if opt.label == roh:
+                return opt.value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        prozent = int(round(float(value)))
+        if prozent in _LEGACY_STRICTNESS_BY_PERCENT:
+            return _LEGACY_STRICTNESS_BY_PERCENT[prozent]
+        naechster = min(_LEGACY_STRICTNESS_BY_PERCENT, key=lambda v: abs(v - prozent))
+        return _LEGACY_STRICTNESS_BY_PERCENT[naechster]
+    return default
+
+
 _MIRRORED_MARGIN_KEYS = ("inside", "outside", "top", "bottom")
 
 
@@ -93,9 +200,24 @@ class LayoutProfile:
     lines_per_page: Optional[int] = None
     chars_per_line: Optional[int] = None
     bleed_mm: Optional[float] = None
+    #: Vorgabe fuer die Umbruch-Strenge; im Export-Dialog ueberschreibbar.
+    #: ``widows``/``orphans`` daneben sind LaTeX-Penalties und fuer den
+    #: Typst-Pfad wirkungslos -- sie bleiben nur fuer andere Zielformate
+    #: stehen und duerfen nicht mit diesem Feld verwechselt werden.
+    linebreak_strictness: str = DEFAULT_LINE_BREAK_STRICTNESS
 
-    def format_options(self, *, linestretch: Optional[float] = None) -> dict[str, Any]:
+    def format_options(
+        self,
+        *,
+        linestretch: Optional[float] = None,
+        linebreak_strictness: Optional[str] = None,
+    ) -> dict[str, Any]:
         stretch = normalize_linestretch(linestretch if linestretch is not None else self.linestretch)
+        zusammenhalt = get_strictness_option(
+            linebreak_strictness
+            if linebreak_strictness is not None
+            else self.linebreak_strictness
+        )
         opts: dict[str, Any] = {
             "linestretch": stretch,
             "papersize": self.papersize,
@@ -104,6 +226,13 @@ class LayoutProfile:
             "orphans": self.orphans,
             "toc-depth": self.toc_depth,
         }
+        # Nur gesetzte Schalter mitgeben: Pandoc wertet ``$if(x)$`` fuer
+        # einen fehlenden Schluessel als falsch aus, ein ``false`` waere
+        # gleichbedeutend -- aber die _quarto.yml bleibt so lesbarer.
+        if zusammenhalt.keep_lists:
+            opts["typst-keep-lists"] = True
+        if zusammenhalt.keep_tables:
+            opts["typst-keep-tables"] = True
         width, height, margin = self.typst_page_width, self.typst_page_height, self.page_margin
         if self.bleed_mm and width and height and margin:
             adjusted = _bleed_adjusted_page(width, height, margin, self.bleed_mm)
@@ -275,9 +404,13 @@ def build_layout_format_options(
     target_fmt: str,
     *,
     linestretch: Optional[float] = None,
+    linebreak_strictness: Optional[str] = None,
 ) -> dict[str, dict[str, Any]]:
     profile = get_profile(profile_id)
-    opts = profile.format_options(linestretch=linestretch)
+    opts = profile.format_options(
+        linestretch=linestretch,
+        linebreak_strictness=linebreak_strictness,
+    )
     if target_fmt == _STANDARD_TYPST_TARGET_FMT:
         opts.setdefault("template-partials", list(TYPST_STANDARD_PARTIALS))
     return {target_fmt: opts}

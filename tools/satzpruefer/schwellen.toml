@@ -1,0 +1,35 @@
+# Wann meldet die Satzprüfung einen Befund?
+#
+# Diese Datei ist die Quelle der Wahrheit. Der Code enthält keine Zweitwerte:
+# Fehlt hier ein Eintrag, bricht das Werkzeug mit einer Meldung ab, statt
+# heimlich auf eine einprogrammierte Zahl zurückzufallen.
+#
+# Die CLI kann einzelne Werte für einen Lauf überschreiben
+# (`python -m tools.satzpruefer --help`), ohne diese Datei zu ändern.
+
+# Ab wie vielen Zeilen ist eine Überschrift zu lang?
+# Zwei Zeilen sind im Taschenbuch normal, drei lesen sich als Absatz und
+# nehmen der Seite den Halt. Bei 135x215 mm fasst eine Überschriftenzeile
+# rund 40 Zeichen -- zwei Zeilen sind also gut 80 Zeichen Titel.
+ueberschrift_max_zeilen = 2
+
+# Ab wie wenigen Zeichen ist eine Tabellenspalte zu schmal?
+# Unter 12 Zeichen passt kein zusammengesetztes deutsches Wort mehr ohne
+# Trennung hinein, und die Spalte zerfällt in Silben ("Universi-tario").
+spalte_min_zeichen = 12
+
+# Über wie viele Seiten darf eine Tabelle laufen?
+# Ab der dritten Seite hat der Leser den Tabellenkopf zweimal verloren.
+tabelle_max_seiten = 2
+
+# Über wie viele Seiten darf das Inhaltsverzeichnis laufen?
+ivz_max_seiten = 4
+
+# Wie viele Zeilen darf eine einzelne Tabellenzelle umbrechen?
+# 5 Zeilen sind bei schmalen Spalten noch sauberer Satz (an S. 654 der
+# Andalusien-Druckfahne geprüft); erst darüber zerfällt es.
+zelle_max_zeilen = 6
+
+# Ab wie vielen Punkten Unterschied gilt eine Schrift als "prominenter"?
+# Darunter sind es Rundungen aus der Schriftmetrik, keine Hierarchiefehler.
+groessen_toleranz_pt = 0.2

@@ -718,15 +718,18 @@ class KdpCoverQtDialog(QDialog):
             self._editor_tabs.count() - 1, "5 · Rückseite (Farbe, Bild, Rahmen)"
         )
 
-        # --- Tab: Layer ---
+        # --- Tab: Experiment (Vorderseiten-Layer, Feature-Flag) ---
         tab_layer, layer_body = self._make_editor_tab()
         layer_body.addWidget(self._build_compose_front_group())
         layer_body.addStretch(1)
-        self._editor_tabs.addTab(tab_layer, "Layer")
+        self._layer_tab_index = self._editor_tabs.addTab(tab_layer, "Experiment")
         self._editor_tabs.setTabToolTip(
-            self._editor_tabs.count() - 1,
-            "6 · Vorderseite gestalten (Fade, Band, Titel, Fuß, Banner, Badge)",
+            self._layer_tab_index,
+            "Experiment · Vorderseiten-Layer (Fade, Band, Titel, Fuß, Banner, Badge). "
+            "Sichtbar mit app_config kdp_compose_front_ui / BSU_KDP_COMPOSE_FRONT=1 "
+            "oder wenn Layer im gespeicherten Cover aktiv sind.",
         )
+        self._sync_compose_front_tab_visibility()
 
         # --- Tab: Frei ---
         tab_free, free_body = self._make_editor_tab()
@@ -1378,7 +1381,8 @@ class KdpCoverQtDialog(QDialog):
         box.setToolTip(
             "Optionale Layer über dem Vorderseiten-Foto "
             "(Fade, Band, Titel, Fuß, Ecken-Banner, Badge). "
-            "Ausgeschaltet oder ohne Modul: Export wie bisher."
+            "Ausgeschaltet oder ohne Modul: Export wie bisher. "
+            "Feature-Flag: kdp_compose_front_ui / BSU_KDP_COMPOSE_FRONT."
         )
         root = QVBoxLayout(box)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1802,6 +1806,9 @@ class KdpCoverQtDialog(QDialog):
             self.compose_lines_bold,
         ):
             w.toggled.connect(self._on_params_changed)
+        self.compose_enabled.toggled.connect(
+            lambda *_: self._sync_compose_front_tab_visibility()
+        )
         for w in (
             self.compose_fade_height,
             self.compose_fade_opacity,
@@ -2021,6 +2028,7 @@ class KdpCoverQtDialog(QDialog):
             self.compose_badge2_rot.setValue(spec.badge2.rotation_deg)
         finally:
             self._params_guard = was_guarded
+        self._sync_compose_front_tab_visibility()
 
     def _on_trim_changed(self, *_args: Any) -> None:
         is_custom = self.trim_combo.currentData() == CUSTOM_TRIM_SIZE_ID
@@ -2036,6 +2044,25 @@ class KdpCoverQtDialog(QDialog):
         free_idx = getattr(self, "_free_tab_index", -1)
         if free_idx >= 0 and hasattr(self, "_editor_tabs"):
             self._editor_tabs.setTabEnabled(free_idx, is_free)
+
+    def _sync_compose_front_tab_visibility(self) -> None:
+        """Experiment-Tab nur bei Flag oder aktivem Layer im Projekt zeigen."""
+        idx = getattr(self, "_layer_tab_index", -1)
+        tabs = getattr(self, "_editor_tabs", None)
+        if idx < 0 or tabs is None:
+            return
+        from tools.kdp_cover.compose_front.flags import is_compose_front_ui_enabled
+
+        project_on = bool(
+            getattr(self, "compose_enabled", None)
+            and self.compose_enabled.isChecked()
+        )
+        show = is_compose_front_ui_enabled(project_enabled=project_on)
+        set_visible = getattr(tabs, "setTabVisible", None)
+        if callable(set_visible):
+            set_visible(idx, show)
+        else:
+            tabs.setTabEnabled(idx, show)
 
     def _on_mode_changed(self, *_args: Any) -> None:
         if self._mode_guard:

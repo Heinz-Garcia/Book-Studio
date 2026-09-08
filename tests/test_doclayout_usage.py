@@ -305,3 +305,62 @@ def test_a_layout_from_another_band_matches_nothing(tmp_path: Path):
     assert [u.name for u in result.unmapped] == ["answer", "monospace"]
     assert result.mapped == ()
     assert set(result.unused) == {"prompt", "fachtext"}
+
+
+# ---------------------------------------------------------------------------
+# Sicherungskopien duerfen den Scan nicht vergiften
+# ---------------------------------------------------------------------------
+#
+# Regression: ``IGNORED_DIRECTORIES`` enthielt ``"backups"`` -- ohne Punkt --
+# und kein ``bookconfig``. Genau dorthin legen aber
+# ``tools/skeleton/populate.py`` (``<Buch>/.backups/skeleton-populate/``) und
+# ``tools/gg_content_swap/swap.py`` (``<Buch>/bookconfig/.backups/``) vor jedem
+# Ueberschreiben eine ``.md``-Kopie. Nach dem ersten Swap- oder Populate-Lauf
+# zaehlte deshalb jedes doclayout-Werkzeug jede Klasse doppelt und fuehrte
+# laengst geloeschte Klassen als aktiv. Die richtige Liste stand die ganze
+# Zeit in ``services.workspace_service.EXCLUDED_PATH_SEGMENTS``.
+
+
+def test_backups_of_the_tools_are_not_counted(tmp_path: Path):
+    book = _book(tmp_path, k="::: {.merksatz}\nA\n:::\n")
+    for rel in (
+        ".backups/skeleton-populate/content",
+        "bookconfig/.backups/gg-content-swap/content",
+    ):
+        ordner = book / rel
+        ordner.mkdir(parents=True)
+        (ordner / "k.bak-20260908-120000.md").write_text(
+            "::: {.merksatz}\nA\n:::\n\n::: {.laengst_geloescht}\nB\n:::\n",
+            encoding="utf-8",
+        )
+
+    gefunden = scan_book(book)
+    assert gefunden["merksatz"].count == 1, "Sicherung doppelt gezaehlt"
+    assert gefunden["merksatz"].files == ("content/k.md",)
+    assert "laengst_geloescht" not in gefunden, "geloeschte Klasse wiederbelebt"
+
+
+def test_ignored_directories_stay_in_sync_with_the_workspace_service():
+    """Die beiden Listen duerfen nicht wieder auseinanderlaufen."""
+    from services.workspace_service import EXCLUDED_PATH_SEGMENTS
+
+    from tools.doclayout.usage import IGNORED_DIRECTORIES
+
+    # ``processed`` entscheidet ``markdown_files`` bewusst von Fall zu Fall.
+    fehlend = (EXCLUDED_PATH_SEGMENTS - {"processed"}) - IGNORED_DIRECTORIES
+    assert not fehlend, f"nicht uebernommen: {sorted(fehlend)}"
+
+
+def test_processed_is_only_skipped_when_content_exists(tmp_path: Path):
+    """Der bewusste Sonderfall darf durch die Zusammenfuehrung nicht kippen."""
+    from tools.doclayout.usage import markdown_files
+
+    ohne = tmp_path / "ohne_content"
+    (ohne / "processed").mkdir(parents=True)
+    (ohne / "_quarto.yml").write_text("book:\n", encoding="utf-8")
+    (ohne / "processed" / "p.md").write_text("x\n", encoding="utf-8")
+    assert [p.name for p in markdown_files(ohne)] == ["p.md"]
+
+    (ohne / "content").mkdir()
+    (ohne / "content" / "c.md").write_text("y\n", encoding="utf-8")
+    assert [p.name for p in markdown_files(ohne)] == ["c.md"]

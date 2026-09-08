@@ -5,14 +5,34 @@ from __future__ import annotations
 import re
 import shutil
 from dataclasses import dataclass, field
+from io import StringIO
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import yaml
 
 import frontmatter_parser
 import json_io
 from page_required import entry_required_from_manifest_item
+
+# Kommentarerhaltendes Zurueckschreiben, sonst faellt beim Setzen eines
+# einzelnen Feldes jede Notiz aus der Vorlage. Kann-Abhaengigkeit wie in
+# ``tools/doclayout/apply.py``: Fehlt das Paket, schreibt PyYAML weiter.
+try:  # pragma: no cover - haengt an der Installation
+    from ruamel.yaml import YAML as _RuamelYAML
+except ImportError:  # pragma: no cover
+    _RuamelYAML = None
+
+
+def _roundtrip_yaml() -> Any:
+    """Ein kommentarerhaltender YAML-Umgang -- oder ``None``."""
+    if _RuamelYAML is None:
+        return None
+    yml = _RuamelYAML()
+    yml.preserve_quotes = True
+    yml.width = 4096
+    yml.indent(mapping=2, sequence=4, offset=2)
+    return yml
 
 
 @dataclass(frozen=True)
@@ -348,7 +368,20 @@ def _sync_markdown_frontmatter_field(
     *,
     omit_if_false: bool = False,
 ) -> bool:
-    """Schreibt ein Frontmatter-Feld zurück; ``True`` bei Änderung."""
+    """Schreibt ein Frontmatter-Feld zurück; ``True`` bei Änderung.
+
+    Ist der Header kein gültiges YAML, wird **nichts** geschrieben und ``False``
+    gemeldet. Das ist der Kern dieser Funktion, nicht ein Randfall: Zuvor kam
+    der Header aus ``parts.parsed()``, und das liefert bei defektem YAML
+    ausdrücklich ``{}``. Die Prüfung ``isinstance(data, dict)`` ging darüber
+    hinweg -- ``{}`` *ist* ein Wörterbuch --, worauf ``yaml.safe_dump`` aus dem
+    leeren Wörterbuch einen neuen Header baute, der nur noch das eine gerade
+    gesetzte Feld trug. Ein Tippfehler (``order = 15`` statt ``order: 15``)
+    kostete beim bloßen Umsortieren im Skeleton-Editor ``title``, ``uuid``,
+    ``status`` und alles Übrige -- ohne Backup, denn hier wird direkt
+    geschrieben. Lieber eine ``order``, die vom Manifest abweicht, als eine
+    Vorlage ohne Kopf.
+    """
     target = Path(target)
     if not target.is_file():
         return False
@@ -357,8 +390,13 @@ def _sync_markdown_frontmatter_field(
     parts = frontmatter_parser.parse(content)
     if not parts.has_frontmatter:
         return False
+    if parts.parse_error:
+        return False
 
-    data = parts.parsed()
+    umgang = _roundtrip_yaml()
+    data = umgang.load(StringIO(parts.header or "")) if umgang is not None else parts.parsed()
+    if data is None:
+        data = {}
     if not isinstance(data, dict):
         return False
 
@@ -383,7 +421,12 @@ def _sync_markdown_frontmatter_field(
             data.pop(key, None)
 
     newline = "\r\n" if "\r\n" in content else "\n"
-    header_text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip("\r\n")
+    if umgang is not None:
+        puffer = StringIO()
+        umgang.dump(data, puffer)
+        header_text = puffer.getvalue().rstrip("\r\n")
+    else:
+        header_text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip("\r\n")
     new_content = (
         parts.bom
         + "---" + newline

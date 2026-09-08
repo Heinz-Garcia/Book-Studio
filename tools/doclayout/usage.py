@@ -25,6 +25,7 @@ from typing import Iterable, Optional
 
 import frontmatter_parser
 from quarto_block_parser import iter_body_lines_outside_code_fences
+from services.workspace_service import EXCLUDED_PATH_SEGMENTS
 from tools.doclayout.schema import LayoutDefinition
 
 #: Oeffnende Fenced-Div-Zeile: drei oder mehr Doppelpunkte, dann der Rest.
@@ -75,8 +76,30 @@ QUARTO_BUILTIN_CLASSES = frozenset(
 
 #: Verzeichnisse, die kein Manuskript enthalten -- Renderausgaben, Sicherungen,
 #: Quarto-Zwischenstaende. Wer sie mitzaehlt, sieht jede Klasse doppelt.
+#:
+#: Die Liste baut auf ``services.workspace_service.EXCLUDED_PATH_SEGMENTS`` auf
+#: und ergaenzt sie nur um das, was speziell fuer den Klassen-Scan hinzukommt.
+#: Vorher standen hier zwei getrennt gepflegte Listen, und diese verfehlte den
+#: Sicherungsordner um genau einen Punkt: ``"backups"`` statt ``".backups"``,
+#: und ``bookconfig`` fehlte ganz. Beides sind aber genau die Orte, an die
+#: ``tools/skeleton/populate.py`` und ``tools/gg_content_swap/swap.py`` vor
+#: jedem Ueberschreiben eine ``.md``-Kopie legen. Die Folge war ein Inventar,
+#: das nach dem ersten Swap- oder Populate-Lauf jede Klasse doppelt zaehlte und
+#: laengst geloeschte Klassen als aktiv fuehrte -- ausgerechnet in der Spalte,
+#: um derentwillen es das Inventar gibt.
+#:
+#: ``processed`` steht bewusst **nicht** hier, obwohl es in
+#: ``EXCLUDED_PATH_SEGMENTS`` vorkommt: :func:`markdown_files` entscheidet
+#: darueber von Fall zu Fall (siehe dort).
 IGNORED_DIRECTORIES = frozenset(
-    {".quarto", "_book", "export", "backups", ".git", "__pycache__", "_extensions"}
+    (EXCLUDED_PATH_SEGMENTS - {"processed"})
+    | {
+        ".quarto",
+        "__pycache__",
+        "_extensions",
+        # Altbestand: aeltere Staende legten Sicherungen ohne Punkt ab.
+        "backups",
+    }
 )
 
 

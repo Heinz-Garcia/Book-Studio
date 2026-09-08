@@ -147,6 +147,10 @@ class MemoPadDialog(QDialog):
                 store.save_size(groesse.width(), groesse.height())
         except OSError:
             _LOG.debug("Memo-Block konnte nicht abgelegt werden", exc_info=True)
+        # Selbst austragen: ``destroyed`` feuert bei ``WA_DeleteOnClose = False``
+        # erst zum Programmende, die Liste waechse sonst mit jedem Oeffnen.
+        if self in _offene_fenster:
+            _offene_fenster.remove(self)
         super().closeEvent(event)
 
 
@@ -160,8 +164,25 @@ _offene_fenster: list[MemoPadDialog] = []
 def open_memo_pad(
     studio: Any = None, parent: Optional[QWidget] = None, **kwargs: Any
 ) -> int:
-    """Oeffnet den Memo-Block als eigenstaendiges Fenster."""
+    """Oeffnet den Memo-Block -- oder holt das offene Fenster nach vorn.
+
+    "Ein Fenster, eine Notiz" stand bisher nur im Docstring. Jeder Aufruf baute
+    bedingungslos ein neues Fenster, und da der Block absichtlich nicht modal
+    neben dem Studio stehen bleibt, ist der zweite Menue-Aufruf der Normalfall.
+    Beide Fenster luden dann ihren eigenen Stand und schrieben beim Schliessen
+    den ganzen Text -- das zuletzt geschlossene gewann, der Inhalt des anderen
+    war weg. Ohne Rueckfrage, denn ``closeEvent`` verzichtet bewusst darauf:
+    "Der Block hat genau einen Inhalt und keine Versionen." Das stimmt eben
+    nur, solange es auch genau ein Fenster gibt.
+    """
     _ = kwargs
+    vorhanden = _erstes_lebendes_fenster()
+    if vorhanden is not None:
+        vorhanden.show()
+        vorhanden.raise_()
+        vorhanden.activateWindow()
+        return 0
+
     ziel = parent or getattr(studio, "root", None)
     dialog = MemoPadDialog(ziel)
 
@@ -169,6 +190,10 @@ def open_memo_pad(
         if dialog in _offene_fenster:
             _offene_fenster.remove(dialog)
 
+    # ``destroyed`` feuert bei ``WA_DeleteOnClose = False`` erst zum
+    # Programmende; ``_teardown`` traegt das Fenster deshalb selbst aus, sobald
+    # es geschlossen wird. Ohne das wuchs die Liste mit jedem Oeffnen um einen
+    # dauerhaft gehaltenen Dialog samt Editor.
     dialog.destroyed.connect(_freigeben)
     dialog.setWindowFlags(Qt.WindowType.Window)
     dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
@@ -177,6 +202,22 @@ def open_memo_pad(
     dialog.raise_()
     dialog.activateWindow()
     return 0
+
+
+def _erstes_lebendes_fenster() -> Optional[MemoPadDialog]:
+    """Ein noch benutzbares Memo-Fenster, oder ``None``.
+
+    Ein bereits abgeraeumtes C++-Objekt meldet sich beim Zugriff mit
+    ``RuntimeError``; solche Leichen fliegen hier heraus.
+    """
+    for fenster in list(_offene_fenster):
+        try:
+            fenster.isVisible()
+        except RuntimeError:
+            _offene_fenster.remove(fenster)
+            continue
+        return fenster
+    return None
 
 
 __all__ = ["MemoPadDialog", "open_memo_pad"]

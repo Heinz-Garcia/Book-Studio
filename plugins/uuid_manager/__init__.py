@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -11,9 +12,30 @@ _REPO_ROOT = ensure_repo_on_path(__file__)
 
 
 def _maybe_grammargraph_repo() -> Path | None:
-    candidate = _REPO_ROOT.parent / "GrammarGraph"
-    if candidate.is_dir():
-        return candidate.resolve()
+    """GrammarGraph-Repo finden (Sibling, Env, Inbox-Pfad aus app_config)."""
+    env = (os.environ.get("GRAMMARGRAPH_ROOT") or "").strip()
+    if env:
+        candidate = Path(env)
+        if candidate.is_dir():
+            return candidate.resolve()
+
+    sibling = _REPO_ROOT.parent / "GrammarGraph"
+    if sibling.is_dir():
+        return sibling.resolve()
+
+    try:
+        from app_config import load_validated_config
+
+        cfg = load_validated_config(_REPO_ROOT / "app_config.json")
+        inbox = str(cfg.get("grammargraph_inbox_path") or "").strip()
+        if inbox:
+            inbox_path = Path(inbox)
+            # Inbox oft …/GrammarGraph/Publish → zwei Ebenen hoch zum Repo
+            for parent in (inbox_path, *inbox_path.parents):
+                if (parent / "run.py").is_file() or (parent / "src").is_dir():
+                    return parent.resolve()
+    except (OSError, TypeError, ValueError, ImportError):
+        pass
     return None
 
 

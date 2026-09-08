@@ -81,6 +81,17 @@ def test_geschriebenes_kommt_zurueck(buch: Path):
     assert store.load(buch).text.strip() == "Kapitel 4 fehlt."
 
 
+def test_ungültige_kodierung_wird_gemeldet(buch: Path):
+    """Kaputte Datei darf nicht wie „keine Notiz“ aussehen."""
+    ziel = store.note_path(buch)
+    ziel.parent.mkdir(parents=True, exist_ok=True)
+    ziel.write_bytes(b"\xff\xfe kaputt")
+    notiz = store.load(buch)
+    assert notiz.load_error
+    assert notiz.exists is True
+    assert notiz.is_empty
+
+
 def test_der_zeitstempel_kommt_aus_dem_dateisystem(buch: Path):
     """In der Datei stuende eine zweite Wahrheit, die veralten kann."""
     notiz = store.save(buch, "Text")

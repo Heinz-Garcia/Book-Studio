@@ -78,11 +78,15 @@ def _read_raw(path: Optional[Path] = None) -> dict[str, Any]:
 
 
 def _write_raw(data: dict[str, Any], path: Optional[Path] = None) -> None:
-    target = path or MEMO_PATH
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    """Ablegen -- atomar (siehe ``json_io``).
+
+    Der Block hat bewusst keine Historie und keine Sicherung. Genau deshalb
+    darf ein abgebrochener Schreibvorgang hier nicht moeglich sein: Er waere
+    der vollstaendige Verlust dessen, was jemand festhalten wollte.
+    """
+    import json_io
+
+    json_io.write_json_atomic(path or MEMO_PATH, data, indent=2)
 
 
 def load(path: Optional[Path] = None) -> Memo:

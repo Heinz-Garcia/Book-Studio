@@ -254,7 +254,12 @@ def _patch_quarto_yml(
                 "(ruamel.yaml ist nicht installiert) -- die alte Fassung steht "
                 f"in {backup.name}."
             )
-    path.write_text(text, encoding="utf-8")
+    # ``newline="\n"`` ist Absicht: Ohne das uebersetzt der Textmodus unter
+    # Windows jedes ``\n`` zu ``\r\n``, und eine LF-Datei kaeme vollstaendig
+    # veraendert aus dem Vorgang -- ausgerechnet hier, wo ruamel.yaml gerade
+    # deshalb benutzt wird, damit ein Eintrag keinen Diff ueber die ganze
+    # Datei erzeugt.
+    path.write_text(text, encoding="utf-8", newline="\n")
 
     try:
         _verify_quarto_yml(path, original)

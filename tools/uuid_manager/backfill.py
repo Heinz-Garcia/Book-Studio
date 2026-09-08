@@ -55,9 +55,25 @@ def _package_date(meta: dict, package_dir: Path) -> date:
         return date.min
 
 
-def _stable_uuid_for(package_dir: Path) -> str:
-    """Deterministic UUID so re-running the backfill stays idempotent."""
-    key = f"grammargraph-publish:{package_dir.resolve().as_posix().lower()}"
+def _stable_uuid_for(package_dir: Path, meta: dict | None = None) -> str:
+    """Eine UUID, die am Paket haengt -- nicht an seinem Ablageort.
+
+    Abgeleitet wird aus dem **Ordnernamen** und dem Erstellungszeitpunkt aus
+    ``publish_meta.json``. Beides wandert mit dem Paket mit, also bekommt
+    dasselbe Paket auf einem anderen Laufwerk, nach einem Umzug oder auf einem
+    zweiten Rechner dieselbe UUID.
+
+    Vorher ging der **absolute Pfad** in die Ableitung ein, begruendet mit
+    Idempotenz. Die kam aber gar nicht daher: ``backfill_package`` bricht bei
+    vorhandener UUID ohnehin mit ``skipped_has_uuid`` ab. Der Pfad machte die
+    Identitaet lediglich ortsabhaengig -- fuer ein Werkzeug, das Lieferung,
+    Buch und PDF ueber *dieselbe* UUID verbinden soll, genau das falsche
+    Merkmal.
+    """
+    erstellt = ""
+    if isinstance(meta, dict):
+        erstellt = str(meta.get("created_at") or "").strip()
+    key = f"grammargraph-publish:{package_dir.name}:{erstellt}"
     return str(uuid.uuid5(uuid.NAMESPACE_URL, key))
 
 
@@ -106,7 +122,9 @@ def _ensure_toml_uuid(toml_path: Path, uid: str) -> bool:
     else:
         text = text.rstrip() + f'\n\n[book]\nuuid = "{uid}"\n'
     if text != original:
-        toml_path.write_text(text, encoding="utf-8")
+        # ``newline`` gesetzt: sonst schreibt der Textmodus unter Windows die
+        # ganze TOML-Datei auf CRLF um, nur um eine Zeile zu ergaenzen.
+        toml_path.write_text(text, encoding="utf-8", newline="\n")
         return True
     return False
 
@@ -138,7 +156,7 @@ def backfill_package(
             f"package_date={pkg_date.isoformat()}",
         )
 
-    uid = _stable_uuid_for(package_dir)
+    uid = _stable_uuid_for(package_dir, meta)
     if dry_run:
         return BackfillResult(str(package_dir), uid, "minted", "dry-run")
 

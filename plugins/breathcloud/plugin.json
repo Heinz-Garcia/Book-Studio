@@ -7,5 +7,6 @@
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 20,
-  "help_text": "Leitet zur Cover-Schlagwortwolke (Form: Freie Form / Hub). CLI unverändert: python -m tools.breathcloud --hub NATURE --text-file … -o out.png"
+  "show_in_menu": false,
+  "help_text": "Kein eigener Menüpunkt mehr — Form „Freie Form / Hub“ liegt in Plugins → Cover-Schlagwortwolke…. Packer-SSOT und CLI bleiben: python -m tools.breathcloud --hub NATURE --text-file … -o out.png"
 }

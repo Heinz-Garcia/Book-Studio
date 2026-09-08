@@ -288,3 +288,72 @@ def test_reveal_skeleton_path_windows(monkeypatch, tmp_path: Path) -> None:
     assert calls
     assert calls[0][0] == "explorer"
     assert "/select," in calls[0][1]
+
+
+# ── Frontmatter-Schutz beim Feld-Abgleich ───────────────────────────────
+#
+# ``_sync_markdown_frontmatter_field`` las den Header ueber ``parts.parsed()``,
+# und das liefert bei defektem YAML ausdruecklich ``{}``. Die Pruefung
+# ``isinstance(data, dict)`` ging darueber hinweg, worauf ``yaml.safe_dump``
+# einen Header baute, der nur noch das gerade gesetzte Feld trug -- beim
+# blossen Umsortieren im Skeleton-Editor, und ohne Backup.
+
+_DEFEKTER_KOPF = (
+    "---\n"
+    "title: Widmung\n"
+    "uuid: 9c1e-4455-ffee\n"
+    "status: freigegeben\n"
+    "order = 15\n"          # Tippfehler: '=' statt ':'
+    "unlisted: true\n"
+    "---\n"
+    "\n"
+    "Text.\n"
+)
+
+
+class TestFrontmatterSchutzSkeleton:
+    def test_defekter_header_wird_nicht_angetastet(self, tmp_path: Path) -> None:
+        """Lieber eine abweichende ``order`` als eine Vorlage ohne Kopf."""
+        from tools.skeleton.manifest import sync_markdown_order
+
+        ziel = tmp_path / "Widmung.md"
+        ziel.write_text(_DEFEKTER_KOPF, encoding="utf-8")
+
+        assert sync_markdown_order(ziel, "20") is False
+        assert ziel.read_text(encoding="utf-8") == _DEFEKTER_KOPF
+
+    def test_auch_required_laesst_den_defekten_header_stehen(self, tmp_path: Path) -> None:
+        from tools.skeleton.manifest import sync_markdown_required
+
+        ziel = tmp_path / "Widmung.md"
+        ziel.write_text(_DEFEKTER_KOPF, encoding="utf-8")
+
+        assert sync_markdown_required(ziel, True) is False
+        assert ziel.read_text(encoding="utf-8") == _DEFEKTER_KOPF
+
+    def test_kommentare_und_fremde_felder_ueberleben(self, tmp_path: Path) -> None:
+        """Wie ``tools/doclayout/apply.py``: kommentarerhaltend schreiben."""
+        from tools.skeleton.manifest import sync_markdown_order
+
+        ziel = tmp_path / "Widmung.md"
+        ziel.write_text(
+            "---\n"
+            "# Vorlage der Skeleton-Bibliothek\n"
+            "title: Widmung\n"
+            "uuid: 9c1e-4455-ffee   # Provenance\n"
+            "status: freigegeben\n"
+            "order: '15'\n"
+            "unlisted: true\n"
+            "---\n"
+            "\n"
+            "Text.\n",
+            encoding="utf-8",
+        )
+        assert sync_markdown_order(ziel, "20") is True
+        nach = ziel.read_text(encoding="utf-8")
+        assert "# Vorlage der Skeleton-Bibliothek" in nach
+        assert "# Provenance" in nach
+        assert "uuid: 9c1e-4455-ffee" in nach
+        assert "status: freigegeben" in nach
+        assert "unlisted: true" in nach
+        assert "order: '20'" in nach

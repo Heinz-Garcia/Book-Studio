@@ -63,6 +63,9 @@ class BookProjectsQtDialog(QDialog):
         self._host = parent
         self._repo = repo_root()
         self._books: list[BookInfo] = []
+        #: Einmal je ``_reload`` gefuellt -- nicht bei jedem Tastendruck.
+        self._roots: list[Path] = []
+        self._isbn_cache: dict[Path, str] = {}
         self.setObjectName("bookProjectsDialog")
         self.setWindowTitle("Buchprojekte verwalten")
         self.setMinimumSize(1180, 640)
@@ -230,9 +233,21 @@ class BookProjectsQtDialog(QDialog):
             return None
 
     def _reload(self) -> None:
+        """Alles einmal von der Platte holen -- und nur hier.
+
+        Der Filter baut den Baum bei **jedem Tastendruck** neu auf. Solange er
+        dabei die ISBN jedes Buches frisch aus dessen ``_quarto.yml`` las und
+        ``list_content_roots()`` zweimal ausfuehrte, kostete jeder Buchstabe im
+        Suchfeld einen Dateizugriff pro Buch -- auf einem Netzlaufwerk spuerbar.
+        Beides gehoert hierher: Die Daten aendern sich beim Tippen nicht.
+        """
         self._books = list_books(self._repo)
+        self._roots = list_content_roots(self._repo)
+        self._isbn_cache = {
+            info.path: self._read_isbn(info) for info in self._books
+        }
         self.roots_tree.clear()
-        for root in list_content_roots(self._repo):
+        for root in self._roots:
             item = QTreeWidgetItem([str(root)])
             item.setData(0, _ROLE_KIND, _KIND_ROOT)
             item.setData(0, _ROLE_PAYLOAD, root)
@@ -247,13 +262,17 @@ class BookProjectsQtDialog(QDialog):
         return needle in blob
 
     @staticmethod
-    def _isbn_display(info: BookInfo) -> tuple[str, bool]:
-        """ISBN-Anzeigetext für `info` + ob es ein Platzhalter (keine ISBN
-        hinterlegt) ist. Liest die SSOT direkt aus `_quarto.yml`
-        (Top-Level-Feld `isbn:`, siehe `tools.publisher_compliance.metadata`)."""
+    def _read_isbn(info: BookInfo) -> str:
+        """Die ISBN eines Buches von der Platte -- SSOT ist `_quarto.yml`
+        (Top-Level-Feld `isbn:`, siehe `tools.publisher_compliance.metadata`).
+        Wird nur in `_reload()` gerufen, nicht beim Filtern."""
         from tools.publisher_compliance.metadata import read_isbn_from_quarto_yml
 
-        isbn = read_isbn_from_quarto_yml(info.path / "_quarto.yml")
+        return read_isbn_from_quarto_yml(info.path / "_quarto.yml") or ""
+
+    def _isbn_display(self, info: BookInfo) -> tuple[str, bool]:
+        """Anzeigetext + ob es ein Platzhalter (keine ISBN hinterlegt) ist."""
+        isbn = self._isbn_cache.get(info.path, "")
         if isbn:
             return isbn, False
         return _NO_ISBN_PLACEHOLDER, True
@@ -277,7 +296,7 @@ class BookProjectsQtDialog(QDialog):
         else:
             self.books_count.setText(f"({total})")
 
-        for root in list_content_roots(self._repo):
+        for root in self._roots:
             key = root.resolve()
             books = by_root.get(key, [])
             if needle and not books:
@@ -324,7 +343,7 @@ class BookProjectsQtDialog(QDialog):
                 group.addChild(child)
             group.setExpanded(True)
 
-        known = {r.resolve() for r in list_content_roots(self._repo)}
+        known = {r.resolve() for r in self._roots}
         orphans = [b for b in self._books if b.root.resolve() not in known]
         orphan_vis = [b for b in orphans if self._book_matches(b, needle)]
         if orphan_vis:
@@ -603,15 +622,48 @@ class BookProjectsQtDialog(QDialog):
         if info is None:
             QMessageBox.information(self, "Löschen", "Bitte ein Buch wählen.")
             return
+        # Das aktive Buch wird nicht unter dem laufenden Betrieb weggeloescht:
+        # Der Host zeigte danach weiter auf einen Pfad, den es nicht mehr gibt.
+        if self._active_book_path() == info.path.resolve():
+            QMessageBox.information(
+                self,
+                "Löschen",
+                f"«{info.name}» ist das aktive Buch.\n\n"
+                "Bitte zuerst ein anderes Buch aktivieren — sonst arbeitet "
+                "Book Studio danach auf einem Ordner, den es nicht mehr gibt.",
+            )
+            return
+
         reply = QMessageBox.question(
             self,
             "Buchordner löschen",
-            f"Buchordner unwiderruflich löschen?\n\n{info.path}",
+            f"Buchordner unwiderruflich löschen?\n\n{info.path}\n\n"
+            "Das trifft das ganze Projekt: Manuskript, bookconfig/ und alle "
+            "Renderarchive unter export/. Es gibt keinen Papierkorb.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
+
+        # Zweite Stufe: den Ordnernamen tippen. Eine einzige Ja/Nein-Frage ist
+        # fuer eine Aktion dieser Tragweite zu billig -- ein Fehlklick in der
+        # Liste plus die Eingabetaste genuegten sonst, um ein Buch zu verlieren.
+        eingabe, ok = QInputDialog.getText(
+            self,
+            "Löschen bestätigen",
+            f"Zur Bestätigung den Ordnernamen eingeben:\n\n{info.name}",
+        )
+        if not ok:
+            return
+        if eingabe.strip() != info.name:
+            QMessageBox.information(
+                self,
+                "Löschen",
+                "Der eingegebene Name stimmt nicht überein — nichts gelöscht.",
+            )
+            return
+
         try:
             shutil.rmtree(info.path)
         except OSError as exc:

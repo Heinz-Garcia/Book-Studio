@@ -62,6 +62,16 @@ def test_build_image_ref_index_md_and_typst(tmp_path: Path):
     assert [p.name for p in list_book_images(book)] == ["cover.png", "orphan.png"]
 
 
+def test_list_book_images_includes_nested(tmp_path: Path):
+    book = tmp_path / "Band"
+    nested = book / "img" / "kapitel"
+    nested.mkdir(parents=True)
+    (book / "img" / "cover.png").write_bytes(b"x")
+    (nested / "foto.png").write_bytes(b"y")
+    names = [p.relative_to(book / "img").as_posix() for p in list_book_images(book)]
+    assert names == ["cover.png", "kapitel/foto.png"]
+
+
 def test_pool_resolve_and_persist(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()

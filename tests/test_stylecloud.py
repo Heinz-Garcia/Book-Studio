@@ -992,7 +992,13 @@ def test_preset_store_save_load_rename_delete(
 ) -> None:
     from tools.stylecloud import preset_store as store
 
+    # Beide Ordner umbiegen: Eigene Presets liegen seit der Trennung in den
+    # Benutzerdaten, mitgelieferte im Programmordner. Für diesen Test soll
+    # weder das eine noch das andere die echte Ablage berühren — und der
+    # Werkordner muss leer sein, damit die Namensliste nur enthält, was der
+    # Test selbst angelegt hat.
     monkeypatch.setattr(store, "presets_dir", lambda: tmp_path / "presets")
+    monkeypatch.setattr(store, "factory_presets_dir", lambda: tmp_path / "werk")
 
     path = store.save_preset(
         "DE Cover Blau",
@@ -1023,16 +1029,22 @@ def test_preset_store_save_load_rename_delete(
 
 
 def test_shipped_freeform_preset_loads() -> None:
-    """Factory preset freeForm.json — Hub Freie Form, nur laden."""
+    """Factory preset freeForm.json — Hub Freie Form, nur laden.
+
+    Die Datei liegt im **Werkordner** (Programmverzeichnis), nicht im
+    Benutzerordner: Eigene Presets wandern seit der Trennung nach
+    ``%APPDATA%``, damit sie eine Neuinstallation überleben und nicht neben
+    einer versionierten Datei im Arbeitsbaum landen.
+    """
     from tools.stylecloud.generator import ICON_HUB
     from tools.stylecloud.preset_store import (
         FACTORY_FREEFORM_PRESET_NAME,
+        factory_presets_dir,
         load_factory_freeform_preset,
         load_preset,
-        presets_dir,
     )
 
-    path = presets_dir() / "freeForm.json"
+    path = factory_presets_dir() / "freeForm.json"
     assert path.is_file(), f"fehlendes Factory-Preset: {path}"
     settings = load_factory_freeform_preset()
     assert load_preset(FACTORY_FREEFORM_PRESET_NAME)["icon_name"] == ICON_HUB
@@ -1593,6 +1605,8 @@ def test_plugin_manifest_discovered() -> None:
         encoding="utf-8"
     ))
     assert "stylecloud" in raw["help_text"].lower()
+    breath = plugins["breathcloud"]
+    assert breath.show_in_menu is False
 
 
 def test_sample_even_keeps_endpoints() -> None:

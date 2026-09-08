@@ -8,9 +8,25 @@ import pytest
 from PIL import Image
 
 from tools.kdp_cover.compose_front import apply_to_front_panel
+from tools.kdp_cover.compose_front.flags import is_compose_front_ui_enabled
 from tools.kdp_cover.compose_front.model import FrontComposeSpec
 from tools.kdp_cover.export_pdf import render_wrap_image
 from tools.kdp_cover.model import CoverLayout, load_layout, save_layout
+
+
+def test_compose_front_ui_flag_respects_env_and_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BSU_KDP_COMPOSE_FRONT", raising=False)
+    monkeypatch.setattr(
+        "app_config.load_validated_config",
+        lambda *_a, **_k: {"kdp_compose_front_ui": False},
+    )
+    assert is_compose_front_ui_enabled(project_enabled=False) is False
+    assert is_compose_front_ui_enabled(project_enabled=True) is True
+    monkeypatch.setenv("BSU_KDP_COMPOSE_FRONT", "1")
+    assert is_compose_front_ui_enabled(project_enabled=False) is True
+    monkeypatch.setenv("BSU_KDP_COMPOSE_FRONT", "0")
+    assert is_compose_front_ui_enabled(project_enabled=False) is False
+    assert is_compose_front_ui_enabled(project_enabled=True) is True
 
 
 def _solid_rgb(path: Path, color: tuple[int, int, int] = (40, 80, 120)) -> Path:

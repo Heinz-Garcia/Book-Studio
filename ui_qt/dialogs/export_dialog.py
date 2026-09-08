@@ -22,9 +22,13 @@ from render_artifact_store import (
 )
 from tools.distribution.book_store import CHANNEL_KDP_PAPERBACK, is_kdp_paperback, list_excluded_chapters
 from tools.layout_profiles.catalog import (
+    LINE_BREAK_STRICTNESS_OPTIONS,
     LINE_STRETCH_OPTIONS,
     get_profile,
+    linebreak_strictness_hint,
+    linebreak_strictness_label,
     linestretch_label,
+    normalize_linebreak_strictness,
     normalize_linestretch,
     profile_id_from_label,
     profile_labels,
@@ -119,6 +123,9 @@ class ExportDialog(QDialog):
         initial_linestretch = normalize_linestretch(
             initial.get("linestretch", initial_profile.linestretch)
         )
+        initial_strictness = normalize_linebreak_strictness(
+            initial.get("linebreak_strictness", initial_profile.linebreak_strictness)
+        )
         initial_display = _default_display_name(self.book_path, initial)
         initial_stem = _default_pdf_stem(self.book_path, initial, initial_display)
         # Entkoppeln, wenn initial explizit abweichenden Stem mitliefert.
@@ -165,6 +172,24 @@ class ExportDialog(QDialog):
         self.linestretch_combo.addItems([opt.label for opt in LINE_STRETCH_OPTIONS])
         self.linestretch_combo.setCurrentText(linestretch_label(initial_linestretch))
         form.addRow("Zeilenabstand:", self.linestretch_combo)
+
+        # Schusterjungen/Hurenkinder. Das Profil bringt eine Vorgabe mit, die
+        # hier fuer diesen Render umgestellt werden kann -- dasselbe Muster wie
+        # beim Zeilenabstand darueber. Der Hinweis darunter muss sein: die
+        # Wirkung ist erst im fertigen PDF zu sehen, und "Aus" ist Typsts
+        # Voreinstellung, also ausdruecklich keine Massnahme.
+        self.strictness_combo = QComboBox()
+        self.strictness_combo.addItems(
+            [opt.label for opt in LINE_BREAK_STRICTNESS_OPTIONS]
+        )
+        self.strictness_combo.setCurrentText(linebreak_strictness_label(initial_strictness))
+        form.addRow("Umbruch-Strenge:", self.strictness_combo)
+
+        self.strictness_hint = QLabel("")
+        self.strictness_hint.setWordWrap(True)
+        form.addRow("", self.strictness_hint)
+        self.strictness_combo.currentTextChanged.connect(self._on_strictness_changed)
+        self._on_strictness_changed()
 
         self._kdp_channel_available = bool(
             self.book_path is not None and is_kdp_paperback(self.book_path)
@@ -380,6 +405,14 @@ class ExportDialog(QDialog):
         profile = get_profile(profile_id_from_label(self.profile_combo.currentText()))
         self.hint.setText(profile.description)
         self.linestretch_combo.setCurrentText(linestretch_label(profile.linestretch))
+        self.strictness_combo.setCurrentText(
+            linebreak_strictness_label(profile.linebreak_strictness)
+        )
+
+    def _on_strictness_changed(self, _text: str = "") -> None:
+        self.strictness_hint.setText(
+            "ℹ  " + linebreak_strictness_hint(self._selected_strictness())
+        )
 
     def _selected_linestretch(self) -> float:
         label = self.linestretch_combo.currentText()
@@ -387,6 +420,13 @@ class ExportDialog(QDialog):
             if opt.label == label:
                 return opt.value
         return normalize_linestretch(1.2)
+
+    def _selected_strictness(self) -> str:
+        label = self.strictness_combo.currentText()
+        for opt in LINE_BREAK_STRICTNESS_OPTIONS:
+            if opt.label == label:
+                return opt.value
+        return normalize_linebreak_strictness(None)
 
     def _confirm(self) -> None:
         stem = normalize_pdf_stem_from_display(self.pdf_stem_edit.text())
@@ -410,6 +450,7 @@ class ExportDialog(QDialog):
             "layout_profile": profile_id_from_label(self.profile_combo.currentText()),
             "doclayout": self._selected_doclayout(),
             "linestretch": self._selected_linestretch(),
+            "linebreak_strictness": self._selected_strictness(),
             "notes": self.notes_edit.text().strip(),
             "pdf_stem": stem,
             "market_variant": self._market_variant,

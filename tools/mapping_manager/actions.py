@@ -38,7 +38,15 @@ def reveal_in_explorer(path: Path) -> None:
 
 
 def delete_pdf(path: Path) -> None:
-    delete_generated_pdf(path)
+    """Löscht eine PDF des PDF Managers -- auch aus dem Render-Archiv.
+
+    ``allow_registered=True`` ist hier richtig und nur hier: Der Aufrufer
+    (``mapping_manager_dialog._delete_selected``) entfernt unmittelbar danach
+    den zugehoerigen Eintrag mit ``publish_map.store.remove_render``. Ohne
+    diesen zweiten Schritt bliebe in der Karte ein Render ohne Datei stehen --
+    genau deshalb ist derselbe Weg fuer alle anderen Aufrufer gesperrt.
+    """
+    delete_generated_pdf(path, allow_registered=True)
 
 
 def delete_source_archive(path: Path) -> None:

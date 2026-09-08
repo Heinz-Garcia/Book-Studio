@@ -5,14 +5,62 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import frontmatter_parser
 import json_io
 import yaml
 from tools.gg_content_swap.match import build_match_plan, scan_match
 from tools.gg_content_swap.types import MatchScanResult, SwapPlanLine
+
+# ``ruamel.yaml`` schreibt YAML zurueck, ohne Kommentare, Anfuehrungszeichen und
+# Reihenfolge zu verlieren. PyYAML kann das nicht: ``safe_dump`` baut den Block
+# aus der Datenstruktur neu auf, und alles, was nicht Daten ist, faellt dabei
+# weg -- im Frontmatter eines Kapitels also Notizen wie "von GrammarGraph
+# erzeugt -- nicht von Hand aendern".
+#
+# Dasselbe Vorgehen wie in ``tools/doclayout/apply.py``, aus demselben Grund und
+# mit derselben Kann-Abhaengigkeit: Fehlt das Paket, wird mit PyYAML
+# geschrieben und der Verlust ausdruecklich gemeldet, statt ihn zu
+# verschweigen.
+try:  # pragma: no cover - haengt an der Installation
+    from ruamel.yaml import YAML as _RuamelYAML
+except ImportError:  # pragma: no cover
+    _RuamelYAML = None
+
+
+class FrontmatterUnreadable(ValueError):
+    """Das Frontmatter der Buchdatei ist kein gueltiges YAML.
+
+    Eigene Klasse, weil dieser Fall *nicht* wie ein Schreibfehler behandelt
+    werden darf: Der Body-Tausch gelingt trotzdem (er uebernimmt den Header
+    woertlich), nur der Titelabgleich muss unterbleiben.
+    """
+
+
+def _roundtrip_yaml() -> Any:
+    """Ein kommentarerhaltender YAML-Umgang -- oder ``None``."""
+    if _RuamelYAML is None:
+        return None
+    yml = _RuamelYAML()
+    yml.preserve_quotes = True
+    # Keine erzwungenen Zeilenumbrueche: Ein umbrochener Titel waere zwar
+    # gueltiges YAML, saehe im Frontmatter aber nach einem Fehler aus.
+    yml.width = 4096
+    yml.indent(mapping=2, sequence=4, offset=2)
+    return yml
+
+
+def _has_comments(text: str) -> bool:
+    """Grobe Auskunft, ob in *text* Kommentare stehen.
+
+    Bewusst grob: Ein ``#`` in einer Zeichenkette faende sie als Kommentar,
+    was hoechstens einen ueberfluessigen Hinweis erzeugt. Einen echten Verlust
+    zu verschweigen waere der teurere Fehler.
+    """
+    return any(zeile.lstrip().startswith("#") or " #" in zeile for zeile in text.splitlines())
 
 
 def merge_book_frontmatter_with_source_body(book_text: str, source_text: str) -> str:
@@ -55,8 +103,23 @@ def sync_book_display_title(
     *,
     new_title: str,
     book_rel: str = "",
+    notes: Optional[list[str]] = None,
 ) -> tuple[str, bool]:
-    """Setzt Frontmatter ``title`` (und ggf. ``description``) für die Buchstruktur."""
+    """Setzt Frontmatter ``title`` (und ggf. ``description``) für die Buchstruktur.
+
+    Wirft :class:`FrontmatterUnreadable`, wenn der Header kein gültiges YAML
+    ist. Das ist der Kern dieser Funktion, nicht ein Randfall: Vorher wurde der
+    Header über ``parts.parsed()`` gelesen, und das liefert bei defektem YAML
+    ausdrücklich ``{}`` -- worauf ``yaml.safe_dump`` aus dem leeren Wörterbuch
+    einen neuen Header mit ausschließlich ``title`` und ``description`` baute.
+    Ein einziger Tippfehler (``order = 15`` statt ``order: 15``) kostete so
+    ``uuid``, ``status`` und jedes andere Feld -- still, mit Backup, aber ohne
+    ein Wort an den Benutzer. ``frontmatter_parser`` hält für genau diese
+    Unterscheidung ``parse_error`` bereit.
+
+    Geschrieben wird kommentarerhaltend, wo ``ruamel.yaml`` zur Verfügung steht;
+    sonst geht ein Hinweis nach *notes*.
+    """
     new_title = str(new_title or "").strip()
     if not new_title:
         return book_text, False
@@ -64,6 +127,11 @@ def sync_book_display_title(
     parts = frontmatter_parser.parse(book_text)
     newline = "\r\n" if "\r\n" in book_text else "\n"
     stem = Path(book_rel).stem if book_rel else ""
+
+    if parts.has_frontmatter and parts.parse_error:
+        raise FrontmatterUnreadable(
+            f"Frontmatter ist kein gültiges YAML, Titel nicht angeglichen: {parts.parse_error}"
+        )
 
     if not parts.has_frontmatter:
         header = yaml.safe_dump(
@@ -78,9 +146,22 @@ def sync_book_display_title(
             True,
         )
 
-    data = parts.parsed()
+    header_original = parts.header or ""
+    umgang = _roundtrip_yaml()
+    if umgang is not None:
+        data = umgang.load(StringIO(header_original))
+        if data is None:
+            data = {}
+    else:
+        data = parts.parsed()
     if not isinstance(data, dict):
-        data = {}
+        # Ein Header, der zwar gueltiges YAML ist, aber kein Mapping (etwa eine
+        # Liste), traegt kein ``title``. Ihn durch eines zu ersetzen hiesse,
+        # denselben Verlust anzurichten, gegen den oben ``parse_error`` steht.
+        raise FrontmatterUnreadable(
+            "Frontmatter ist kein YAML-Mapping (key: value), "
+            "Titel nicht angeglichen."
+        )
     old_title = str(data.get("title") or "").strip()
     old_desc = str(data.get("description") or "").strip()
     changed = False
@@ -93,9 +174,20 @@ def sync_book_display_title(
     if not changed:
         return book_text, False
 
-    header_text = yaml.safe_dump(
-        data, allow_unicode=True, sort_keys=False, default_flow_style=False
-    ).rstrip("\r\n")
+    if umgang is not None:
+        puffer = StringIO()
+        umgang.dump(data, puffer)
+        header_text = puffer.getvalue().rstrip("\r\n")
+    else:
+        header_text = yaml.safe_dump(
+            data, allow_unicode=True, sort_keys=False, default_flow_style=False
+        ).rstrip("\r\n")
+        if notes is not None and _has_comments(header_original):
+            notes.append(
+                "Kommentare im Frontmatter gingen beim Titelabgleich verloren "
+                "(ruamel.yaml ist nicht installiert) -- die alte Fassung steht "
+                "im Backup."
+            )
     return (
         parts.bom
         + "---"
@@ -210,6 +302,8 @@ class SwapApplyResult:
     skipped: list[str]
     errors: list[str]
     titles_updated: list[str] = field(default_factory=list)
+    #: Was auffiel, ohne den Lauf zu verhindern -- etwa verlorene Kommentare.
+    warnings: list[str] = field(default_factory=list)
 
 
 def apply_swap_plan(
@@ -252,9 +346,19 @@ def apply_swap_plan(
             desired_title = ""
             if sync_title:
                 desired_title = payload_display_title(line.source_rel, source_text)
-                merged, title_changed = sync_book_display_title(
-                    merged, new_title=desired_title, book_rel=line.book_rel
-                )
+                try:
+                    merged, title_changed = sync_book_display_title(
+                        merged,
+                        new_title=desired_title,
+                        book_rel=line.book_rel,
+                        notes=result.warnings,
+                    )
+                except FrontmatterUnreadable as exc:
+                    # Der Body-Tausch bleibt gültig -- er übernimmt den Header
+                    # wörtlich und braucht ihn nicht zu verstehen. Nur der
+                    # Titelabgleich entfällt, und das wird gesagt statt still
+                    # den halben Header zu ersetzen.
+                    result.errors.append(f"{line.book_rel}: {exc}")
 
             if not body_changed and not title_changed:
                 result.skipped.append(f"{line.book_rel}: unchanged")

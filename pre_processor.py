@@ -9,12 +9,27 @@ from chapter_title_render import (
     maybe_inject_chapter_title,
 )
 from heading_anchor_ascii import ensure_ascii_heading_ids
+from list_markup_fixer import repariere_listen_markup
+from table_to_definition_list import wandle_breite_tabellen
+from table_width_fixer import setze_spaltenbreiten
 
 # B4 (Refactoring): Die komplette Fußnoten-Funktionalität wurde
 # entfernt. Pandoc-konforme `[^1]`-Marker im Quell-Markdown werden
 # unverändert weitergereicht — Quarto kümmert sich um die Auflösung.
 # Die frühere `_namespace_local_footnotes` / `_inject_footnote_backlinks`
 # / `_uses_harvester` / `FootnoteHarvester`-Logik existiert nicht mehr.
+
+
+#: Der zentrierte Ein-Zeichen-Trenner des Aggregators. Erkannt wird er am
+#: ``text-align: center`` im style-Attribut, nicht an der Klasse: ältere
+#: Läufe schrieben den Div ohne ``.prompt-separator``, und beide Fassungen
+#: liegen heute in denselben Büchern.
+_PROMPT_SEPARATOR_DIV_RE = re.compile(
+    r"^:{3,}[ \t]*\{[^}\n]*text-align:\s*center[^}\n]*\}[ \t]*\r?\n"
+    r"[ \t]*(?P<glyph>\S[^\n]*?)[ \t]*\r?\n"
+    r"[ \t]*:{3,}[ \t]*$",
+    re.MULTILINE,
+)
 
 
 def _load_unnumbered_heading_levels(book_path: Path) -> frozenset[int]:
@@ -134,8 +149,85 @@ class PreProcessor:
     # =========================================================================
     # NEU: DER WASCHGANG FÜR KAPUTTE MARKDOWN-SYNTAX
     # =========================================================================
+    def _rewrite_prompt_separators(self, text):
+        """Zentriert den ◈-Trenner zwischen Fachtext und nächster Frage.
+
+        Der Aggregator liefert ihn als Fenced Div mit einem HTML-``style``:
+
+            ::: {.prompt-separator style="text-align: center;"}
+            ◈
+            :::
+
+        Quartos Typst-Writer wertet davon **nichts** aus — weder die Klasse
+        noch das ``style``-Attribut überleben; im .typ steht am Ende ein
+        nacktes ``#block[◈]``. Das Zeichen erscheint deshalb linksbündig
+        und in Grundschriftgröße, obwohl die Quelle etwas anderes sagt.
+        Zentrieren lässt sich das im Typst-Layer allein nicht mehr, weil
+        dort die Information fehlt, dass dieser Block ein Trenner war.
+
+        Deshalb wird der Div hier — und nur für Typst — durch einen
+        Raw-Block ersetzt, der die Satzfunktion aus ``typst-show.typ``
+        aufruft. Für DOCX bleibt alles unangetastet: dort bildet
+        ``classmap.lua`` die Klasse auf ein Absatzformat ab, und ein
+        Raw-Typst-Block wäre dort ersatzlos verloren.
+        """
+        if not str(self.output_format or "").lower().startswith("typst"):
+            return text
+
+        def _ersetze(match):
+            glyph = match.group("glyph").strip()
+            # Eckige Klammern würden die Typst-Content-Klammer sprengen.
+            # Ein Trenner enthält keine — falls doch, bleibt der Div stehen,
+            # statt kaputten Typst-Code zu erzeugen.
+            if not glyph or "[" in glyph or "]" in glyph:
+                return match.group(0)
+            return (
+                "```{=typst}\n"
+                "#bs-prompt-separator[" + glyph + "]\n"
+                "```"
+            )
+
+        return _PROMPT_SEPARATOR_DIV_RE.sub(_ersetze, text)
+
     def _sanitize_markdown(self, text):
         """Repariert alte Boxen und übersetzt @-Zitationen absolut verlustfrei in echte Fußnoten."""
+        # 0. Trenner zuerst: danach ist er ein Raw-Block und keine der
+        #    folgenden Div-/Zitations-Regeln fasst ihn mehr an.
+        text = self._rewrite_prompt_separators(text)
+
+        # 0b. Leerzeile vor Listen, die einen Absatz unterbrechen. Pandoc
+        #     laesst eine Liste einen Absatz nicht unterbrechen; ohne die
+        #     Leerzeile wird die Aufzaehlungszeile zur Fortsetzung des
+        #     Absatzes und der Bindestrich steht mitten im gesetzten Text.
+        #     Am Andalusien-Buch: 174 Stellen in der Quelle, 294 Befunde im
+        #     Druck-PDF. Laeuft NACH _rewrite_prompt_separators, damit der
+        #     Trenner-Div bereits Raw-Block ist, und ist idempotent -- ein
+        #     erneuter Render aendert nichts mehr.
+        #     Zusaetzlich werden ``☐``-Zeilen zu echten Listeneintraegen:
+        #     das Kaestchen allein ist fuer Pandoc Fliesstext, die Zeilen
+        #     werden sonst zu einem Absatz zusammengezogen (S. 347 der
+        #     Andalusien-Druckfahne: 15 Kaestchen als Textwand).
+        text, _reparaturen = repariere_listen_markup(text)
+
+        # 0c. Tabellen, die als Tabelle nicht mehr tragen, in Definitions-
+        #     listen wandeln. Laeuft VOR der Spaltenverteilung: was hier
+        #     zum Absatz wird, braucht keine Spaltenbreite mehr, und was
+        #     Tabelle bleibt, bekommt sie anschliessend proportional.
+        #     Am Andalusien-Buch nachgemessen: alle 130 Tabellen verlangen
+        #     mehr Breite, als die Seite hat -- die schmalste hat eine
+        #     Zelle mit 40 Zeichen, der Median 108, bei 53 Zeichen
+        #     Satzbreite. Keine Spaltenverteilung loest einen solchen
+        #     Mangel; kleiner setzen macht die Tabelle nur unlesbar.
+        #     Kein Zellinhalt geht verloren (1858 von 1858 wiedergefunden),
+        #     die Wortfolge innerhalb der Zellen bleibt unveraendert.
+        text, _definitionslisten = wandle_breite_tabellen(text)
+
+        # 0d. Spaltenbreiten der verbliebenen Pipe-Tabellen ableiten.
+        #     Pandoc liest sie aus der Strichzahl der Trennzeile; bei
+        #     gleich langen Trennern verteilt Typst gleichmaessig, und
+        #     "951 29 00 00" bekommt so viel Platz wie ein ganzer Satz.
+        #     Aendert ausschliesslich Bindestriche, kein Wort.
+        text, _spalten = setze_spaltenbreiten(text)
         
         # 1. Boxen reparieren: :::: \[BOX: Titel\] Inhalt ::: -> Quarto Callout
         text = re.sub(

@@ -44,6 +44,11 @@ from tools.doclayout.ooxml import _PPR_ORDER, _RPR_ORDER, _STYLE_ORDER, _ordered
 from tools.doclayout.schema import LayoutDefinition, LayoutError
 from tools.doclayout.units import mm_to_twips
 
+#: Zeitgrenze fuer ``pandoc --print-default-data-file``. Der Aufruf liest nur
+#: eine mitgelieferte Datei und ist in Millisekunden durch; haengt er trotzdem,
+#: friert sonst das Editorfenster ein, weil dieser Weg beim Oeffnen laeuft.
+BASE_REFERENCE_TIMEOUT_S = 30
+
 _STYLES_PART = "word/styles.xml"
 _SETTINGS_PART = "word/settings.xml"
 _DOCUMENT_PART = "word/document.xml"
@@ -144,7 +149,13 @@ def fetch_base_reference(target: Path, *, pandoc: Optional[str] = None) -> Path:
             [executable, "--print-default-data-file", "reference.docx"],
             capture_output=True,
             check=True,
+            timeout=BASE_REFERENCE_TIMEOUT_S,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise DocxTargetError(
+            f"Pandoc antwortet nicht ({BASE_REFERENCE_TIMEOUT_S}s) -- die "
+            "Basisvorlage konnte nicht geholt werden."
+        ) from exc
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or b"").decode("utf-8", "replace").strip()
         raise DocxTargetError(f"Pandoc konnte die Basisvorlage nicht liefern: {detail}") from exc

@@ -54,10 +54,26 @@ def test_spine_width_standard_color_same_as_white_bw():
     )
 
 
-def test_spine_width_unknown_paper_type_falls_back_to_first():
-    assert calculate_spine_width_mm(300, "does-not-exist") == calculate_spine_width_mm(
-        300, PAPER_TYPES[0].id
-    )
+def test_spine_width_rejects_unknown_paper_type():
+    """Ein unbekannter Papiertyp ist ein Fehler, kein Ersatzwert.
+
+    Vorher fiel ``get_paper_type`` wortlos auf ``PAPER_TYPES[0]``
+    (``white_bw``) zurueck -- und schrieb damit eine falsche Papierdicke in
+    eine Rechnung, die in den Druck geht: Fuer ein cremefarbenes Buch mit 400
+    Seiten ergab das 22,9 statt 25,4 mm Ruecken, ohne jede Warnung. Das
+    Schwestermodul ``get_trim_size`` machte es zwei Zeilen tiefer schon immer
+    richtig (``None`` statt Ersatz).
+
+    Der Fehler kommt im KDP-Cover-Designer als Befund ``geometry`` an
+    (``validate_layout`` faengt den ``ValueError`` ab), statt still ein
+    falsches Mass zu liefern.
+    """
+    with pytest.raises(ValueError, match="does-not-exist"):
+        calculate_spine_width_mm(300, "does-not-exist")
+
+    # Die Meldung nennt die gueltigen Werte -- sonst raet der Aufrufer.
+    with pytest.raises(ValueError, match=PAPER_TYPES[0].id):
+        calculate_spine_width_mm(300, "does-not-exist")
 
 
 def test_spine_width_rejects_too_few_pages():

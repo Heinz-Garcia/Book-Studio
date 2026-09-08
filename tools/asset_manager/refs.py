@@ -36,17 +36,24 @@ class RefHit:
 
 
 def list_book_images(book_root: Path) -> list[Path]:
-    """Dateien unter ``{book}/img/`` (flach), sortiert."""
+    """Bilddateien unter ``{book}/img/`` (rekursiv), sortiert.
+
+    Unterordner sind erlaubt (z. B. ``img/kapitel/foto.png``); Referenzen und
+    Orphan-Löschen müssen dieselben Dateien sehen wie der Scanner.
+    """
     img_dir = Path(book_root) / "img"
     if not img_dir.is_dir():
         return []
     allowed = {ext.lower() for ext in IMAGE_EXTENSIONS}
-    files = [
-        p
-        for p in img_dir.iterdir()
-        if p.is_file() and p.suffix.lower() in allowed
-    ]
-    return sorted(files, key=lambda p: p.name.lower())
+    files: list[Path] = []
+    for path in img_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if any(part.startswith(".") for part in path.relative_to(img_dir).parts):
+            continue
+        if path.suffix.lower() in allowed:
+            files.append(path)
+    return sorted(files, key=lambda p: str(p.relative_to(img_dir)).lower())
 
 
 def _iter_source_files(book_root: Path) -> list[Path]:

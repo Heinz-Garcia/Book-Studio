@@ -19,7 +19,10 @@ _REPO_ROOT = ensure_repo_on_path(__file__)
 def run(studio: Optional[Any] = None, **kwargs) -> int:
     from ui_qt.dialogs.memo_pad_dialog import open_memo_pad
 
-    parent = kwargs.get("parent") or getattr(studio, "root", None)
+    # ``pop`` statt ``get``: ``parent`` geht ausdruecklich hinaus und darf
+    # nicht zusaetzlich in ``**kwargs`` stecken bleiben -- sonst
+    # ``TypeError: got multiple values for argument 'parent'``.
+    parent = kwargs.pop("parent", None) or getattr(studio, "root", None)
     return open_memo_pad(studio=studio, parent=parent, **kwargs)
 
 

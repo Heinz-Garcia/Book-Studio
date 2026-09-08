@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Iterable, Union
 
@@ -52,11 +51,7 @@ def test_command_host_covers_all_menu_commands():
     ):
         required |= _collect_commands(section)
 
-    missing = [
-        name
-        for name in sorted(required)
-        if not callable(getattr(CommandHost, name, None))
-    ]
+    missing = [name for name in sorted(required) if not callable(getattr(CommandHost, name, None))]
     assert missing == [], f"CommandHost fehlt Methoden: {missing}"
 
 
@@ -76,47 +71,33 @@ def test_time_machine_lists_struct_backups(tmp_path: Path):
     assert "15:30" in label
 
 
-def test_file_indexer_plugin_runs_tool(tmp_path: Path):
+def test_file_indexer_plugin_is_thin_qt_adapter(monkeypatch):
+    """Das Plugin fuehrt kein Subprozess-Tool mehr aus, sondern oeffnet den Dialog.
+
+    Aus "Dateien indexieren" ist der CSV-Export der Kapitelliste geworden
+    (siehe .doc/kapitelliste-csv-export-plan.md). Der Ordnername blieb, weil er
+    die Plugin-Identitaet ist -- der Inhalt nicht.
+    """
+    pytest.importorskip("PySide6")
     from plugins import file_indexer
+    from ui_qt.dialogs import chapter_list_dialog
 
-    target = tmp_path / "md"
-    target.mkdir()
-    (target / "a.md").write_text('---\ntitle: "A"\n---\n', encoding="utf-8")
-    cfg = tmp_path / "cfg.json"
-    cfg.write_text(
-        json.dumps({"indexer_target_folder": str(target)}),
-        encoding="utf-8",
-    )
+    assert file_indexer.is_available()
 
-    class LogStudio:
-        def __init__(self):
-            self.lines = []
+    gerufen = {}
 
-        def log(self, msg, level="info"):
-            self.lines.append((level, msg))
+    def _fake(studio=None, parent=None, **kwargs):
+        gerufen["studio"] = studio
+        return 0
 
-    studio = LogStudio()
-    code = file_indexer.run(studio=studio, config=cfg)
-    assert code == 0
-    assert (target / "buch_struktur_final.csv").is_file()
-
-
-def test_file_indexer_falls_back_to_book_content(tmp_path: Path):
-    from plugins import file_indexer
-
-    book = tmp_path / "Band"
-    content = book / "content"
-    content.mkdir(parents=True)
-    (content / "x.md").write_text("---\ntitle: X\n---\n", encoding="utf-8")
-    cfg = tmp_path / "empty.json"
-    cfg.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(chapter_list_dialog, "open_chapter_list_qt", _fake)
 
     class Studio:
-        current_book = book
+        root = None
 
         def log(self, *a, **k):
             pass
 
-    code = file_indexer.run(studio=Studio(), config=cfg)
-    assert code == 0
-    assert (content / "buch_struktur_final.csv").is_file()
+    studio = Studio()
+    assert file_indexer.run(studio=studio) == 0
+    assert gerufen["studio"] is studio

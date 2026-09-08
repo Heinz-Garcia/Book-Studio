@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** 4. August 2026 · **Version:** 2.40.x („Skeleton Unleashed“)
+**Stand:** 8. September 2026 · **Version:** 2.56 („Skeleton Unleashed“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -45,6 +45,7 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 21. Neuerungen 2026-08-02: PDF Manager-Ausbau, ISBN, Cover-Größe, Bleed
 22. KDP Cover-Designer (Wrap-PDF für Amazon)
 23. Layout-Editor (Word/Writer-Vorlagen)
+24. Neuerungen 2026-09: Autonome Plugins (Audit & Polish)
 
 In Kapitel 16: optionaler Abschnitt **Marktvarianten** (AT/CH u. Ä.) — siehe [§ Marktvarianten](#sec-marktvarianten).
 
@@ -660,7 +661,7 @@ Nicht den ganzen Ordner neu importieren, wenn nur der **Nutzinhalt** neu ist:
 2. **Export übernehmen…** → einen einzelnen `Publish_*`-Laufordner wählen  
    (nicht die Publish-Sammelmappe)
 
-Übernimmt automatisch: Payload-Body, Anzeigetitel, Erstellungsprotokoll, `publish_meta`, Provenance und Bilder. Frontmatter und `_quarto.yml` bleiben. Details: Kapitel 16 / [.doc/gg-content-swap.md](../.doc/gg-content-swap.md).
+Übernimmt automatisch: Payload-Body, Anzeigetitel, Erstellungsprotokoll, `publish_meta`, Provenance und Bilder. Frontmatter und `_quarto.yml` bleiben. Details: Kapitel 16 / [.doc/gg-content-swap.md](../.doc/gg-content-swap.md). Ohne geladenes Buch erscheint nur ein Hinweis — zuerst ein Projekt wählen.
 
 ---
 
@@ -909,7 +910,7 @@ Manche Bücher teilen einen **gemeinsamen Basisinhalt**, während einzelne Glied
 
 Wenn Pflichtseiten noch fehlen (`content/required/*.md`):
 
-- Beim **ersten Import** fragt das Studio einmalig, ob der Skeleton-Rahmen übernommen werden soll.
+- Beim **ersten Import** fragt das Studio einmalig, ob der Skeleton-Rahmen übernommen werden soll. **Ja** öffnet denselben Dialog wie **Plugins → Skeleton ins Buch übernehmen…** (Profil und optionale Snippets wählbar — kein stilles Default-Profil).
 - Jederzeit manuell: **Plugins → Skeleton ins Buch übernehmen…**
 
 Skeleton-Dateien landen **links** im Pool — der rechte Buchbaum bleibt unverändert. Im Populate-Dialog kannst du **optionale Snippets** des Profils einzeln zuschalten. Details: Kapitel 15.
@@ -1051,17 +1052,25 @@ Wenn Provenance vorhanden ist, siehst du zusätzlich Export-Zeitpunkt und LLM-Mo
 | **Autor** | Manuelle Korrekturen im Editor, Pool-Dateien noch nicht eingehängt |
 | **Quarto/Typst** | Renderer-Voraussetzungen (z. B. `book.author`) |
 
-Vollständige Matrix (20 Befundtypen): Entwickler-Doku `.doc/quality_contract.md`.
+Vollständige Matrix (20 Befundtypen): Entwickler-Doku `.doc/quality_contract.md`. Die Taxonomy in `tools/publish_readiness/taxonomy.py` deckt **jeden** Contract-Satz (#1–20) mit mindestens einem Muster ab.
+
+### Provenance & Publish Record (Viewer)
+
+| Menü | Inhalt |
+|------|--------|
+| **Plugins → Provenance…** | Read-only: `bookconfig/grammargraph_export.json` (Export-Zeit, LLM, Marktvariante, Roh-JSON) |
+| **Plugins → Publish Record…** | Read-only: Ereignistabelle (Import / Doktor / Render) aus `bookconfig/publish_record.json` |
+
+Schreiben passiert weiterhin nur über Hooks (Import, Doctor, Render) — die Viewer ändern nichts.
 
 ### Schaltflächen
 
 | Button | Wirkung |
 |--------|---------|
-| **Erneut prüfen** | Buch-Doktor erneut ausführen, Dialog aktualisieren |
-| **Zur Fundstelle ➜** | Markdown-Editor an der Problemzeile öffnen (auch per Doppelklick oder Enter auf die Zeile) |
+| **Zur Stelle…** | Markdown-Editor an der Problemzeile öffnen (auch **Doppelklick** auf die Zeile) |
 | **Schließen** | Dialog schließen |
 
-Die Spalte **Zeile** zeigt die Fundstelle, sofern der Buch-Doktor sie kennt.
+Befunde ohne Dateipfad (z. B. reine Pool-Hinweise) melden das im Dialog — Details stehen dann im Buch-Doktor-Log. Unzugeordnete Meldungen mit Fehler-Icon (`❌`) zählen als **Blocker**, nicht nur als Warnung.
 
 ### Automatische Protokollierung
 
@@ -1205,7 +1214,7 @@ Du musst die Map **nicht manuell** pflegen — Plugin-Hooks schreiben bei:
 | Bereich | Zweck |
 |---------|--------|
 | **Pool (links)** | Gemeinsame Bildbibliothek (Default `assets/pool`, Key `asset_pool_path`) |
-| **Buch img/ (rechts)** | Dateien unter `{Buch}/img/` — das, was mit `/img/…` referenziert wird |
+| **Buch img/ (rechts)** | Dateien unter `{Buch}/img/` — das, was mit `/img/…` referenziert wird (auch in **Unterordnern**, z. B. `img/kapitel/foto.png`) |
 
 ### Typischer Ablauf
 
@@ -1417,6 +1426,20 @@ Neben dem PDF entstehen:
 - Bleed (Standard 3,2 mm) ist in der Wrap-Gesamtgröße bereits enthalten.
 - Ein eigener Plugins-Menüpunkt „Cover-Größe berechnen…“ entfällt.
 
+### Experiment: Vorderseiten-Layer {#sec-kdp-compose-front}
+
+Optionaler Tab **Experiment** (Fade, Band, Titelzeilen, Fuß, Banner, Badge über dem Front-Foto). Standardmäßig **ausgeblendet**, damit der Designer schlank bleibt.
+
+Einschalten:
+
+| Weg | Einstellung |
+|-----|-------------|
+| App-Config | `"kdp_compose_front_ui": true` in `app_config.json` |
+| Umgebungsvariable | `BSU_KDP_COMPOSE_FRONT=1` |
+| Automatisch | Wenn im gespeicherten Cover bereits „Layer aktiv“ gesetzt ist |
+
+Ohne Flag und ohne aktive Layer bleibt der Export unverändert. Details für Entwickler: `.doc/kdp-compose-front-konzept.md`.
+
 ### CLI (ohne GUI)
 
 Für Tests oder Automatisierung:
@@ -1501,13 +1524,17 @@ die häufigste Ursache dafür, dass im fertigen Dokument ein Kasten fehlt.
 
 **6a. Oder alles auf einmal:** `Assistent…` oben in der Leiste führt dich systematisch durch
 **jedes** Formatierungsobjekt deines Buches — wahlweise nach Objekt oder Kapitel für
-Kapitel. Wer nicht weiß, wo er anfangen soll, fängt hier an.
+Kapitel. Wer nicht weiß, wo er anfangen soll, fängt hier an. Denselben Assistenten
+erreichst du auch direkt über **Plugins → Layout-Assistent…** (ohne den Editor vorher
+zu öffnen). Ungespeicherte Änderungen fragt der Standalone-Assistent beim Schließen
+nach — nichts wird still überschrieben.
 
 **6b. Gegenprüfen (der wichtigste Handgriff).** Im selben Bereich unten
 `Buch prüfen…` → dein Buchprojekt wählen. Der Editor sagt dann, welche Klassen
 dein Text benutzt und welche davon **noch keine Vorlage** haben — samt Knopf,
 der die fehlenden anlegt. Das ist die Antwort auf »warum ist mein Kasten weg?«,
-bevor die Frage entsteht.
+bevor die Frage entsteht. Als reine Übersichtstabelle: **Plugins → Textauszeichnungs-Inventar…**
+(Herkunft, Häufigkeit, Vorlage, Befund „ohne Vorlage“ / „Karteileiche“).
 
 **7. Anwenden und rendern.** `Speichern`, dann
 `Auf Buchprojekt anwenden…` → Buchordner wählen. Danach im Studio `F5` und im
@@ -1981,6 +2008,95 @@ tools/skeleton/library/  ← Skeleton-Vorlagen (Profile mit manifest.yaml)
 doc/handbuch.md          ← Handbuch-Quelle (Markdown)
 doc/handbuch.html        ← Hilfe-Anzeige (HTML, mit Suche)
 ```
+
+---
+
+## 24) Neuerungen 2026-09: Autonome Plugins (Audit & Polish) {#sec-neuerungen-2026-09}
+
+Dieses Kapitel fasst die **Plugin-Überarbeitung vom September 2026** zusammen: Menü bereinigt, Bedienung vereinheitlicht, Hilfen und Sprünge nachgezogen. Fachkapitel oben bleiben die detaillierte Anleitung — hier der Überblick „was hat sich für dich geändert?“.
+
+### Menü: weniger Doppelgänger
+
+Diese Einträge sind **nicht mehr** im Plugins-Menü (Hooks und Kernlogik bleiben aktiv):
+
+| Früher im Menü | Stattdessen |
+|----------------|-------------|
+| Cover-Größe berechnen… | Maße in **KDP Cover-Designer…** (Schritt 1) — Kapitel 22 |
+| Generierte Bücher… | **PDF Manager…** — Kapitel 18 |
+| Provenance… / Publish Record… | **Eigene Viewer** unter Plugins (Read-only); Schreiben weiter nur per Hook bei Import / Doctor / Render |
+| Breathcloud… | Form **Freie Form / Hub** in **Cover-Schlagwortwolke…** |
+
+### Publish Readiness: zur Fundstelle springen
+
+**Plugins → Publish Readiness…** — Doppelklick oder **Zur Stelle…** öffnet die betroffene Datei im Editor (sofern ein Pfad bekannt ist). Fehler-Icons ohne Matrix-Treffer zählen als Blocker. Die Owner-Matrix deckt alle 20 Quality-Contract-Sätze ab. Kapitel 17.
+
+### Provenance & Publish Record: Viewer wieder im Menü
+
+**Plugins → Provenance…** und **Publish Record…** öffnen Read-only-Dialoge (Zusammenfassung + JSON). Hooks schreiben weiter im Hintergrund.
+
+### PDF Manager: Kurzhilfe
+
+Oben im Dialog erscheint die Plugin-Hilfe (Snapshots, Archiv unter `export/publish_renders/`, Restore/Löschen). Produktiv immer den PDF Manager nutzen — nicht die ausgeblendete Liste „Generierte Bücher“.
+
+### Skeleton nach Import
+
+Nach einem Import ohne Pflichtseiten: **Ja** zum Rahmen öffnet denselben Profil-/Snippet-Dialog wie das Menü (Kapitel 15 / 16).
+
+### Layout: Assistent, Inventar, Kapitelliste
+
+| Menü | Zweck |
+|------|-------|
+| **Layout-Assistent…** | Standalone durch alle Formatierungsobjekte des Buchs; Speichern nur auf Nachfrage |
+| **Textauszeichnungs-Inventar…** | Tabelle: Herkunft, Nutzung, Vorlage, Befund |
+| **Kapitelliste exportieren (CSV)…** | Lesereihenfolge aus `_quarto.yml` → `export/kapitelliste.csv` (Excel: UTF-8 mit BOM) |
+
+`Publish_*`-Ordner erscheinen in den Buchauswahllisten dieser Werkzeuge **nicht** (Exportläufe, keine Arbeitsbücher).
+
+### Satzprüfung & Regelkreis
+
+**Plugins → Satzprüfung & Regelkreis…**
+
+- Satzprüfung: misst das gerenderte PDF, ändert nichts
+- Regelkreis: rendert wiederholt und passt Schriftgrößen in `typst-show.typ` an (Untergrenzen beachten)
+- **Grenzwerte…** öffnet wahlweise `grenzen.toml` (Regelkreis) oder `schwellen.toml` (Prüfung)
+
+Layout-Profil für den Regelkreis kommt aus dem **letzten Render** in `publish_map.json` (nicht aus dem nächsten geplanten Export).
+
+### Druck-Freigabe
+
+**Plugins → Druck-Freigabe prüfen…** nutzt dasselbe „letztes Layout-Profil“ wie die Satzwerkzeuge. Prüft das zuletzt gerenderte Convenience-PDF unter `export/_book/`.
+
+### Cover-Schlagwortwolke
+
+**Plugins → Cover-Schlagwortwolke…** — Formen inkl. Freie Form/Hub (ehemals eigener Breathcloud-Menüpunkt), Presets, Muss-Wort. CLI für den Hub-Packer unverändert: `python -m tools.breathcloud …`.
+
+### Asset Manager & Buchnotizen
+
+- **Asset Manager:** Bilder unter `img/` auch in Unterordnern sichtbar (Orphans/Referenzen).
+- **Buchnotizen…:** eine Notiz je Buch (`bookconfig/notiz.md`, geteilt mit GrammarGraph). Ungültige Kodierung → Warnung, Speichern gesperrt (Datei wird nicht überschrieben).
+- **Memo-Block…:** projektlose Schnellnotiz (nicht mit Buchnotiz verwechseln).
+
+### GrammarGraph-Inhalt aktualisieren
+
+Ohne aktives Buch: klarer Hinweis „Bitte zuerst ein Buch laden.“ Mit Buch: **Export übernehmen…** wie Kapitel 16 / Phase 3b.
+
+### UUID-Manager
+
+GrammarGraph-Repo wird erkannt über Sibling-Ordner, Umgebungsvariable `GRAMMARGRAPH_ROOT` oder den Inbox-Pfad aus der Studio-Konfiguration.
+
+### Provenance beim Re-Import
+
+Beim erneuten Import wird Provenance nur übersprungen, wenn der **Inhalt** identisch ist. Bloße Feldkorrekturen im Manifest (bei gleichem Zeitstempel) werden wieder übernommen.
+
+### Einstellungen (neu / relevant)
+
+| Schlüssel | Bedeutung |
+|-----------|-----------|
+| `kdp_compose_front_ui` | Experiment-Tab im KDP-Designer (Default `false`) |
+| `BSU_KDP_COMPOSE_FRONT` | Env-Override für denselben Tab (`1` / `0`) |
+| `GRAMMARGRAPH_ROOT` | Optionaler Pfad zum GrammarGraph-Repo (UUID-Manager) |
+
+Technische Audit-Liste: `.doc/autonome-tools-audit.md`.
 
 ---
 

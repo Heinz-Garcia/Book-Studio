@@ -1,6 +1,6 @@
 {
   "name": "generated_books",
-  "label": "Generierte Bücher…",
+  "label": "📗 Generierte Bücher…",
   "description": "Fertige PDF-Ausgaben unter export/_book öffnen.",
   "entrypoint": "plugins.generated_books:run",
   "version": "1.0.0",
@@ -9,7 +9,7 @@
   "order": 30,
   "show_in_menu": false,
   "config": "tools/generated_books/config.json",
-  "help_text": "Findet automatisch generierte PDF-Renderings unter export/_book/ der zuletzt geöffneten Bücher. Öffnen/Explorer/Löschen wirkt auf die PDF-Datei, nicht auf das Buchprojekt.",
+  "help_text": "Findet PDF-Renderings unter export/_book/, _book_* und export/publish_renders/ der zuletzt geöffneten Bücher. Menü ausgeblendet — produktiv den PDF Manager nutzen. Öffnen/Explorer/Löschen wirkt auf die PDF-Datei, nicht auf das Buchprojekt; publish_map wird hier nicht aktualisiert.",
   "settings": {
     "config": "tools/generated_books/config.json",
     "fields": [

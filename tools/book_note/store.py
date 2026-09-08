@@ -52,6 +52,8 @@ class BookNote:
     #: Zeitpunkt der letzten Aenderung, aus dem Dateisystem. Leer, wenn es die
     #: Datei noch nicht gibt.
     updated_at: str = ""
+    #: Lesefehler (Kodierung/IO). Datei kann existieren, Text bleibt leer.
+    load_error: str = ""
 
     @property
     def is_empty(self) -> bool:
@@ -59,7 +61,7 @@ class BookNote:
 
     @property
     def exists(self) -> bool:
-        return bool(self.updated_at)
+        return bool(self.updated_at) or bool(self.load_error)
 
     def summary(self) -> str:
         """Eine Zeile fuer Listen und Statuszeilen."""
@@ -86,16 +88,25 @@ def note_path(book_path: Path | str) -> Path:
 
 
 def load(book_path: Path | str) -> BookNote:
-    """Liest die Notiz. Eine fehlende Datei ist kein Fehler, sondern leer."""
+    """Liest die Notiz. Eine fehlende Datei ist kein Fehler, sondern leer.
+
+    Kodierungs-/IO-Fehler setzen ``load_error`` — der Aufrufer darf die Datei
+    dann nicht still mit einer leeren Notiz ueberschreiben.
+    """
     buch = Path(book_path)
     ziel = note_path(buch)
+    if not ziel.is_file():
+        return BookNote(book_path=buch)
     try:
         text = ziel.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        # Unlesbar wie nicht vorhanden zu behandeln waere hier falsch: Wer eine
-        # kaputte Datei mit einer leeren ueberschreibt, verliert sie. Der
-        # Aufrufer sieht ``exists`` und entscheidet.
-        return BookNote(book_path=buch)
+    except UnicodeDecodeError as exc:
+        return BookNote(
+            book_path=buch,
+            updated_at=_zeitstempel(ziel),
+            load_error=f"Keine gültige UTF-8-Kodierung ({exc.reason})",
+        )
+    except OSError as exc:
+        return BookNote(book_path=buch, load_error=str(exc))
     return BookNote(book_path=buch, text=text, updated_at=_zeitstempel(ziel))
 
 
@@ -124,10 +135,28 @@ def save(book_path: Path | str, text: str) -> BookNote:
 
 
 def has_note(book_path: Path | str) -> bool:
-    """Ob ein Buch eine nicht-leere Notiz hat -- ohne sie ganz zu lesen."""
+    """Ob ein Buch eine nicht-leere Notiz hat.
+
+    Die Dateigroesse allein genuegt nicht: ``save`` legt zwar nie eine Datei
+    aus lauter Leerraum an (leerer Text loescht sie), aber GrammarGraph
+    schreibt dieselbe Datei -- und ein einzelnes Zeilenende von dort zeigte in
+    der Buchliste ein 📝 fuer eine Notiz, in der nichts steht. Das widerspraeche
+    ``BookNote.is_empty``, das ``strip()`` benutzt.
+
+    Grosse Dateien werden nicht ganz gelesen: Ein paar Bytes reichen, um zu
+    sehen, dass da etwas anderes als Leerraum steht.
+    """
     ziel = note_path(book_path)
     try:
-        return ziel.is_file() and ziel.stat().st_size > 0
+        if not ziel.is_file() or ziel.stat().st_size == 0:
+            return False
+        with ziel.open("r", encoding="utf-8", errors="replace") as datei:
+            while True:
+                block = datei.read(4096)
+                if not block:
+                    return False
+                if block.strip():
+                    return True
     except OSError:
         return False
 

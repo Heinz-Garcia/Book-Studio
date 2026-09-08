@@ -63,6 +63,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Optional
 
+#: Unter Windows: Kindprozess ohne eigenes Konsolenfenster; anderswo 0
+#: und damit wirkungslos. Siehe Kommentar in ``quarto_render_safe.py``,
+#: warum die Konstante dort ein zweites Mal steht.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 # --- Konventionen ----------------------------------------------------------
 
@@ -251,14 +256,20 @@ class RenderService:
         target_fmt: str,
         layout_profile: str,
         linestretch: float,
+        linebreak_strictness: Optional[str] = None,
     ) -> dict[str, dict[str, Any]]:
-        """Hängt Layout-Profil-Optionen an extra_format_options an."""
+        """Hängt Layout-Profil-Optionen an extra_format_options an.
+
+        ``linebreak_strictness`` ist die Umbruch-Strenge gegen Schusterjungen
+        und Hurenkinder; ``None`` bedeutet "nimm die Vorgabe des Profils".
+        """
         from tools.layout_profiles.catalog import build_layout_format_options
 
         layout_opts = build_layout_format_options(
             layout_profile,
             target_fmt,
             linestretch=linestretch,
+            linebreak_strictness=linebreak_strictness,
         )
         return RenderService.merge_extra_format_options(extra_opts, layout_opts) or layout_opts
 
@@ -732,6 +743,9 @@ class RenderService:
             errors="replace",
             bufsize=1,
             env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
+            # Kein Konsolenfenster: die App laeuft ueber pythonw.exe und hat
+            # damit selbst keine Konsole, die ein Kindprozess erben koennte.
+            creationflags=NO_WINDOW,
         )
         aborted_on_colon_warning = False
         cancelled_by_user = False

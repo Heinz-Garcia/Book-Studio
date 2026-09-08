@@ -272,7 +272,12 @@ def _book_title_for_placeholders(book_path: Path) -> str:
         from import_helpers import resolve_import_book_title
 
         return resolve_import_book_title(book_path)
-    except Exception:
+    # Bewusst breit, aber begruendet: ``resolve_import_book_title`` liest
+    # fremde Projektdateien (TOML, YAML, JSON) und kann an jeder davon
+    # scheitern. Ein Buchtitel ist es nicht wert, das Kopieren der Vorlagen
+    # abzubrechen -- der Fallback direkt darunter liest denselben Titel
+    # notfalls selbst aus der ``_quarto.yml``.
+    except Exception:  # noqa: BLE001 - Fallback steht unmittelbar darunter
         yml = book_path / "_quarto.yml"
         if yml.is_file():
             import re
@@ -289,7 +294,11 @@ def _apply_book_title_placeholders(md_path: Path, book_path: Path) -> None:
     if "{{BOOK_TITLE}}" not in text:
         return
     title = _book_title_for_placeholders(book_path)
-    md_path.write_text(text.replace("{{BOOK_TITLE}}", title), encoding="utf-8")
+    # ``newline`` gesetzt: sonst kaeme jede frisch kopierte Vorlage, in der ein
+    # Platzhalter steckt, auf CRLF umgeschrieben im Buch an.
+    md_path.write_text(
+        text.replace("{{BOOK_TITLE}}", title), encoding="utf-8", newline="\n"
+    )
 
 
 def populate_book(

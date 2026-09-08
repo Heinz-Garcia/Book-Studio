@@ -97,6 +97,26 @@ def test_hint_shown_and_populate_triggered_on_yes(tmp_path: Path, monkeypatch: p
     assert populate_calls[0]["studio"] is studio
 
 
+def test_hint_opens_qt_dialog_path_not_silent_populate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hook und Menü teilen denselben Qt-Dialog (kein Default-Profil still)."""
+    book = tmp_path / "Band_Test"
+    book.mkdir()
+    monkeypatch.setattr(ui_hooks.messagebox, "askyesno", lambda *a, **k: True)
+
+    qt_calls: list = []
+    monkeypatch.setattr(
+        "ui_qt.dialogs.skeleton_qt.open_skeleton_populate_qt",
+        lambda studio, parent=None, **kw: qt_calls.append((studio, parent)) or 0,
+    )
+
+    studio = _make_studio(book)
+    on_after_book_import(studio=studio)
+    assert len(qt_calls) == 1
+    assert qt_calls[0][0] is studio
+
+
 def test_populate_failure_is_logged_not_raised(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     book = tmp_path / "Band_Test"
     book.mkdir()

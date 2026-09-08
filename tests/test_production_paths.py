@@ -15,6 +15,7 @@ from tools.production_paths.paths import (
     ProductionPathKind,
     classify_path,
     is_legacy_grammargraph_publish_path,
+    is_publish_run_folder_name,
     legacy_publish_hubs_from_content_roots,
     resolve_legacy_publish_run,
     target_books_dir,
@@ -37,6 +38,11 @@ def test_target_layout_paths(tmp_path: Path) -> None:
     root = tmp_path / "production"
     assert target_books_dir(root) == root / "books"
     assert target_inbox_dir(root) == root / "inbox"
+
+
+def test_is_publish_run_folder_name() -> None:
+    assert is_publish_run_folder_name("Publish_Demo_01.01.2026_12.00") is True
+    assert is_publish_run_folder_name("Band_Dummy") is False
 
 
 def test_classify_legacy_publish_hub(tmp_path: Path) -> None:

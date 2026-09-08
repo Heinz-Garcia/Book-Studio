@@ -26,17 +26,11 @@ def _render_metadata(book: Path) -> dict[str, str]:
 
 
 def run(studio: Optional[Any] = None, **kwargs) -> None:
-    """Menü-Entrypoint: kurze Zusammenfassung im Log."""
-    if studio is None or not getattr(studio, "current_book", None):
-        return
-    from tools.publish_record.record import read_record
+    """Menü-Entrypoint: öffnet den Read-only-Publish-Record-Viewer."""
+    from ui_qt.dialogs.publish_record_viewer_dialog import open_publish_record_viewer_qt
 
-    record = read_record(Path(studio.current_book))
-    if record is None:
-        studio.log("ℹ️ Noch kein Publish Record vorhanden.", "info")
-        return
-    events = record.get("events") or []
-    studio.log(f"📒 Publish Record: {len(events)} Ereignis(se)", "info")
+    parent = kwargs.get("parent")
+    open_publish_record_viewer_qt(studio, parent)
 
 
 def on_after_book_import(studio: Optional[Any] = None, **kwargs) -> None:

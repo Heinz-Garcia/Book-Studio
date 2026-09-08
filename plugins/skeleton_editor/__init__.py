@@ -12,7 +12,10 @@ _REPO_ROOT = ensure_repo_on_path(__file__)
 def run(studio: Optional[Any] = None, **kwargs) -> int:
     from ui_qt.dialogs.skeleton_editor_dialog import open_skeleton_editor_qt
 
-    parent = kwargs.get("parent") or getattr(studio, "root", None)
+    # ``pop`` statt ``get``: Sonst geht ``parent`` zweimal hinaus (einmal
+    # ausdruecklich, einmal in ``**kwargs``) -- ``TypeError: got multiple
+    # values for argument 'parent'``.
+    parent = kwargs.pop("parent", None) or getattr(studio, "root", None)
     return open_skeleton_editor_qt(studio=studio, parent=parent, **kwargs)
 
 

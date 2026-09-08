@@ -21,6 +21,26 @@ def sanitize_book_folder_name(name: str) -> str:
     return cleaned
 
 
+def _yaml_scalar(text: str) -> str:
+    """Ein Titel als YAML-Skalar -- mit Anfuehrungszeichen, sicher gequotet.
+
+    ``yaml.safe_dump`` waehlt selbst die passende Form und escaped, was zu
+    escapen ist. Der Aufruf liefert ein vollstaendiges Dokument
+    (``"Titel"\\n...\\n``), deshalb wird nur die erste Zeile genommen.
+
+    Es geht hier nicht um Schoenheit, sondern um einen realen Ausfall: Der
+    Titel wurde vorher roh in ein bereits gequotetes Feld kopiert, und ein
+    ``"`` darin machte aus ``_quarto.yml`` ungueltiges YAML. Das frisch
+    angelegte Buch war damit weder zu oeffnen noch zu rendern.
+    """
+    import yaml
+
+    dumped = yaml.safe_dump(
+        str(text), allow_unicode=True, default_style='"', default_flow_style=False
+    )
+    return dumped.splitlines()[0].strip()
+
+
 def is_quarto_book(path: Path) -> bool:
     return (Path(path) / "_quarto.yml").is_file()
 
@@ -51,12 +71,19 @@ def create_empty_book(
         Path(__file__).resolve().parents[2] / "templates" / "quarto_reset_minimal.yml"
     )
     yml_text = yml_src.read_text(encoding="utf-8")
+    # Der Platzhalter steht in der Vorlage **innerhalb** von Anfuehrungszeichen
+    # (``title: "{{BOOK_TITLE}}"``), deshalb muss der Titel als YAML-Skalar
+    # eingesetzt werden -- inklusive der Anfuehrungszeichen. Vorher wurde er
+    # roh hineinkopiert: Ein einziges ``"`` oder ``\`` im Titel erzeugte
+    # ungueltiges YAML, und das gerade angelegte Buch liess sich weder oeffnen
+    # noch rendern -- ohne dass irgendwo stand, warum.
+    yml_text = yml_text.replace('"{{BOOK_TITLE}}"', _yaml_scalar(book_title))
     yml_text = yml_text.replace("{{BOOK_TITLE}}", book_title)
 
     book_dir.mkdir(parents=False)
     (book_dir / "_quarto.yml").write_text(yml_text, encoding="utf-8", newline="\n")
     (book_dir / "index.md").write_text(
-        f'---\ntitle: "{book_title}"\nunnumbered: true\n---\n\n'
+        f"---\ntitle: {_yaml_scalar(book_title)}\nunnumbered: true\n---\n\n"
         f"# {book_title}\n\n"
         "Platzhalter-Kapitel. Skeleton optional über *Skeleton ins Buch übernehmen…*.\n",
         encoding="utf-8",

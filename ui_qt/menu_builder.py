@@ -103,22 +103,39 @@ def build_menu_bar(
     return bar
 
 
-_SKELETON_PLUGIN_NAMES = ("skeleton_populate", "skeleton_editor")
-_COVER_KDP_PLUGIN_NAMES = (
-    "cover_size",
-    "kdp_cover",
-    "stylecloud",
-    "breathcloud",
-    "uuid_manager",
-)
-_PUBLISH_PLUGIN_NAMES = (
-    "book_projects",
-    "generated_books",
-    "publish_record",
-    "publish_readiness",
-    "publisher_compliance",
-    "provenance",
-    "mapping_manager",
+#: Gruppen des Plugin-Menues, in dieser Reihenfolge und je durch einen
+#: Trennstrich abgesetzt. Die Folge bildet den Arbeitsweg ab: Buch aufsetzen,
+#: Inhalt hineinholen, gestalten, Umschlag, freigeben, nachweisen, Werkzeuge.
+#:
+#: Diese Liste ist der einzige Ort, an dem die Menuegliederung steht -- die
+#: ``order``-Zahlen der Manifeste ordnen nur, was hier nicht genannt ist.
+#: Innerhalb einer Gruppe gilt die hier notierte Reihenfolge, nicht die Zahl:
+#: „Bücher verwalten“ gehoert vor „Skeleton übernehmen“, weil man in dieser
+#: Reihenfolge arbeitet.
+#:
+#: Ein neues Plugin, das hier fehlt, landet sichtbar in der letzten Gruppe --
+#: es verschwindet nicht, gehoert aber mit einer Zeile an seinen Platz.
+_PLUGIN_GROUPS: tuple[tuple[str, ...], ...] = (
+    # Buch und Gerüst
+    ("book_projects", "skeleton_populate", "skeleton_editor"),
+    # Inhalt hineinholen und pflegen
+    ("gg_content_swap", "asset_manager", "satz_werkzeuge"),
+    # Layout und Textauszeichnung
+    ("doclayout_editor", "doclayout_wizard", "markup_inventory"),
+    # Umschlag
+    ("cover_size", "kdp_cover", "stylecloud", "breathcloud"),
+    # Vor der Veröffentlichung prüfen
+    ("publish_readiness", "publisher_compliance"),
+    # Ergebnis und Nachweis
+    (
+        "generated_books",
+        "mapping_manager",
+        "publish_record",
+        "provenance",
+        "uuid_manager",
+    ),
+    # Notizen und allgemeine Werkzeuge
+    ("memo_pad", "book_note", "file_indexer"),
 )
 
 
@@ -142,12 +159,15 @@ def _populate_plugins(
         return
 
     by_name = {i.name: i for i in infos}
-    skeleton = [by_name[n] for n in _SKELETON_PLUGIN_NAMES if n in by_name]
-    cover_kdp = [by_name[n] for n in _COVER_KDP_PLUGIN_NAMES if n in by_name]
-    publish = [by_name[n] for n in _PUBLISH_PLUGIN_NAMES if n in by_name]
-    grouped = {i.name for i in skeleton + cover_kdp + publish}
-    rest = [i for i in infos if i.name not in grouped]
+    gruppen = [
+        [by_name[name] for name in gruppe if name in by_name]
+        for gruppe in _PLUGIN_GROUPS
+    ]
+    einsortiert = {info.name for gruppe in gruppen for info in gruppe}
+    rest = [i for i in infos if i.name not in einsortiert]
     rest.sort(key=lambda p: (p.order, p.label.casefold(), p.name.casefold()))
+    if rest:
+        gruppen.append(rest)
 
     def _add(info) -> None:
         action = QAction(info.label, menu)
@@ -158,19 +178,14 @@ def _populate_plugins(
             action.setEnabled(False)
         menu.addAction(action)
 
-    def _add_group(group: list, *, leading_sep: bool) -> bool:
-        if not group:
-            return leading_sep
-        if leading_sep:
+    # Trennstrich nur zwischen gefuellten Gruppen -- eine leere Gruppe darf
+    # keinen doppelten Strich hinterlassen.
+    schon_etwas = False
+    for gruppe in gruppen:
+        if not gruppe:
+            continue
+        if schon_etwas:
             menu.addSeparator()
-        for info in group:
+        for info in gruppe:
             _add(info)
-        return True
-
-    has_content = False
-    for info in skeleton:
-        _add(info)
-        has_content = True
-    has_content = _add_group(cover_kdp, leading_sep=has_content) or has_content
-    has_content = _add_group(publish, leading_sep=has_content) or has_content
-    _add_group(rest, leading_sep=has_content)
+        schon_etwas = True

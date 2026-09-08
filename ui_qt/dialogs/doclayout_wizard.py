@@ -627,6 +627,19 @@ class DocLayoutWizard(QDialog):
     def changed(self) -> bool:
         return bool(self._touched)
 
+    @property
+    def saved(self) -> bool:
+        """Steht der **aktuelle** Stand auf der Platte?
+
+        Nicht "wurde irgendwann einmal gespeichert": ``_merke`` entwertet das
+        Kennzeichen bei jeder weiteren Aenderung. Der Aufrufer braucht genau
+        diese Auskunft, um am Ende zu entscheiden, ob er nachfragen muss --
+        baute er sie selbst nach (etwa als "hat der Rueckruf schon einmal
+        gefeuert?"), verschwiegen ihm alle Aenderungen nach dem letzten
+        Speicherpunkt.
+        """
+        return self._saved
+
 
 def _escape(text: str) -> str:
     return (
@@ -661,15 +674,23 @@ def run_wizard(
     definition: LayoutDefinition,
     book_path: Path,
     save: Optional[Callable[[LayoutDefinition], bool]] = None,
-) -> tuple[LayoutDefinition, bool]:
-    """Oeffnet den Assistenten und liefert (Layout, wurde-etwas-geaendert).
+) -> tuple[LayoutDefinition, bool, bool]:
+    """Oeffnet den Assistenten.
+
+    Liefert ``(Layout, wurde-etwas-geaendert, ist-gespeichert)``.
+
+    Das dritte Feld ist der Grund fuer diese Signatur: Der Aufrufer muss am
+    Ende entscheiden, ob er nach ungespeicherten Aenderungen fragt, und diese
+    Auskunft kennt nur der Assistent. Wer sie stattdessen daran festmachte, ob
+    der *save*-Rueckruf schon einmal gefeuert hat, uebersah jede Aenderung nach
+    dem letzten Speicherpunkt und verwarf sie wortlos.
 
     *save* legt den Stand ab, ohne den Assistenten zu verlassen; ohne den
     Rueckruf bleibt der Knopf verborgen.
     """
     dialog = DocLayoutWizard(parent, definition, book_path, save=save)
     dialog.exec()
-    return dialog.definition, dialog.changed
+    return dialog.definition, dialog.changed, dialog.saved
 
 
 __all__ = [

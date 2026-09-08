@@ -934,6 +934,7 @@ class ExportManager:
                     Path(self._current_book()),
                     layout_profile=str(selected.get("layout_profile") or "taschenbuch-bod"),
                     linestretch=float(selected.get("linestretch") or 1.2),
+                    linebreak_strictness=selected.get("linebreak_strictness"),
                 )
 
             if not self._save_project(show_msg=False, run_doctor_check=False):
@@ -993,12 +994,17 @@ class ExportManager:
             # Layout-Profil (Zeilenabstand etc.) — nur Temp-Klon, nicht Original-_quarto.yml
             layout_profile = str(selected.get("layout_profile") or "taschenbuch-bod")
             linestretch = float(selected.get("linestretch") or 1.2)
+            # Umbruch-Strenge: None heisst "Vorgabe des Profils" — der
+            # Export-Dialog schickt nur dann einen Wert, wenn der Nutzer
+            # ihn dort umgestellt hat.
+            linebreak_strictness = selected.get("linebreak_strictness")
             if render_service is not None:
                 extra_opts = render_service.apply_layout_profile(
                     extra_opts,
                     target_fmt=target_fmt,
                     layout_profile=layout_profile,
                     linestretch=linestretch,
+                    linebreak_strictness=linebreak_strictness,
                 )
             else:
                 from services.render_service import RenderService
@@ -1008,6 +1014,7 @@ class ExportManager:
                     target_fmt=target_fmt,
                     layout_profile=layout_profile,
                     linestretch=linestretch,
+                    linebreak_strictness=linebreak_strictness,
                 )
             # ----------------------------------
 
@@ -1074,6 +1081,7 @@ class ExportManager:
                 "profile_name": effective_profile_name,
                 "layout_profile": layout_profile,
                 "linestretch": linestretch,
+                "linebreak_strictness": linebreak_strictness,
                 "snapshot_id": snapshot_id,
                 "notes": render_notes,
                 "pdf_stem": render_pdf_stem,
@@ -1084,9 +1092,17 @@ class ExportManager:
             try:
                 from tools.layout_profiles.catalog import get_profile
 
+                from tools.layout_profiles.catalog import linebreak_strictness_label
+
                 profile = get_profile(layout_profile)
+                strictness_text = linebreak_strictness_label(
+                    linebreak_strictness
+                    if linebreak_strictness is not None
+                    else profile.linebreak_strictness
+                )
                 self._log(
-                    f"📐 Layout: {profile.label} · Zeilenabstand {linestretch:g}",
+                    f"📐 Layout: {profile.label} · Zeilenabstand {linestretch:g}"
+                    f" · Umbruch {strictness_text}",
                     "info",
                 )
             except (ImportError, KeyError, ValueError):

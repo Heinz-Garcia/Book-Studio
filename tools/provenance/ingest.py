@@ -16,6 +16,25 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+#: Felder, die nur den *Vorgang* datieren, nicht seinen Inhalt.
+#:
+#: ``ingested_at`` war von Anfang an ausgenommen. ``exported_at`` musste
+#: dazukommen: Ein echtes GrammarGraph-Manifest bringt das Feld mit, und dann
+#: bleibt es ueber Laeufe hinweg stabil -- ``synthesize_from_book_studio_toml``
+#: setzt es aber bei **jedem** Aufruf auf die aktuelle Zeit. Auf dem
+#: Fallback-Weg (kein Manifest im Import, nur ``_book_studio.toml``) war der
+#: Fingerabdruck damit immer verschieden, und ``bookconfig/
+#: grammargraph_export.json`` wurde bei jedem Import neu geschrieben, obwohl
+#: sich nichts geaendert hatte -- genau das, was die Sperre verhindern soll.
+_ZEITFELDER = ("ingested_at", "exported_at")
+
+
+def _fingerprint(payload: dict[str, Any]) -> str:
+    """Vergleichbarer Stand ohne Vorgangs-Zeitstempel (Re-Ingest nach Feld-Fixes)."""
+    slim = {k: v for k, v in payload.items() if k not in _ZEITFELDER}
+    return json.dumps(slim, sort_keys=True, ensure_ascii=False, default=str)
+
+
 def find_manifest_in_dir(source_dir: Path) -> Optional[Path]:
     """Sucht grammargraph_export.json o. ä. im Import-Verzeichnis."""
     root = Path(source_dir)
@@ -207,8 +226,12 @@ def ingest_from_import_dir(book_path: Path, import_dir: Path) -> dict[str, Any]:
     if manifest_path is not None:
         raw = _load_json_file(manifest_path)
         if raw is None:
+            # Auch dieser Zweig geht durch ``_normalize_manifest``. Vorher nicht:
+            # Die geschriebene Datei hatte dann als einzige kein ``ingested_at``,
+            # und der Viewer zeigte eine leere Spalte, obwohl uebernommen wurde.
             payload = synthesize_from_book_studio_toml(source)
             payload["content"]["note"] = f"Manifest {manifest_path.name} nicht lesbar — Fallback."
+            payload = _normalize_manifest(payload, source_path=None)
             source_kind = "fallback_after_bad_manifest"
         else:
             payload = _normalize_manifest(raw, source_path=manifest_path)
@@ -220,16 +243,16 @@ def ingest_from_import_dir(book_path: Path, import_dir: Path) -> dict[str, Any]:
         )
         source_kind = "book_studio_toml_fallback"
 
-    # Bereits identisches Manifest nicht erneut schreiben
+    # Bereits identisches Manifest nicht erneut schreiben (ohne ingested_at).
+    # Früher nur exported_at+export_dir → Feld-Fixes im Manifest wurden übersprungen.
     existing = read_provenance(book)
-    if existing and existing.get("exported_at") == payload.get("exported_at"):
-        if existing.get("content", {}).get("export_dir") == payload.get("content", {}).get("export_dir"):
-            return {
-                "written": False,
-                "path": str(provenance_path(book)),
-                "source": source_kind,
-                "skipped": True,
-            }
+    if existing and _fingerprint(existing) == _fingerprint(payload):
+        return {
+            "written": False,
+            "path": str(provenance_path(book)),
+            "source": source_kind,
+            "skipped": True,
+        }
 
     dest = write_provenance(book, payload)
     return {

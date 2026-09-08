@@ -440,11 +440,71 @@ class GgContentSwapQtDialog(QDialog):
         if result.ok:
             QMessageBox.information(self, "✅ Export übernommen", summary)
             self._refresh_studio_structure()
+            self._offer_layout_for_new_classes(book, result)
         else:
             QMessageBox.warning(self, "Übernahme mit Fehlern", summary)
 
         self._clear_hub_banner()
         self._scan()
+
+    def _offer_layout_for_new_classes(self, book: Path, result: Any) -> None:
+        """Nach der Uebernahme auf Textarten ohne Absatzformat hinweisen.
+
+        Der Export meldet in ``publish_meta.json``, welche Fenced-Div-Klassen er
+        tatsaechlich geschrieben hat. Hat keines der Layouts in der Bibliothek
+        dafuer eine Vorlage, bliebe der Abschnitt in der ``.docx`` Fliesstext --
+        ohne dass jemand davon erfaehrt. Hier wird es gesagt, sobald die Klasse
+        ins Buch kommt.
+
+        Der Import ist zu diesem Zeitpunkt abgeschlossen und wird nicht
+        zurueckgenommen: Dies ist ein Angebot, keine Sperre.
+        """
+        klassen = list(getattr(result, "generator_classes", ()) or ())
+        if not klassen:
+            return
+        try:
+            from tools.doclayout.registry import classes_without_template
+            from ui_qt.dialogs.doclayout_missing_classes_dialog import (
+                Anlass,
+                Antwort,
+                ask_about_missing_classes,
+            )
+        except ImportError:
+            return
+        fehlend = classes_without_template(klassen)
+        if not fehlend:
+            return
+        counts = {}
+        try:
+            from tools.doclayout.usage import read_generator_classes
+
+            gemeldet = read_generator_classes(book)
+            if gemeldet is not None:
+                counts = dict(gemeldet.counts)
+        except (ImportError, OSError):
+            counts = {}
+        log = getattr(self._studio, "log", None)
+        if callable(log):
+            log(
+                "[Layout] Ohne Absatzformat: " + ", ".join(f".{k}" for k in fehlend),
+                "warning",
+            )
+        antwort = ask_about_missing_classes(
+            fehlend, anlass=Anlass.IMPORT, counts=counts, parent=self
+        )
+        if antwort is Antwort.EDITOR:
+            self._open_layout_editor(book)
+
+    def _open_layout_editor(self, book: Path) -> None:
+        """Layout-Editor auf dem Buch oeffnen."""
+        try:
+            from ui_qt.dialogs.doclayout_editor_dialog import open_doclayout_editor_qt
+        except ImportError as exc:
+            QMessageBox.warning(
+                self, "Layout-Editor", f"Konnte den Editor nicht laden:\n{exc}"
+            )
+            return
+        open_doclayout_editor_qt(studio=self._studio, parent=self, book_path=book)
 
     def _import_export_bundle(self) -> None:
         """Hauptaktion: Publish_*-Ordner wählen und alles automatisch übernehmen."""

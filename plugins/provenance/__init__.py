@@ -11,17 +11,11 @@ ensure_repo_on_path(__file__)
 
 
 def run(studio: Optional[Any] = None, **kwargs) -> None:
-    """Menü-Entrypoint (optional): zeigt Provenance-Pfad im Log."""
-    if studio is None or not getattr(studio, "current_book", None):
-        return
-    from tools.provenance.io import read_provenance
+    """Menü-Entrypoint: öffnet den Read-only-Provenance-Viewer."""
+    from ui_qt.dialogs.provenance_viewer_dialog import open_provenance_viewer_qt
 
-    data = read_provenance(Path(studio.current_book))
-    if data is None:
-        studio.log("ℹ️ Kein Provenance-Block (grammargraph_export.json) vorhanden.", "info")
-        return
-    exported = data.get("exported_at", "—")
-    studio.log(f"📋 Provenance: Export {exported}", "info")
+    parent = kwargs.get("parent")
+    open_provenance_viewer_qt(studio, parent)
 
 
 def on_after_book_import(studio: Optional[Any] = None, **kwargs) -> None:

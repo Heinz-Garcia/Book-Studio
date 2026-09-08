@@ -40,6 +40,9 @@ DEFAULTS: dict[str, Any] = {
     "pdf_deploy_folder": "",
     # ExifTool für Production-UUID in PDF-Metadaten (Custom-Feld UUID). Leer = PATH.
     "exiftool_path": "",
+    # Experimentelle Vorderseiten-Layer im KDP-Designer (Tab „Experiment“).
+    # Alternativ: Umgebungsvariable BSU_KDP_COMPOSE_FRONT=1
+    "kdp_compose_front_ui": False,
     "uuid_manager_help_text": (
         "Wähle links einen Statusfilter. Hier erscheint direkt die passende "
         "Kurzorientierung zum aktuell sichtbaren Zustand."
@@ -93,6 +96,7 @@ DEFAULTS: dict[str, Any] = {
     "default_export_template": "EXT: typstdoc",
     "default_layout_profile": "taschenbuch-bod",
     "default_linestretch": 1.2,
+    "default_linebreak_strictness": "lists",
     "frontmatter_requirements": {
         "title": "<h1>",
         "description": "<title>",

@@ -11,12 +11,25 @@ _REPO_ROOT = ensure_repo_on_path(__file__)
 
 
 def run(studio: Optional[Any] = None, **kwargs) -> int:
-    """Menü-Entrypoint: delegiert an tools.skeleton.populate.run."""
-    from tools.skeleton.populate import run as populate_run
+    """Menü-/Hook-Entrypoint: Qt-Dialog (Profil + optionale Snippets).
 
-    kwargs.setdefault("skip_dialog", True)
-    kwargs.setdefault("yes", True)
-    return populate_run(studio=studio, **kwargs)
+    Der stille CLI-Pfad ``tools.skeleton.populate.run`` bleibt für Skripte;
+    aus der Oberfläche und dem Import-Hook soll derselbe Dialog kommen wie
+    über ``plugin_dispatch`` — sonst landet der Hook auf dem Default-Profil
+    ohne Auswahl.
+    """
+    from ui_qt.dialogs.skeleton_qt import open_skeleton_populate_qt
+
+    # Klammern gesetzt und ``parent`` entnommen -- beides war vorher falsch:
+    #
+    # 1. ``a or b if studio else None`` bindet als ``(a or b) if studio else None``.
+    #    Ohne ``studio`` war ``parent`` deshalb ``None``, **auch wenn** es
+    #    ausdruecklich uebergeben wurde; der Dialog oeffnete elternlos.
+    # 2. ``parent`` blieb zusaetzlich in ``kwargs`` stehen und ging als
+    #    ``open_...(studio, parent, **kwargs)`` ein zweites Mal hinaus --
+    #    ``TypeError: got multiple values for argument 'parent'``.
+    parent = kwargs.pop("parent", None) or (getattr(studio, "root", None) if studio else None)
+    return open_skeleton_populate_qt(studio, parent, **kwargs)
 
 
 def on_after_book_import(studio: Optional[Any] = None, **kwargs) -> None:

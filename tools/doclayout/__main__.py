@@ -219,6 +219,45 @@ def cmd_typeset(args: argparse.Namespace) -> int:
     return 0 if (result.complete or args.no_pdf) else 1
 
 
+def cmd_inventory(args: argparse.Namespace) -> int:
+    """Textauszeichnungs-Inventar: Herkunft, Benutzung und Vorlage je Klasse.
+
+    Anders als ``usage`` haengt dieser Befehl an **keinem** Layout: Er sieht
+    die ganze Bibliothek und meldet deshalb auch Vorlagen, die niemand
+    benutzt.
+    """
+    from tools.doclayout.markup_inventory import Verdict, build_markup_inventory
+
+    book = Path(args.book)
+    if not (book / "_quarto.yml").is_file():
+        print(f"FEHLER: {book} sieht nicht wie ein Quarto-Buchprojekt aus.", file=sys.stderr)
+        return 2
+    inventar = build_markup_inventory(book, library_dir=args.library)
+    print(inventar.summary())
+    if not inventar.rows:
+        return 0
+    print()
+    kopf = (
+        f"{'Auszeichnung':<22s} {'kommt aus':<24s} {'im Buch':>8s}  "
+        f"{'Vorlage':<18s} {'Befund':<14s} {'Zu tun':<18s} Aussehen"
+    )
+    print(kopf)
+    print("-" * len(kopf))
+    for row in inventar.rows:
+        vorlage = row.styles[0] if row.styles else "-"
+        marke = " (Altform)" if row.legacy_form else ""
+        print(
+            f"{'.' + row.name:<22s} {row.origin:<24s} {row.book_count:6d}x  "
+            f"{vorlage:<18s} {row.verdict.label + marke:<14s} "
+            f"{row.todo or '-':<18s} {row.appearance or '-'}"
+        )
+    offen = inventar.without_template
+    if offen:
+        print()
+        print(Verdict.OHNE_VORLAGE.explanation)
+    return 0 if inventar.is_clean else 1
+
+
 def cmd_usage(args: argparse.Namespace) -> int:
     """Haelt die Klassen des Buches gegen die Klassen-Abbildung."""
     definition = _load(args)
@@ -421,6 +460,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="auch Quarto-eigene Klassen als Luecke werten",
     )
     sp_usage.set_defaults(func=cmd_usage)
+
+    sp_inventory = sub.add_parser(
+        "inventory",
+        help="Textauszeichnungs-Inventar: Herkunft, Benutzung und Vorlage",
+    )
+    sp_inventory.add_argument("-b", "--book", required=True, help="Buchprojekt")
+    sp_inventory.add_argument(
+        "-l", "--library", default=None, help="Layout-Bibliothek (Standard: mitgeliefert)"
+    )
+    sp_inventory.set_defaults(func=cmd_inventory)
 
     sp_classes = sub.add_parser(
         "classes", help="Klassenverzeichnis fuer den Generator schreiben"

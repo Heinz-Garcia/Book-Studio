@@ -309,6 +309,8 @@ def apply_gg_export_bundle(
     result.swap = swap_result
     if swap_result.errors:
         result.errors.extend(swap_result.errors)
+    if swap_result.warnings:
+        result.warnings.extend(swap_result.warnings)
 
     if _copy_if_present(source / "Erstellungsprotokoll.md", book / "Erstellungsprotokoll.md"):
         result.protocol_copied = True

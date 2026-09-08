@@ -158,6 +158,16 @@ def _print_colon_occurrence_hints(occurrences):
         print(f"[safe-render] Alternative: [{alt_path}] L{alt_line}")
 
 
+#: Unter Windows: Kindprozess ohne eigenes Konsolenfenster. Auf anderen
+#: Systemen liefert ``getattr`` 0 -- das versteht ``subprocess`` als "keine
+#: besonderen Flags", derselbe Aufruf bleibt also ueberall richtig.
+#: (Dieselbe Zeile steht in ``services/render_service.py`` und
+#: ``tools/doclayout/process.py``. Bewusst dupliziert statt geteilt: es ist
+#: eine Konstante ohne Logik, und ``services`` soll nicht auf das autonome
+#: ``tools/doclayout`` zeigen.)
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
 def _run_quarto_render(cmd: list[str], *, cwd: Path) -> int:
     """Startet Quarto und streamt stdout/stderr UTF-8-sicher Zeile für Zeile."""
     env = os.environ.copy()
@@ -175,6 +185,7 @@ def _run_quarto_render(cmd: list[str], *, cwd: Path) -> int:
             errors="replace",
             env=env,
             bufsize=1,
+            creationflags=_NO_WINDOW,
         )
     except OSError as exc:
         print(f"[safe-render] Quarto konnte nicht gestartet werden: {exc}")
@@ -372,14 +383,30 @@ def run_safe_render(
             print(f"[safe-render] Quarto beendet mit Code {returncode}", flush=True)
             return returncode
 
-        copy_render_artifacts(temp_book, book_path, original_output_dir)
+        # `engine.save_chapters(..., profile_name=...)` schreibt im Klon ein
+        # eigenes `output-dir` (z. B. `export/_book_paperback`). Der oben aus
+        # dem ORIGINAL gelesene `original_output_dir` zeigt dann ins Leere:
+        # Quarto legt die PDF in `<temp>/export/_book_paperback` ab, die
+        # Rueckkopie suchte sie in `<temp>/export/_book` -- fand nichts,
+        # meldete nichts, und der Temp-Klon nahm das fertige Buch beim
+        # Aufraeumen mit. Ergebnis: Exit-Code 0, "Output created", kein PDF.
+        # Deshalb den effektiven Ordner aus dem KLON lesen.
+        effective_output_dir = read_output_dir(temp_book) or original_output_dir
+        if not (temp_book / effective_output_dir).exists():
+            print(
+                f"[safe-render] WARNUNG: kein Render-Ergebnis unter "
+                f"'{effective_output_dir}' im Temp-Klon — es wird nichts "
+                f"zurueckkopiert.",
+                flush=True,
+            )
+        copy_render_artifacts(temp_book, book_path, effective_output_dir)
         if archive_dir is not None:
             # Gleicher Zeitstempel fuer PDF- und Quell-Archiv: haelt beide im
             # Archiv-Ordner eindeutig einander zuordenbar (reproduzierbares
             # Quelle-Artefakt-Mapping, siehe archive_render_source-Docstring).
             stamp = datetime.now().strftime(ARCHIVE_TIMESTAMP_FMT)
             archive_render_artifacts(
-                temp_book, archive_dir, output_dir=original_output_dir, timestamp=stamp
+                temp_book, archive_dir, output_dir=effective_output_dir, timestamp=stamp
             )
             # Bewusst `book_path` (das unveraenderte Original), NICHT
             # `temp_book`: `engine.save_chapters(processed_tree, ...)` oben

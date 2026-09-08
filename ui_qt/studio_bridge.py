@@ -117,6 +117,7 @@ class QtStudioBridge:
             # Keys wie von resolve_export_layout_defaults erwartet
             "layout_profile": cfg.get("default_layout_profile", "taschenbuch-bod"),
             "linestretch": cfg.get("default_linestretch", 1.2),
+            "linebreak_strictness": cfg.get("default_linebreak_strictness", "lists"),
             "default_layout_profile": cfg.get("default_layout_profile", "taschenbuch-bod"),
             "default_linestretch": cfg.get("default_linestretch", 1.2),
             "default_export_format": cfg.get("default_export_format", "typst"),

@@ -24,7 +24,6 @@ nie, welcher Absatz eine Frage sein koennte.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from tools.doclayout.schema import LayoutDefinition
@@ -78,10 +77,55 @@ end
 '''
 
 
+#: Die Zeichen, die ein Lua-Literal wirklich zerlegen. Alles andere --
+#: Umlaute eingeschlossen -- geht woertlich hinein: Lua-Quelltext ist eine
+#: Bytefolge, und Pandoc liest den Filter als UTF-8.
+_LUA_ESCAPES = {
+    "\\": "\\\\",
+    '"': '\\"',
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+}
+
+
+def lua_string(text: str) -> str:
+    """Eine Zeichenkette als Lua-Literal -- ausdruecklich **nicht** ``json.dumps``.
+
+    JSON und Lua sehen fast gleich aus und unterscheiden sich genau dort, wo es
+    hier zaehlt: ``json.dumps`` schreibt jedes Nicht-ASCII-Zeichen als
+    ``\\uXXXX``. Diese Schreibweise kennt Lua nicht (dort hiesse sie
+    ``\\u{XXXX}``); der Filter ist damit syntaktisch kaputt, und Pandoc bricht
+    den **ganzen** Lauf ab -- ``missing '{' near '"\\u0'``.
+
+    Ein einziger Umlaut in einem Klassennamen oder einem Absatzformat machte so
+    jeden DOCX-Export des Buches unmoeglich. In einer deutschsprachigen
+    Anwendung ist das kein Randfall: ``Begruessung``, ``Fussnote`` oder
+    ``Uebung`` entstehen von selbst, sobald der Layout-Editor ueber "Fehlende
+    Klassen anlegen" ein Format zu einer Generator-Klasse erzeugt.
+
+    Ersetzt werden deshalb nur die Zeichen, die das Literal beenden oder die
+    Zeile umbrechen wuerden. Steuerzeichen haben in einem Namen nichts
+    verloren, koennen den Filter aber ebenfalls zerreissen und werden als
+    Lua-Dezimal-Escape (``\\ddd``) geschrieben.
+    """
+    out = ['"']
+    for ch in str(text):
+        ersatz = _LUA_ESCAPES.get(ch)
+        if ersatz is not None:
+            out.append(ersatz)
+        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
+            out.append(f"\\{ord(ch):03d}")
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
 def build_lua_filter(definition: LayoutDefinition) -> str:
     """Erzeugt den Lua-Filter fuer die ``classmap`` von *definition*."""
     entries = "".join(
-        f"  [{json.dumps(cls)}] = {json.dumps(style)},\n"
+        f"  [{lua_string(cls)}] = {lua_string(style)},\n"
         for cls, style in sorted(definition.classmap.items())
     )
     classmap_lua = "{\n" + entries + "}" if entries else "{}"
@@ -109,4 +153,4 @@ def normalize_class(name: str) -> str:
     return text.lstrip(".")
 
 
-__all__ = ["build_lua_filter", "normalize_class", "write_lua_filter"]
+__all__ = ["build_lua_filter", "lua_string", "normalize_class", "write_lua_filter"]

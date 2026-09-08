@@ -16,7 +16,7 @@ kennt **keine** Plugin-Fachlogik — nur Discovery, Menü und generische Hooks.
 | Plugin | Menü | Implementierung |
 |--------|------|-----------------|
 | `skeleton_populate` | Skeleton ins Buch übernehmen… | `tools/skeleton/populate.py` |
-| `skeleton_editor` | Skeleton-Bibliothek bearbeiten… | `tools/skeleton/editor.py` |
+| `skeleton_editor` | Skeleton-Bibliothek bearbeiten… | `ui_qt/dialogs/skeleton_editor_dialog.py` (+ CLI `python -m tools.skeleton edit`) |
 
 Gemeinsame Logik (Manifest, Diff, Library) bleibt in **`tools/skeleton/`**.
 
@@ -25,6 +25,7 @@ Gemeinsame Logik (Manifest, Diff, Library) bleibt in **`tools/skeleton/`**.
 | Plugin | Menü | Implementierung |
 |--------|------|-----------------|
 | `stylecloud` | Cover-Schlagwortwolke… | `tools/stylecloud/` + `ui_qt/dialogs/stylecloud_dialog.py` |
+| `breathcloud` | (versteckt) | Packer-SSOT `tools/breathcloud/engine.py`; GUI = Stylecloud Form „Freie Form/Hub“ |
 
 Basiert auf [minimaxir/stylecloud](https://github.com/minimaxir/stylecloud) (Icon-Formen, Paletten, Verläufe). Abhängigkeit: `stylecloud` + `setuptools>=70,<82` (pkg_resources). Optionales Substantiv-Filter: `spacy` + Modell `de_core_news_sm` (Logik in `tools/stylecloud/noun_filter.py`).
 
@@ -52,12 +53,13 @@ Menü-Entrypoint ins Plugin.
 
 | Plugin | Menü | Implementierung |
 |--------|------|-----------------|
-| `provenance` | (Hook only) | `tools/provenance/` — `grammargraph_export.json` |
-| `publish_record` | (Hook only) | `tools/publish_record/` — `publish_record.json` |
+| `provenance` | Provenance (Herkunftsnachweis)… | Viewer `ui_qt/dialogs/provenance_viewer_dialog.py` + Hook `tools/provenance/` |
+| `publish_record` | Publish Record (Veröffentlichungs-Protokoll)… | Viewer `ui_qt/dialogs/publish_record_viewer_dialog.py` + Hooks `tools/publish_record/` |
 | `publish_readiness` | Publish Readiness… | `tools/publish_readiness/` — Owner-Matrix |
 | `book_projects` | Bücher verwalten… | `tools/book_projects/` — Projekte; Anzeigename; Link zu PDF Manager |
 | `mapping_manager` | PDF Manager… | `tools/mapping_manager/` — Publish-Input → PDFs |
-| `generated_books` | (versteckt) | `tools/generated_books/` — ersetzt durch Mapping Manager |
+| `generated_books` | (versteckt, `show_in_menu: false`) | `tools/generated_books/` — ersetzt durch Mapping Manager; Settings bleiben nutzbar |
+| `cover_size` | (versteckt, `show_in_menu: false`) | Rechenkern `tools/cover_size/`; UI über KDP Cover-Designer |
 | `gg_content_swap` | GrammarGraph-Inhalt aktualisieren… | `tools/gg_content_swap/` — Bundle „Export übernehmen“ + Body-Swap; Doku: `.doc/gg-content-swap.md` |
 
 Verantwortungs-Matrix: `.doc/quality_contract.md`

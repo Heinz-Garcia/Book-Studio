@@ -45,13 +45,49 @@ def sort_generated_pdfs(
     return sorted(entries, key=key, reverse=reverse)
 
 
-def delete_generated_pdf(path: Path) -> None:
-    """Löscht eine generierte PDF-Datei von der Platte."""
+def is_registered_render(path: Path) -> bool:
+    """Steht diese PDF im dauerhaften Render-Archiv eines Buches?
+
+    Solche Dateien sind in ``publish_map.json`` verzeichnet
+    (``renders[].artifact_path``). Wer sie hinter dem Rücken der Karte löscht,
+    hinterlässt dort einen Eintrag, dessen Datei es nicht mehr gibt — der PDF
+    Manager führt danach einen Render, der nicht existiert.
+    """
+    try:
+        teile = Path(path).resolve().parts
+    except OSError:
+        teile = Path(path).parts
+    return RENDER_ARCHIVE_DIR_NAME in teile
+
+
+def delete_generated_pdf(path: Path, *, allow_registered: bool = False) -> None:
+    """Löscht eine generierte PDF-Datei von der Platte.
+
+    Dateien aus ``export/publish_renders/`` sind in ``publish_map.json``
+    verzeichnet. Sie zu löschen, ohne den Eintrag mitzuentfernen, hinterlässt
+    dort einen Render ohne Datei — der PDF Manager führt ihn danach weiter.
+    Deshalb sind sie hier gesperrt, sofern der Aufrufer nicht ausdrücklich
+    ``allow_registered=True`` setzt.
+
+    Das darf genau eine Stelle: ``tools.mapping_manager.actions.delete_pdf``,
+    aufgerufen aus dem PDF Manager, der unmittelbar danach
+    ``publish_map.store.remove_render`` ruft. Für alle anderen — namentlich
+    „Generierte Bücher“, das die Archiv-PDFs ebenfalls auflistet — bleibt es
+    verboten; der Hilfetext dieses Plugins beschrieb den Schaden bisher nur,
+    statt ihn zu verhindern.
+    """
     target = Path(path)
     if not target.is_file():
         raise FileNotFoundError(f"Datei nicht gefunden: {target}")
     if target.suffix.lower() != ".pdf":
         raise ValueError(f"Nur PDF-Dateien dürfen gelöscht werden: {target}")
+    if not allow_registered and is_registered_render(target):
+        raise ValueError(
+            "Diese PDF gehört zum dauerhaften Render-Archiv "
+            f"(export/{RENDER_ARCHIVE_DIR_NAME}/) und ist in publish_map.json "
+            "verzeichnet.\n\nBitte über „PDF Manager…“ löschen — dort wird der "
+            "Eintrag in der Karte mitentfernt."
+        )
     target.unlink()
 
 

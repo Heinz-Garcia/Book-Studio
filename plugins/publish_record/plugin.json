@@ -1,13 +1,14 @@
 {
   "name": "publish_record",
-  "label": "Publish Record",
-  "description": "Durchgängiges Buchprojekt-Log (Import, Qualität, Render).",
+  "label": "📒 Publish Record (Veröffentlichungs-Protokoll)…",
+  "description": "Durchgängiges Buchprojekt-Log anzeigen (Import, Qualität, Render).",
   "entrypoint": "plugins.publish_record:run",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 6,
-  "show_in_menu": false,
+  "show_in_menu": true,
+  "help_text": "Read-only-Protokoll aus bookconfig/publish_record.json. Einträge entstehen automatisch bei Import, Buch-Doktor und erfolgreichem Render — hier nur nachschlagen.",
   "hooks": {
     "after_book_import": "on_after_book_import",
     "after_doctor_check": "on_after_doctor_check",

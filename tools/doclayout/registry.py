@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Optional
 
@@ -125,7 +126,38 @@ def known_class_names(directory: Optional[Path | str] = None) -> list[str]:
     return [str(n) for n in names] if isinstance(names, list) else []
 
 
+def classes_without_template(
+    names: "Iterable[str]",
+    directory: Optional[Path | str] = None,
+) -> list[str]:
+    """Welche der *names* in **keinem** Layout der Bibliothek eine Vorlage haben.
+
+    Der Generator darf jederzeit eine neue Fenced-Div-Klasse einfuehren. Bis
+    jemand ihr ein Absatzformat zuordnet, bleibt der Block in der ``.docx``
+    Fliesstext -- die Auszeichnung steht im Markdown und ist im Druck trotzdem
+    wirkungslos. Diese Funktion beantwortet die Frage, ob das gerade passiert,
+    ohne dass ein bestimmtes Layout geoeffnet sein muss: Sie prueft gegen den
+    Bestand der ganzen Bibliothek.
+
+    Ist kein Verzeichnis lesbar, gilt nichts als bekannt -- dann meldet die
+    Funktion alle Klassen. Lieber einmal zu viel fragen als eine Luecke
+    verschweigen.
+    """
+    bekannt = set(known_class_names(directory))
+    gesehen: set[str] = set()
+    fehlend: list[str] = []
+    for raw in names:
+        name = str(raw).strip().lstrip(".")
+        if not name or name in gesehen:
+            continue
+        gesehen.add(name)
+        if name not in bekannt:
+            fehlend.append(name)
+    return fehlend
+
+
 __all__ = [
+    "classes_without_template",
     "REGISTRY_NAME",
     "SCHEMA_VERSION",
     "build_registry",

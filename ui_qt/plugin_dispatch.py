@@ -1,7 +1,18 @@
-"""Qt-Dispatch für Plugins-Menü (Phase 5)."""
+"""Qt-Dispatch für Plugins-Menü (Phase 5).
+
+Dieses Modul reicht den Menüklick an den **im Manifest deklarierten
+Entrypoint** weiter und ergänzt nur, was Qt-spezifisch ist: eine Logzeile.
+
+Das war einmal anders. Jede Funktion hier baute den Dialogaufruf des jeweiligen
+Plugins ein zweites Mal nach, und weil ``command_host`` diesen Weg zuerst
+versucht, war ``plugin.json``s ``entrypoint`` für neun Plugins aus dem Menü
+heraus toter Code — wer den Adapter änderte, änderte am Menüverhalten nichts.
+Zwei Wege zu demselben Fenster driften auseinander, und zwar unbemerkt.
+"""
 
 from __future__ import annotations
 
+import importlib
 from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtWidgets import QMessageBox
@@ -10,6 +21,12 @@ if TYPE_CHECKING:
     from ui_qt.shell import MainWindow
 
 PluginRunner = Callable[..., object]
+
+
+def _plugin_ausfuehren(name: str, studio, parent) -> object:
+    """Ruft ``plugins.<name>.run`` -- die einzige Wahrheit über diesen Aufruf."""
+    modul = importlib.import_module(f"plugins.{name}")
+    return modul.run(studio=studio, parent=parent)
 
 
 def run_plugin_qt(plugin_name: str, window: "MainWindow") -> bool:
@@ -30,7 +47,6 @@ def run_plugin_qt(plugin_name: str, window: "MainWindow") -> bool:
         "skeleton_editor": _skeleton_editor,
         "publish_record": _publish_record,
         "provenance": _provenance,
-        "file_indexer": _file_indexer,
         "gg_content_swap": _gg_content_swap,
     }
     runner = runners.get(plugin_name)
@@ -45,87 +61,55 @@ def run_plugin_qt(plugin_name: str, window: "MainWindow") -> bool:
 
 
 def _book_projects(studio, parent, log) -> None:
-    from ui_qt.dialogs.book_projects_dialog import open_book_projects_qt
-
-    open_book_projects_qt(studio, parent)
+    _plugin_ausfuehren("book_projects", studio, parent)
     log("Bücher verwalten geschlossen.", "info")
 
 
 def _mapping(studio, parent, log) -> None:
-    from ui_qt.dialogs.mapping_manager_dialog import open_mapping_manager_qt
-
-    open_mapping_manager_qt(studio, parent)
+    _plugin_ausfuehren("mapping_manager", studio, parent)
     log("PDF Manager geschlossen.", "info")
 
 
 def _generated(studio, parent, log) -> None:
-    from ui_qt.dialogs.generated_books_dialog import open_generated_books_qt
-
-    open_generated_books_qt(studio, parent)
+    _plugin_ausfuehren("generated_books", studio, parent)
     log("Generierte Bücher geschlossen.", "info")
 
 
 def _readiness(studio, parent, log) -> None:
-    from ui_qt.dialogs.publish_readiness_dialog import open_publish_readiness_qt
-
-    open_publish_readiness_qt(studio, parent)
+    _plugin_ausfuehren("publish_readiness", studio, parent)
     log("Publish Readiness geschlossen.", "info")
 
 
 def _skeleton_populate(studio, parent, log) -> None:
-    from ui_qt.dialogs.skeleton_qt import open_skeleton_populate_qt
+    """Skeleton ins Buch übernehmen.
 
-    code = open_skeleton_populate_qt(studio, parent)
-    # Struktur neu laden, falls Session vorhanden
-    if hasattr(parent, "_session") and parent._session and parent._facade.current_book:
-        parent._session.load()
-        parent.structure.reload_from_session()
+    Kein eigener Strukturneuaufbau mehr: ``tools.skeleton.populate.run`` ruft
+    am Ende ``refresh_studio_after_populate``, und das geht über
+    ``QtStudioBridge.load_book`` -- also über ``refresh_from_disk_keep_structure``.
+    Genau davor warnt dessen Docstring: "ein späteres volles ``session.load()``
+    konnte die rechte Struktur wegwischen". Hier stand bis eben ein solches
+    ``session.load()``, das dem Bridge-Verhalten widersprach -- und den
+    Import-Hook-Weg, der es nicht durchlief, um nichts ärmer machte.
+    """
+    code = _plugin_ausfuehren("skeleton_populate", studio, parent)
     log(f"Skeleton-Populate beendet (code={code}).", "info")
 
 
 def _skeleton_editor(studio, parent, log) -> None:
-    from ui_qt.dialogs.skeleton_qt import open_skeleton_editor_qt
-
-    open_skeleton_editor_qt(studio, parent)
+    _plugin_ausfuehren("skeleton_editor", studio, parent)
     log("Skeleton-Editor geschlossen.", "info")
 
 
 def _publish_record(studio, parent, log) -> None:
-    from plugins.publish_record import run as pr_run
-
-    pr_run(studio=studio)
-    log("Publish Record im Log ausgegeben.", "info")
+    _plugin_ausfuehren("publish_record", studio, parent)
+    log("Publish Record geschlossen.", "info")
 
 
 def _provenance(studio, parent, log) -> None:
-    from plugins.provenance import run as prov_run
-
-    prov_run(studio=studio)
-    log("Provenance im Log ausgegeben.", "info")
-
-
-def _file_indexer(studio, parent, log) -> None:
-    from plugins.file_indexer import run as indexer_run
-
-    code = indexer_run(studio=studio)
-    if code == 0:
-        QMessageBox.information(
-            parent,
-            "Dateien indexieren",
-            "Indexer abgeschlossen (Exit 0).\nDetails siehe Log.",
-        )
-    else:
-        QMessageBox.warning(
-            parent,
-            "Dateien indexieren",
-            f"Indexer beendet mit Exit {code}.\n"
-            "Prüfe indexer_target_folder in der Studio-Konfiguration und das Log.",
-        )
-    log(f"file_indexer beendet (code={code}).", "info" if code == 0 else "warning")
+    _plugin_ausfuehren("provenance", studio, parent)
+    log("Provenance geschlossen.", "info")
 
 
 def _gg_content_swap(studio, parent, log) -> None:
-    from ui_qt.dialogs.gg_content_swap_dialog import open_gg_content_swap_qt
-
-    open_gg_content_swap_qt(studio, parent)
+    _plugin_ausfuehren("gg_content_swap", studio, parent)
     log("GG-Content-Swap geschlossen.", "info")

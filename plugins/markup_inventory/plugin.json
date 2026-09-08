@@ -1,0 +1,11 @@
+{
+  "name": "markup_inventory",
+  "label": "📋 Textauszeichnungs-Inventar…",
+  "description": "Alle Fenced-Div-Klassen eines Buches mit Herkunft, Benutzung und Absatzformat.",
+  "entrypoint": "plugins.markup_inventory:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 4,
+  "help_text": "Eine Zeile je Textauszeichnung, vier Fragen beantwortet: Woher kommt sie (Generator, Buchtext, Layout), wie oft steht sie im Buch, welches Absatzformat bekommt sie in der .docx, und was ist daran zu tun. Zwei Befunde zaehlen: „ohne Vorlage“ heisst, der Abschnitt bleibt im Word-Export gewoehnlicher Fliesstext; „Karteileiche“ heisst, ein Layout haelt eine Vorlage bereit, die im Buch niemand benutzt. Der Layout-Editor legt die fehlenden Formate an. Ohne Oberflaeche: python -m tools.doclayout inventory --book <Buchprojekt> (Exit-Code 1, wenn Vorlagen fehlen)."
+}

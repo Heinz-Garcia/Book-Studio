@@ -1,0 +1,50 @@
+# Wie weit darf der Regelkreis die Schrift senken?
+#
+# Der Regelkreis verkleinert Schriftgrößen, bis die Satzprüfung keine
+# Befunde mehr meldet. Ohne Untergrenze führt das ins Absurde: Eine Tabelle
+# in 6 pt hat keine zu schmalen Spalten mehr, weil niemand sie mehr liest.
+# Diese Datei zieht die Grenzen.
+#
+# Sie ist die Quelle der Wahrheit. Der Code enthält keine Zweitwerte.
+# Ein anderer Satzspiegel darf andere Zahlen haben -- dann diese Datei
+# kopieren und dem Lauf mitgeben (`--grenzen <datei>`), nicht den Code ändern.
+
+# Kleinste Schriftgröße, die im Buch überhaupt vorkommen darf (Punkt).
+#
+# 9 pt ist das übliche Maß im Buchsatz: Beiwerk -- Tabellen, Bildunterschriften,
+# Fußnoten -- steht gewöhnlich ein bis zwei Punkt unter dem Fließtext, und der
+# liegt im Taschenbuch bei 10 bis 11 pt. 8 pt ist bereits die Kante, an der
+# längeres Lesen mühsam wird; alles darunter ist Kleingedrucktes und in einem
+# Buch, das im Ernstfall unter Stress benutzt wird, nicht vertretbar.
+#
+# (Hier stand 7,5 pt. Der erste Regelkreis-Lauf ist prompt bis auf 8 pt
+# heruntergefahren und hat das als Erfolg gemeldet.)
+min_tabellenschrift_pt = 9.0
+
+# Wie viel größer als der Fließtext muss eine Überschrift mindestens sein?
+#
+# Von den drei Zahlen hier ist diese die am schwächsten begründete: 1,2 pt
+# über der Grundschrift sind bei 11 pt Fließtext das 1,11-fache. Das ist im
+# Druck gerade noch erkennbar, aber es ist eine Erfahrungszahl, keine Norm.
+min_abstand_zur_grundschrift_pt = 1.2
+
+# Abstand, den benachbarte Überschriftenebenen zueinander behalten müssen.
+# Ohne ihn wird H3 so groß wie H2, und die Gliederung verschwindet.
+min_ebenenabstand_pt = 0.8
+
+# Um wie viel senkt ein Schritt die Schriftgröße (Punkt)?
+# Kleiner heißt feiner, aber jeder Schritt kostet einen kompletten Render.
+schritt_pt = 0.6
+
+# Welcher Anteil der verbliebenen Befunde muss mindestens verschwinden,
+# damit eine Verkleinerung als Verbesserung zählt?
+#
+# Ohne diese Hürde gewinnt jede noch so kleine Verbesserung, und der
+# Regelkreis verkauft ein um drei Punkt kleiner gesetztes Buch als Fortschritt,
+# weil es zwei Befunde weniger hat. Kleiner zu setzen ist ein dauerhafter
+# Preis; er muss sich lohnen. Wird nichts verkleinert, gilt die Hürde nicht --
+# eine Verbesserung zum Nulltarif zählt immer.
+#
+# Dies ist bewusst eine Stellschraube und keine Naturkonstante. Sie steht
+# hier, damit man sie sieht.
+mindestgewinn_anteil = 0.1

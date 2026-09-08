@@ -117,3 +117,35 @@ def test_ingest_market_variant_context_into_provenance(tmp_path):
     assert stored.get("market_variant") == "ch"
     assert stored["content"]["market_variant"] == "ch"
     assert stored["content"]["variant_anchor_ids"] == ["marktblock_12"]
+
+
+def test_ingest_skips_identical_payload_but_rewrites_field_fixes(tmp_path):
+    """Gleicher exported_at+export_dir, aber neues Feld → erneut schreiben."""
+    import_dir = tmp_path / "publish"
+    book_dir = tmp_path / "book"
+    import_dir.mkdir()
+    book_dir.mkdir()
+    base = {
+        "exported_at": "2026-01-01T00:00:00+00:00",
+        "grammargraph_version": "0.9",
+        "llm": {"provider": "openai", "model": "gpt-old"},
+    }
+    (import_dir / "grammargraph_export.json").write_text(
+        json.dumps(base), encoding="utf-8"
+    )
+    first = ingest_from_import_dir(book_dir, import_dir)
+    assert first["written"] is True
+    second = ingest_from_import_dir(book_dir, import_dir)
+    assert second["skipped"] is True
+    assert second["written"] is False
+
+    base["llm"]["model"] = "gpt-fixed"
+    (import_dir / "grammargraph_export.json").write_text(
+        json.dumps(base), encoding="utf-8"
+    )
+    third = ingest_from_import_dir(book_dir, import_dir)
+    assert third["written"] is True
+    assert third["skipped"] is False
+    stored = read_provenance(book_dir)
+    assert stored is not None
+    assert stored["llm"]["model"] == "gpt-fixed"

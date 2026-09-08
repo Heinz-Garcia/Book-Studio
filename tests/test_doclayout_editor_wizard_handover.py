@@ -81,9 +81,12 @@ def _assistent(monkeypatch, *, aendert: str, auf: float, speichert: bool):
                 aendert: replace(definition.styles[aendert], size_pt=auf),
             },
         )
+        gespeichert = False
         if speichert and save is not None:
-            save(neu)
-        return neu, True
+            gespeichert = bool(save(neu))
+        # Drittes Feld: ob der **aktuelle** Stand auf der Platte steht (siehe
+        # ``run_wizard``). Ohne diese Auskunft musste der Aufrufer raten.
+        return neu, True, gespeichert
 
     monkeypatch.setattr(wizard_modul, "run_wizard", unecht)
 
@@ -138,7 +141,7 @@ def test_ein_abgebrochener_assistent_laesst_das_formular_bedienbar(
     """
     ziel = _erstes_format(dialog)
     monkeypatch.setattr(
-        wizard_modul, "run_wizard", lambda *a, **k: (dialog._definition, False)
+        wizard_modul, "run_wizard", lambda *a, **k: (dialog._definition, False, False)
     )
     dialog._run_wizard()
 
@@ -186,7 +189,7 @@ def test_der_assistent_sieht_die_noch_offene_formulareingabe(
 
     def unecht(parent, definition, book_path, save=None):
         gesehen.append(definition)
-        return definition, False
+        return definition, False, False
 
     monkeypatch.setattr(wizard_modul, "run_wizard", unecht)
     dialog._run_wizard()

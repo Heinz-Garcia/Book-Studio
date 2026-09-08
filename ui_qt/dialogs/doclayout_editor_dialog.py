@@ -1587,7 +1587,10 @@ class DocLayoutEditorDialog(QDialog):
             self._save()
             return not self._dirty
 
-        definition, geaendert = run_wizard(
+        # Der Speicherstand interessiert hier nicht: Der Editor behaelt die
+        # Definition ohnehin im Speicher und zeigt ueber ``_update_dirty_label``
+        # selbst an, dass etwas offen ist.
+        definition, geaendert, _gespeichert = run_wizard(
             self, self._definition, buch, save=speichern
         )
         if not geaendert:
@@ -1729,7 +1732,49 @@ class DocLayoutEditorDialog(QDialog):
         if antwort != QMessageBox.StandardButton.Yes:
             return
         self._book_path = book
+        if not self._confirm_unmapped_classes(book):
+            return
         self._typesetter.start(self._definition, book)
+
+    def _confirm_unmapped_classes(self, book: Path) -> bool:
+        """Vor dem Satz auf Textarten ohne Absatzformat hinweisen.
+
+        Hier entsteht der Schaden: Was jetzt keine Vorlage hat, steht im
+        fertigen Band als Fliesstext. Deshalb haelt der Lauf an -- die
+        Entscheidung bleibt aber beim Benutzer, es ist eine Warnung und keine
+        Sperre.
+
+        Verglichen wird gegen die **geladene Definition**, nicht gegen die
+        Bibliothek: Gesetzt wird mit genau diesem Layout, und nur dessen
+        Zuordnungen zaehlen.
+        """
+        if self._definition is None:
+            return True
+        try:
+            gueltig, altform = scan_book_detailed(book)
+        except OSError:
+            return True  # Unlesbar ist Sache des Satzlaufs, nicht dieser Pruefung
+        vergleich = compare(gueltig, self._definition, legacy_form=altform)
+        if not vergleich.unmapped:
+            return True
+        from ui_qt.dialogs.doclayout_missing_classes_dialog import (
+            Anlass,
+            Antwort,
+            ask_about_missing_classes,
+        )
+
+        antwort = ask_about_missing_classes(
+            [eintrag.name for eintrag in vergleich.unmapped],
+            anlass=Anlass.TYPESET,
+            counts={eintrag.name: eintrag.count for eintrag in vergleich.unmapped},
+            parent=self,
+        )
+        if antwort is Antwort.EDITOR:
+            # Der Editor ist bereits offen -- den Abgleich sichtbar machen und
+            # den Satz abbrechen, damit der Benutzer die Formate anlegen kann.
+            self._run_comparison()
+            return False
+        return antwort is Antwort.WEITER
 
     def _on_typeset_busy(self) -> None:
         # Der Knopf bleibt gesperrt, bis das Ergebnis da ist. Zweimal zu setzen
@@ -1855,7 +1900,14 @@ def open_doclayout_editor_qt(
     """Entrypoint fuer den Plugin-Adapter."""
     book_path = kwargs.get("book_path")
     if book_path is None and studio is not None:
-        book_path = getattr(studio, "book_path", None)
+        # ``current_book`` zuerst: Das ist der Name, unter dem das aktive Buch
+        # am Studio-Objekt haengt (``ui_qt/studio_bridge.py``, ``ui_qt/facade.py``).
+        # Frueher stand hier nur ``book_path`` -- ein Attribut, das es dort nie
+        # gab. Der Ausdruck lieferte damit immer ``None``, und das Werkzeug
+        # fragte jedes Mal nach dem Buch, obwohl Book Studio es kannte.
+        book_path = getattr(studio, "current_book", None) or getattr(
+            studio, "book_path", None
+        )
     dialog = DocLayoutEditorDialog(
         parent=parent,
         library_dir=kwargs.get("library_dir"),

@@ -87,10 +87,128 @@ $endif$
   strong(it)
 }
 
-// Schusterjunge/Hurenkind: Überschrift nicht allein am Seitenende;
-// Absatz-Witwen/Waisen explizit absichern (Typst-Default ist 100%).
+// ---------------------------------------------------------------------------
+// Buchsatz-Feinheiten: Umbruch, Checklisten, Trenner
+// ---------------------------------------------------------------------------
+
+// Schusterjunge/Hurenkind, Teil 1: Überschrift klebt am Folgeabsatz und
+// steht damit nie allein am Seitenfuß.
 #show heading: set block(sticky: true)
-#set text(costs: (widow: 100%, orphan: 100%))
+
+// Überschriften nie im Blocksatz. Quarto setzt ``par(justify: true)``
+// dokumentweit, und in Typst gilt das auch für Überschriften. Trägt die
+// letzte Zeile einer Überschrift nur wenige Wörter, werden die Zeilen davor
+// bis zum rechten Rand gedehnt: »1. Sofortmaßnahmen am Ort (erste 15
+// Minuten)« steht auf S. 295 der Andalusien-Druckfahne mit 13,2 pt
+// Wortabstand bei 13,2 pt Schriftgröße -- dem Vierfachen des Normalmaßes.
+// Überschriften gehören in den Flattersatz.
+#show heading: set par(justify: false)
+
+// Teil 2: Einzelzeilen am Seitenwechsel.
+//
+// Hier stand zweimal ``#set text(costs: (widow: …, orphan: …))``. Beide
+// Male wirkungslos, und der zweite Versuch hat den Irrtum des ersten nur
+// wiederholt. Empirisch geprüft, am ganzen Buch und an isolierten
+// Typst-Dokumenten: 0% verändert das Satzbild, 100% (Typsts
+// Voreinstellung) und 2000% liefern identische Seiten. Typsts Schutz für
+// Absätze läuft also bereits — ihn erneut oder höher zu setzen bewegt
+// nichts. **Bitte nicht ein drittes Mal einbauen.**
+//
+// Was die Einzelzeilen wirklich erzeugt, sind aufgespaltene
+// Listeneinträge: in der Andalusien-Ausgabe 193 von 892 Seitenübergängen,
+// gegenüber 8 echten Absatz-Hurenkindern. Dagegen hilft nur, den Eintrag
+// als Einheit zu setzen. Die Stufe kommt aus dem Layout-Profil und ist im
+// Export-Dialog überschreibbar.
+$if(typst-keep-lists)$
+#show list.item: set block(breakable: false)
+#show enum.item: set block(breakable: false)
+$endif$
+$if(typst-keep-tables)$
+// Achtung: eine Tabelle, die länger als eine Seite ist, läuft damit über
+// den Satzspiegel hinaus. Deshalb nur in der Stufe "Streng".
+#show table: set block(breakable: false)
+$endif$
+
+// Checklisten: Pandoc übersetzt ``* [ ] Text`` nach ``- ☐ Text``. Typst
+// setzt daraus ``• ☐ Text`` — das Kästchen landet also zwangsläufig HINTER
+// dem Listenpunkt. Diese Regel zieht es in die Marker-Position: es steht
+// am Satzspiegelrand, der Text hängt eingerückt darunter.
+// Normale Listen bleiben unberührt, weil die Regel ohne erkanntes
+// Kästchen das Element unverändert zurückgibt.
+#let bs-checkbox-symbols = ("☐", "☒", "☑")
+
+#let bs-split-checkbox(body) = {
+  // Eintrag ohne Auszeichnung: der ganze Body ist EIN text-Element, das
+  // mit dem Kästchen beginnt.
+  if body.func() == text {
+    for sym in bs-checkbox-symbols {
+      if body.text.starts-with(sym) {
+        return (sym, [#body.text.slice(sym.len()).trim(at: start)])
+      }
+    }
+  // Eintrag mit **fett**/*kursiv*: eine Sequenz, deren erstes Kind das
+  // Kästchen allein trägt, gefolgt von einem Leerzeichen-Element.
+  } else if body.has("children") {
+    let kids = body.children
+    if kids.len() > 0 and kids.at(0).func() == text {
+      let head = kids.at(0).text
+      for sym in bs-checkbox-symbols {
+        if head.starts-with(sym) {
+          let lead = head.slice(sym.len()).trim(at: start)
+          let rest = kids.slice(1)
+          // Pandoc packt das Kaestchen mal allein in ein Element
+          // (``[☐], [ ], strong(…)``), mal zusammen mit dem Textanfang
+          // (``[☒ Bildgebung auf CD/USB], [ ], [(], emph(…)``). Nur im
+          // ERSTEN Fall ist das folgende Leerzeichen-Element der Abstand
+          // hinter dem Kaestchen und darf weg. Im zweiten Fall gehoert es
+          // mitten in den Satz -- wer es dort wegwirft, klebt Woerter
+          // zusammen ("CD/USB(CD con las imágenes").
+          if lead == "" {
+            while rest.len() > 0 and rest.at(0) == [ ] {
+              rest = rest.slice(1)
+            }
+          }
+          let tail = if rest.len() == 0 { [] } else { rest.join() }
+          return (sym, [#lead] + tail)
+        }
+      }
+    }
+  }
+  (none, body)
+}
+
+#show list.item: it => {
+  let (sym, rest) = bs-split-checkbox(it.body)
+  if sym == none {
+    it
+  } else {
+    // breakable: false — ein Checklisteneintrag ist eine Einheit und soll
+    // nicht mit einer Zeile auf der Folgeseite landen.
+    block(spacing: 0.65em, breakable: false, grid(
+      columns: (1.15em, 1fr),
+      column-gutter: 0.4em,
+      text(sym),
+      rest,
+    ))
+  }
+}
+
+// Trenner zwischen Fachtext und nächster Frage.
+// Der Aggregator liefert ihn als Div mit ``style="text-align: center;"``.
+// Quartos Typst-Writer wirft Klasse UND style-Attribut weg — übrig bliebe
+// ein linksbündiges ``#block[◈]`` in Grundschriftgröße, also weder
+// zentriert noch abgesetzt. ``pre_processor._sanitize_markdown`` ersetzt
+// den Div deshalb für Typst durch einen Aufruf dieser Funktion; der
+// DOCX-Weg (classmap.lua) sieht den Div unverändert.
+// sticky: der Trenner gehört zur FOLGENDEN Frage, nie ans Seitenende.
+#let bs-prompt-separator(sym) = block(
+  width: 100%,
+  above: 2.4em,
+  below: 2.4em,
+  breakable: false,
+  sticky: true,
+  align(center, text(size: 1.9em, fill: luma(70), sym)),
+)
 
 // PDF-Metadaten (Titel/Autor/Keywords, u. a. fuer die ISBN -- s. bs-isbn
 // oben, die Anbieter wie Amazon KDP nicht auslesen, aber manche strengere

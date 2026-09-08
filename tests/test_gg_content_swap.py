@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from tools.gg_content_swap.bundle import (
     apply_gg_export_bundle,
     list_payload_candidates,
@@ -170,3 +172,153 @@ def test_apply_gg_export_bundle_copies_companions(tmp_path: Path) -> None:
     assert "neuer body" in text
     assert "title: Neu" in text or 'title: "Neu"' in text
     assert (book / "bookconfig" / "grammargraph_export.json").is_file()
+
+
+# ── Frontmatter-Schutz beim Titelabgleich ───────────────────────────────
+#
+# Der Titelabgleich las den Header ueber ``parts.parsed()``, und das liefert
+# bei defektem YAML ausdruecklich ``{}``. ``yaml.safe_dump`` baute daraus einen
+# neuen Header mit ausschliesslich ``title`` und ``description`` -- ein
+# Tippfehler kostete ``uuid``, ``status`` und jedes andere Feld, still und ohne
+# ein Wort an den Benutzer. Ein Backup lag daneben, aber niemand wusste davon.
+
+_DEFEKT = (
+    "---\n"
+    "title: Altes Kapitel\n"
+    "author: Wolfram Daniel Heinz Garcia\n"
+    "uuid: 7f3a-1122-abcd\n"
+    "status: freigegeben\n"
+    "order = 15\n"          # Tippfehler: '=' statt ':'
+    "kdp_asin: B0ABC12345\n"
+    "---\n"
+    "\n"
+    "Der Buchtext.\n"
+)
+
+
+class TestFrontmatterSchutz:
+    def test_defektes_yaml_wird_abgewiesen_statt_ersetzt(self) -> None:
+        """Lieber kein Titelabgleich als ein halbierter Header."""
+        import pytest
+
+        from tools.gg_content_swap.swap import (
+            FrontmatterUnreadable,
+            sync_book_display_title,
+        )
+
+        with pytest.raises(FrontmatterUnreadable):
+            sync_book_display_title(_DEFEKT, new_title="Neu", book_rel="content/k.md")
+
+    def test_meldung_nennt_die_ursache(self) -> None:
+        """Ohne den YAML-Fehler im Text sucht der Benutzer an der falschen Stelle."""
+        import pytest
+
+        from tools.gg_content_swap.swap import (
+            FrontmatterUnreadable,
+            sync_book_display_title,
+        )
+
+        with pytest.raises(FrontmatterUnreadable) as fehler:
+            sync_book_display_title(_DEFEKT, new_title="Neu")
+        text = str(fehler.value)
+        assert "Titel nicht angeglichen" in text
+        assert "could not find expected ':'" in text
+
+    def test_kein_mapping_wird_ebenfalls_abgewiesen(self) -> None:
+        """Ein Header als Liste traegt kein ``title`` -- ihn zu ersetzen waere
+        derselbe Verlust."""
+        import pytest
+
+        from tools.gg_content_swap.swap import (
+            FrontmatterUnreadable,
+            sync_book_display_title,
+        )
+
+        liste = "---\n- eins\n- zwei\n---\n\nText.\n"
+        with pytest.raises(FrontmatterUnreadable):
+            sync_book_display_title(liste, new_title="Neu")
+
+    def test_kommentare_und_reihenfolge_ueberleben(self) -> None:
+        """Wie ``tools/doclayout/apply.py``: kommentarerhaltend schreiben."""
+        from tools.gg_content_swap.swap import sync_book_display_title
+
+        quelle = (
+            "---\n"
+            "# Von GrammarGraph erzeugt - nicht von Hand aendern\n"
+            "title: Alt\n"
+            "uuid: 7f3a-1122-abcd   # Provenance-Schluessel\n"
+            "order: 15\n"
+            "status: freigegeben\n"
+            "---\n"
+            "\n"
+            "Text.\n"
+        )
+        neu, changed = sync_book_display_title(quelle, new_title="Neu")
+        assert changed is True
+        assert "# Von GrammarGraph erzeugt" in neu
+        assert "# Provenance-Schluessel" in neu
+        assert "uuid: 7f3a-1122-abcd" in neu
+        assert "order: 15" in neu
+        assert "status: freigegeben" in neu
+        assert "title: Neu" in neu
+
+    def test_fremde_felder_bleiben_auch_ohne_kommentare(self) -> None:
+        from tools.gg_content_swap.swap import sync_book_display_title
+
+        quelle = (
+            "---\ntitle: Alt\nuuid: abc-123\nstatus: freigegeben\n---\n\nText.\n"
+        )
+        neu, _ = sync_book_display_title(quelle, new_title="Neu")
+        kopf = neu.split("---", 2)[1]
+        assert "uuid: abc-123" in kopf
+        assert "status: freigegeben" in kopf
+
+
+class TestSwapTrotzDefektemHeader:
+    """Der Body-Tausch uebernimmt den Header woertlich -- er darf weiterlaufen."""
+
+    def test_body_wird_getauscht_und_der_fehler_gemeldet(self, tmp_path: Path) -> None:
+        from tools.gg_content_swap.swap import run_swap
+
+        book = tmp_path / "book"
+        export = tmp_path / "Publish_X_01.01.2026_12.00"
+        _write(book / "_quarto.yml", "project:\n  type: book\n")
+        _write(book / "Inhalt.md", _DEFEKT)
+        _write(book / "bookconfig" / "gui_state.json", "{}")
+        _write(export / "Inhalt.md", "---\ntitle: Neu aus GG\n---\n\nFrischer Text.\n")
+
+        _plan, result = run_swap(book, export, dry_run=False)
+
+        text = (book / "Inhalt.md").read_text(encoding="utf-8")
+        assert "Frischer Text." in text, "Body-Tausch muss trotzdem gelingen"
+        assert "uuid: 7f3a-1122-abcd" in text, "Header bleibt unangetastet"
+        assert "order = 15" in text
+        assert any("Titel nicht angeglichen" in e for e in result.errors)
+
+
+def test_open_gg_content_swap_qt_ohne_buch_zeigt_hinweis(monkeypatch, tmp_path):
+    """GUI-Smoke: ohne aktives Buch kein Dialog, nur Hinweis."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs import gg_content_swap_dialog as mod
+
+    QApplication.instance() or QApplication([])
+    gezeigt: list[str] = []
+    monkeypatch.setattr(
+        mod.QMessageBox,
+        "information",
+        lambda *a, **k: gezeigt.append(str(a[2] if len(a) > 2 else "")),
+    )
+    execs: list[int] = []
+    monkeypatch.setattr(
+        mod.GgContentSwapQtDialog,
+        "exec",
+        lambda self: execs.append(1) or 0,
+    )
+    mod.open_gg_content_swap_qt(SimpleNamespace(current_book=None), parent=None)
+    assert gezeigt and "buch" in gezeigt[0].lower()
+    assert execs == []

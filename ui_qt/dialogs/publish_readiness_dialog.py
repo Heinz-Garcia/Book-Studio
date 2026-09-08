@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from tools.publish_readiness.analysis import enrich_analysis
+from tools.publish_readiness.navigation import jump_to_issue
 from ui_qt.widgets.help_bar import HelpBar
 
 
@@ -53,6 +54,7 @@ class PublishReadinessQtDialog(QDialog):
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setToolTip("Doppelklick oder „Zur Stelle…“: Datei im Editor öffnen.")
         self.table.setRowCount(len(issues))
         for row, issue in enumerate(issues):
             vals = [
@@ -64,13 +66,34 @@ class PublishReadinessQtDialog(QDialog):
             ]
             for col, text in enumerate(vals):
                 self.table.setItem(row, col, QTableWidgetItem(text))
+        self.table.itemDoubleClicked.connect(self._zur_stelle)
         layout.addWidget(self.table)
 
         row = QHBoxLayout()
+        jump = QPushButton("Zur Stelle…")
+        jump.setToolTip("Öffnet die Datei des ausgewählten Befunds im Editor.")
+        jump.clicked.connect(self._zur_stelle)
+        row.addWidget(jump)
+        row.addStretch(1)
         close = QPushButton("Schließen")
         close.clicked.connect(self.accept)
         row.addWidget(close)
         layout.addLayout(row)
+
+    def _ausgewaehlter_befund(self) -> Optional[dict[str, Any]]:
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self._issues):
+            return None
+        return self._issues[row]
+
+    def _zur_stelle(self, *_args: Any) -> None:
+        issue = self._ausgewaehlter_befund()
+        if issue is None:
+            QMessageBox.information(
+                self, "Publish Readiness", "Bitte zuerst einen Befund auswählen."
+            )
+            return
+        jump_to_issue(self.studio, issue, parent=self)
 
 
 def open_publish_readiness_qt(studio: Any, parent: Optional[QWidget] = None, **kwargs) -> None:

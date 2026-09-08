@@ -1,13 +1,14 @@
 {
   "name": "provenance",
-  "label": "Provenance",
-  "description": "GrammarGraph-Export-Metadaten beim Import übernehmen.",
+  "label": "🧾 Provenance (Herkunftsnachweis)…",
+  "description": "GrammarGraph-Export-Metadaten anzeigen und beim Import übernehmen.",
   "entrypoint": "plugins.provenance:run",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 5,
-  "show_in_menu": false,
+  "show_in_menu": true,
+  "help_text": "Read-only-Ansicht von bookconfig/grammargraph_export.json: Export-Zeitpunkt, LLM, Marktvariante. Geschrieben wird nur automatisch beim Import (Hook).",
   "hooks": {
     "after_book_import": "on_after_book_import"
   }

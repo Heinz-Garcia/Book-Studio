@@ -20,7 +20,13 @@ Kein Amazon-ZIP — alles lokal im Studio.
 | Package | `tools/kdp_cover/compose_front/` |
 | Hook | `export_pdf.render_wrap_image` nach Front-Paste |
 | Daten | `CoverLayout.front_compose` + Flag `enabled` |
-| UI | Gruppe „Vorderseite gestalten (Experiment)“ |
+| UI | Tab „Experiment“ (Feature-Flag) |
+
+UI-Sichtbarkeit (`tools/kdp_cover/compose_front/flags.py`):
+
+* `app_config.json` → `kdp_compose_front_ui: true` (Default: `false`)
+* Env `BSU_KDP_COMPOSE_FRONT=1`
+* oder gespeichertes Layout mit `front_compose.enabled`
 
 `ImportError` oder `enabled=false` → Pipeline wie ohne Modul.
 

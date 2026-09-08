@@ -73,6 +73,9 @@ class BookNoteDialog(QDialog):
         self._current: Optional[Path] = None
         self._dirty = False
         self._closed = False
+        #: Waehrend die Auswahl programmgesteuert zurueckgesetzt wird, darf
+        #: ``_on_book_changed`` nicht erneut anlaufen.
+        self._switching = False
 
         self._apply_saved_size()
         self._build_ui()
@@ -184,11 +187,21 @@ class BookNoteDialog(QDialog):
     # -- Bearbeiten --------------------------------------------------------
 
     def _on_book_changed(
-        self, current: Optional[QListWidgetItem], _previous: Any = None
+        self, current: Optional[QListWidgetItem], previous: Any = None
     ) -> None:
+        if self._switching:
+            return
         # Erst sichern, was im Feld steht -- der Wechsel darf keine Arbeit
         # kosten, und niemand rechnet vor einem Listenklick mit einem Verlust.
-        self._save_current()
+        #
+        # Scheitert das Schreiben, wird der Wechsel **zurueckgenommen**. Vorher
+        # lief die Methode nach der Fehlermeldung einfach weiter, lud das neue
+        # Buch in den Editor und setzte ``_dirty`` zurueck -- der ungesicherte
+        # Text war damit weg. Wer die Notiz auf einem vollen oder gesperrten
+        # Laufwerk hatte, verlor sie beim naechsten Listenklick.
+        if not self._save_current():
+            self._restore_selection(previous)
+            return
         if current is None:
             return
         buch = Path(str(current.data(Qt.ItemDataRole.UserRole)))
@@ -197,6 +210,21 @@ class BookNoteDialog(QDialog):
         self.editor.blockSignals(True)
         self.editor.setPlainText(notiz.text)
         self.editor.blockSignals(False)
+        if notiz.load_error:
+            self.editor.setEnabled(False)
+            self.book_label.setText(buch.name)
+            self.path_label.setText(str(store.note_path(buch)))
+            self._dirty = False
+            self.save_button.setEnabled(False)
+            self.status_label.setText("Lesefehler — Speichern gesperrt")
+            QMessageBox.warning(
+                self,
+                "Buchnotiz nicht lesbar",
+                f"{store.note_path(buch)}\n\n{notiz.load_error}\n\n"
+                "Die Datei wird nicht überschrieben. Bitte Kodierung prüfen "
+                "(UTF-8) oder die Datei manuell reparieren.",
+            )
+            return
         self.editor.setEnabled(True)
         self.book_label.setText(buch.name)
         self.path_label.setText(str(store.note_path(buch)))
@@ -215,10 +243,16 @@ class BookNoteDialog(QDialog):
         else:
             self.status_label.setText(f"zuletzt geändert: {notiz.updated_at}")
 
-    def _save_current(self) -> None:
-        """Schreibt die offene Notiz -- still, wenn es nichts zu schreiben gibt."""
+    def _save_current(self) -> bool:
+        """Schreibt die offene Notiz. ``False`` heisst: Text ist noch im Feld.
+
+        Der Rueckgabewert ist der Grund fuer diese Signatur: Der Aufrufer muss
+        wissen, ob er weitermachen darf. Ein Buchwechsel nach einem
+        gescheiterten Schreibvorgang ueberschriebe den Editor und verwuerfe
+        genau den Text, der nicht auf die Platte kam.
+        """
         if not self._dirty or self._current is None:
-            return
+            return True
         buch = self._current
         try:
             notiz = store.save(buch, self.editor.toPlainText())
@@ -226,14 +260,28 @@ class BookNoteDialog(QDialog):
             QMessageBox.critical(
                 self,
                 "Notiz nicht gespeichert",
-                f"{store.note_path(buch)}\n\n{exc}",
+                f"{store.note_path(buch)}\n\n{exc}\n\n"
+                "Der Text steht weiterhin im Feld — bitte das Problem beheben "
+                "und erneut speichern.",
             )
-            return
+            return False
         self._dirty = False
         self.save_button.setEnabled(False)
         self._refresh_marker(buch)
         self._update_status(notiz)
         _LOG.info("Buchnotiz gespeichert: %s", store.note_path(buch))
+        return True
+
+    def _restore_selection(self, previous: Any) -> None:
+        """Setzt die Listenauswahl zurueck, ohne den Handler erneut auszuloesen."""
+        self._switching = True
+        try:
+            if isinstance(previous, QListWidgetItem):
+                self.book_list.setCurrentItem(previous)
+            else:
+                self.book_list.setCurrentItem(None)
+        finally:
+            self._switching = False
 
     # -- Fenstergroesse und Schliessen -------------------------------------
 
@@ -282,11 +330,18 @@ class BookNoteDialog(QDialog):
 def _discover_books(studio: Any = None) -> list[Path]:
     """Alle Buchprojekte, die Book Studio kennt.
 
-    Bevorzugt die Suche der App (``ui_qt.book_workspace``) -- sie kennt
-    ``content_root_path`` und die Produktionsablage. Faellt sie aus, wird vom
-    Repo-Wurzelverzeichnis aus gesucht; das findet dieselben Baende, nur
-    langsamer.
+    SSOT: ``tools.book_projects.catalog.list_books`` (Content-Roots,
+    Anzeigenamen). Fallbacks: ``ui_qt.book_workspace.discover_books``, dann
+    flache Suche ab Repo-Wurzel.
     """
+    try:
+        from tools.book_projects.catalog import list_books
+
+        gefunden = [Path(info.path) for info in list_books()]
+        if gefunden:
+            return sorted(set(gefunden), key=lambda p: p.name.lower())
+    except (ImportError, OSError, TypeError, ValueError):
+        _LOG.debug("book_projects.catalog nicht verfuegbar", exc_info=True)
     try:
         from ui_qt.book_workspace import discover_books
 

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import json_io
 from tools.publish_map.metadata import provenance_summary, read_book_metadata
 from tools.publish_map.schema import (
     BOOKCONFIG_DIR,
@@ -18,6 +20,9 @@ from tools.publish_map.schema import (
     SCHEMA_VERSION,
 )
 from tools.publish_record.record import read_record
+
+
+_LOG = logging.getLogger(__name__)
 
 
 def _utc_now_iso() -> str:
@@ -39,13 +44,41 @@ def read_map(book_path: Path) -> Optional[dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
+def last_layout_profile(book_path: Path) -> Optional[str]:
+    """Layout-Profil des zeitlich letzten Renders laut ``publish_map.json``.
+
+    Zuverlaessiger als session_state (naechster geplanter Render) — Satzregelkreis
+    und Druck-Freigabe brauchen dasselbe Format wie die gepruefte PDF.
+    """
+    data = read_map(book_path)
+    if not data:
+        return None
+    newest: Optional[tuple[str, str]] = None
+    for snap in data.get("snapshots") or []:
+        for render in snap.get("renders") or []:
+            profile = render.get("layout_profile")
+            if not profile:
+                continue
+            at = str(render.get("at") or "")
+            if newest is None or at > newest[0]:
+                newest = (at, str(profile))
+    return newest[1] if newest else None
+
+
 def write_map(book_path: Path, data: dict[str, Any]) -> Path:
+    """Schreibt die Karte -- atomar (siehe ``json_io``).
+
+    Diese Datei ist das Verzeichnis **aller** Renderausgaben eines Buchs und
+    wird von mehreren Stellen fortgeschrieben (Render-Abschluss, PDF Manager,
+    Backfill). Ein abgebrochener Schreibvorgang hinterliess vorher eine halbe
+    Datei -- und die naechste ``ensure_map`` ersetzte sie kommentarlos durch
+    eine leere.
+    """
     dest = publish_map_path(book_path)
-    dest.parent.mkdir(parents=True, exist_ok=True)
     payload = dict(data)
     payload.setdefault("schema_version", SCHEMA_VERSION)
     payload["updated_at"] = _utc_now_iso()
-    dest.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    json_io.write_json_atomic(dest, payload, indent=2)
     return dest
 
 
@@ -53,6 +86,15 @@ def ensure_map(book_path: Path) -> dict[str, Any]:
     existing = read_map(book_path)
     if existing is not None:
         return existing
+    # Liegt trotzdem eine Datei da, ist sie unlesbar. Sie wird zur Seite gelegt,
+    # nicht ueberschrieben: Sonst kostete ein einziger abgebrochener
+    # Schreibvorgang die komplette Render-Historie des Bandes, ohne dass
+    # irgendwo etwas davon stuende.
+    beschaedigt = json_io.quarantine_corrupt(publish_map_path(book_path))
+    if beschaedigt is not None:
+        _LOG.warning(
+            "publish_map.json war unlesbar und wurde gesichert: %s", beschaedigt
+        )
     now = _utc_now_iso()
     data = {
         "schema_version": SCHEMA_VERSION,

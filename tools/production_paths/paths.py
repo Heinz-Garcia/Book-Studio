@@ -17,6 +17,11 @@ LEGACY_PUBLISH_DIR_NAME = "Publish"
 LEGACY_PUBLISH_RUN_PREFIX = "Publish_"
 
 
+def is_publish_run_folder_name(name: str) -> bool:
+    """``Publish_*``-Exportläufe — keine Arbeitsbücher für Dialog-Auswahllisten."""
+    return bool(name) and str(name).startswith(LEGACY_PUBLISH_RUN_PREFIX)
+
+
 class ProductionPathKind(str, Enum):
     """Einordnung eines Pfads für Migration und Inventar."""
 

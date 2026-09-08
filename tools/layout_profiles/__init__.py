@@ -7,11 +7,15 @@ from tools.layout_profiles.book_store import (
 )
 from tools.layout_profiles.catalog import (
     DEFAULT_LAYOUT_PROFILE_ID,
+    LINE_BREAK_STRICTNESS_OPTIONS,
     LINE_STRETCH_OPTIONS,
     LAYOUT_PROFILES,
     build_layout_format_options,
     get_profile,
+    linebreak_strictness_hint,
+    linebreak_strictness_label,
     linestretch_label,
+    normalize_linebreak_strictness,
     normalize_linestretch,
     profile_id_from_label,
     profile_labels,
@@ -19,11 +23,15 @@ from tools.layout_profiles.catalog import (
 
 __all__ = [
     "DEFAULT_LAYOUT_PROFILE_ID",
+    "LINE_BREAK_STRICTNESS_OPTIONS",
     "LINE_STRETCH_OPTIONS",
     "LAYOUT_PROFILES",
     "build_layout_format_options",
     "get_profile",
+    "linebreak_strictness_hint",
+    "linebreak_strictness_label",
     "linestretch_label",
+    "normalize_linebreak_strictness",
     "normalize_linestretch",
     "profile_id_from_label",
     "profile_labels",

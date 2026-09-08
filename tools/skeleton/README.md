@@ -29,7 +29,7 @@ Bei mehreren Profilen: Profil-Auswahl-Dialog in der GUI.
 Bearbeitet Vorlagen und Manifest-Einträge **ohne** Code in `book_studio.py`:
 
 ```bash
-python tools/skeleton/editor.py
+python -m tools.skeleton edit
 python -m tools.skeleton edit --profile standard
 ```
 

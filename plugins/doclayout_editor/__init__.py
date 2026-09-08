@@ -19,7 +19,10 @@ _REPO_ROOT = ensure_repo_on_path(__file__)
 def run(studio: Optional[Any] = None, **kwargs) -> int:
     from ui_qt.dialogs.doclayout_editor_dialog import open_doclayout_editor_qt
 
-    parent = kwargs.get("parent") or getattr(studio, "root", None)
+    # ``pop`` statt ``get``: ``parent`` geht ausdruecklich hinaus und darf
+    # nicht zusaetzlich in ``**kwargs`` stecken bleiben -- sonst
+    # ``TypeError: got multiple values for argument 'parent'``.
+    parent = kwargs.pop("parent", None) or getattr(studio, "root", None)
     return open_doclayout_editor_qt(studio=studio, parent=parent, **kwargs)
 
 

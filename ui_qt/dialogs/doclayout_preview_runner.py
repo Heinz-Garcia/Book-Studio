@@ -61,6 +61,16 @@ WORKER_WAIT_MS = 3000
 LINGERING_WORKERS: set["PreviewWorker"] = set()
 
 
+def _entferne_werkstatt(work_dir: Path) -> None:
+    """Das Arbeitsverzeichnis eines Laufs abraeumen -- genau einmal, ohne Laerm.
+
+    Mehrfach gerufen zu werden ist der Normalfall: Der ueberlebende Lauf meldet
+    sich, und ``release`` raeumt bei einem bereits beendeten Lauf selbst auf.
+    """
+    shutil.rmtree(work_dir, ignore_errors=True)
+    _LOG.debug("Vorschau-Werkstatt abgeraeumt: %s", work_dir)
+
+
 class PreviewWorker(QThread):
     """Setzt eine Definition in einem eigenen Thread.
 
@@ -211,14 +221,30 @@ class PreviewRunner(QObject):
                     pass
             if worker.isRunning():
                 LINGERING_WORKERS.add(worker)
+                # Aufraeumen erst, wenn der Lauf wirklich fertig ist: Bis dahin
+                # arbeiten Pandoc und LibreOffice **in** diesem Verzeichnis.
+                # Es unter ihnen wegzuloeschen hinterliess ein halb geleertes
+                # Arbeitsverzeichnis, einen Lauf, der ins Leere schrieb, und --
+                # weil LibreOffice seine Dateien offen haelt und
+                # ``ignore_errors`` alles verschluckt -- eine Temp-Werkstatt,
+                # die dauerhaft liegenblieb.
+                work_dir = self._work_dir
                 worker.finished.connect(
-                    lambda w=worker: LINGERING_WORKERS.discard(w)
+                    lambda w=worker, d=work_dir: (
+                        LINGERING_WORKERS.discard(w),
+                        _entferne_werkstatt(d),
+                    )
                 )
-                if worker.wait(self._wait_ms):
-                    LINGERING_WORKERS.discard(worker)
+                if not worker.wait(self._wait_ms):
+                    _LOG.debug(
+                        "Vorschaulauf dauert an -- Werkstatt wird nach seinem "
+                        "Ende abgeraeumt: %s",
+                        work_dir,
+                    )
+                    return
+                LINGERING_WORKERS.discard(worker)
 
-        shutil.rmtree(self._work_dir, ignore_errors=True)
-        _LOG.debug("Vorschau-Werkstatt abgeraeumt: %s", self._work_dir)
+        _entferne_werkstatt(self._work_dir)
 
 
 __all__ = [

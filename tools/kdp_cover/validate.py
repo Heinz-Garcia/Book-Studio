@@ -65,18 +65,40 @@ def _parse_hex_color(value: str) -> Optional[tuple[int, int, int]]:
         return None
 
 
+def _pillow_fehlt() -> bool:
+    """Ist Pillow gar nicht da? Dann sagt ``None`` nichts ueber die Datei aus."""
+    try:
+        import PIL  # noqa: F401
+    except ImportError:
+        return True
+    return False
+
+
 def _image_dpi_for_panel(
     image_path: Path,
     panel_width_mm: float,
     panel_height_mm: float,
 ) -> Optional[float]:
-    """Effektive DPI, wenn das Bild das Panel vollflächig füllt (cover-fit Untergrenze)."""
+    """Effektive DPI, wenn das Bild das Panel vollflächig füllt (cover-fit Untergrenze).
+
+    ``None`` heißt "nicht messbar" — kein Pillow, oder die Datei ist keine
+    lesbare Bilddatei. Den zweiten Fall meldet der Aufrufer als eigenen Befund;
+    hier darf er keine Ausnahme werden. Vorher stand ``Image.open`` ungeschützt
+    da: Eine defekte oder falsch benannte Vorderseiten-Datei warf
+    ``PIL.UnidentifiedImageError`` mitten aus ``validate_layout`` heraus, und
+    keiner der vier Aufrufer fing das ab — statt eines Prüfberichts gab es
+    einen Traceback. Für das *Rückseiten*-Bild war derselbe Fall zwei Zweige
+    tiefer längst sauber behandelt.
+    """
     try:
         from PIL import Image
     except ImportError:
         return None
-    with Image.open(image_path) as im:
-        w_px, h_px = im.size
+    try:
+        with Image.open(image_path) as im:
+            w_px, h_px = im.size
+    except OSError:
+        return None
     if w_px <= 0 or h_px <= 0 or panel_width_mm <= 0 or panel_height_mm <= 0:
         return None
     # cover-fit: Bild wird so skaliert, dass das Panel voll abgedeckt ist —
@@ -156,7 +178,21 @@ def validate_layout(
             panel_w = geo.trim_width_mm + geo.bleed_mm
             panel_h = geo.trim_height_mm + 2 * geo.bleed_mm
             dpi = _image_dpi_for_panel(front_path, panel_w, panel_h)
-            if dpi is not None and dpi + 1e-6 < MIN_IMAGE_DPI:
+            if dpi is None and not _pillow_fehlt():
+                # Datei da, aber nicht als Bild lesbar. Das ist ein Befund und
+                # kein Grund, die ganze Pruefung abzubrechen -- symmetrisch zu
+                # ``back_image_unreadable`` weiter unten.
+                report.issues.append(
+                    ValidationIssue(
+                        code="front_image_unreadable",
+                        severity="error",
+                        message=(
+                            f"Vorderseiten-Bild ist keine lesbare Bilddatei: "
+                            f"{front_path}"
+                        ),
+                    )
+                )
+            elif dpi is not None and dpi + 1e-6 < MIN_IMAGE_DPI:
                 report.issues.append(
                     ValidationIssue(
                         code="front_image_dpi",

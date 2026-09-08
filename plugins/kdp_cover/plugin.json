@@ -7,5 +7,5 @@
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 18,
-  "help_text": "Oben: Buch & KDP-Kanal (Flag → bookconfig/distribution.json, Bindung an export/kdp_cover/cover_project.json). Ablauf: (1) Maße; (2) Gestaltung — Titel/Autor nur Meta; (3) optional Frei-Offsets für Rücken. Separates Upload-Cover (nicht Deckblatt.md). Auch: Asset Manager / Markdown-Editor → „KDP-Wrap…“."
+  "help_text": "Oben: Buch & KDP-Kanal (Flag → bookconfig/distribution.json, Bindung an export/kdp_cover/cover_project.json). Ablauf: (1) Maße; (2) Gestaltung — Titel/Autor nur Meta; (3) optional Frei-Offsets für Rücken. Tab „Experiment“ (Vorderseiten-Layer) nur mit kdp_compose_front_ui / BSU_KDP_COMPOSE_FRONT=1 oder wenn Layer im Cover schon aktiv. Separates Upload-Cover (nicht Deckblatt.md)."
 }

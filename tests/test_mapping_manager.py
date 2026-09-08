@@ -28,6 +28,17 @@ def test_format_at_display_converts_utc_to_local_timezone():
         assert local_wall != utc_wall or datetime.now().astimezone().utcoffset().total_seconds() == 0
 
 
+def test_mapping_manager_manifest_has_help_text():
+    import json
+
+    manifest = json.loads(
+        Path("plugins/mapping_manager/plugin.json").read_text(encoding="utf-8")
+    )
+    help_text = (manifest.get("help_text") or "").strip()
+    assert help_text
+    assert "publish_renders" in help_text or "Snapshot" in help_text or "snapshot" in help_text.lower()
+
+
 def test_format_at_display_naive_iso_treated_as_utc():
     at = "2026-07-28T21:06:29"
     expected = (

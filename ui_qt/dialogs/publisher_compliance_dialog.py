@@ -141,12 +141,28 @@ def open_publisher_compliance_qt(
 
     from tools.publisher_compliance.validators import run_compliance_report
 
-    results = run_compliance_report(
-        pdf_path,
-        isbn=isbn,
-        layout_profile_id=layout_profile_id,
-        publisher_profile_id=publisher_profile_id,
-    )
+    # PyMuPDF wirft bei beschädigten, leeren oder von einem anderen Programm
+    # gehaltenen PDFs ``FileDataError`` bzw. ``FileNotFoundError`` -- beide von
+    # ``RuntimeError`` abgeleitet, also nicht von ``OSError`` erfasst. Ohne
+    # diese Absicherung endete der Menüweg in einem Traceback, während der
+    # automatische Guard nach dem Render (``messagebox_shim._run_compliance_guard``)
+    # denselben Fall längst sauber abfing.
+    try:
+        results = run_compliance_report(
+            pdf_path,
+            isbn=isbn,
+            layout_profile_id=layout_profile_id,
+            publisher_profile_id=publisher_profile_id,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        QMessageBox.warning(
+            parent,
+            "Druck-Freigabe prüfen",
+            f"Die PDF konnte nicht geprüft werden:\n{pdf_path}\n\n{exc}\n\n"
+            "Ist die Datei vollständig gerendert und in keinem anderen "
+            "Programm geöffnet?",
+        )
+        return
     PublisherComplianceQtDialog(
         parent,
         pdf_path=pdf_path,
@@ -157,21 +173,7 @@ def open_publisher_compliance_qt(
 
 
 def _resolve_last_layout_profile(book: Path) -> Optional[str]:
-    """Layout-Profil des zeitlich letzten Renders laut ``publish_map.json``
-    — zuverlässiger als session_state (das den NÄCHSTEN geplanten Render
-    widerspiegelt, nicht zwingend den, der die aktuell geprüfte PDF erzeugt
-    hat)."""
-    try:
-        from tools.publish_map.store import read_map
-    except ImportError:
-        return None
-    data = read_map(book)
-    if not data:
-        return None
-    for snap in data.get("snapshots") or []:
-        renders = sorted(snap.get("renders") or [], key=lambda r: str(r.get("at") or ""), reverse=True)
-        for render in renders:
-            profile = render.get("layout_profile")
-            if profile:
-                return str(profile)
-    return None
+    """Layout-Profil des zeitlich letzten Renders (SSOT: publish_map)."""
+    from tools.publish_map.store import last_layout_profile
+
+    return last_layout_profile(book)

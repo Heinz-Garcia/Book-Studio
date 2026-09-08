@@ -6,6 +6,7 @@ braucht Pandoc (auch das von Quarto mitgelieferte) und wird sonst uebersprungen.
 
 from __future__ import annotations
 
+import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -15,7 +16,7 @@ import yaml
 
 from tools.doclayout import units
 from tools.doclayout.apply import apply_layout, quarto_snippet
-from tools.doclayout.classmap import build_lua_filter, normalize_class
+from tools.doclayout.classmap import build_lua_filter, lua_string, normalize_class
 from tools.doclayout.library import LIBRARY_DIR, available_layouts, load_layout
 from tools.doclayout.ooxml import W_NS, build_style_element, local_name, qn
 from tools.doclayout.process import NO_WINDOW, run_hidden
@@ -263,6 +264,95 @@ def test_normalize_class_handles_legacy_form(raw, expected):
 def test_lua_filter_is_valid_for_empty_classmap():
     definition = LayoutDefinition.from_dict({"name": "x", "classmap": {}})
     assert "local classmap = {}" in build_lua_filter(definition)
+
+
+# --- Umlaute im Lua-Filter -------------------------------------------------
+#
+# Regression: Der Filter wurde mit ``json.dumps`` gebaut, also mit
+# ``ensure_ascii=True``. Jedes Nicht-ASCII-Zeichen wurde damit zu ``\uXXXX`` --
+# einer Schreibweise, die Lua nicht kennt (dort ``\u{XXXX}``). Der Filter war
+# syntaktisch kaputt, und Pandoc brach den ganzen Lauf ab:
+#
+#     …/classmap.lua:7: missing '{' near '"begr\u0'
+#
+# Ein einziger Umlaut in einem Klassennamen oder Absatzformat machte damit
+# jeden DOCX-Export des Buches unmoeglich. Der Weg dorthin ist der vorgesehene
+# Ablauf: Generator schreibt ``::: {.begrüßung}`` -> "Fehlende Klassen anlegen"
+# -> ``suggested_style_id`` macht daraus ``Begrüßung``.
+
+
+@pytest.mark.parametrize(
+    "roh, erwartet",
+    [
+        ("prompt", '"prompt"'),
+        ("Begrüßung", '"Begrüßung"'),  # woertlich, nicht ü
+        ("Fußnote", '"Fußnote"'),
+        ('mit"quote', '"mit\\"quote"'),
+        ("back\\slash", '"back\\\\slash"'),
+        ("zeile\numbruch", '"zeile\\numbruch"'),
+        ("tab\there", '"tab\\there"'),
+        ("steuer\x01zeichen", '"steuer\\001zeichen"'),
+    ],
+)
+def test_lua_string_escapes_only_what_lua_needs(roh, erwartet):
+    assert lua_string(roh) == erwartet
+
+
+def test_lua_filter_keeps_umlauts_verbatim():
+    """Der Kern des Fehlers: kein ``\\u`` im erzeugten Filter."""
+    definition = LayoutDefinition.from_dict(
+        {
+            "name": "x",
+            "styles": {"Begrüßung": {"name": "Begrüßung"}},
+            "classmap": {"begrüßung": "Begrüßung"},
+        }
+    )
+    lua = build_lua_filter(definition)
+    assert '["begrüßung"] = "Begrüßung"' in lua
+    assert "\\u" not in lua
+
+
+@pytest.mark.slow
+def test_lua_filter_with_umlauts_survives_real_pandoc(tmp_path: Path):
+    """Gegenprobe am echten Pandoc -- der Filter muss geladen werden koennen.
+
+    Ohne diesen Test faellt die Regression erst im fertigen Buch auf, und dort
+    sieht sie aus wie ein Pandoc-Problem.
+    """
+    from tools.doclayout.targets.docx import find_pandoc
+
+    pandoc = find_pandoc(None)
+    if not pandoc:
+        pytest.skip("Pandoc nicht gefunden")
+
+    definition = LayoutDefinition.from_dict(
+        {
+            "name": "x",
+            "styles": {"Begrüßung": {"name": "Begrüßung"}},
+            "classmap": {"begrüßung": "Begrüßung"},
+        }
+    )
+    (tmp_path / "f.lua").write_text(build_lua_filter(definition), encoding="utf-8")
+    (tmp_path / "t.md").write_text("::: {.begrüßung}\nHallo\n:::\n", encoding="utf-8")
+    ergebnis = subprocess.run(
+        [
+            pandoc,
+            "-f",
+            "markdown",
+            "-t",
+            "docx",
+            "--lua-filter",
+            str(tmp_path / "f.lua"),
+            str(tmp_path / "t.md"),
+            "-o",
+            str(tmp_path / "o.docx"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert ergebnis.returncode == 0, ergebnis.stderr
+    assert (tmp_path / "o.docx").is_file()
 
 
 # ---------------------------------------------------------------------------

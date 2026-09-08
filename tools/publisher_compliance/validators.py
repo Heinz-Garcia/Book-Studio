@@ -96,6 +96,11 @@ def check_not_encrypted(pdf_path: Path) -> list[ComplianceIssue]:
     return _result_to_issues(_not_encrypted_result(pdf_path))
 
 
+def _nur_ziffern(text: str) -> str:
+    """Nur die Ziffern eines Textes -- fuer den ISBN-Vergleich (siehe unten)."""
+    return "".join(zeichen for zeichen in str(text) if zeichen.isdigit())
+
+
 def _isbn_consistency_result(pdf_path: Path, isbn: Optional[str]) -> CheckResult:
     isbn = (isbn or "").strip()
     if not isbn:
@@ -109,7 +114,14 @@ def _isbn_consistency_result(pdf_path: Path, isbn: Optional[str]) -> CheckResult
         full_text = "\n".join(page.get_text() for page in doc)
     finally:
         doc.close()
-    if isbn in full_text:
+    # Verglichen werden die reinen Ziffern. Die ISBN steht in ``_quarto.yml``
+    # mit ASCII-Bindestrichen; im gesetzten PDF kann Typst geschützte oder
+    # typografische Bindestriche setzen und die Nummer umbrechen. Ein exakter
+    # Teilzeichenketten-Vergleich meldete dann eine Warnung für eine ISBN, die
+    # sehr wohl im Buch steht.
+    if isbn in full_text or (
+        _nur_ziffern(isbn) and _nur_ziffern(isbn) in _nur_ziffern(full_text)
+    ):
         return CheckResult(
             "isbn-consistency", "ok", f'ISBN "{isbn}" (aus _quarto.yml-SSOT) im PDF-Text gefunden.'
         )
@@ -136,11 +148,73 @@ def _resolve_inside_margin_mm(layout_profile) -> float:
     return parsed if parsed is not None else _default_margin_mm()
 
 
+def _measure_inside_margin_mm(pdf_path: Path) -> tuple[Optional[float], int]:
+    """Der tatsächlich gesetzte Innenrand der PDF, in mm -- und wie viele Seiten
+    dafür ausgewertet wurden.
+
+    Gemessen wird der Abstand des Textblocks zur **Bundkante**: Auf einer
+    rechten Seite (ungerade, 1-basiert) liegt der Bund links, auf einer linken
+    rechts. Nur Textblöcke zählen; ein randabfallendes Bild würde den Wert
+    sonst auf null ziehen.
+
+    Zurückgegeben wird nicht das Minimum, sondern der **Median**: Titelseiten,
+    breite Tabellen und eingerückte Sonderseiten sind Ausreißer, keine
+    Aussage über den Satzspiegel des Buches.
+
+    ``None`` heißt "nicht messbar" -- zu wenige Seiten mit Text. Dann bleibt
+    nur der Wert aus dem Layout-Profil, und der Aufrufer sagt das auch so.
+    """
+    ränder: list[float] = []
+    doc = fitz.open(pdf_path)
+    try:
+        for index, page in enumerate(doc):
+            seitenzahl = index + 1
+            breite = float(page.rect.width)
+            links = None
+            rechts = None
+            for block in page.get_text("blocks"):
+                # (x0, y0, x1, y1, text, block_no, block_type); type 0 = Text
+                if len(block) > 6 and block[6] != 0:
+                    continue
+                if not str(block[4] or "").strip():
+                    continue
+                links = float(block[0]) if links is None else min(links, float(block[0]))
+                rechts = float(block[2]) if rechts is None else max(rechts, float(block[2]))
+            if links is None or rechts is None:
+                continue
+            bund_pt = links if seitenzahl % 2 == 1 else (breite - rechts)
+            ränder.append(bund_pt / 72.0 * mm_per_inch())
+    finally:
+        doc.close()
+
+    if len(ränder) < 4:
+        return None, len(ränder)
+    ränder.sort()
+    mitte = len(ränder) // 2
+    if len(ränder) % 2:
+        return ränder[mitte], len(ränder)
+    return (ränder[mitte - 1] + ränder[mitte]) / 2.0, len(ränder)
+
+
 def _inside_margin_result(
     pdf_path: Path,
     layout_profile_id: str,
     publisher_profile_id: str = DEFAULT_PUBLISHER_PROFILE_ID,
 ) -> CheckResult:
+    """Innenrand gegen die Mindestanforderung der Plattform.
+
+    Maßgeblich ist der **in der PDF gemessene** Wert. Vorher wurde
+    ausschließlich der Innenrand des Layout-Profils geprüft und die Meldung
+    las sich trotzdem wie ein Messwert ("Innenrand 20,0 mm reicht für 412
+    Seiten"). Das ging auseinander, sobald das Profil nach dem Render geändert
+    wurde, das Buch eigene Ränder in ``_quarto.yml`` setzte -- oder der
+    Satzregelkreis in die ``typst-show.typ`` des Buches schrieb, was er
+    ausdrücklich tut. Die Druck-Freigabe meldete dann "in Ordnung" für einen
+    Rand, der so nicht im Dokument stand.
+
+    Der Profilwert bleibt in der Meldung stehen: Weichen beide voneinander ab,
+    ist das für sich schon eine Auskunft.
+    """
     from tools.layout_profiles.catalog import get_profile as get_layout_profile
 
     doc = fitz.open(pdf_path)
@@ -151,6 +225,20 @@ def _inside_margin_result(
 
     layout_profile = get_layout_profile(layout_profile_id)
     configured_mm = _resolve_inside_margin_mm(layout_profile)
+    gemessen_mm, seiten_gemessen = _measure_inside_margin_mm(pdf_path)
+
+    if gemessen_mm is not None:
+        wert_mm = gemessen_mm
+        herkunft = (
+            f"gemessen an {seiten_gemessen} Textseiten; Layout-Profil: "
+            f"{configured_mm:.1f}mm"
+        )
+    else:
+        wert_mm = configured_mm
+        herkunft = (
+            f"laut Layout-Profil «{layout_profile_id}» — in der PDF nicht "
+            "messbar (zu wenige Seiten mit Text)"
+        )
 
     publisher_profile = get_publisher_profile(publisher_profile_id)
     required_mm = min_inside_margin_mm(publisher_profile, page_count)
@@ -158,21 +246,23 @@ def _inside_margin_result(
         return CheckResult(
             "inside-margin",
             "ok",
-            f"Innenrand {configured_mm:.1f}mm — {publisher_profile.label} definiert für "
-            f"{page_count} Seiten keine Mindestanforderung.",
+            f"Innenrand {wert_mm:.1f}mm ({herkunft}) — {publisher_profile.label} "
+            f"definiert für {page_count} Seiten keine Mindestanforderung.",
         )
-    if configured_mm >= required_mm - 0.01:
+    if wert_mm >= required_mm - 0.01:
         return CheckResult(
             "inside-margin",
             "ok",
-            f"Innenrand {configured_mm:.1f}mm reicht für {page_count} Seiten "
-            f"({publisher_profile.label}: mindestens {required_mm:.1f}mm nötig).",
+            f"Innenrand {wert_mm:.1f}mm reicht für {page_count} Seiten "
+            f"({publisher_profile.label}: mindestens {required_mm:.1f}mm nötig; "
+            f"{herkunft}).",
         )
     return CheckResult(
         "inside-margin",
         "error",
-        f"Innenrand {configured_mm:.1f}mm reicht bei {page_count} Seiten nicht "
-        f"({publisher_profile.label}: mindestens {required_mm:.1f}mm nötig).",
+        f"Innenrand {wert_mm:.1f}mm reicht bei {page_count} Seiten nicht "
+        f"({publisher_profile.label}: mindestens {required_mm:.1f}mm nötig; "
+        f"{herkunft}).",
     )
 
 
