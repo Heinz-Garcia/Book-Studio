@@ -110,6 +110,12 @@ def write_text_atomic(path: Path, text: str) -> None:
 
     Für Nicht-JSON-Inhalte (z. B. YAML-Manifeste), die dennoch sicher
     ohne Korruptionsrisiko persistiert werden sollen.
+
+    ``newline=""`` schreibt den Text unverändert. Ohne das übersetzte der
+    Textmodus jedes ``\\n`` in ``\\r\\n`` und schrieb damit ganze Manuskript-
+    und Manifestdateien auf CRLF um — dieselbe Umschreibung, die an fünf
+    anderen Stellen bereits abgestellt ist (siehe Q6 in
+    ``.doc/plugin-bugpruefung.md``).
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +126,7 @@ def write_text_atomic(path: Path, text: str) -> None:
     )
     tmp_path = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
             fh.write(text)
             fh.flush()
             os.fsync(fh.fileno())

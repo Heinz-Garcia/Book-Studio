@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import QMenu, QMenuBar, QWidget
 
 from menu_definitions import (
@@ -23,6 +24,59 @@ from services.plugin_loader import PluginLoader
 
 DEFAULT_PLUGINS_DIR = Path(__file__).resolve().parent.parent / "plugins"
 CommandResolver = Callable[[str], Optional[Callable[[], Any]]]
+
+# Magenta-Badge wie bei GrammarGraph (autonome ``tools/``-Einträge): markiert
+# Menüpunkte, die aus ``plugins/<name>/`` kommen — nicht Kern-Menüdefinitionen.
+_PLUGIN_ICON_PX = 14
+_PLUGIN_BADGE_CHAR = "⬢"
+_PLUGIN_BADGE_COLOR = "#c026d3"
+_PLUGIN_BADGE_COLOR_DISABLED = "#e879f9"
+_PLUGIN_STATUS_HINT = "Autonomes Plugin (plugins/)"
+
+
+def _paint_plugin_badge(px: int, color: str) -> QPixmap:
+    pixmap = QPixmap(px, px)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+    font = QFont()
+    font.setPointSizeF(max(7.0, px * 0.72))
+    painter.setFont(font)
+    painter.setPen(QColor(color))
+    painter.drawText(
+        pixmap.rect(),
+        int(Qt.AlignmentFlag.AlignCenter),
+        _PLUGIN_BADGE_CHAR,
+    )
+    painter.end()
+    return pixmap
+
+
+def plugin_menu_icon(*, size: int = _PLUGIN_ICON_PX) -> QIcon:
+    """Kleines Magenta-Badge für Einträge aus ``plugins/``."""
+    px = max(10, int(size))
+    icon = QIcon()
+    normal = _paint_plugin_badge(px, _PLUGIN_BADGE_COLOR)
+    disabled = _paint_plugin_badge(px, _PLUGIN_BADGE_COLOR_DISABLED)
+    for mode in (
+        QIcon.Mode.Normal,
+        QIcon.Mode.Active,
+        QIcon.Mode.Selected,
+    ):
+        icon.addPixmap(normal, mode, QIcon.State.Off)
+        icon.addPixmap(normal, mode, QIcon.State.On)
+    icon.addPixmap(disabled, QIcon.Mode.Disabled, QIcon.State.Off)
+    icon.addPixmap(disabled, QIcon.Mode.Disabled, QIcon.State.On)
+    return icon
+
+
+def format_plugin_status_tip(base: str) -> str:
+    text = (base or "").strip()
+    if not text:
+        return _PLUGIN_STATUS_HINT
+    if _PLUGIN_STATUS_HINT in text:
+        return text
+    return f"{text}  ·  {_PLUGIN_STATUS_HINT}"
 
 
 def _accel_to_shortcut(accel: Optional[str]) -> Optional[QKeySequence]:
@@ -119,9 +173,9 @@ _PLUGIN_GROUPS: tuple[tuple[str, ...], ...] = (
     # Buch und Gerüst
     ("book_projects", "skeleton_populate", "skeleton_editor"),
     # Inhalt hineinholen und pflegen
-    ("gg_content_swap", "asset_manager", "satz_werkzeuge"),
-    # Layout und Textauszeichnung
-    ("doclayout_editor", "doclayout_wizard", "markup_inventory"),
+    ("gg_content_swap", "asset_manager"),
+    # Layout, Textauszeichnung und Satz
+    ("doclayout_editor", "doclayout_wizard", "markup_inventory", "satz_werkzeuge"),
     # Umschlag
     ("cover_size", "kdp_cover", "stylecloud", "breathcloud"),
     # Vor der Veröffentlichung prüfen
@@ -134,8 +188,10 @@ _PLUGIN_GROUPS: tuple[tuple[str, ...], ...] = (
         "provenance",
         "uuid_manager",
     ),
-    # Notizen und allgemeine Werkzeuge
-    ("memo_pad", "book_note", "file_indexer"),
+    # Notizen
+    ("memo_pad", "book_note"),
+    # Kapitelliste (eigenes Thema)
+    ("file_indexer",),
 )
 
 
@@ -171,6 +227,10 @@ def _populate_plugins(
 
     def _add(info) -> None:
         action = QAction(info.label, menu)
+        action.setIcon(plugin_menu_icon())
+        tip = format_plugin_status_tip(getattr(info, "description", "") or info.label)
+        action.setToolTip(tip)
+        action.setStatusTip(tip)
         cb = resolve(f"plugin:{info.name}")
         if cb is not None:
             _bind_action(action, cb)

@@ -6,7 +6,7 @@
   "version": "1.1.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 6,
+  "order": 18,
   "show_in_menu": true,
   "help_text": "Read-only-Protokoll aus bookconfig/publish_record.json. Einträge entstehen automatisch bei Import, Buch-Doktor und erfolgreichem Render — hier nur nachschlagen.",
   "hooks": {

@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-from services.plugin_runtime import ensure_repo_on_path
+from services.plugin_runtime import ensure_repo_on_path, tool_exists
 
-ensure_repo_on_path(__file__)
+_REPO_ROOT = ensure_repo_on_path(__file__)
 
 
 def run(studio: Optional[Any] = None, **kwargs) -> None:
@@ -38,4 +38,14 @@ def on_after_book_import(studio: Optional[Any] = None, **kwargs) -> None:
         )
 
 
-__all__ = ["run", "on_after_book_import"]
+def is_available() -> bool:
+    """Der Menueeintrag haengt am Viewer, nicht an den Hooks.
+
+    21 von 23 Plugins beantworten diese Frage; diese beiden fielen aus dem
+    Muster. Der Lader kam damit zurecht, aber wer die Menueliste prueft,
+    musste fuer zwei Eintraege eine Ausnahme kennen.
+    """
+    return tool_exists(_REPO_ROOT, "ui_qt", "dialogs", "provenance_viewer_dialog.py")
+
+
+__all__ = ["run", "is_available", "on_after_book_import"]

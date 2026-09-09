@@ -6,6 +6,6 @@
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 19,
+  "order": 12,
   "help_text": "Drucktaugliche PNG-Schlagwortwolke (300 dpi). Form: Freie Form/Hub (früher eigener Menüpunkt Breathcloud; Packer tools.breathcloud.engine) / Cover-dicht / Organisch / Rechteck / Font Awesome / Bildmaske. Hub-Verlauf per Farbdialog. Presets. Muss-Wort. Deps: stylecloud, setuptools<82; optional spacy."
 }

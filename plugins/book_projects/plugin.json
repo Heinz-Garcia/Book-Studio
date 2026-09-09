@@ -6,6 +6,6 @@
   "version": "1.1.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 5,
+  "order": 1,
   "help_text": "Projektliste (Anzeigename · Ordner · Pfad). Buchordner ≠ PDF. Fertige Ausgaben: „PDF Manager…“ oder Plugins → PDF Manager…"
 }

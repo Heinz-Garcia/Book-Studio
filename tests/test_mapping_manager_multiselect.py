@@ -659,3 +659,81 @@ def test_restore_source_confirmed_activates_book_shows_banner_and_closes(monkeyp
     assert "2026-08-02" in parent.banner_text
     dlg.close()
     _ = app
+
+
+def test_gescheiterte_karte_nimmt_das_umbenennen_zurueck(monkeypatch, tmp_path):
+    """Datei und Karte duerfen nicht auseinanderlaufen.
+
+    Vorher standen ``rename_pdf()`` und ``update_render_fields()`` in
+    demselben ``try``: Gelang das Umbenennen und scheiterte das Fortschreiben
+    der Karte, zeigte der Manager danach eine Zeile mit ``exists=False`` auf
+    den alten Namen. Jetzt wird die Datei zurueckbenannt.
+    """
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    _app, dlg, _book = _make_dialog(monkeypatch, tmp_path, count=1)
+    dlg.table.selectRow(0)
+    alt = dlg._selected_renders()[0].pdf_path
+    assert alt.is_file()
+
+    monkeypatch.setattr(
+        mod.QInputDialog, "getText", staticmethod(lambda *a, **k: ("neuer_name.pdf", True))
+    )
+
+    def _karte_scheitert(*a, **k):
+        raise OSError("Karte gesperrt")
+
+    monkeypatch.setattr(mod, "update_render_fields", _karte_scheitert)
+    with patch.object(mod.QMessageBox, "critical", return_value=None) as gemeldet:
+        dlg._rename_selected()
+
+    assert alt.is_file(), "die Datei muss wieder ihren alten Namen tragen"
+    assert not (alt.parent / "neuer_name.pdf").exists()
+    assert gemeldet.called
+    assert "wieder wie vorher" in gemeldet.call_args[0][2]
+    dlg.close()
+
+
+def test_geloeschte_pdf_verschwindet_auch_aus_der_karte(monkeypatch, tmp_path):
+    """Scheitert nur das Quellarchiv, bleibt der Karteneintrag trotzdem nicht stehen.
+
+    Vorher stand ``remove_render()`` hinter ``delete_source_archive()`` im
+    selben ``try``: Die PDF war geloescht, der Eintrag blieb -- der Manager
+    fuehrte danach einen Render, dessen Datei es nicht mehr gab.
+    """
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+
+    _app, dlg, book = _make_dialog(monkeypatch, tmp_path, count=1)
+    dlg.table.selectRow(0)
+    render = dlg._selected_renders()[0]
+
+    archiv = book / "export" / "source_archives" / "snap-a"
+    archiv.mkdir(parents=True)
+    (archiv / "beleg.txt").write_text("x", encoding="utf-8")
+    mod.update_render_fields(
+        book, render.snapshot_id, render.id, {"source_archive_path": str(archiv)}
+    )
+    dlg._on_snapshot_changed(dlg.snapshot_combo.currentIndex())
+    dlg.table.selectRow(0)
+
+    def _archiv_scheitert(*a, **k):
+        raise OSError("Archiv gesperrt")
+
+    monkeypatch.setattr(mod, "delete_source_archive", _archiv_scheitert)
+    entfernt: list = []
+    echtes_remove = mod.remove_render
+    monkeypatch.setattr(
+        mod,
+        "remove_render",
+        lambda *a, **k: (entfernt.append(a), echtes_remove(*a, **k))[1],
+    )
+    with patch.object(mod.QMessageBox, "question", return_value=mod.QMessageBox.StandardButton.Yes):
+        with patch.object(mod.QMessageBox, "critical", return_value=None) as gemeldet:
+            dlg._delete_selected()
+
+    assert entfernt, "der Karteneintrag muss trotz Archivfehler entfernt werden"
+    assert gemeldet.called, "der Archivfehler muss gemeldet werden"
+    assert "Quellstand" in gemeldet.call_args[0][2]
+    dlg.close()

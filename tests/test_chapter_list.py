@@ -352,3 +352,62 @@ class TestBuchauswahl:
         """``Publish_*`` sind Ergebnisse, nicht Quellen."""
         eintraege = [dialog.buch_auswahl.itemText(i) for i in range(dialog.buch_auswahl.count())]
         assert not [e for e in eintraege if e.startswith("Publish_")]
+
+
+class TestHinweisIstText:
+    """Der Vorbehalt ueber der Tabelle ist Text, nicht Markup."""
+
+    @pytest.fixture(scope="class")
+    def qapp(self):
+        pytest.importorskip("PySide6")
+        from PySide6.QtWidgets import QApplication
+
+        yield QApplication.instance() or QApplication([])
+
+    def test_spitze_klammern_zerlegen_die_anzeige_nicht(
+        self, qapp, tmp_path: Path
+    ) -> None:
+        """Das Label ist Rich-Text, der Hinweis kommt aus einer Fehlermeldung.
+
+        Ein ``<`` aus einem Pfad verschluckte bisher den halben Satz -- und
+        zwar ausgerechnet den, der sagt, dass die Reihenfolge fehlt.
+        """
+        from ui_qt.dialogs.chapter_list_dialog import ChapterListDialog
+
+        root = tmp_path / "B"
+        _schreibe(root / "_quarto.yml", "project:\n  type: book\n")
+        _schreibe(root / "a.md", _kapitel("A"))
+        dialog = ChapterListDialog(root)
+        try:
+            dialog._zeige_hinweis("Pfad <geheim> fehlt")
+            assert "&lt;geheim&gt;" in dialog.hinweis_label.text()
+        finally:
+            dialog.deleteLater()
+
+    def test_eigener_zielpfad_wird_geschrieben(
+        self, qapp, buch: Path, tmp_path: Path, monkeypatch
+    ) -> None:
+        """„Speichern unter …“ schreibt dieselbe Liste woandershin.
+
+        Die CLI kennt ``--out`` seit jeher; ohne diesen Weg musste im Dialog
+        jede Liste fuer einen zweiten Empfaenger von Hand weggetragen werden.
+        """
+        from ui_qt.dialogs import chapter_list_dialog as modul
+
+        ziel = tmp_path / "fuer_das_lektorat.csv"
+        dialog = modul.ChapterListDialog(buch)
+        try:
+            monkeypatch.setattr(
+                modul.QFileDialog,
+                "getSaveFileName",
+                staticmethod(lambda *a, **k: (str(ziel), "")),
+            )
+            monkeypatch.setattr(
+                modul.QMessageBox, "information", staticmethod(lambda *a, **k: None)
+            )
+            geschrieben = dialog.write_csv_as()
+            assert geschrieben == ziel
+            assert ziel.is_file()
+            assert not (buch / "export" / "kapitelliste.csv").exists()
+        finally:
+            dialog.deleteLater()

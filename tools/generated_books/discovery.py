@@ -37,11 +37,23 @@ def sort_generated_pdfs(
     *,
     reverse: bool = False,
 ) -> list[GeneratedPdf]:
-    """Sortiert PDF-Einträge nach Spalte ``name`` oder ``date``."""
+    """Sortiert PDF-Einträge nach ``name``, ``book`` oder ``date``.
+
+    ``book`` kam mit dem klickbaren Tabellenkopf dazu: Die Spalte „Buch“ war
+    die einzige, die auf einen Klick nichts tun konnte, und ein stiller
+    Rückfall auf das Datum hätte wie eine kaputte Sortierung ausgesehen.
+    """
     if column == "name":
-        key = lambda item: item.display_name.casefold()
+        def key(item):
+            return item.display_name.casefold()
+    elif column == "book":
+        # Zweitschlüssel Datum: Innerhalb eines Buches steht sonst eine
+        # beliebige Reihenfolge, die sich bei jedem Aufruf ändern kann.
+        def key(item):
+            return (item.book_name.casefold(), -item.mtime)
     else:
-        key = lambda item: item.mtime
+        def key(item):
+            return item.mtime
     return sorted(entries, key=key, reverse=reverse)
 
 

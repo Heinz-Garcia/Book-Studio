@@ -6,6 +6,6 @@
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 16,
+  "order": 15,
   "help_text": "Prüft eingebettete Schriften, Verschlüsselung, ISBN-Konsistenz zur _quarto.yml-SSOT und Innenrand für die tatsächliche Seitenzahl gegen ein Ziel-Plattform-Profil. Kein PDF/X (siehe .doc/publisher-compliance-konzept.md). Braucht eine bereits gerenderte PDF."
 }

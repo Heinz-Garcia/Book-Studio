@@ -122,3 +122,23 @@ def test_delete_generated_pdf_rejects_non_pdf(tmp_path: Path):
         raise AssertionError("expected ValueError")
     except ValueError:
         pass
+
+
+def test_sort_generated_pdfs_by_book(tmp_path: Path):
+    """Die Spalte „Buch“ sortiert nach dem Buch, nicht heimlich nach Datum.
+
+    Sie kam mit dem klickbaren Tabellenkopf dazu: Ein stiller Rueckfall auf
+    das Datum haette wie eine kaputte Sortierung ausgesehen.
+    """
+    alt = GeneratedPdf(Path("x.pdf"), "Zeta", tmp_path / "Zeta", 100.0)
+    neu = GeneratedPdf(Path("y.pdf"), "Alpha", tmp_path / "Alpha", 200.0)
+    nach_buch = sort_generated_pdfs([alt, neu], "book", reverse=False)
+    assert [x.book_name for x in nach_buch] == ["Alpha", "Zeta"]
+
+
+def test_sort_generated_pdfs_by_book_uses_date_as_second_key(tmp_path: Path):
+    """Innerhalb eines Buches gewinnt das neuere PDF -- nicht der Zufall."""
+    aelter = GeneratedPdf(Path("a.pdf"), "Alpha", tmp_path / "Alpha", 100.0)
+    neuer = GeneratedPdf(Path("b.pdf"), "Alpha", tmp_path / "Alpha", 200.0)
+    nach_buch = sort_generated_pdfs([aelter, neuer], "book", reverse=False)
+    assert [x.path.name for x in nach_buch] == ["b.pdf", "a.pdf"]

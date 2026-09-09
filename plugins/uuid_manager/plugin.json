@@ -6,6 +6,6 @@
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 24,
+  "order": 20,
   "help_text": "Read-only Diagnose-Tool: zeigt UUID, Lieferordner, Buch, PDF und Verifikationsstatus. Keine Reparatur- oder Schreibaktionen."
 }

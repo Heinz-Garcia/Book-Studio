@@ -6,7 +6,7 @@
   "version": "1.1.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 17,
+  "order": 10,
   "show_in_menu": false,
   "help_text": "Maße-Rechnung ist in Plugins → KDP Cover-Designer… eingebettet (Schritt „1. Maße festlegen“ inkl. Maße kopieren). tools/cover_size bleibt der SSOT-Rechenkern; dieses Plugin öffnet den Designer."
 }

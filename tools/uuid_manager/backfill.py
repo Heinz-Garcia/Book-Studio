@@ -45,14 +45,20 @@ def _parse_created_at(raw: object) -> date | None:
         return None
 
 
-def _package_date(meta: dict, package_dir: Path) -> date:
+def _package_date(meta: dict, package_dir: Path) -> date | None:
+    """Das Datum des Pakets -- ``None``, wenn es sich nicht ermitteln laesst.
+
+    Vorher stand hier bei einem ``OSError`` ``date.min``. Mit ``--since`` fiel
+    das Paket dann unter ``skipped_before_since``: Ein nicht lesbares Paket
+    sah aus wie ein bewusst uebersprungenes, und niemand erfuhr davon.
+    """
     created = _parse_created_at(meta.get("created_at"))
     if created is not None:
         return created
     try:
         return datetime.fromtimestamp(package_dir.stat().st_mtime).date()
     except OSError:
-        return date.min
+        return None
 
 
 def _stable_uuid_for(package_dir: Path, meta: dict | None = None) -> str:
@@ -92,19 +98,51 @@ def _iter_publish_meta_dirs(roots: list[Path]) -> list[Path]:
     return sorted(found, key=lambda p: str(p).lower())
 
 
+#: Nur in diesen Tabellen gilt ``uuid`` als die Buch-UUID.
+_UUID_TABELLEN = ("book", "metadata")
+
+
+def _finde_uuid_zeile(zeilen: list[str]) -> int:
+    """Index der ``uuid``-Zeile in ``[book]``/``[metadata]``; sonst ``-1``.
+
+    Vorher suchte ein blosses ``^\\s*uuid\\s*=`` ueber die ganze Datei und traf
+    den erstbesten Schluessel dieses Namens, gleich in welcher Tabelle er
+    stand. Lag vor ``[book]`` ein anderer Abschnitt mit eigenem ``uuid``,
+    wurde dessen Wert ueberschrieben -- an einer Datei, die das Werkzeug ohne
+    Rueckfrage anfasst.
+    """
+    tabelle = ""
+    for i, zeile in enumerate(zeilen):
+        kopf = re.match(r"\s*\[([^\]]+)\]\s*(?:#.*)?$", zeile)
+        if kopf:
+            tabelle = kopf.group(1).strip()
+            continue
+        if tabelle in _UUID_TABELLEN and re.match(r"\s*uuid\s*=", zeile):
+            return i
+    return -1
+
+
 def _ensure_toml_uuid(toml_path: Path, uid: str) -> bool:
-    """Insert or replace book.uuid / metadata.uuid in a simple TOML file."""
+    """Setzt ``book.uuid`` bzw. ``metadata.uuid`` in einer einfachen TOML-Datei.
+
+    Vor dem Aendern wird die alte Fassung als ``<name>.bak`` daneben gelegt:
+    Das Werkzeug schreibt hier in eine Datei, die es nicht selbst angelegt
+    hat, und ein Fehlgriff soll rueckholbar bleiben.
+    """
     if not toml_path.is_file():
         return False
     text = toml_path.read_text(encoding="utf-8")
     original = text
-    if re.search(r"(?m)^\s*uuid\s*=", text):
-        text = re.sub(
-            r'(?m)^(\s*uuid\s*=\s*)([\'"][^\'"]*[\'"]|[^\s#]+)',
+    zeilen = text.split("\n")
+    treffer = _finde_uuid_zeile(zeilen)
+    if treffer >= 0:
+        zeilen[treffer] = re.sub(
+            r'^(\s*uuid\s*=\s*)([\'"][^\'"]*[\'"]|[^\s#]+)',
             rf'\1"{uid}"',
-            text,
+            zeilen[treffer],
             count=1,
         )
+        text = "\n".join(zeilen)
     elif re.search(r"(?m)^\[book\]\s*$", text):
         text = re.sub(
             r"(?m)^(\[book\]\s*\n)",
@@ -122,6 +160,13 @@ def _ensure_toml_uuid(toml_path: Path, uid: str) -> bool:
     else:
         text = text.rstrip() + f'\n\n[book]\nuuid = "{uid}"\n'
     if text != original:
+        sicherung = toml_path.with_name(toml_path.name + ".bak")
+        try:
+            sicherung.write_text(original, encoding="utf-8", newline="\n")
+        except OSError as exc:
+            # Ohne Sicherung wird nicht geschrieben: Die Datei gehoert dem
+            # Buch, nicht diesem Werkzeug.
+            raise OSError(f"Sicherung {sicherung} nicht schreibbar: {exc}") from exc
         # ``newline`` gesetzt: sonst schreibt der Textmodus unter Windows die
         # ganze TOML-Datei auf CRLF um, nur um eine Zeile zu ergaenzen.
         toml_path.write_text(text, encoding="utf-8", newline="\n")
@@ -148,6 +193,10 @@ def backfill_package(
         return BackfillResult(str(package_dir), existing, "skipped_has_uuid")
 
     pkg_date = _package_date(meta, package_dir)
+    if pkg_date is None:
+        return BackfillResult(
+            str(package_dir), "", "error", "Paketdatum nicht lesbar"
+        )
     if since is not None and pkg_date < since:
         return BackfillResult(
             str(package_dir),
@@ -167,8 +216,14 @@ def backfill_package(
     )
     toml_path = package_dir / _TOML_NAME
     detail = "publish_meta.json"
-    if _ensure_toml_uuid(toml_path, uid):
-        detail += f"+{_TOML_NAME}"
+    # Die UUID steht bereits in ``publish_meta.json`` -- das Paket hat also
+    # eine. Scheitert nur die TOML-Ergaenzung, ist das eine Anmerkung am
+    # geglueckten Lauf und kein Fehlschlag des ganzen Pakets.
+    try:
+        if _ensure_toml_uuid(toml_path, uid):
+            detail += f"+{_TOML_NAME}"
+    except OSError as exc:
+        detail += f" ({_TOML_NAME} nicht geändert: {exc})"
     return BackfillResult(str(package_dir), uid, "minted", detail)
 
 

@@ -6,6 +6,6 @@
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 5,
+  "order": 7,
   "help_text": "Der Layout-Editor zeigt, was ein Layout hat; dieser Assistent geht von der anderen Seite heran und fuehrt durch das, was im Buch vorkommt: Ueberschriften, Listen, Zitate, Codebloecke, Fussnoten und die eigenen Textauszeichnungen. Nur was da ist, nichts auf Vorrat. Zwei Wege durch dasselbe Material, oben umschaltbar: nach Formatierungsobjekt (jedes genau einmal, kurz) oder nach Kapitel (in Lesereihenfolge, im Zusammenhang). Achtung in der Kapitelansicht: Ein Absatzformat gilt im ganzen Buch — wer es in Kapitel 3 aendert, aendert es ueberall. Fuer die Uebersicht statt des Durchgangs: Textauszeichnungs-Inventar."
 }

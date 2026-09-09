@@ -19,6 +19,7 @@ Iteration schlechter, gewinnt trotzdem der vorherige Stand.
 
 from __future__ import annotations
 
+import logging
 import math
 
 from dataclasses import dataclass, field
@@ -31,6 +32,8 @@ from tools.satzpruefer.rules import STANDARD, Befund, Schwellen, alle_regeln
 from .grenzen import STANDARD as STANDARD_GRENZEN
 from .grenzen import Grenzen
 from .vorlage import Groessen, schreibe
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass
@@ -231,6 +234,10 @@ def fahre_regelkreis(
     #: fuer ihre Regel keine Verbesserung, ist sie ausgereizt.
     zuletzt_gesenkt: set[str] = set()
 
+    #: Womit der Lauf abgebrochen ist -- entscheidet unten, ob ein
+    #: Schreibfehler beim Zurueckschreiben hinausgehen darf.
+    abbruch: BaseException | None = None
+
     try:
         for n in range(max_iterationen + 1):
             schreibe(vorlage, groessen)
@@ -307,10 +314,29 @@ def fahre_regelkreis(
             if {"ueberschriften", "tabelle"} <= gefroren:
                 ergebnis.abbruchgrund = "alle Stellschrauben ausgereizt"
                 break
+    except BaseException as exc:  # noqa: BLE001 -- wird unveraendert weitergereicht
+        abbruch = exc
+        raise
     finally:
         # Die Vorlage traegt am Ende IMMER den besten Stand, nie den letzten.
-        if ergebnis.iterationen:
-            schreibe(vorlage, ergebnis.bester.groessen)
-        else:
-            vorlage.write_text(sicherung, encoding="utf-8", newline="\n")
+        #
+        # Scheitert dieses Zurueckschreiben (volle Platte, Datei
+        # schreibgeschuetzt), darf es die urspruengliche Ausnahme nicht
+        # ersetzen: Wer wegen eines Renderfehlers abbricht, soll den
+        # Renderfehler sehen und nicht "Zugriff verweigert" auf die Vorlage.
+        # Lief die Schleife dagegen durch, ist der Schreibfehler das einzige,
+        # was schiefging -- dann geht er hinaus.
+        try:
+            if ergebnis.iterationen:
+                schreibe(vorlage, ergebnis.bester.groessen)
+            else:
+                vorlage.write_text(sicherung, encoding="utf-8", newline="\n")
+        except OSError as schreibfehler:
+            if abbruch is None:
+                raise
+            _LOG.error(
+                "Vorlage %s konnte nicht zurueckgeschrieben werden: %s",
+                vorlage,
+                schreibfehler,
+            )
     return ergebnis

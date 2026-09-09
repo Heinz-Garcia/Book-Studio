@@ -6,7 +6,7 @@
   "version": "1.1.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 5,
+  "order": 19,
   "show_in_menu": true,
   "help_text": "Read-only-Ansicht von bookconfig/grammargraph_export.json: Export-Zeitpunkt, LLM, Marktvariante. Geschrieben wird nur automatisch beim Import (Hook).",
   "hooks": {

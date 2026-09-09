@@ -1,11 +1,11 @@
 {
   "name": "satz_werkzeuge",
-  "label": "🔍 Satzprüfung & Regelkreis…",
+  "label": "🔍 Satzprüfung und Regelkreis…",
   "description": "Gerendertes PDF auf Satzfehler prüfen und die Formatvorlage automatisch nachziehen.",
   "entrypoint": "plugins.satz_werkzeuge:run",
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 21,
+  "order": 9,
   "help_text": "Zwei Werkzeuge, ein Fenster. Die Satzprüfung misst das zuletzt gerenderte PDF und ändert nichts: zu lange Überschriften, zu schmale Tabellenspalten, überlange Tabellen und Inhaltsverzeichnisse, Ebenen mit falscher Schriftgröße. Der Bericht landet als .md und .json neben dem PDF. Der Regelkreis geht weiter: Er rendert das Buch wiederholt und senkt dabei Schriftgrößen, bis die Befunde nicht mehr weniger werden — sinnvoll bei einem neuen Buchprojekt mit neuem Format, nicht als Routine. Er schreibt in die typst-show.typ des Buches, in einen markierten Block, den ein Folgelauf ersetzt; das Manuskript bleibt unberührt. Untergrenzen (kleinste Schrift 9 pt) und Mindestgewinn je Verkleinerung stehen in tools/satzregelkreis/grenzen.toml, die Auslöseschwellen der Prüfung in tools/satzpruefer/schwellen.toml — beide über „Grenzwerte…“ erreichbar. Ohne Oberfläche: python -m tools.satzpruefer <pdf> bzw. python -m tools.satzregelkreis <buchordner>."
 }

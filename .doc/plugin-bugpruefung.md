@@ -51,6 +51,51 @@ stillen Rückfall), und zwei Preset-Tests, die nur einen Ablageordner kannten.
 (`finally` kann die ursprüngliche Ausnahme verdecken), 23 B2/B3/B4,
 2 B2/B4, 8 B1–B3, 9 B2–B4, 13 B4, 22 B4, Q3, Q4.
 
+## Behebungsstand Runde 2 (2026-09-08, v2.58)
+
+**Die oben als offen geführte Restliste ist abgearbeitet.** Damit sind alle
+Befunde dieser Prüfung behoben außer 2 B3 (siehe unten).
+
+| Befund | Behoben in | Nachgewiesen durch |
+|---|---|---|
+| **2 B2** — stille Fehlauswahl beim Öffnen | `book_note_dialog.py` (`_fill_books`) | `test_unbekanntes_buch_oeffnet_keine_fremde_notiz` |
+| 2 B4 / 8 B3 — fest `0` als Rückgabe | `book_note_dialog.py`, `chapter_list_dialog.py` | `int(dialog.exec())` statt `return 0` |
+| **8 B1** — Zielpfad nur in der CLI wählbar | `chapter_list_dialog.py` (`write_csv_as`, gemeinsames `_schreibe`) | `test_eigener_zielpfad_wird_geschrieben` |
+| **8 B2** — Hinweistext ungeprüft als HTML | `chapter_list_dialog.py` (`html.escape`) | `test_spitze_klammern_zerlegen_die_anzeige_nicht` |
+| **9 B2** — „Ja“ als Vorbelegung beim Löschen | `generated_books_dialog.py` | `defaultButton=No`, wie in der Buchverwaltung |
+| **9 B3** — Tooltip versprach den vollen Scan | `plugins/generated_books/plugin.json` | Text nennt jetzt den Deckel von 50 |
+| **9 B4** — tote Sortier-Stellschraube | `generated_books_dialog.py` (`_on_header_clicked`, `_fill_table`), `discovery.sort_generated_pdfs` (neu: `book`) | `test_sort_generated_pdfs_by_book`, `…_uses_date_as_second_key` |
+| **12 B3** — Umbenennen/Löschen zerreißt Datei und Karte | `mapping_manager_dialog.py` (getrennte `try`, `_rollback_rename`) | `test_gescheiterte_karte_nimmt_das_umbenennen_zurueck`, `test_geloeschte_pdf_verschwindet_auch_aus_der_karte` — beide ohne den Fix rot |
+| **13 B4** — Bibliothek zweimal gelesen | `registry.load_library_definitions` (neu), von `build_registry` und `_collect_appearance` geteilt | Inventar liest die Layouts einmal je Aufruf |
+| **19 B4** — `finally` verdeckte den Abbruchgrund | `satzregelkreis/schleife.py` (Merker `abbruch`) | `test_schreibfehler_verdeckt_die_urspruengliche_ausnahme_nicht` — ohne den Fix rot |
+| **22 B4** — nacktes `except Exception` | `stylecloud/must_word.py` | jetzt `(ImportError, AttributeError)` mit Begründung |
+| **23 B2** — `uuid` in fremder Tabelle überschrieben | `uuid_manager/backfill.py` (`_finde_uuid_zeile`) + `.bak` vor dem Schreiben | `test_fremde_uuid_in_anderer_tabelle_bleibt_unangetastet`, `test_uuid_in_book_tabelle_wird_ersetzt` |
+| **23 B3** — I/O-Fehler wurde zu „zu alt“ | `backfill.py` (`_package_date -> date \| None`) | `test_unlesbares_paketdatum_ist_ein_fehler_kein_ueberspringen` |
+| **23 B4** — Konfiguration je Buch neu gelesen | `scan_book_studio.scan_books` löst ExifTool einmal je Scan auf | `_read_pdf_record(render, tool)` bekommt es gereicht |
+| **Q3** — mehrfach vergebene `order` | alle 23 Manifeste, 1–23 in der Reihenfolge von `_PLUGIN_GROUPS` | `test_jede_order_ist_nur_einmal_vergeben`, `test_order_folgt_der_menuegruppierung` |
+| **Q4** — zwei Plugins ohne `is_available()` | `plugins/provenance/`, `plugins/publish_record/` | `test_jedes_plugin_beantwortet_is_available` |
+
+**Neu gefunden und gleich mitbehoben (Q6-Familie, sechste Fundstelle):**
+`json_io.write_text_atomic()` öffnete die Temp-Datei ohne `newline=""` und
+schrieb damit jede Datei, die durch sie geht, auf CRLF um — darunter
+Manuskriptdateien (`gg_content_swap/swap.py:374`) und Skeleton-Manifeste.
+Q6 hatte fünf Stellen abgestellt, diese eine lag hinter dem Helfer.
+
+**Testlage:** `pytest -q -m "not slow"` → **2780 passed, 17 failed**. Die 17
+Fehlschläge bestehen unverändert auch ohne diese Änderungen (identische Liste
+vor und nach dem Stand): In diesem venv fehlen **PyMuPDF (`fitz`)** und
+**`ruamel.yaml`**, weshalb `test_publisher_compliance*`, `test_satzpruefer_rules`
+(Überschriftenerkennung), `test_gg_content_swap`/`test_skeleton_editor`
+(Kommentar-Erhalt im Frontmatter) und `test_ui_qt_render_publish` nicht laufen
+können. 15 der oben genannten Tests sind neu. `ruff`/`flake8` unverändert bei
+den 6 bekannten Vorbefunden, keiner in einer geänderten Datei.
+
+**Weiterhin offen:** 2 B3 — `has_note()` prüft nur die Dateigröße, während
+`BookNote.is_empty` `strip()` benutzt. Eine reine Whitespace-Notiz aus
+GrammarGraph zeigte damit ein 📝 für eine leere Notiz. Bewusst gelassen: Book
+Studio selbst legt so eine Datei nie an, und `has_note()` je Listenzeile den
+Inhalt lesen zu lassen wäre teurer als der Befund wert ist.
+
 ---
 
 ## Zusammenfassung

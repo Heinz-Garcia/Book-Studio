@@ -2052,9 +2052,9 @@ Nach einem Import ohne Pflichtseiten: **Ja** zum Rahmen öffnet denselben Profil
 
 `Publish_*`-Ordner erscheinen in den Buchauswahllisten dieser Werkzeuge **nicht** (Exportläufe, keine Arbeitsbücher).
 
-### Satzprüfung & Regelkreis
+### Satzprüfung und Regelkreis
 
-**Plugins → Satzprüfung & Regelkreis…**
+**Plugins → Satzprüfung und Regelkreis…**
 
 - Satzprüfung: misst das gerenderte PDF, ändert nichts
 - Regelkreis: rendert wiederholt und passt Schriftgrößen in `typst-show.typ` an (Untergrenzen beachten)

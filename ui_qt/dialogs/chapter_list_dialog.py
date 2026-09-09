@@ -13,6 +13,7 @@ Nur Widgets: gelesen, gezaehlt und geschrieben wird in
 
 from __future__ import annotations
 
+import html
 import logging
 from pathlib import Path
 from typing import Any, Optional
@@ -143,6 +144,16 @@ class ChapterListDialog(QDialog):
         self.btn_schreiben.clicked.connect(self.write_csv)
         knopfleiste.addWidget(self.btn_schreiben)
 
+        # Die CLI kennt ``--out`` seit jeher. Ohne diesen Knopf musste im
+        # Dialog jede Liste, die an zwei Empfaenger geht, von Hand aus
+        # ``export/`` weggetragen werden, bevor die naechste sie ueberschrieb.
+        self.btn_speichern_unter = QPushButton("Speichern unter …")
+        self.btn_speichern_unter.setToolTip(
+            "Schreibt dieselbe CSV an einen frei gewählten Ort."
+        )
+        self.btn_speichern_unter.clicked.connect(self.write_csv_as)
+        knopfleiste.addWidget(self.btn_speichern_unter)
+
         self.btn_ordner = QPushButton("Ordner öffnen")
         self.btn_ordner.clicked.connect(self._ordner_oeffnen)
         knopfleiste.addWidget(self.btn_ordner)
@@ -204,28 +215,64 @@ class ChapterListDialog(QDialog):
             self.tabelle.setItem(zeile, spalte, item)
 
     def _zeige_hinweis(self, text: str) -> None:
-        self.hinweis_label.setText(f"<b style='color:#92400e;'>{text}</b>")
+        """Den Vorbehalt ueber die Tabelle setzen -- als Text, nicht als Markup.
+
+        Das Label ist Rich-Text, ``text`` kommt aber aus einer Fehlermeldung
+        mit Dateipfad. Ein ``<`` darin zerlegte die Anzeige, und ausgerechnet
+        der Hinweis, dass die Reihenfolge fehlt, verschwand dann still.
+        """
+        self.hinweis_label.setText(
+            f"<b style='color:#92400e;'>{html.escape(text)}</b>"
+        )
         self.hinweis_label.setVisible(True)
 
     # -- Aktionen ----------------------------------------------------------
     def write_csv(self) -> Optional[Path]:
-        """Die angezeigte Liste als CSV schreiben."""
+        """Die angezeigte Liste an den Regelort schreiben."""
+        return self._schreibe(None)
+
+    def write_csv_as(self) -> Optional[Path]:
+        """Dieselbe Liste an einen frei gewaehlten Ort schreiben."""
+        if self._liste is None or self._book_path is None:
+            QMessageBox.warning(self, "Kapitelliste", "Es ist keine Liste zum Schreiben da.")
+            return None
+        vorschlag = self._letzte_csv or (
+            self._book_path / "export" / f"kapitelliste_{self._book_path.name}.csv"
+        )
+        gewaehlt, _ = QFileDialog.getSaveFileName(
+            self,
+            "Kapitelliste speichern unter",
+            str(vorschlag),
+            "CSV-Datei (*.csv);;Alle Dateien (*)",
+        )
+        if not gewaehlt:
+            return None
+        return self._schreibe(Path(gewaehlt))
+
+    def _schreibe(self, ziel: Optional[Path]) -> Optional[Path]:
+        """Gemeinsamer Schreibweg beider Knoepfe.
+
+        ``ziel=None`` heisst ``<Buchprojekt>/export/kapitelliste.csv`` -- der
+        Regelort, der ohne Rueckfrage ueberschrieben wird.
+        """
         if self._liste is None or self._book_path is None:
             QMessageBox.warning(self, "Kapitelliste", "Es ist keine Liste zum Schreiben da.")
             return None
         try:
-            ziel = write_chapter_list(self._liste.book_path, list(self._liste.rows))
+            geschrieben = write_chapter_list(
+                self._liste.book_path, list(self._liste.rows), target=ziel
+            )
         except OSError as exc:
             QMessageBox.warning(self, "Kapitelliste", f"CSV nicht schreibbar:\n{exc}")
             return None
-        self._letzte_csv = ziel
-        self._log(f"Kapitelliste geschrieben: {ziel} ({self._liste.summary()})")
+        self._letzte_csv = geschrieben
+        self._log(f"Kapitelliste geschrieben: {geschrieben} ({self._liste.summary()})")
         QMessageBox.information(
             self,
             "Kapitelliste",
-            f"{len(self._liste.rows)} Zeilen geschrieben:\n{ziel}",
+            f"{len(self._liste.rows)} Zeilen geschrieben:\n{geschrieben}",
         )
-        return ziel
+        return geschrieben
 
     def _ordner_oeffnen(self) -> None:
         """Den Zielordner zeigen -- die CSV markiert, wenn es sie schon gibt."""
@@ -336,8 +383,10 @@ def open_chapter_list_qt(
     if book_path is None and studio is not None:
         book_path = getattr(studio, "current_book", None) or getattr(studio, "book_path", None)
     dialog = ChapterListDialog(Path(book_path) if book_path else None, studio=studio, parent=parent)
-    dialog.exec()
-    return 0
+    # Der Rueckgabewert des Dialogs geht hinaus, statt fest ``0`` zu melden:
+    # Der Adapter deklariert ``-> int``, und ein abgebrochener Dialog soll
+    # nicht wie ein erfolgreicher Lauf aussehen.
+    return int(dialog.exec())
 
 
 __all__ = ["ChapterListDialog", "open_chapter_list_qt"]

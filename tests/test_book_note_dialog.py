@@ -246,3 +246,26 @@ def test_die_hilfe_grenzt_zum_memoblock_ab():
     )
     assert "Memo-Block" in manifest["help_text"]
     assert "bookconfig/notiz.md" in manifest["help_text"]
+
+
+def test_unbekanntes_buch_oeffnet_keine_fremde_notiz(qapp, buecher, tmp_path, monkeypatch):
+    """Steht das aktive Buch nicht im Katalog, bleibt die Auswahl leer.
+
+    Vorher fiel die Vorauswahl wortlos auf das *erste* Buch der Liste zurueck:
+    Der Dialog zeigte dann die Notiz eines fremden Bandes, und nur die
+    Ueberschrift verriet es. Wer darin weiterschreibt, schreibt ins falsche
+    Buch.
+    """
+    import ui_qt.dialogs.book_note_dialog as modul
+
+    monkeypatch.setattr(modul.qt_session, "load_session", lambda *a, **k: {})
+    monkeypatch.setattr(modul.qt_session, "update_ui_state", lambda *a, **k: None)
+    fremd = tmp_path / "Band_Unbekannt"
+    dlg = BookNoteDialog(books=buecher, select=fremd)
+    try:
+        assert dlg.book_list.currentRow() == -1
+        assert not dlg.editor.isEnabled()
+        assert "Band_Unbekannt" in dlg.book_label.text()
+        assert "nicht in der Liste" in dlg.status_label.text()
+    finally:
+        dlg.close()

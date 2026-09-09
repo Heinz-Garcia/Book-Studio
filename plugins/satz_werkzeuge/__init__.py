@@ -1,4 +1,4 @@
-"""Satzprüfung & Regelkreis — Plugin-Adapter (Qt)."""
+"""Satzprüfung und Regelkreis — Plugin-Adapter (Qt)."""
 
 from __future__ import annotations
 

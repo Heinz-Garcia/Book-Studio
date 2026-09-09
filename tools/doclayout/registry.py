@@ -42,21 +42,48 @@ def registry_path(directory: Optional[Path | str] = None) -> Path:
     return root / REGISTRY_NAME
 
 
-def build_registry(directory: Optional[Path | str] = None) -> dict:
+def load_library_definitions(
+    directory: Optional[Path | str] = None,
+) -> list[LayoutDefinition]:
+    """Alle lesbaren Layouts der Bibliothek -- einmal von Platte.
+
+    Unlesbare Layouts werden uebersprungen, nicht gemeldet: Das Verzeichnis
+    ist eine Auskunft ueber das, was geht, und ein kaputtes Layout darf sie
+    nicht verhindern.
+
+    Eigene Funktion, damit ein Aufrufer, der die Bibliothek fuer mehrere
+    Auskuenfte braucht (``markup_inventory``), sie nicht zweimal liest.
+    """
+    geladen: list[LayoutDefinition] = []
+    for path in available_layouts(Path(directory) if directory else LIBRARY_DIR):
+        try:
+            geladen.append(LayoutDefinition.load(path))
+        except (LayoutError, OSError):
+            continue
+    return geladen
+
+
+def build_registry(
+    directory: Optional[Path | str] = None,
+    *,
+    definitions: Optional[Iterable[LayoutDefinition]] = None,
+) -> dict:
     """Sammelt alle Klassen aller Layouts der Bibliothek.
 
     Eine Klasse kann in mehreren Layouts vorkommen; deshalb steht bei jeder,
     welche Layouts sie bedienen. Wer drueben eine Klasse waehlt, soll sehen
     koennen, ob sie ueberall oder nur in einem Band eine Vorlage hat.
+
+    ``definitions`` reicht eine bereits gelesene Bibliothek herein -- fuer
+    Aufrufer, die dieselben Layouts noch fuer etwas anderes brauchen.
     """
     root = Path(directory) if directory else LIBRARY_DIR
     classes: dict[str, dict] = {}
     layouts: list[str] = []
-    for path in available_layouts(root):
-        try:
-            definition = LayoutDefinition.load(path)
-        except (LayoutError, OSError):
-            continue
+    geladen = (
+        list(definitions) if definitions is not None else load_library_definitions(root)
+    )
+    for definition in geladen:
         layouts.append(definition.name)
         for cls, style_id in definition.classmap.items():
             entry = classes.setdefault(cls, {"layouts": [], "styles": []})
@@ -162,6 +189,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "build_registry",
     "known_class_names",
+    "load_library_definitions",
     "read_registry",
     "registry_path",
     "write_registry",

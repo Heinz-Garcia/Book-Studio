@@ -27,6 +27,10 @@ from tools.mapping_manager.actions import open_path, reveal_in_explorer
 from ui_qt.widgets.help_bar import HelpBar
 
 
+#: Tabellenspalte -> Sortierschluessel von ``sort_generated_pdfs``.
+_SPALTEN_SORTIERUNG = {0: "name", 1: "book", 2: "date"}
+
+
 class GeneratedBooksQtDialog(QDialog):
     def __init__(self, parent: Optional[QWidget], studio: Any) -> None:
         super().__init__(parent)
@@ -45,6 +49,10 @@ class GeneratedBooksQtDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["Datei", "Buch", "Datum"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        # ``_sort_column``/``_sort_reverse`` waren eine tote Stellschraube:
+        # gesetzt, aber nie veraendert -- der Tabellenkopf hing an nichts.
+        self.table.horizontalHeader().setSectionsClickable(True)
+        self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
         layout.addWidget(self.table)
 
         row = QHBoxLayout()
@@ -70,6 +78,10 @@ class GeneratedBooksQtDialog(QDialog):
             books,
             max_entries=int(settings.get("max_entries", 15)),
         )
+        self._fill_table()
+
+    def _fill_table(self) -> None:
+        """Die gefundenen PDFs in der gewaehlten Ordnung anzeigen."""
         self._entries = sort_generated_pdfs(
             self._entries, self._sort_column, reverse=self._sort_reverse
         )
@@ -78,6 +90,25 @@ class GeneratedBooksQtDialog(QDialog):
             self.table.setItem(i, 0, QTableWidgetItem(entry.path.name))
             self.table.setItem(i, 1, QTableWidgetItem(entry.book_name))
             self.table.setItem(i, 2, QTableWidgetItem(entry.date_str))
+
+    def _on_header_clicked(self, column: int) -> None:
+        """Spalte umschalten; erneuter Klick dreht die Richtung um.
+
+        Sortiert wird nur die *angezeigte* Auswahl. Welche PDFs das sind,
+        entscheidet weiterhin ``find_generated_pdfs`` (die neuesten
+        ``max_entries``) -- die Sortierung holt keine aelteren Dateien nach.
+        """
+        ziel = _SPALTEN_SORTIERUNG.get(column)
+        if ziel is None:
+            return
+        if ziel == self._sort_column:
+            self._sort_reverse = not self._sort_reverse
+        else:
+            self._sort_column = ziel
+            # Datum absteigend (neueste zuerst), Text aufsteigend -- das ist
+            # die Erwartung an der jeweiligen Spalte.
+            self._sort_reverse = ziel == "date"
+        self._fill_table()
 
     def _selected(self):
         rows = self.table.selectionModel().selectedRows()
@@ -111,8 +142,16 @@ class GeneratedBooksQtDialog(QDialog):
         entry = self._selected()
         if not entry:
             return
+        # ``No`` als Vorbelegung: Ohne sie loeschte die Eingabetaste die Datei.
+        # Die Buchverwaltung macht es beim Buchordner ebenso.
         if (
-            QMessageBox.question(self, "Löschen", f"PDF löschen?\n{entry.path}")
+            QMessageBox.question(
+                self,
+                "Löschen",
+                f"PDF löschen?\n{entry.path}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
             != QMessageBox.StandardButton.Yes
         ):
             return

@@ -851,17 +851,46 @@ class MappingManagerQtDialog(QDialog):
         )
         if not ok or not new_name.strip():
             return
+        # Zwei getrennte Schritte, zwei getrennte ``try``: Standen sie
+        # zusammen, konnte das Umbenennen gelingen und das Fortschreiben der
+        # Karte scheitern -- der Manager zeigte danach eine Zeile mit
+        # ``exists=False`` auf den alten Namen. Gelingt die Karte nicht, wird
+        # die Datei deshalb zurueckbenannt.
         try:
             new_path = rename_pdf(render.pdf_path, new_name.strip())
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "PDF Manager", str(exc))
+            return
+        try:
             update_render_fields(
                 self._book(),
                 render.snapshot_id,
                 render.id,
                 {"artifact_path": str(new_path)},
             )
-            self._on_snapshot_changed(self.snapshot_combo.currentIndex())
         except (OSError, ValueError) as exc:
-            QMessageBox.critical(self, "PDF Manager", str(exc))
+            zurueck = self._rollback_rename(new_path, render.pdf_path)
+            QMessageBox.critical(
+                self,
+                "PDF Manager",
+                f"Die Karte konnte nicht fortgeschrieben werden:\n{exc}\n\n"
+                + (
+                    "Die Datei heißt wieder wie vorher."
+                    if zurueck
+                    else f"Achtung: Die Datei heißt jetzt {new_path.name}, "
+                    "die Karte kennt den alten Namen."
+                ),
+            )
+        self._on_snapshot_changed(self.snapshot_combo.currentIndex())
+
+    def _rollback_rename(self, neu: Path, alt: Path) -> bool:
+        """Ein Umbenennen zuruecknehmen; meldet, ob das gelungen ist."""
+        try:
+            neu.rename(alt)
+        except OSError:
+            _LOG.warning("Rueckbenennen von %s nach %s gescheitert", neu, alt)
+            return False
+        return True
 
     def _configured_deploy_folder(self) -> str:
         import app_config as _app_config
@@ -1001,18 +1030,30 @@ class MappingManagerQtDialog(QDialog):
 
         errors = []
         for render in renders:
+            name = render.pdf_name or render.id
             try:
                 if render.exists:
                     delete_pdf(render.pdf_path)
-                if (
-                    delete_sources
-                    and render.source_archive_path is not None
-                    and render.source_archive_path.is_dir()
-                ):
+            except (OSError, ValueError) as exc:
+                # Die PDF liegt noch da -- der Eintrag bleibt richtig.
+                errors.append(f"{name}: {exc}")
+                continue
+            # Ab hier ist die PDF weg. Ein Fehler am Quellarchiv darf den
+            # Karteneintrag nicht mehr aufhalten, sonst zeigt der Manager
+            # weiter auf eine geloeschte Datei.
+            if (
+                delete_sources
+                and render.source_archive_path is not None
+                and render.source_archive_path.is_dir()
+            ):
+                try:
                     delete_source_archive(render.source_archive_path)
+                except (OSError, ValueError) as exc:
+                    errors.append(f"{name} (Quellstand): {exc}")
+            try:
                 remove_render(self._book(), render.snapshot_id, render.id)
             except (OSError, ValueError) as exc:
-                errors.append(f"{render.pdf_name or render.id}: {exc}")
+                errors.append(f"{name} (Karte): {exc}")
         self._on_snapshot_changed(self.snapshot_combo.currentIndex())
         if errors:
             QMessageBox.critical(self, "PDF Manager", "\n".join(errors))

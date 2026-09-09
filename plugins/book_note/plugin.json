@@ -6,6 +6,6 @@
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 91,
+  "order": 22,
   "help_text": "Links die Buchprojekte, rechts die Notiz dazu; ein 📝 zeigt, wo schon etwas steht. Gespeichert wird beim Wechsel des Buches und beim Schließen — der Knopf sagt nur, dass etwas offen ist. Die Notiz liegt im Buch selbst unter bookconfig/notiz.md als reiner Text: Sie wandert mit, wenn ein Band kopiert oder gesichert wird, und GrammarGraph öffnet dieselbe Datei über »Buchnotiz…«. Nicht zu verwechseln mit dem Memo-Block, der bewusst zu keinem Buch gehört."
 }

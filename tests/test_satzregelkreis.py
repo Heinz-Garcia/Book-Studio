@@ -14,6 +14,7 @@ import pytest
 from tools.satzpruefer.rules import Befund
 from tools.satzregelkreis import bericht
 from tools.satzregelkreis.grenzen import STANDARD as GRENZEN
+from tools.satzregelkreis import schleife as schleife_modul
 from tools.satzregelkreis.schleife import fahre_regelkreis
 from tools.satzregelkreis.vorlage import (
     BLOCK_START,
@@ -371,3 +372,70 @@ class TestGesenkteDimensionen:
         alt = Groessen({2: 13.0}, tabelle=11.0)
         groesser = Groessen({2: 14.0}, tabelle=12.0)
         assert _gesenkte_dimensionen(groesser, alt) == set()
+
+
+class TestAbbruchgrundBleibtSichtbar:
+    """Das Zurueckschreiben der Vorlage darf keinen Abbruchgrund verdecken."""
+
+    def test_schreibfehler_verdeckt_die_urspruengliche_ausnahme_nicht(
+        self, monkeypatch, vorlage
+    ) -> None:
+        """Wer wegen eines Renderfehlers abbricht, soll den Renderfehler sehen.
+
+        Im ``finally`` von ``fahre_regelkreis()`` steht ein weiterer
+        ``schreibe()``-Aufruf. Wirft der (volle Platte, Datei
+        schreibgeschuetzt), ersetzte er bisher die urspruengliche Ausnahme --
+        und damit den eigentlichen Abbruchgrund.
+        """
+        u = _Laufumgebung([25, 8, 0])
+        echtes_schreiben = schleife_modul.schreibe
+
+        # Der Renderer faellt in der zweiten Iteration aus -- dann liegt schon
+        # eine Iteration vor, und das ``finally`` schreibt den besten Stand.
+        renders: list[int] = []
+
+        def _render(*_a, **_k) -> int:
+            renders.append(1)
+            u.renders = len(renders)  # ``messe`` liest den Zaehler mit
+            if len(renders) > 1:
+                raise RuntimeError("Renderer weg")
+            return 0
+
+        u.render = _render
+
+        # Die Schreibvorgaenge *in* der Schleife gelingen; erst der im
+        # ``finally`` scheitert.
+        schreibvorgaenge: list[int] = []
+
+        def _schreiben(*a, **k):
+            schreibvorgaenge.append(1)
+            if len(schreibvorgaenge) > 2:
+                raise OSError("Platte voll")
+            return echtes_schreiben(*a, **k)
+
+        monkeypatch.setattr("tools.satzregelkreis.schleife.schreibe", _schreiben)
+        with pytest.raises(RuntimeError, match="Renderer weg"):
+            _fahre(monkeypatch, u, vorlage)
+        assert len(schreibvorgaenge) == 3, "das finally muss geschrieben haben"
+
+    def test_ohne_abbruch_geht_der_schreibfehler_hinaus(
+        self, monkeypatch, vorlage
+    ) -> None:
+        """Lief die Schleife durch, ist der Schreibfehler das Einzige, was fehlt.
+
+        Er darf dann nicht stillschweigend im Log verschwinden: Die Vorlage
+        traegt sonst nicht den besten Stand, und niemand erfaehrt es.
+        """
+        u = _Laufumgebung([0])
+        echtes_schreiben = schleife_modul.schreibe
+        aufrufe: list[int] = []
+
+        def _spaeter_kracht(*a, **k):
+            aufrufe.append(1)
+            if len(aufrufe) > 1:  # der Aufruf im ``finally``
+                raise OSError("Platte voll")
+            return echtes_schreiben(*a, **k)
+
+        monkeypatch.setattr("tools.satzregelkreis.schleife.schreibe", _spaeter_kracht)
+        with pytest.raises(OSError, match="Platte voll"):
+            _fahre(monkeypatch, u, vorlage)

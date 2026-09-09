@@ -29,7 +29,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from tools.doclayout.registry import build_registry
+from tools.doclayout.registry import build_registry, load_library_definitions
 from tools.doclayout.schema import ParagraphStyle
 from tools.doclayout.usage import (
     QUARTO_BUILTIN_CLASSES,
@@ -251,6 +251,8 @@ class MarkupInventory:
 
 def _collect_appearance(
     library_dir: Optional[Path | str] = None,
+    *,
+    definitions: Optional[list] = None,
 ) -> dict[str, tuple[Optional[bool], str]]:
     """Je Klasse: traegt ihr Format Gestaltung, und welche.
 
@@ -258,16 +260,15 @@ def _collect_appearance(
     Layouts unterschiedlich aussehen. Sind sich die Layouts nicht einig, sagt
     die Auskunft das (``UNEINHEITLICH``), statt eine der Fassungen zur
     Wahrheit zu erklaeren.
-    """
-    from tools.doclayout.library import available_layouts
-    from tools.doclayout.schema import LayoutDefinition, LayoutError
 
+    ``definitions`` nimmt eine bereits gelesene Bibliothek entgegen; ohne das
+    las das Inventar dieselben Layouts ein zweites Mal von Platte.
+    """
+    geladen = (
+        definitions if definitions is not None else load_library_definitions(library_dir)
+    )
     gesammelt: dict[str, set[str]] = {}
-    for pfad in available_layouts(library_dir):
-        try:
-            definition = LayoutDefinition.load(pfad)
-        except (LayoutError, OSError):
-            continue
+    for definition in geladen:
         for klasse, style_id in definition.classmap.items():
             style = definition.styles.get(style_id)
             beschreibung = describe_paragraph_style(style) if style is not None else ""
@@ -307,9 +308,12 @@ def build_markup_inventory(
     gemeldet = read_generator_classes(root)
     generator_counts: dict[str, int] = dict(gemeldet.counts) if gemeldet else {}
 
-    registry = build_registry(library_dir)
+    # Einmal lesen, zweimal auswerten: Verzeichnis und Aussehen kommen aus
+    # denselben Layout-Dateien.
+    definitionen = load_library_definitions(library_dir)
+    registry = build_registry(library_dir, definitions=definitionen)
     klassen: dict[str, dict] = registry.get("classes", {})
-    aussehen = _collect_appearance(library_dir)
+    aussehen = _collect_appearance(library_dir, definitions=definitionen)
 
     namen = set(gueltig) | set(generator_counts) | set(klassen)
     rows: list[MarkupRow] = []

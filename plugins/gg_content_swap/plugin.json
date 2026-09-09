@@ -6,6 +6,6 @@
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 28,
+  "order": 4,
   "help_text": "Ein Klick: „Export übernehmen…“ → Publish_*-Ordner wählen. Automatisch: Payload-Body, Anzeigename, Erstellungsprotokoll, publish_meta, Provenance, Bilder. Nie die Publish-Sammelmappe."
 }

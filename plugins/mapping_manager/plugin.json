@@ -6,6 +6,6 @@
   "version": "1.2.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 25,
+  "order": 17,
   "help_text": "Eine Zeile je gerendertes PDF des gewählten Snapshots (Import-/Produktionslinie). Anzeigename umbenennen, öffnen, Explorer, Deploy; Quellarchiv wiederherstellen oder löschen — Löschen aktualisiert publish_map.json. Dauerhafte Kopien unter export/publish_renders/ (nicht die überschriebene Convenience-Kopie export/_book). Mehrfachauswahl für Sammelaktionen. Fertige Ausgaben gehören hierher, nicht unter „Generierte Bücher“."
 }

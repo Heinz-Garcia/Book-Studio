@@ -6,6 +6,6 @@
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 90,
+  "order": 21,
   "help_text": "Ein Fenster, eine Notiz. Kein Buchbezug, keine Historie, keine Ordner — wer beim Arbeiten etwas festhalten will, soll nicht erst entscheiden müssen, wohin es gehört. Das Fenster bleibt neben dem Studio offen, merkt sich seine Größe und sichert beim Schließen von selbst. Abgelegt in tools/memo_pad/memo.json (nicht versioniert)."
 }

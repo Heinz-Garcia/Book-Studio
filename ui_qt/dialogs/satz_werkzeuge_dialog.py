@@ -57,7 +57,7 @@ class SatzWerkzeugeQtDialog(QDialog):
     def __init__(self, parent: Optional[QWidget], *, buch: Path,
                  pdf: Optional[Path], layout_profil: Optional[str]) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Satzprüfung & Regelkreis")
+        self.setWindowTitle("Satzprüfung und Regelkreis")
         self.resize(860, 620)
         self._buch = buch
         self._pdf = pdf
@@ -295,7 +295,7 @@ def open_satz_werkzeuge_qt(studio: Any, parent: Optional[QWidget] = None,
     """Einstieg aus dem Plugin: aktives Buch ermitteln, Dialog öffnen."""
     buch = getattr(studio, "current_book", None)
     if not buch:
-        QMessageBox.warning(parent, "Satzprüfung & Regelkreis",
+        QMessageBox.warning(parent, "Satzprüfung und Regelkreis",
                             "Kein Buchprojekt aktiv.")
         return
     buch = Path(buch)

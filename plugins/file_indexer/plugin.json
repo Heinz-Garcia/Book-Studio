@@ -6,6 +6,6 @@
   "version": "2.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 40,
+  "order": 23,
   "help_text": "Eine Zeile je Kapitel, in der Reihenfolge, in der das Buch gelesen wird: Nummer, Datei, Titel aus dem Frontmatter, Wörter und Zeichen. Die Reihenfolge kommt aus book.chapters in _quarto.yml, nie aus dem Dateisystem; fehlt sie dort, bleibt die Spalte NR leer und der Dialog sagt es an. Manuskriptdateien, die nicht in _quarto.yml stehen, erscheinen am Ende mit IN_QUARTO=nein. Die CSV liegt unter <Buchprojekt>/export/kapitelliste.csv, Trennzeichen Semikolon, utf-8 mit BOM – damit Excel die Umlaute nicht zerlegt. Das ist ein Export, keine Prüfung: Verwaiste Dateien prüft der Buch-Doktor, Textauszeichnungen das Textauszeichnungs-Inventar. Ohne Oberfläche: python -m tools.chapter_list --book <Buchprojekt> [--out <Datei>]"
 }

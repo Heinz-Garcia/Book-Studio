@@ -167,12 +167,25 @@ class BookNoteDialog(QDialog):
             )
             return
 
-        ziel = 0
+        # Ist das aktive Buch nicht im Katalog, wurde bisher wortlos das
+        # *erste* Buch der Liste geoeffnet -- der Dialog zeigte dann die Notiz
+        # eines fremden Bandes, und nur die Ueberschrift verriet es. Jetzt
+        # bleibt die Auswahl leer und die Statuszeile sagt, warum.
+        ziel = -1
         if select is not None:
             ziel = next(
-                (i for i, b in enumerate(self._books) if b == Path(select)), 0
+                (i for i, b in enumerate(self._books) if b == Path(select)), -1
             )
-        self.book_list.setCurrentRow(ziel)
+        if ziel < 0 and select is not None:
+            self.book_list.setCurrentRow(-1)
+            self.editor.setEnabled(False)
+            self.book_label.setText(f"{Path(select).name} — nicht in der Buchliste")
+            self.status_label.setText(
+                "Das aktive Buch steht nicht in der Liste. "
+                "Bitte links ein Buch wählen."
+            )
+            return
+        self.book_list.setCurrentRow(max(ziel, 0))
 
     def _refresh_marker(self, buch: Path) -> None:
         """Zieht das 📝 eines Buches nach, ohne die Auswahl zu verlieren."""
@@ -367,8 +380,10 @@ def open_book_note_qt(
         books=_discover_books(studio),
         select=Path(auswahl) if auswahl else None,
     )
-    dialog.exec()
-    return 0
+    # Rueckgabe des Dialogs statt fest ``0``: Der Adapter deklariert ``-> int``,
+    # und ein abgebrochenes Fenster soll nicht wie ein erfolgreicher Lauf
+    # aussehen.
+    return int(dialog.exec())
 
 
 __all__ = ["BookNoteDialog", "open_book_note_qt"]

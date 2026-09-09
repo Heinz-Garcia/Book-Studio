@@ -23,6 +23,21 @@ rich>=13.0
 # KDP Wrap-Cover-Export (tools/kdp_cover)
 Pillow>=10.0.0
 
+# PDF lesen. Harte Abhängigkeit, kein Kann: tools/publisher_compliance/
+# validators.py und tools/satzpruefer/extract.py importieren ``fitz`` ungeschützt
+# im Modulkopf. Fehlt das Paket, lassen sich vier Testmodule nicht einmal
+# einsammeln und der ganze pytest-Lauf bricht ab -- die Plugins "Druck-Freigabe
+# prüfen" und "Satzprüfung & Regelkreis" starten dann gar nicht erst.
+# Benutzt werden nur fitz.open, fitz.Document und fitz.Page; die Untergrenze ist
+# entsprechend konservativ gewählt.
+PyMuPDF>=1.23
+
+# Zahlen-Arrays. Bisher nur zufällig da: stylecloud und spacy ziehen numpy als
+# eigene Abhängigkeit mit. tools/breathcloud/engine.py, tools/stylecloud/
+# mask_image.py und must_word.py importieren es aber selbst und ungeschützt --
+# fiele es aus einer der beiden Ketten heraus, brächen sie ohne Vorwarnung.
+numpy>=1.26
+
 # Cover-Schlagwortwolken (plugins/stylecloud → tools/stylecloud)
 # stylecloud nutzt noch pkg_resources → setuptools <82
 stylecloud>=0.5.2

@@ -115,11 +115,16 @@ def _resolve_font(font_size: int, font_path: Path | None) -> ImageFont.ImageFont
     candidates: list[Path] = []
     if font_path is not None:
         candidates.append(Path(font_path))
+    # Die mitgelieferte Schrift ist ein *Zusatzkandidat*, keine Voraussetzung:
+    # Fehlt das ``stylecloud``-Paket oder hat es diese Konstante nicht mehr,
+    # greift weiter unten der Rueckfall auf die Vorgabeschrift. Deshalb
+    # ausdruecklich nur diese beiden Faelle -- ein nacktes ``except Exception``
+    # verschluckte hier auch echte Fehler (AGENTS.md).
     try:
         from stylecloud.stylecloud import STATIC_PATH
 
         candidates.append(Path(STATIC_PATH) / "Staatliches-Regular.ttf")
-    except Exception:
+    except (ImportError, AttributeError):
         pass
     for candidate in candidates:
         if candidate.is_file():

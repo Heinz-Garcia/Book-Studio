@@ -36,11 +36,24 @@ class TestGruppendefinition:
         assert sichtbar <= einsortiert, f"ohne Gruppe: {sorted(sichtbar - einsortiert)}"
 
     def test_layoutwerkzeuge_stehen_beisammen(self) -> None:
-        """Editor, Assistent und Inventar sind drei Sichten auf dieselbe Sache."""
+        """Editor, Assistent, Inventar und Satz gehören zum Layout-Arbeitsweg."""
         gruppe = next(
             g for g in _PLUGIN_GROUPS if "doclayout_editor" in g
         )
-        assert {"doclayout_wizard", "markup_inventory"} <= set(gruppe)
+        assert {
+            "doclayout_wizard",
+            "markup_inventory",
+            "satz_werkzeuge",
+        } <= set(gruppe)
+
+    def test_kapitelliste_ist_eigene_gruppe(self) -> None:
+        """Trennstrich oberhalb von Kapitelliste — getrennt von Notizen."""
+        assert ("file_indexer",) in _PLUGIN_GROUPS
+        notizen = next(g for g in _PLUGIN_GROUPS if "memo_pad" in g)
+        assert "file_indexer" not in notizen
+        assert "satz_werkzeuge" not in next(
+            g for g in _PLUGIN_GROUPS if "gg_content_swap" in g
+        )
 
 
 @pytest.mark.gui
@@ -83,3 +96,29 @@ class TestMenueaufbau:
         buecher = next(i for i, t in enumerate(texte) if "Bücher verwalten" in t)
         skeleton = next(i for i, t in enumerate(texte) if "Skeleton ins Buch" in t)
         assert buecher < skeleton
+
+    def test_satzpruefung_steht_bei_layout(self, menu) -> None:
+        texte = [a.text() for a in menu.actions() if not a.isSeparator()]
+        layout = next(i for i, t in enumerate(texte) if "Layout-Editor" in t)
+        satz = next(i for i, t in enumerate(texte) if "Satzprüfung" in t)
+        inventar = next(i for i, t in enumerate(texte) if "Textauszeichnungs" in t)
+        assert layout < satz
+        assert inventar < satz
+        assert "&" not in texte[satz]
+        assert "_" not in texte[satz].replace("…", "")
+        assert "und Regelkreis" in texte[satz]
+
+    def test_trennstrich_vor_kapitelliste(self, menu) -> None:
+        aktionen = list(menu.actions())
+        kap_idx = next(
+            i for i, a in enumerate(aktionen) if "Kapitelliste" in a.text()
+        )
+        assert kap_idx > 0
+        assert aktionen[kap_idx - 1].isSeparator()
+
+    def test_plugin_aktionen_tragen_magenta_badge(self, menu) -> None:
+        for action in menu.actions():
+            if action.isSeparator():
+                continue
+            assert not action.icon().isNull(), action.text()
+            assert "Autonomes Plugin" in (action.toolTip() or "")

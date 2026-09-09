@@ -41,9 +41,16 @@ def _latest_render(data: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _read_pdf_record(
-    book_studio_repo: Path,
     render: dict[str, Any] | None,
+    tool: Any,
 ) -> PdfRecord | None:
+    """Den PDF-Stand eines Renders lesen; ``tool`` ist das aufgeloeste ExifTool.
+
+    Das Werkzeug kommt von aussen herein, statt hier ermittelt zu werden:
+    Vorher las diese Funktion je Buch ``app_config.json`` neu und suchte die
+    Binaerdatei erneut im PATH -- bei 20 Buechern zwanzigmal pro Dialogaufruf,
+    fuer eine Antwort, die sich waehrend eines Scans nicht aendert.
+    """
     if not isinstance(render, dict):
         return None
     artifact = str(render.get("artifact_path") or "").strip()
@@ -51,8 +58,6 @@ def _read_pdf_record(
         return None
     path = Path(artifact)
     exists = path.is_file()
-    configured = _configured_exiftool_path(book_studio_repo)
-    tool = resolve_exiftool(configured)
     pdf_uuid = ""
     verified = False
     if exists and tool is not None:
@@ -74,6 +79,9 @@ def _read_pdf_record(
 def scan_books(*, book_studio_repo: Path) -> list[BookRecord]:
     """Liest Bücher mit UUID und letztem Render."""
     records: list[BookRecord] = []
+    # Einmal je Scan: Konfiguration und ExifTool-Pfad aendern sich waehrend
+    # eines Durchlaufs nicht.
+    tool = resolve_exiftool(_configured_exiftool_path(book_studio_repo))
     for info in list_books(repo=book_studio_repo):
         uid = read_book_uuid(info.path)
         if not uid:
@@ -92,7 +100,7 @@ def scan_books(*, book_studio_repo: Path) -> list[BookRecord]:
                 import_path=str(prov.get("import_path") or ""),
                 source_kind=str(prov.get("source") or ""),
                 market_variant=str(prov.get("market_variant") or "").strip().lower(),
-                pdf=_read_pdf_record(book_studio_repo, latest),
+                pdf=_read_pdf_record(latest, tool),
             )
         )
     return records
