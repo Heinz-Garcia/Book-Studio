@@ -276,11 +276,34 @@ def test_export_aborts_on_validation_error(tmp_path: Path):
         paper_type_id="white_bw",
         trim_width_mm=135.0,
         trim_height_mm=215.0,
-        front_image="",  # fehlt
+        front_image="",
+        front_color="not-a-color",
         title="X",
     )
     with pytest.raises(ValueError, match="Validierung"):
         export_wrap_pdf(layout, tmp_path / "x.pdf", resolve_base=tmp_path)
+
+
+def test_export_allows_front_color_without_image(tmp_path: Path):
+    """Reine Front-Farbe reicht — kein Vorderseiten-Bild nötig."""
+    layout = CoverLayout(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image="",
+        front_color="#1e3a5f",
+        title="Farbe allein",
+    )
+    from tools.kdp_cover.validate import validate_layout
+
+    report = validate_layout(layout, resolve_base=tmp_path)
+    assert not any(i.code == "front_image_missing" for i in report.errors)
+    assert report.ok_for_safe_export
+    pdf = tmp_path / "color_only.pdf"
+    path, rep = export_wrap_pdf(layout, pdf, resolve_base=tmp_path)
+    assert path.is_file()
+    assert rep.ok_for_safe_export
 
 
 def test_spine_badge_roundtrip_json(tmp_path: Path):
@@ -611,3 +634,17 @@ def test_kdp_settings_window_geometry_roundtrip(tmp_path: Path):
     save_settings({"window_width": 1500, "window_height": 880}, path)
     loaded4 = load_settings(path)
     assert resolve_uuid_picker_window_size(loaded4) == (1334, 571)
+
+    from tools.kdp_cover.settings import (
+        DEFAULT_BODY_SPLITTER_SIZES,
+        resolve_body_splitter_sizes,
+    )
+
+    assert resolve_body_splitter_sizes({}) == DEFAULT_BODY_SPLITTER_SIZES
+    save_settings({"body_splitter_sizes": [500, 1000]}, path)
+    loaded5 = load_settings(path)
+    assert resolve_body_splitter_sizes(loaded5) == [500, 1000]
+    # Unbrauchbare Werte → Default
+    assert resolve_body_splitter_sizes({"body_splitter_sizes": ["x"]}) == (
+        DEFAULT_BODY_SPLITTER_SIZES
+    )

@@ -307,11 +307,10 @@ def test_open_gg_content_swap_qt_ohne_buch_zeigt_hinweis(monkeypatch, tmp_path):
     from ui_qt.dialogs import gg_content_swap_dialog as mod
 
     QApplication.instance() or QApplication([])
-    gezeigt: list[str] = []
+    warned: list[str] = []
     monkeypatch.setattr(
-        mod.QMessageBox,
-        "information",
-        lambda *a, **k: gezeigt.append(str(a[2] if len(a) > 2 else "")),
+        "ui_qt.work_path_guidance.warn_need_book",
+        lambda parent, **kw: warned.append(str(kw.get("title") or "")),
     )
     execs: list[int] = []
     monkeypatch.setattr(
@@ -320,5 +319,5 @@ def test_open_gg_content_swap_qt_ohne_buch_zeigt_hinweis(monkeypatch, tmp_path):
         lambda self: execs.append(1) or 0,
     )
     mod.open_gg_content_swap_qt(SimpleNamespace(current_book=None), parent=None)
-    assert gezeigt and "buch" in gezeigt[0].lower()
+    assert warned
     assert execs == []

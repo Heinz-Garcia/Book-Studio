@@ -81,8 +81,15 @@ from tools.stylecloud.preset_store import (
 )
 from tools.stylecloud.settings import load_settings, resolve_window_size, save_settings
 from tools.stylecloud.text_sources import collect_book_text, default_output_path
+from ui_qt.autonomous_window import (
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.dialogs.stylecloud_preset_manager_dialog import StylecloudPresetManagerDialog
 from ui_qt.widgets.help_bar import HelpBar
+
+_active: list["StylecloudQtDialog"] = []
 
 
 class _GenerateWorker(QThread):
@@ -172,7 +179,7 @@ def _hrow(
 
 class StylecloudQtDialog(QDialog):
     def __init__(self, studio: Any, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self._studio = studio
         self._preview_pixmap: QPixmap | None = None
         self._worker: _GenerateWorker | None = None
@@ -697,6 +704,9 @@ class StylecloudQtDialog(QDialog):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(row, tool_key="stylecloud", host=self)
         self.btn_factory_freeform = QPushButton(FACTORY_FREEFORM_PRESET_NAME)
         self.btn_factory_freeform.setToolTip(
             "Ein Klick: Freie Form (Hub), Cover DE Paperback, Farbverlauf.\n"
@@ -770,6 +780,7 @@ class StylecloudQtDialog(QDialog):
         self.max_font.valueChanged.connect(self._persist_font_size_immediately)
         self.output_path.textChanged.connect(lambda *_a: self._update_handoff_button())
         self._update_handoff_button()
+        prepare_autonomous_window(self, parent)
 
     def _make_hub_swatch(self, hex_color: str) -> QPushButton:
         """Flat color button → QColorDialog for hub gradient stops."""
@@ -1573,6 +1584,7 @@ class StylecloudQtDialog(QDialog):
         if apply_geometry:
             width, height = resolve_window_size(data)
             self.resize(width, height)
+            self._loaded_size = (width, height)
 
         mode = str(data.get("source_mode") or "book")
         _set_combo_by_data(self.source_combo, mode)
@@ -2192,6 +2204,9 @@ def open_stylecloud_qt(
     *,
     force_hub: bool = False,
 ) -> None:
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return
     dialog = StylecloudQtDialog(studio, parent)
     if force_hub:
         if not _set_combo_by_data(dialog.icon_combo, ICON_HUB):
@@ -2200,4 +2215,4 @@ def open_stylecloud_qt(
         dialog.status.setText(
             "Freie Form (Hub) — Kernwort setzen, Text laden, Wolke erzeugen."
         )
-    dialog.exec()
+    show_autonomous_window(dialog, _active)

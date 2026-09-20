@@ -55,6 +55,7 @@ styles:
     next: BodyText
     size_pt: 13.0
     color: accent
+    align: left
     space_before_pt: 3.0
     space_after_pt: 12.0
     line_height: 1.1
@@ -93,8 +94,79 @@ styles:
     name: Fachtext
     based_on: BodyText
     next: Fachtext
+    align: justify
+    language: de-DE
     space_before_pt: 0.0
     space_after_pt: 7.0
+  KeyTakeaway:
+    name: KeyTakeaway
+    based_on: BodyText
+    next: BodyText
+    align: left
+    language: de-DE
+    shading: D5D5D5
+    space_before_pt: 4.0
+    space_after_pt: 4.0
+    borders:
+      bottom:
+        width_pt: 1.5
+        color: '000000'
+        space_pt: 3.0
+        style: single
+      left:
+        width_pt: 1.5
+        color: '000000'
+        space_pt: 3.0
+        style: single
+      right:
+        width_pt: 1.5
+        color: '000000'
+        space_pt: 3.0
+        style: single
+      top:
+        width_pt: 1.5
+        color: '000000'
+        space_pt: 3.5
+        style: single
+  Spanisch:
+    name: Spanisch
+    based_on: KeyTakeaway
+    next: BodyText
+    align: left
+    language: es-ES
+    shading: FFAAFF
+    space_before_pt: 4.0
+    space_after_pt: 4.0
+  Callout:
+    name: Callout
+    based_on: BodyText
+    next: BodyText
+    align: left
+    language: de-DE
+    shading: fill
+    space_before_pt: 12.0
+    space_after_pt: 12.0
+    borders:
+      bottom:
+        width_pt: 0.75
+        color: accent2
+        space_pt: 4.0
+        style: single
+      left:
+        width_pt: 2.25
+        color: accent
+        space_pt: 4.0
+        style: single
+      right:
+        width_pt: 0.75
+        color: accent2
+        space_pt: 4.0
+        style: single
+      top:
+        width_pt: 0.75
+        color: accent2
+        space_pt: 4.0
+        style: single
   Prompt-Trenner:
     name: Prompt-Trenner
     next: Prompt-Frage
@@ -106,25 +178,6 @@ styles:
     space_after_pt: 6.0
     line_height: 1.0
     keep_next: true
-  Themenblock:
-    name: Themenblock
-    based_on: Heading2
-    next: BodyText
-    size_pt: 20.0
-    color: accent
-    space_before_pt: 0.0
-    space_after_pt: 16.0
-    outline_level: 0
-    bold: true
-    keep_next: true
-    keep_lines: true
-    page_break_before: true
-    borders:
-      bottom:
-        width_pt: 1.5
-        color: accent2
-        space_pt: 3.0
-        style: single
   TOC1:
     size_pt: 12.0
     color: accent
@@ -136,6 +189,7 @@ styles:
     based_on: Normal
     next: BodyText
     align: justify
+    language: de-DE
     space_before_pt: 0.0
     space_after_pt: 3.0
     line_height: 1.2
@@ -143,6 +197,7 @@ styles:
     name: Erster Absatz
     based_on: BodyText
     next: BodyText
+    language: de-DE
   Heading1:
     name: Überschrift 1
     based_on: Normal
@@ -241,4 +296,11 @@ classmap:
   fachtext: Fachtext
   prompt: Prompt-Frage
   prompt-separator: Prompt-Trenner
-  themenblock: Themenblock
+  spanisch: Spanisch
+  key-takeaway: KeyTakeaway
+  callout: Callout
+  callout-tip: Callout
+  callout-note: Callout
+  callout-warning: Callout
+  callout-caution: Callout
+  callout-important: Callout

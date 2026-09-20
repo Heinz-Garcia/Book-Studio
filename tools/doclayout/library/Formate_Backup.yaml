@@ -4,25 +4,25 @@ description: 'Layout der IFJN-Bände: Prompt-Frage im Kasten mit Akzentbalken, T
   dreistufiges Inhaltsverzeichnis. Übernommen aus der Layout-Reparatur layout_fix.py, dort in Twips und
   Halbpunkten notiert.'
 page:
-  width_mm: 210.0
-  height_mm: 297.0
-  mirrored: false
+  width_mm: 135.0
+  height_mm: 215.0
+  mirrored: true
   margin:
-    top_mm: 20.0
+    top_mm: 19.0
     bottom_mm: 20.0
-    inner_mm: 25.0
-    outer_mm: 20.0
+    inner_mm: 20.0
+    outer_mm: 16.0
   header_distance_mm: 12.5
   footer_distance_mm: 12.5
   footer:
     page_number: true
     align: center
 typography:
-  body_font: Calibri
-  heading_font: ''
+  body_font: Cambria
+  heading_font: Calibri
   mono_font: Consolas
   base_size_pt: 11.0
-  line_height: 1.15
+  line_height: 1.2
   language: de-DE
   hyphenation: true
   hyphenation_zone_mm: 5.0
@@ -98,8 +98,13 @@ styles:
     keep_next: true
     keep_lines: true
   BodyText:
+    name: Fließtext
+    based_on: Normal
+    next: BodyText
+    align: justify
     space_before_pt: 0.0
     space_after_pt: 7.0
+    line_height: 1.2
   FirstParagraph:
     based_on: BodyText
     space_before_pt: 0.0
@@ -173,6 +178,7 @@ styles:
     name: Fachtext
     based_on: BodyText
     next: Fachtext
+    align: justify
     space_before_pt: 0.0
     space_after_pt: 7.0
   Prompt-Trenner:
@@ -186,25 +192,6 @@ styles:
     space_after_pt: 6.0
     line_height: 1.0
     keep_next: true
-  Themenblock:
-    name: Themenblock
-    based_on: Heading2
-    next: BodyText
-    size_pt: 20.0
-    color: accent
-    space_before_pt: 0.0
-    space_after_pt: 16.0
-    outline_level: 0
-    bold: true
-    keep_next: true
-    keep_lines: true
-    page_break_before: true
-    borders:
-      bottom:
-        width_pt: 1.5
-        color: accent2
-        space_pt: 3.0
-        style: single
   TOC1:
     size_pt: 12.0
     color: accent
@@ -243,8 +230,77 @@ styles:
     space_before_pt: 0.0
     space_after_pt: 0.0
     line_height: 1.0
+  KeyTakeaway:
+    name: KeyTakeaway
+    based_on: BodyText
+    align: left
+    language: de-DE
+    shading: D5D5D5
+    borders:
+      bottom:
+        width_pt: 1.5
+        color: '000000'
+        space_pt: 3.0
+        style: single
+      left:
+        width_pt: 1.5
+        color: '000000'
+        space_pt: 3.0
+        style: single
+      right:
+        width_pt: 1.5
+        color: '000000'
+        space_pt: 3.0
+        style: single
+      top:
+        width_pt: 1.5
+        color: '000000'
+        space_pt: 3.5
+        style: single
+  Spanisch:
+    name: Spanisch
+    based_on: KeyTakeaway
+    align: left
+    language: es-ES
+    shading: FFAAFF
+  Callout:
+    name: Callout
+    based_on: BodyText
+    align: left
+    language: de-DE
+    shading: EEF3F9
+    space_before_pt: 8.0
+    space_after_pt: 8.0
+    borders:
+      bottom:
+        width_pt: 0.75
+        color: accent2
+        space_pt: 4.0
+        style: single
+      left:
+        width_pt: 2.25
+        color: accent
+        space_pt: 4.0
+        style: single
+      right:
+        width_pt: 0.75
+        color: accent2
+        space_pt: 4.0
+        style: single
+      top:
+        width_pt: 0.75
+        color: accent2
+        space_pt: 4.0
+        style: single
 classmap:
   fachtext: Fachtext
+  key-takeaway: KeyTakeaway
   prompt: Prompt-Frage
   prompt-separator: Prompt-Trenner
-  themenblock: Themenblock
+  spanisch: Spanisch
+  callout: Callout
+  callout-tip: Callout
+  callout-note: Callout
+  callout-warning: Callout
+  callout-caution: Callout
+  callout-important: Callout

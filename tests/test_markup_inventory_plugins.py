@@ -261,7 +261,7 @@ class TestZeilenaktionen:
         d.deleteLater()
 
     def _zeile_von(self, dialog, name: str) -> int:
-        for i, row in enumerate(dialog.inventory.rows):
+        for i, row in enumerate(dialog._display_rows):
             if row.name == name:
                 return i
         raise AssertionError(f"{name} nicht in der Tabelle")
@@ -321,3 +321,125 @@ class TestZeilenaktionen:
         (dialog._book_path / zeile.files[0]).unlink()
         dialog._fundstelle_oeffnen(zeile)
         assert gewarnt and "nicht gefunden" in gewarnt[0]
+
+
+@pytest.mark.gui
+class TestFocusGaps:
+    """Arbeitsweg: Lücken zuerst, CTA zum Layout-Editor."""
+
+    @pytest.fixture(scope="class")
+    def qapp(self):
+        pytest.importorskip("PySide6")
+        from PySide6.QtWidgets import QApplication
+
+        yield QApplication.instance() or QApplication([])
+
+    @pytest.fixture()
+    def buch(self, tmp_path: Path) -> Path:
+        root = tmp_path / "buch"
+        (root / "content").mkdir(parents=True)
+        (root / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+        # ``spanisch`` ohne Vorlage; ``prompt`` hat Vorlage in der Bibliothek.
+        (root / "content" / "k.qmd").write_text(
+            "::: {.spanisch}\nUrgencias\n:::\n\n::: {.prompt}\nFrage?\n:::\n",
+            encoding="utf-8",
+        )
+        return root
+
+    def test_focus_gaps_stellt_ohne_vorlage_nach_oben(self, qapp, buch: Path) -> None:
+        from tools.doclayout.markup_inventory import Verdict
+        from ui_qt.dialogs.doclayout_markup_inventory_dialog import MarkupInventoryDialog
+
+        dialog = MarkupInventoryDialog(buch, focus_gaps=True)
+        try:
+            assert dialog._display_rows
+            assert dialog._display_rows[0].verdict is Verdict.OHNE_VORLAGE
+            assert dialog._display_rows[0].name == "spanisch"
+            assert dialog.tabelle.currentRow() == 0
+            assert not dialog.btn_fehlende.isHidden()
+            assert "anlegen" in dialog.btn_fehlende.text().lower()
+        finally:
+            dialog.deleteLater()
+
+    def test_open_mit_focus_gaps_kwarg(self, qapp, buch: Path, monkeypatch) -> None:
+        from ui_qt.dialogs import doclayout_markup_inventory_dialog as modul
+
+        gesehen = {}
+
+        class FakeDialog:
+            def __init__(self, *a, **kw):
+                gesehen.update(kw)
+
+            def deleteLater(self):
+                pass
+
+        monkeypatch.setattr(modul, "MarkupInventoryDialog", FakeDialog)
+        monkeypatch.setattr(modul, "show_autonomous_window", lambda *a, **k: None)
+        monkeypatch.setattr(modul, "raise_if_open", lambda *a, **k: None)
+        modul.open_markup_inventory_qt(book_path=buch, focus_gaps=True)
+        assert gesehen.get("focus_gaps") is True
+
+    def test_fehlende_cta_oeffnet_editor_mit_focus_unmapped(
+        self, qapp, buch: Path, monkeypatch
+    ) -> None:
+        from ui_qt.dialogs.doclayout_markup_inventory_dialog import MarkupInventoryDialog
+
+        gerufen = {}
+
+        def fake_open(**kwargs):
+            gerufen.update(kwargs)
+            return 0
+
+        dialog = MarkupInventoryDialog(buch, focus_gaps=True)
+        try:
+            monkeypatch.setattr(
+                "ui_qt.dialogs.doclayout_editor_dialog.open_doclayout_editor_qt",
+                fake_open,
+            )
+            dialog._fehlende_anlegen()
+            assert gerufen.get("focus_unmapped") is True
+            assert gerufen.get("return_after_apply") is True
+            assert Path(gerufen["book_path"]) == buch
+        finally:
+            dialog.deleteLater()
+
+    def test_zeilen_todo_button_oeffnet_editor_fuer_diese_klasse(
+        self, qapp, buch: Path, monkeypatch
+    ) -> None:
+        from tools.doclayout.markup_inventory import Verdict
+        from ui_qt.dialogs.doclayout_markup_inventory_dialog import (
+            MarkupInventoryDialog,
+            _SPALTE_ZU_TUN,
+        )
+
+        gerufen: dict = {}
+
+        def fake_open(**kwargs):
+            gerufen.clear()
+            gerufen.update(kwargs)
+            return 0
+
+        dialog = MarkupInventoryDialog(buch, focus_gaps=True)
+        try:
+            monkeypatch.setattr(
+                "ui_qt.dialogs.doclayout_editor_dialog.open_doclayout_editor_qt",
+                fake_open,
+            )
+            offen = [
+                i
+                for i, r in enumerate(dialog._display_rows)
+                if r.verdict is Verdict.OHNE_VORLAGE
+            ]
+            assert offen, "Testdaten brauchen eine Klasse ohne Vorlage"
+            zeile = offen[0]
+            row = dialog._display_rows[zeile]
+            widget = dialog.tabelle.cellWidget(zeile, _SPALTE_ZU_TUN)
+            assert widget is not None
+            buttons = widget.findChildren(type(dialog.btn_fehlende))
+            assert buttons, "Zu-tun-Zelle braucht einen Aktionsbutton"
+            buttons[0].click()
+            assert gerufen.get("focus_class") == row.name
+            assert gerufen.get("focus_unmapped") is True
+            assert gerufen.get("return_after_apply") is True
+        finally:
+            dialog.deleteLater()

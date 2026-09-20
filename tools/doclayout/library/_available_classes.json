@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-05T20:42:32",
+  "generated_at": "2026-09-20T15:52:34",
   "library": "C:\\Users\\RDP-Nutzer\\IDE\\Book_Studio_Unleashed\\tools\\doclayout\\library",
   "layouts": [
     "Formate_Backup",
@@ -10,12 +10,73 @@
     "Reisefuehrer_Andalusien"
   ],
   "names": [
+    "callout",
+    "callout-caution",
+    "callout-important",
+    "callout-note",
+    "callout-tip",
+    "callout-warning",
     "fachtext",
+    "key-takeaway",
     "prompt",
     "prompt-separator",
-    "themenblock"
+    "spanisch"
   ],
   "classes": {
+    "callout": {
+      "layouts": [
+        "Formate_Backup",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Callout"
+      ]
+    },
+    "callout-caution": {
+      "layouts": [
+        "Formate_Backup",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Callout"
+      ]
+    },
+    "callout-important": {
+      "layouts": [
+        "Formate_Backup",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Callout"
+      ]
+    },
+    "callout-note": {
+      "layouts": [
+        "Formate_Backup",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Callout"
+      ]
+    },
+    "callout-tip": {
+      "layouts": [
+        "Formate_Backup",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Callout"
+      ]
+    },
+    "callout-warning": {
+      "layouts": [
+        "Formate_Backup",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Callout"
+      ]
+    },
     "fachtext": {
       "layouts": [
         "Formate_Backup",
@@ -26,6 +87,15 @@
       ],
       "styles": [
         "Fachtext"
+      ]
+    },
+    "key-takeaway": {
+      "layouts": [
+        "Formate_Backup",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "KeyTakeaway"
       ]
     },
     "prompt": {
@@ -52,16 +122,13 @@
         "Prompt-Trenner"
       ]
     },
-    "themenblock": {
+    "spanisch": {
       "layouts": [
         "Formate_Backup",
-        "IFJN_Referenz",
-        "IFJN_layout",
-        "Prosa_Layout",
         "Reisefuehrer_Andalusien"
       ],
       "styles": [
-        "Themenblock"
+        "Spanisch"
       ]
     }
   }

@@ -114,6 +114,29 @@ class ExportManager:
             log=self._log,
         )
 
+    def _maybe_bundle_cover_deckblatt(self, interior_pdf_path: str) -> None:
+        """Side-by-side: Innenwerk + Cover-Vorderseite als ``*_mit_Deckblatt.pdf``."""
+        ctx = getattr(self, "_pending_render_context", None) or {}
+        if not ctx.get("bundle_cover_deckblatt"):
+            return
+        book = self._current_book()
+        if not book or not interior_pdf_path:
+            return
+        path = Path(interior_pdf_path)
+        if path.suffix.lower() != ".pdf" or not path.is_file():
+            return
+        try:
+            from services.cover_deckblatt_pdf import build_interior_with_cover_deckblatt
+        except ImportError:
+            return
+        bundled = build_interior_with_cover_deckblatt(
+            Path(book),
+            path,
+            log=self._log,
+        )
+        if bundled is not None:
+            self._apply_production_uuid_to_pdfs(str(bundled))
+
     def _set_status(self, text, fg):
         self._adapter.update_status(text, fg)
 
@@ -1087,6 +1110,9 @@ class ExportManager:
                 "pdf_stem": render_pdf_stem,
                 "market_variant": market_variant,
                 "render_channel": render_channel,
+                "bundle_cover_deckblatt": bool(
+                    selected.get("bundle_cover_deckblatt")
+                ),
             }
             profile = None
             try:
@@ -1503,6 +1529,7 @@ class ExportManager:
                     )
                     self._fire_after_render_hook(output_fmt, hook_path)
                     self._apply_production_uuid_to_pdfs(path, hook_path)
+                    self._maybe_bundle_cover_deckblatt(path)
                     self._run_publisher_compliance_guard(path)
                     notes = str(
                         (getattr(self, "_pending_render_context", None) or {}).get("notes")
@@ -1541,6 +1568,7 @@ class ExportManager:
                     )
                     self._fire_after_render_hook(output_fmt, hook_path)
                     self._apply_production_uuid_to_pdfs(hook_path)
+                    self._maybe_bundle_cover_deckblatt(hook_path)
                     self._run_publisher_compliance_guard(hook_path)
                     ui_hooks.ask_post_render_action(
                         artifact_path=hook_path or "",

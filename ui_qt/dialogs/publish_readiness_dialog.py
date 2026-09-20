@@ -18,23 +18,37 @@ from PySide6.QtWidgets import (
 
 from tools.publish_readiness.analysis import enrich_analysis
 from tools.publish_readiness.navigation import jump_to_issue
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.widgets.help_bar import HelpBar
+
+_SIZE_KEY = "publish_readiness_size"
+_DEFAULT_SIZE = (980, 520)
+_MIN_SIZE = (640, 360)
+_active: list[PublishReadinessQtDialog] = []
 
 
 class PublishReadinessQtDialog(QDialog):
     def __init__(
         self,
-        parent: Optional[QWidget],
+        host: Optional[QWidget],
         studio: Any,
         *,
         analysis: dict[str, Any],
         issues: list[dict[str, Any]],
     ) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self.studio = studio
         self._issues = issues
         self.setWindowTitle("Publish Readiness")
-        self.resize(980, 520)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
 
         healthy = bool(analysis.get("is_healthy"))
         status = "Bereit" if healthy else "Nicht bereit"
@@ -70,6 +84,9 @@ class PublishReadinessQtDialog(QDialog):
         layout.addWidget(self.table)
 
         row = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(row, tool_key="publish_readiness", host=self)
         jump = QPushButton("Zur Stelle…")
         jump.setToolTip("Öffnet die Datei des ausgewählten Befunds im Editor.")
         jump.clicked.connect(self._zur_stelle)
@@ -79,6 +96,11 @@ class PublishReadinessQtDialog(QDialog):
         close.clicked.connect(self.accept)
         row.addWidget(close)
         layout.addLayout(row)
+        prepare_autonomous_window(self, host)
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     def _ausgewaehlter_befund(self) -> Optional[dict[str, Any]]:
         row = self.table.currentRow()
@@ -98,7 +120,12 @@ class PublishReadinessQtDialog(QDialog):
 
 def open_publish_readiness_qt(studio: Any, parent: Optional[QWidget] = None, **kwargs) -> None:
     if not getattr(studio, "current_book", None):
-        QMessageBox.warning(parent, "Publish Readiness", "Kein Buchprojekt aktiv.")
+        from ui_qt.work_path_guidance import warn_need_book
+
+        warn_need_book(parent, title="Publish Readiness", studio=studio)
+        return
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
         return
     analysis = kwargs.get("analysis")
     if analysis is None:
@@ -111,4 +138,5 @@ def open_publish_readiness_qt(studio: Any, parent: Optional[QWidget] = None, **k
         QMessageBox.warning(parent, "Publish Readiness", "Buch-Doktor-Analyse nicht verfügbar.")
         return
     issues = enrich_analysis(analysis, studio=studio)
-    PublishReadinessQtDialog(parent, studio, analysis=analysis, issues=issues).exec()
+    dlg = PublishReadinessQtDialog(parent, studio, analysis=analysis, issues=issues)
+    show_autonomous_window(dlg, _active)

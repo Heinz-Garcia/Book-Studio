@@ -6,6 +6,28 @@ Wird über ``ui_qt.theme.apply_theme`` app-weit gesetzt.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+#: SVG-Pfeile fuer SpinBox (CSS-border-Dreiecke werden unter Windows oft zu Balken).
+_ICON_DIR = Path(__file__).resolve().parent / "icons"
+
+
+def _icon_url(name: str) -> str:
+    """Qt-Stylesheet-URL (forward slashes, auch unter Windows)."""
+    return _ICON_DIR.joinpath(name).as_posix()
+
+
+_SPIN_UP = _icon_url("spin_up.svg")
+_SPIN_DOWN = _icon_url("spin_down.svg")
+_SPIN_UP_OFF = _icon_url("spin_up_disabled.svg")
+_SPIN_DOWN_OFF = _icon_url("spin_down_disabled.svg")
+
+# Oeffentlich fuer andere Stylesheets (z.B. dunkler Layout-Editor).
+SPIN_ARROW_UP = _SPIN_UP
+SPIN_ARROW_DOWN = _SPIN_DOWN
+SPIN_ARROW_UP_DISABLED = _SPIN_UP_OFF
+SPIN_ARROW_DOWN_DISABLED = _SPIN_DOWN_OFF
+
 # Generische Regeln (MainWindow + alle Dialoge). Keine Dialog-ObjectNames.
 # Wie GrammarGraph: helles Panel — kein dunkler Scroll-Hintergrund hinter GroupBoxes.
 PITU_CORE_STYLESHEET = """
@@ -44,11 +66,24 @@ QGroupBox::title {
     color: #334b86;
     background: #f4f6fb;
 }
+/* Checkbare GroupBox (z. B. Rahmen Oben/Unten/…): gleiches Kästchen wie QCheckBox.
+   Ohne eigene Indicator-Regel malt Qt nach QGroupBox-Stylesheet nichts Sichtbares. */
+QGroupBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #5a7dd6;
+    border-radius: 3px;
+    background: #fbfcff;
+}
+QGroupBox::indicator:checked {
+    background: #2f5cc8;
+    border: 1px solid #2f5cc8;
+}
 QLabel {
     color: #1c2740;
     background: transparent;
 }
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {
+QLineEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {
     background: #fbfcff;
     border: 1px solid #c8d3ec;
     border-radius: 7px;
@@ -56,34 +91,106 @@ QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {
     color: #1c2740;
     min-height: 22px;
 }
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,
+/* QComboBox absichtlich getrennt von QLineEdit:
+   Vertikales padding am Kasten verkürzt die Aufklappliste; zusammen mit
+   Fusion/Windows erscheinen dann dicke schwarze Balken oben/unten am Popup.
+   Nur horizontales Padding + min-height (wie Layout-Editor). */
+QComboBox {
+    background: #fbfcff;
+    border: 1px solid #c8d3ec;
+    border-radius: 7px;
+    padding: 0px 8px;
+    color: #1c2740;
+    min-height: 28px;
+}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QPlainTextEdit:focus, QTextEdit:focus {
     border: 1px solid #5a7dd6;
 }
-QLineEdit:disabled, QComboBox:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {
+QComboBox:focus {
+    border: 1px solid #5a7dd6;
+}
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {
+    background: #eef1f8;
+    border: 1px dashed #b8c4dc;
+    color: #8899bb;
+}
+QComboBox:disabled {
     background: #eef1f8;
     border: 1px dashed #b8c4dc;
     color: #8899bb;
 }
 QComboBox QAbstractItemView {
-    background: #ffffff;
-    border: 1px solid #c8d3ec;
-    selection-background-color: #2f5cc8;
+    background-color: #ffffff;
     color: #1c2740;
+    border: 1px solid #c8d3ec;
+    border-radius: 0px;
     outline: none;
+    padding: 0px;
+    margin: 0px;
+    selection-background-color: #2f5cc8;
+    selection-color: #ffffff;
 }
 QComboBox QAbstractItemView::item {
-    padding: 4px 8px;
-    min-height: 24px;
+    padding: 6px 10px;
+    min-height: 22px;
+    border: none;
+    color: #1c2740;
+    background-color: #ffffff;
+}
+QComboBox QAbstractItemView::item:hover {
+    background-color: #dce5f8;
+    color: #1c2740;
 }
 QComboBox QAbstractItemView::item:selected {
-    background: #2f5cc8;
+    background-color: #2f5cc8;
     color: #ffffff;
 }
 QSpinBox:disabled, QDoubleSpinBox:disabled {
     background: #eef1f8;
     border: 1px dashed #b8c4dc;
     color: #8899bb;
+}
+/* Nach Stylesheet auf dem SpinBox selbst zeichnet Qt keine nativen Pfeile mehr.
+   SVG-Dreiecke statt border-Tricks (die unter Windows oft als Balken enden). */
+QSpinBox, QDoubleSpinBox {
+    padding-right: 22px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 18px;
+    border-left: 1px solid #c8d3ec;
+    background: #eef1f8;
+    border-top-right-radius: 6px;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 18px;
+    border-left: 1px solid #c8d3ec;
+    background: #eef1f8;
+    border-bottom-right-radius: 6px;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background: #dce4f5;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url(SPIN_UP_PLACEHOLDER);
+    width: 10px;
+    height: 6px;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url(SPIN_DOWN_PLACEHOLDER);
+    width: 10px;
+    height: 6px;
+}
+QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled {
+    image: url(SPIN_UP_OFF_PLACEHOLDER);
+}
+QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {
+    image: url(SPIN_DOWN_OFF_PLACEHOLDER);
 }
 QCheckBox {
     color: #1c2740;
@@ -183,7 +290,22 @@ QPlainTextEdit#qtLog {
 }
 """
 
+PITU_CORE_STYLESHEET = (
+    PITU_CORE_STYLESHEET
+    .replace("SPIN_UP_PLACEHOLDER", _SPIN_UP)
+    .replace("SPIN_DOWN_PLACEHOLDER", _SPIN_DOWN)
+    .replace("SPIN_UP_OFF_PLACEHOLDER", _SPIN_UP_OFF)
+    .replace("SPIN_DOWN_OFF_PLACEHOLDER", _SPIN_DOWN_OFF)
+)
+
 # Abwärtskompatibler Alias (früher dialog-scoped).
 PITU_DIALOG_STYLESHEET = PITU_CORE_STYLESHEET
 
-__all__ = ["PITU_CORE_STYLESHEET", "PITU_DIALOG_STYLESHEET"]
+__all__ = [
+    "PITU_CORE_STYLESHEET",
+    "PITU_DIALOG_STYLESHEET",
+    "SPIN_ARROW_UP",
+    "SPIN_ARROW_DOWN",
+    "SPIN_ARROW_UP_DISABLED",
+    "SPIN_ARROW_DOWN_DISABLED",
+]

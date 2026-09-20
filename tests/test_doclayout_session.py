@@ -201,6 +201,20 @@ def test_entfernen_nimmt_mehrere_auf_einmal(sitzung):
     assert zweit not in sitzung.definition.styles
 
 
+def test_entfernen_loescht_auch_classmap_eintraege(sitzung):
+    """Sonst blieben Karteileichen im Textauszeichnungs-Inventar stehen."""
+    from dataclasses import replace
+
+    ziel = _format(sitzung)
+    definition = sitzung.definition
+    sitzung.replace_definition(
+        replace(definition, classmap={**definition.classmap, "tot": ziel})
+    )
+    sitzung.remove_styles([ziel])
+    assert "tot" not in sitzung.definition.classmap
+    assert ziel not in sitzung.definition.styles
+
+
 def test_entfernen_ohne_auswahl_aendert_nichts(sitzung):
     vorher = dict(sitzung.definition.styles)
     sitzung.remove_styles([])

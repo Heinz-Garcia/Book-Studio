@@ -60,6 +60,9 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 
 ## Feature Requests / Zurückgestellte Ideen
 
+- **Next Level — Orientierung, Pfadführung, 1-Klick-Orchestrierung** (Plan): [next_Level.md](next_Level.md)
+- **Studio-Maßnahmen: 1-Klick-Fabrik + Einfachheit** (nach Phase 1–3): [einfachheit_und_1klick.md](einfachheit_und_1klick.md)
+- **Prompt — Umsetzung Studio 1-Klick §1** (lebende Checkboxen F′/Teilkette/Leiste/Defaults): [prompt_1klick_studio.md](prompt_1klick_studio.md)
 - Autonomes eBook/EPUB-Export-Tool für Kindle (kein aktueller Bedarf, siehe Doku): [ebook-epub-autonomes-tool.md](ebook-epub-autonomes-tool.md)
 
 ## Vorlagen

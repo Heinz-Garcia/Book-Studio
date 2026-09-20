@@ -154,13 +154,19 @@ def validate_layout(
         return report
 
     if not layout.front_image.strip():
-        report.issues.append(
-            ValidationIssue(
-                code="front_image_missing",
-                severity="error",
-                message="Vorderseiten-Bild fehlt.",
+        # Bild optional: einfarbige Vorderseite (Default-Farbe) oder später
+        # Stylecloud-PNG. Ohne Bild muss die Front-Farbe gültig sein.
+        if _parse_hex_color(getattr(layout, "front_color", "") or "") is None:
+            report.issues.append(
+                ValidationIssue(
+                    code="front_color",
+                    severity="error",
+                    message=(
+                        f"Ungültige Vorderseiten-Farbe: "
+                        f"{getattr(layout, 'front_color', '')!r}"
+                    ),
+                )
             )
-        )
     else:
         front_path = Path(layout.front_image)
         if not front_path.is_absolute():

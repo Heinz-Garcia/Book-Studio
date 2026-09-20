@@ -88,28 +88,49 @@ def book_has_required_pages(book_path: Path) -> bool:
     Primär Frontmatter ``required: true``; Legacy: Dateien unter
     ``content/required/*.md``.
     """
+    return bool(list_required_page_paths(book_path))
+
+
+def list_required_page_paths(book_path: Path) -> list[str]:
+    """Relative Pfade aller Pflichtseiten im Buch (content/, posix).
+
+    Explizites ``required: true`` oder Legacy unter ``content/required/``.
+    """
     book = Path(book_path)
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def _add(rel: str) -> None:
+        key = rel.replace("\\", "/")
+        if key not in seen:
+            seen.add(key)
+            found.append(key)
+
     legacy_dir = book / "content" / "required"
-    if legacy_dir.is_dir() and any(legacy_dir.glob("*.md")):
-        # Schneller Legacy-Pfad: Ordner vorhanden → Soft-UX nicht erneut anbieten.
-        # Explizites required:false in einzelnen Dateien ändert den Soft-Hint nicht
-        # (Import-Hinweis nur „noch keine Rahmen-Seiten“).
-        return True
+    if legacy_dir.is_dir():
+        for path in sorted(legacy_dir.glob("*.md")):
+            try:
+                rel = path.relative_to(book).as_posix()
+            except ValueError:
+                continue
+            _add(rel)
+
     content_root = book / "content"
-    if not content_root.is_dir():
-        return False
-    for path in content_root.rglob("*.md"):
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        parts = frontmatter_parser.parse(text)
-        if not parts.has_frontmatter:
-            continue
-        data = parts.parsed()
-        if required_from_mapping(data if isinstance(data, dict) else None) is True:
-            return True
-    return False
+    if content_root.is_dir():
+        for path in sorted(content_root.rglob("*.md")):
+            try:
+                rel = path.relative_to(book).as_posix()
+            except ValueError:
+                continue
+            if rel in seen:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if is_page_required(rel_path=rel, content=text):
+                _add(rel)
+    return found
 
 
 def entry_required_from_manifest_item(item: Mapping[str, Any]) -> bool:
@@ -213,6 +234,7 @@ __all__ = [
     "entry_required_from_manifest_item",
     "is_page_required",
     "is_page_required_at",
+    "list_required_page_paths",
     "path_in_required_folder",
     "required_from_mapping",
     "toggle_required_in_content",

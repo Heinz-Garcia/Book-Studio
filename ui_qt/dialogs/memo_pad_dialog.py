@@ -9,7 +9,7 @@ Studio offen bleiben duerfen, waehrend man weiterarbeitet -- ein Notizblock,
 den man zum Schreiben zuklappen muss, ist keiner.
 
 Nur Widgets: Lesen und Schreiben steht in ``tools.memo_pad.store``
-(siehe ``.doc/gui_architektur.md``).
+(siehe ``.doc/gui_architektur.md``). Fenstergroesse bleibt in ``memo.json``.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -31,16 +30,23 @@ from PySide6.QtWidgets import (
 
 from services.constants import StatusFg
 from tools.memo_pad import store
+from ui_qt.autonomous_window import (
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.widgets.help_bar import HelpBar
 
 _LOG = logging.getLogger(__name__)
+
+_active: list["MemoPadDialog"] = []
 
 
 class MemoPadDialog(QDialog):
     """Eine Notiz, die das Studio ueberdauert."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self.setWindowTitle("Memo-Block")
         self.setMinimumSize(store.MIN_WIDTH, store.MIN_HEIGHT)
 
@@ -59,6 +65,9 @@ class MemoPadDialog(QDialog):
         layout.addWidget(self.editor, 1)
 
         knoepfe = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(knoepfe, tool_key="memo_pad", host=self)
         self.save_button = QPushButton("Speichern")
         self.save_button.setToolTip("Notiz jetzt speichern.")
         self.save_button.clicked.connect(self._save)
@@ -77,6 +86,7 @@ class MemoPadDialog(QDialog):
 
         self._dirty = False
         self._reload()
+        prepare_autonomous_window(self, parent)
 
     # -- Zustand -----------------------------------------------------------
 
@@ -86,6 +96,7 @@ class MemoPadDialog(QDialog):
     def _reload(self) -> None:
         memo = store.load()
         self.resize(memo.width, memo.height)
+        self._loaded_size = (memo.width, memo.height)
         self.editor.blockSignals(True)
         self.editor.setPlainText(memo.text)
         self.editor.blockSignals(False)
@@ -147,18 +158,7 @@ class MemoPadDialog(QDialog):
                 store.save_size(groesse.width(), groesse.height())
         except OSError:
             _LOG.debug("Memo-Block konnte nicht abgelegt werden", exc_info=True)
-        # Selbst austragen: ``destroyed`` feuert bei ``WA_DeleteOnClose = False``
-        # erst zum Programmende, die Liste waechse sonst mit jedem Oeffnen.
-        if self in _offene_fenster:
-            _offene_fenster.remove(self)
         super().closeEvent(event)
-
-
-#: Solange ein nicht-modales Fenster offen ist, muss jemand es festhalten.
-#: Ohne diese Liste raeumt Pythons Speicherverwaltung den Dialog ab, sobald
-#: ``open_memo_pad`` zurueckkehrt -- das Fenster verschwaende, bevor es einmal
-#: gezeichnet waere.
-_offene_fenster: list[MemoPadDialog] = []
 
 
 def open_memo_pad(
@@ -166,58 +166,18 @@ def open_memo_pad(
 ) -> int:
     """Oeffnet den Memo-Block -- oder holt das offene Fenster nach vorn.
 
-    "Ein Fenster, eine Notiz" stand bisher nur im Docstring. Jeder Aufruf baute
-    bedingungslos ein neues Fenster, und da der Block absichtlich nicht modal
-    neben dem Studio stehen bleibt, ist der zweite Menue-Aufruf der Normalfall.
-    Beide Fenster luden dann ihren eigenen Stand und schrieben beim Schliessen
-    den ganzen Text -- das zuletzt geschlossene gewann, der Inhalt des anderen
-    war weg. Ohne Rueckfrage, denn ``closeEvent`` verzichtet bewusst darauf:
-    "Der Block hat genau einen Inhalt und keine Versionen." Das stimmt eben
-    nur, solange es auch genau ein Fenster gibt.
+    "Ein Fenster, eine Notiz": ohne Deduplizierung wuerden zwei Fenster denselben
+    ``memo.json`` laden und beim Schliessen ueberschreiben.
     """
     _ = kwargs
-    vorhanden = _erstes_lebendes_fenster()
-    if vorhanden is not None:
-        vorhanden.show()
-        vorhanden.raise_()
-        vorhanden.activateWindow()
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
         return 0
 
     ziel = parent or getattr(studio, "root", None)
     dialog = MemoPadDialog(ziel)
-
-    def _freigeben() -> None:
-        if dialog in _offene_fenster:
-            _offene_fenster.remove(dialog)
-
-    # ``destroyed`` feuert bei ``WA_DeleteOnClose = False`` erst zum
-    # Programmende; ``_teardown`` traegt das Fenster deshalb selbst aus, sobald
-    # es geschlossen wird. Ohne das wuchs die Liste mit jedem Oeffnen um einen
-    # dauerhaft gehaltenen Dialog samt Editor.
-    dialog.destroyed.connect(_freigeben)
-    dialog.setWindowFlags(Qt.WindowType.Window)
-    dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
-    _offene_fenster.append(dialog)
-    dialog.show()
-    dialog.raise_()
-    dialog.activateWindow()
+    show_autonomous_window(dialog, _active)
     return 0
-
-
-def _erstes_lebendes_fenster() -> Optional[MemoPadDialog]:
-    """Ein noch benutzbares Memo-Fenster, oder ``None``.
-
-    Ein bereits abgeraeumtes C++-Objekt meldet sich beim Zugriff mit
-    ``RuntimeError``; solche Leichen fliegen hier heraus.
-    """
-    for fenster in list(_offene_fenster):
-        try:
-            fenster.isVisible()
-        except RuntimeError:
-            _offene_fenster.remove(fenster)
-            continue
-        return fenster
-    return None
 
 
 __all__ = ["MemoPadDialog", "open_memo_pad"]

@@ -349,6 +349,11 @@ def apply_run_properties(
         _sub(rpr, "sz", _RPR_ORDER, val=half)
         _sub(rpr, "szCs", _RPR_ORDER, val=half)
 
+    lang = (style.language or "").strip()
+    if lang:
+        _drop(rpr, ("lang",))
+        _sub(rpr, "lang", _RPR_ORDER, val=lang)
+
 
 def _drop(parent: ET.Element, names: Iterable[str]) -> None:
     wanted = set(names)

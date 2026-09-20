@@ -266,3 +266,94 @@ def test_ein_fertig_gewordener_lauf_meldet_sich_nicht_mehr_am_fenster(
     QApplication.processEvents()
 
     assert angekommen == [], "das Ergebnis erreichte ein bereits geschlossenes Fenster"
+
+
+# ---------------------------------------------------------------------------
+# Auftragskontext Inventar: nach Anwenden zurueck
+# ---------------------------------------------------------------------------
+
+
+def test_apply_with_return_after_apply_closes_editor(
+    qapp, library: Path, ohne_vorschau, monkeypatch, tmp_path: Path
+) -> None:
+    """Vom Inventar gestartet: Anwenden beendet den Editor (kein Steckenbleiben)."""
+    from tools.doclayout.apply import ApplyResult
+
+    buch = tmp_path / "band"
+    buch.mkdir()
+    (buch / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+
+    geschlossen: list[int] = []
+
+    monkeypatch.setattr(
+        editor_modul,
+        "apply_layout",
+        lambda definition, book_path, **kwargs: ApplyResult(
+            book_path=Path(book_path),
+            reference_docx=Path(book_path) / "bookconfig/doclayout/reference.docx",
+            lua_filter=Path(book_path) / "bookconfig/doclayout/classmap.lua",
+        ),
+    )
+    monkeypatch.setattr(
+        DocLayoutEditorDialog, "_ask_book", lambda self, title: buch
+    )
+    monkeypatch.setattr(
+        editor_modul, "is_blocked", lambda _req: False
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok),
+    )
+
+    dlg = DocLayoutEditorDialog(
+        library_dir=library, select="Probe", return_after_apply=True
+    )
+    dlg.finished.connect(lambda code: geschlossen.append(code))
+    dlg.show()
+    QApplication.processEvents()
+    assert dlg._return_after_apply is True
+
+    dlg._apply_to_book()
+    QApplication.processEvents()
+
+    assert geschlossen, "Editor musste nach Anwenden schließen"
+    assert not dlg.isVisible()
+
+
+def test_apply_without_return_keeps_editor_open(
+    qapp, library: Path, ohne_vorschau, monkeypatch, tmp_path: Path
+) -> None:
+    """Menü-Start: Anwenden lässt den Editor offen (freies Werkzeug)."""
+    from tools.doclayout.apply import ApplyResult
+
+    buch = tmp_path / "band"
+    buch.mkdir()
+    (buch / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        editor_modul,
+        "apply_layout",
+        lambda definition, book_path, **kwargs: ApplyResult(
+            book_path=Path(book_path),
+            reference_docx=Path(book_path) / "r.docx",
+            lua_filter=Path(book_path) / "c.lua",
+        ),
+    )
+    monkeypatch.setattr(
+        DocLayoutEditorDialog, "_ask_book", lambda self, title: buch
+    )
+    monkeypatch.setattr(editor_modul, "is_blocked", lambda _req: False)
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok),
+    )
+
+    dlg = DocLayoutEditorDialog(library_dir=library, select="Probe")
+    dlg.show()
+    QApplication.processEvents()
+    dlg._apply_to_book()
+    QApplication.processEvents()
+    assert dlg.isVisible()
+    dlg.close()

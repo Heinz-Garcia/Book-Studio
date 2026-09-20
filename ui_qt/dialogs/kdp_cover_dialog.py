@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap, QResizeEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -76,14 +77,22 @@ from tools.kdp_cover.model import (
     save_layout,
 )
 from tools.kdp_cover.settings import (
+    MIN_WINDOW_HEIGHT,
+    MIN_WINDOW_WIDTH,
     load_settings,
     resolve_active_tab,
+    resolve_body_splitter_sizes,
     resolve_window_size,
     save_settings,
 )
 from tools.kdp_cover.validate import ValidationIssue, ValidationReport, validate_layout
 from tools.kdp_specs import format_bleed_note, studio_paperback_preset
 from tools.production_uuid import normalize_uuid, read_book_uuid
+from ui_qt.autonomous_window import (
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.dialogs.kdp_cover_export_issues_dialog import KdpExportIssuesDialog
 from ui_qt.widgets.collapsible_section import CollapsibleSection
 from ui_qt.widgets.help_bar import HelpBar
@@ -108,6 +117,7 @@ _PROJECT_FILTER = (
 _ELEMENT_SET_FILTER = "Elementset (*_elementset.json);;Alle Dateien (*.*)"
 _PROJECT_SAVE_FILTER = "Cover-Layout (*_kdp_cover.json);;Alle Dateien (*.*)"
 _ELEMENT_SET_SAVE_FILTER = "Elementset (*_elementset.json);;Alle Dateien (*.*)"
+_active: list["KdpCoverQtDialog"] = []
 
 
 def _book_root(studio: Any) -> Path | None:
@@ -249,7 +259,7 @@ class _FreeExportConfirmDialog(KdpExportIssuesDialog):
         super().__init__(
             parent,
             issues,
-            title="Frei-Modus: Export bestätigen",
+            title="Experte: Export bestätigen",
             intro=(
                 "Schritt 1/2: Es gibt Validierungshinweise. Bitte in der Tabelle prüfen, "
                 "dann die Verantwortung bestätigen."
@@ -268,7 +278,7 @@ class KdpCoverQtDialog(QDialog):
         *,
         front_image: str | Path | None = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self._studio = studio
         self._book = _book_root(studio)
         self._mode_guard = False
@@ -299,13 +309,7 @@ class KdpCoverQtDialog(QDialog):
             self.setWindowTitle("KDP Cover-Designer")
         self.setObjectName("kdpCoverDialog")
         # Look & Feel: app-weites El-Pitugrafo-Theme (ui_qt.theme) — kein Dialog-QSS.
-        # Vergrößerbar inkl. Maximieren (QDialog hat das unter Windows oft nicht).
-        self.setWindowFlags(
-            self.windowFlags()
-            | Qt.WindowType.WindowMinimizeButtonHint
-            | Qt.WindowType.WindowMaximizeButtonHint
-            | Qt.WindowType.WindowCloseButtonHint
-        )
+        # Window flags come from prepare_autonomous_window (min/max/close).
         self.setSizeGripEnabled(False)
         self.setMinimumSize(1280, 720)
         try:
@@ -314,11 +318,20 @@ class KdpCoverQtDialog(QDialog):
             self._restore_maximized = bool(
                 self._session_settings.get("window_maximized")
             )
+            self._loaded_splitter_sizes = resolve_body_splitter_sizes(
+                self._session_settings
+            )
         except OSError:
             self._session_settings = {}
             _ww, _wh = 1540, 920
             self._restore_maximized = False
+            self._loaded_splitter_sizes = [620, 880]
         self.resize(_ww, _wh)
+        self._loaded_size = (_ww, _wh)
+        # Bis nach dem ersten Show nichts persistieren — sonst überschreiben
+        # Zwischengrößen (sizeHint / Stretch) die gespeicherte Session.
+        self._suppress_geometry_persist = True
+        self._geometry_restore_scheduled = False
         self._size_grip = attach_resize_grip(self)
         self._geometry_save_timer = QTimer(self)
         self._geometry_save_timer.setSingleShot(True)
@@ -329,14 +342,23 @@ class KdpCoverQtDialog(QDialog):
         root.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         HelpBar.create_and_prepend_for_plugin(root, "kdp_cover")
 
-        body = QHBoxLayout()
-        body.setSpacing(12)
-        root.addLayout(body, stretch=1)
+        self._body_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._body_splitter.setObjectName("kdpCoverBodySplitter")
+        self._body_splitter.setChildrenCollapsible(False)
+        self._body_splitter.setHandleWidth(8)
+        self._body_splitter.setStyleSheet(
+            "QSplitter#kdpCoverBodySplitter::handle {"
+            "  background: #c8d3ec;"
+            "}"
+            "QSplitter#kdpCoverBodySplitter::handle:hover {"
+            "  background: #5a7dd6;"
+            "}"
+        )
+        root.addWidget(self._body_splitter, stretch=1)
 
         left_panel = QWidget()
         left_panel.setObjectName("kdpCoverLeftPanel")
-        left_panel.setMinimumWidth(560)
-        left_panel.setMaximumWidth(720)
+        left_panel.setMinimumWidth(360)
         left_panel.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
         )
@@ -344,29 +366,37 @@ class KdpCoverQtDialog(QDialog):
         left = QVBoxLayout(left_panel)
         left.setContentsMargins(4, 8, 8, 8)
         left.setSpacing(8)
-        body.addWidget(left_panel, stretch=0)
+        self._body_splitter.addWidget(left_panel)
 
         self._build_book_banner(left)
 
         self._editor_tabs = QTabWidget()
         self._editor_tabs.setObjectName("kdpCoverEditorTabs")
         self._editor_tabs.setDocumentMode(True)
+        self._editor_tabs.tabBar().setDrawBase(False)
         self._editor_tabs.setMovable(False)
         self._editor_tabs.setUsesScrollButtons(True)
         self._editor_tabs.setElideMode(Qt.TextElideMode.ElideNone)
+        # documentMode + Pane-border-top zeichnet sonst einen Strich quer durch
+        # die Tab-Koepfe (nur der aktive Tab deckt ihn mit Weiss ab).
         self._editor_tabs.setStyleSheet(
             """
             QTabWidget#kdpCoverEditorTabs::pane {
                 border: 1px solid #c8d3ec;
-                border-radius: 8px;
+                border-top: 0px;
+                border-radius: 0 0 8px 8px;
                 background: #ffffff;
-                top: -1px;
+                margin-top: -1px;
             }
-            QTabWidget#kdpCoverEditorTabs > QTabBar::tab {
+            QTabWidget#kdpCoverEditorTabs QTabBar {
+                border: none;
+                background: transparent;
+            }
+            QTabWidget#kdpCoverEditorTabs QTabBar::tab {
                 background: #eef1f8;
                 color: #334b86;
                 border: 1px solid #c8d3ec;
-                border-bottom: none;
+                border-bottom-color: #ffffff;
                 border-top-left-radius: 7px;
                 border-top-right-radius: 7px;
                 min-width: 68px;
@@ -375,16 +405,22 @@ class KdpCoverQtDialog(QDialog):
                 font-weight: 600;
                 font-size: 12px;
             }
-            QTabWidget#kdpCoverEditorTabs > QTabBar::tab:selected {
+            QTabWidget#kdpCoverEditorTabs QTabBar::tab:selected {
                 background: #ffffff;
                 color: #1c2740;
-                border-color: #9eb0d4;
+                border-color: #c8d3ec;
+                border-bottom-color: #ffffff;
+                margin-bottom: -1px;
+                padding-bottom: 9px;
             }
-            QTabWidget#kdpCoverEditorTabs > QTabBar::tab:hover:!selected {
+            QTabWidget#kdpCoverEditorTabs QTabBar::tab:!selected {
+                margin-top: 2px;
+            }
+            QTabWidget#kdpCoverEditorTabs QTabBar::tab:hover:!selected {
                 background: #e2e8f6;
                 color: #1c2740;
             }
-            QTabWidget#kdpCoverEditorTabs > QTabBar::tab:disabled {
+            QTabWidget#kdpCoverEditorTabs QTabBar::tab:disabled {
                 color: #8899bb;
                 background: #f3f5fa;
             }
@@ -392,8 +428,8 @@ class KdpCoverQtDialog(QDialog):
         )
         left.addWidget(self._editor_tabs, stretch=1)
 
-        # --- Tab: Maße ---
-        tab_size, size_body = self._make_editor_tab()
+        # --- Tab: Maße (kurz — ohne ScrollArea, sonst oft nutzlose Scrollbar) ---
+        tab_size, size_body = self._make_editor_tab(scrollable=False)
         size_hint = QLabel(
             "Trimmgröße, Papier und Seitenzahl — die Rückenbreite folgt daraus."
         )
@@ -429,7 +465,7 @@ class KdpCoverQtDialog(QDialog):
         trim = preset.get("trim_mm") or {}
         studio_label = (
             f"Studio Paperback ({float(trim.get('width', 135)):g}×"
-            f"{float(trim.get('height', 215)):g} mm)"
+            f"{float(trim.get('height', 215)):g} mm) · BoD/DE-Taschenbuch"
         )
         self.trim_combo.addItem(studio_label, _STUDIO_PAPERBACK_ID)
         for t in TRIM_SIZES:
@@ -492,7 +528,6 @@ class KdpCoverQtDialog(QDialog):
         )
         self.btn_copy_size.clicked.connect(self._copy_size_result)
         form.addRow(self.btn_copy_size)
-        size_body.addStretch(1)
         self._editor_tabs.addTab(tab_size, "Maße")
         self._editor_tabs.setTabToolTip(
             self._editor_tabs.count() - 1, "1 · Maße festlegen (KDP)"
@@ -506,7 +541,12 @@ class KdpCoverQtDialog(QDialog):
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("Sicher (empfohlen)", "safe")
-        self.mode_combo.addItem("Frei (Experte)", "free")
+        self.mode_combo.addItem("Experte", "free")
+        self.mode_combo.setToolTip(
+            "Sicher: Texte in festen Safe-Slots.\n"
+            "Experte: Feinjustage per mm-Offset (Tab „Experte“); "
+            "Export trotz Warnungen nur nach Bestätigung."
+        )
         general.addRow("Modus:", self.mode_combo)
 
         self.title_edit = QLineEdit()
@@ -523,7 +563,6 @@ class KdpCoverQtDialog(QDialog):
             "nicht auf das Cover-Bild gezeichnet."
         )
         general.addRow("Autor (Meta):", self.author_edit)
-        general_body.addStretch(1)
         self._editor_tabs.addTab(tab_general, "Allgemein")
         self._editor_tabs.setTabToolTip(
             self._editor_tabs.count() - 1, "2 · Allgemein (Modus & Metadaten)"
@@ -531,12 +570,28 @@ class KdpCoverQtDialog(QDialog):
 
         # --- Tab: Vorderseite ---
         tab_front, front_body = self._make_editor_tab()
+        front_hint = QLabel(
+            "Bild optional. Ohne Bild gilt die Front-Farbe. "
+            "Wortwolke: Stylecloud → Übergabe hierher."
+        )
+        front_hint.setWordWrap(True)
+        front_hint.setStyleSheet("color:#64748b; font-size:12px;")
+        front_body.addWidget(front_hint)
         design_front = QFormLayout()
         design_front.setSpacing(8)
         front_body.addLayout(design_front)
 
+        front_color_host, self.front_color_edit = self._color_field(
+            "#1e3a5f",
+            max_width=100,
+            tooltip="Vorderseiten-Farbe (Default), wenn kein Bild gewählt ist",
+        )
+        design_front.addRow("Front-Farbe:", front_color_host)
+
         self.front_edit = QLineEdit()
-        self.front_edit.setPlaceholderText("Vorderseiten-Bild…")
+        self.front_edit.setPlaceholderText(
+            "Optional: Foto oder Stylecloud-Wortwolke…"
+        )
         front_row = QHBoxLayout()
         front_row.addWidget(self.front_edit)
         btn_front_asset = QPushButton("Asset…")
@@ -550,7 +605,23 @@ class KdpCoverQtDialog(QDialog):
         btn_front.setToolTip("Datei im Dateisystem wählen")
         btn_front.clicked.connect(self._browse_front)
         front_row.addWidget(btn_front)
-        design_front.addRow("Vorderseite:", front_row)
+        design_front.addRow("Bild / Wortwolke:", front_row)
+
+        btn_stylecloud = QPushButton("Wortwolke (Stylecloud)…")
+        btn_stylecloud.setToolTip(
+            "Öffnet Stylecloud. Nach dem Erzeugen: „An KDP Cover übergeben“."
+        )
+        btn_stylecloud.clicked.connect(self._open_stylecloud_for_front)
+        design_front.addRow("", btn_stylecloud)
+
+        btn_gestalten = QPushButton("Gestaltung öffnen…")
+        btn_gestalten.setToolTip(
+            "Tab „Gestaltung“: Titel, Band, Fade, Fußzeile, Banner, Badge "
+            "auf der Vorderseite (je Block ein/aus)."
+        )
+        btn_gestalten.clicked.connect(self._open_gestaltung_tab)
+        design_front.addRow("", btn_gestalten)
+
         self.front_zoom_spin = QDoubleSpinBox()
         self.front_zoom_spin.setRange(1.0, 4.0)
         self.front_zoom_spin.setDecimals(2)
@@ -567,10 +638,10 @@ class KdpCoverQtDialog(QDialog):
         design_front.addRow(
             "Front-Verschiebung:", self._pair(self.front_ox_spin, self.front_oy_spin)
         )
-        front_body.addStretch(1)
         self._editor_tabs.addTab(tab_front, "Vorderseite")
         self._editor_tabs.setTabToolTip(
-            self._editor_tabs.count() - 1, "3 · Vorderseite (Cover-Bild)"
+            self._editor_tabs.count() - 1,
+            "3 · Vorderseite (Farbe, Bild oder Stylecloud-Wortwolke)",
         )
 
         # --- Tab: Rücken ---
@@ -651,7 +722,6 @@ class KdpCoverQtDialog(QDialog):
         # title_color bleibt im Layout-Modell für Abwärtskompatibilität, UI entfällt.
         self.title_color_edit = QLineEdit("#FFFFFF")
         self.title_color_edit.hide()
-        spine_body.addStretch(1)
         self._editor_tabs.addTab(tab_spine, "Rücken")
         self._editor_tabs.setTabToolTip(
             self._editor_tabs.count() - 1, "4 · Rücken (Farbe, Text, Badge)"
@@ -712,29 +782,27 @@ class KdpCoverQtDialog(QDialog):
         design_back.addRow("Rahmenfarbe:", frame_color_host)
         self.back_frame_check.toggled.connect(self._sync_back_frame_controls)
         self._sync_back_frame_controls()
-        back_body.addStretch(1)
         self._editor_tabs.addTab(tab_back, "Rückseite")
         self._editor_tabs.setTabToolTip(
             self._editor_tabs.count() - 1, "5 · Rückseite (Farbe, Bild, Rahmen)"
         )
 
-        # --- Tab: Experiment (Vorderseiten-Layer, Feature-Flag) ---
+        # --- Tab: Gestaltung (Vorderseiten-Layer) ---
         tab_layer, layer_body = self._make_editor_tab()
         layer_body.addWidget(self._build_compose_front_group())
-        layer_body.addStretch(1)
-        self._layer_tab_index = self._editor_tabs.addTab(tab_layer, "Experiment")
+        self._layer_tab_index = self._editor_tabs.addTab(tab_layer, "Gestaltung")
         self._editor_tabs.setTabToolTip(
             self._layer_tab_index,
-            "Experiment · Vorderseiten-Layer (Fade, Band, Titel, Fuß, Banner, Badge). "
-            "Sichtbar mit app_config kdp_compose_front_ui / BSU_KDP_COMPOSE_FRONT=1 "
-            "oder wenn Layer im gespeicherten Cover aktiv sind.",
+            "Gestaltung · Vorderseiten-Layer (Fade, Band, Titel, Fuß, Banner, Badge).",
         )
         self._sync_compose_front_tab_visibility()
 
-        # --- Tab: Frei ---
+        # --- Tab: Experte (selten; nur bei Modus Experte aktiv) ---
         tab_free, free_body = self._make_editor_tab()
         free_hint = QLabel(
-            "Nur im Frei-Modus aktiv. Verschiebt den Rücken-Text (mm-Offset)."
+            "Nur im Modus „Experte“ aktiv. Feinjustage: Rücken-Text per mm-Offset "
+            "verschieben. Zurücksetzen: roter Button „Zurück auf Safe-Slots“ "
+            "neben „UUID ändern…“ oben."
         )
         free_hint.setWordWrap(True)
         free_hint.setStyleSheet("color:#5b6573; font-size:12px;")
@@ -756,13 +824,10 @@ class KdpCoverQtDialog(QDialog):
         for w in (self.title_ox, self.title_oy, self.author_ox, self.author_oy, self.title_scale):
             w.hide()
         free_form.addRow("Rücken Y:", self.spine_oy)
-        btn_reset_free = QPushButton("Offset zurücksetzen")
-        btn_reset_free.clicked.connect(self._reset_free_offsets)
-        free_form.addRow("", btn_reset_free)
-        free_body.addStretch(1)
-        self._free_tab_index = self._editor_tabs.addTab(tab_free, "Frei")
+        self._free_tab_index = self._editor_tabs.addTab(tab_free, "Experte")
         self._editor_tabs.setTabToolTip(
-            self._free_tab_index, "7 · Frei-Modus: Rücken-Text (mm-Offset)"
+            self._free_tab_index,
+            "7 · Experte: Rücken-Text feinjustieren (mm-Offset)",
         )
         self.free_box.setEnabled(False)
 
@@ -791,12 +856,17 @@ class KdpCoverQtDialog(QDialog):
         )
         sticky_lay.addWidget(self.show_overlays)
 
-        persist_row = QHBoxLayout()
+        # Eine Zeile: Cover-Layout + Elementset (kein dritter Button-Streifen).
+        io_row = QHBoxLayout()
+        io_row.setSpacing(6)
         self.btn_save_project = QPushButton("Cover-Layout speichern…")
         self.btn_save_project.setToolTip(
-            "Öffnet Speichern unter <Buch>/export/kdp_cover/ "
-            "mit Vorschlag {Buch}_kdp_cover.json — Dateiname frei änderbar "
-            "(z. B. …_v2.json)."
+            "Ganzes Cover-Projekt speichern: Maße, Papier, Seitenzahl, "
+            "Bilder (Vorder-/Rücken-/Rückseite), Texte und Production-UUID.\n"
+            "Ablage unter production/covers/<uuid>/… (optional Spiegel am Buch).\n"
+            "Unterschied zu „Elementset“: hier das komplette Cover, nicht nur "
+            "die Vorderseiten-Gestaltung.\n"
+            "Bei aktivem Buch mit bekannter UUID entfällt die UUID-Auswahl."
         )
         self.btn_save_project.clicked.connect(self._save_project)
         self.btn_load_project = QPushButton("Cover-Layout laden…")
@@ -805,16 +875,14 @@ class KdpCoverQtDialog(QDialog):
             "(keine Elementsets oder Validierungs-JSON)."
         )
         self.btn_load_project.clicked.connect(self._load_project)
-        persist_row.addWidget(self.btn_save_project)
-        persist_row.addWidget(self.btn_load_project)
-        sticky_lay.addLayout(persist_row)
-
-        element_row = QHBoxLayout()
         self.btn_save_elementset = QPushButton("Elementset speichern…")
         self.btn_save_elementset.setToolTip(
-            "Nur die platzierten Vorderseiten-Elemente (Fade/Band/Titel/Fuß/Ecken-Banner/Badge) "
-            "speichern — wiederverwendbar und weiter editierbar in einem anderen Buch.\n"
-            "Vorschlagsname: {Buchtitel}_elementset.json unter export/kdp_cover/."
+            "Nur die Vorderseiten-Gestaltung speichern: Fade, Band, Titel, "
+            "Fußzeile, Ecken-Banner, Badge — wiederverwendbar in anderen Büchern.\n"
+            "Ohne Maße, Papier, Seitenzahl, Panel-Bilder und UUID.\n"
+            "Unterschied zu „Cover-Layout“: Baustein für die Gestaltung, "
+            "kein vollständiges Cover-Projekt.\n"
+            "Vorschlag: {Buchtitel}_elementset.json."
         )
         self.btn_save_elementset.clicked.connect(self._save_elementset)
         self.btn_load_elementset = QPushButton("Elementset laden…")
@@ -823,9 +891,14 @@ class KdpCoverQtDialog(QDialog):
             "(keine Cover-Layouts; Maße/Bilder bleiben erhalten)."
         )
         self.btn_load_elementset.clicked.connect(self._load_elementset)
-        element_row.addWidget(self.btn_save_elementset)
-        element_row.addWidget(self.btn_load_elementset)
-        sticky_lay.addLayout(element_row)
+        for btn in (
+            self.btn_save_project,
+            self.btn_load_project,
+            self.btn_save_elementset,
+            self.btn_load_elementset,
+        ):
+            io_row.addWidget(btn)
+        sticky_lay.addLayout(io_row)
 
         self.project_path_label = QLabel("(kein Cover-Layout geladen)")
         self.project_path_label.setStyleSheet("color:#64748b; font-size:11px;")
@@ -857,9 +930,21 @@ class KdpCoverQtDialog(QDialog):
         self._editor_tabs.currentChanged.connect(
             lambda _i: self._geometry_save_timer.start()
         )
+        self._editor_tabs.currentChanged.connect(
+            lambda _i: self._sync_editor_scrollbars()
+        )
+        QTimer.singleShot(0, self._sync_editor_scrollbars)
 
-        right = QVBoxLayout()
-        body.addLayout(right, stretch=1)
+        right_panel = QWidget()
+        right_panel.setObjectName("kdpCoverRightPanel")
+        right_panel.setMinimumWidth(320)
+        right_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        right = QVBoxLayout(right_panel)
+        right.setContentsMargins(8, 8, 4, 8)
+        right.setSpacing(8)
+        self._body_splitter.addWidget(right_panel)
 
         zoom_row = QHBoxLayout()
         zoom_row.setSpacing(6)
@@ -906,16 +991,27 @@ class KdpCoverQtDialog(QDialog):
         self._preview_scroll.setWidgetResizable(True)
         self._preview_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview_scroll.setWidget(self.preview_label)
-        self._preview_scroll.setMinimumWidth(420)
+        self._preview_scroll.setMinimumWidth(280)
         self._preview_scroll.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self._preview_scroll.viewport().installEventFilter(self)
         right.addWidget(self._preview_scroll, stretch=1)
 
+        self._body_splitter.setStretchFactor(0, 0)
+        self._body_splitter.setStretchFactor(1, 1)
+        sizes = list(
+            getattr(self, "_loaded_splitter_sizes", None) or [620, 880]
+        )
+        self._body_splitter.setSizes(sizes)
+        self._body_splitter.splitterMoved.connect(self._on_body_splitter_moved)
+
         footer = QHBoxLayout()
         # 24px rechts frei für den SizeGrip (sonst liegt er auf PDF/Schließen).
         footer.setContentsMargins(0, 0, 24, 0)
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(footer, tool_key="kdp_cover", host=self)
         self.btn_refresh = QPushButton("Vorschau aktualisieren")
         self.btn_refresh.clicked.connect(self._refresh_preview)
         footer.addWidget(self.btn_refresh)
@@ -1005,11 +1101,15 @@ class KdpCoverQtDialog(QDialog):
                     self._apply_layout(load_layout(auto), project_path=auto)
                 except (OSError, ValueError, TypeError, KeyError):
                     pass
+            # Arbeitsweg: Buch schon gewählt → UUID ohne Picker übernehmen.
+            if not normalize_uuid(self._production_uuid):
+                self._try_bind_uuid_from_active_book()
         self._apply_initial_front_image()
         self._refresh_binding_ui()
         # Einmalige Vorschau nach kompletter Init (Signale waren geblockt).
         self._params_guard = False
         self._on_params_changed()
+        prepare_autonomous_window(self, parent)
 
     def apply_front_image(
         self,
@@ -1017,8 +1117,9 @@ class KdpCoverQtDialog(QDialog):
         *,
         disable_compose: bool = False,
     ) -> bool:
-        """Set front image path, optionally disable layer compose, refresh preview.
+        """Set front image path and refresh preview.
 
+        ``disable_compose`` ist veraltet (kein Master-Kill mehr) und wird ignoriert.
         Returns True when the file exists and was applied.
         """
         if path is None or not str(path).strip():
@@ -1027,8 +1128,6 @@ class KdpCoverQtDialog(QDialog):
         if not resolved.is_file():
             return False
         self.front_edit.setText(str(resolved))
-        if disable_compose and hasattr(self, "compose_enabled"):
-            self.compose_enabled.setChecked(False)
         if not self._params_guard:
             self._preview_timer.stop()
             self._refresh_preview()
@@ -1047,8 +1146,19 @@ class KdpCoverQtDialog(QDialog):
             )
             self.status_label.setStyleSheet("color:#b91c1c; font-weight:600;")
 
-    def _make_editor_tab(self) -> tuple[QWidget, QVBoxLayout]:
-        """Scrollable tab page: returns (page, content_layout)."""
+    def _make_editor_tab(self, *, scrollable: bool = True) -> tuple[QWidget, QVBoxLayout]:
+        """Tab-Seite; ``scrollable=False`` für kurze Tabs (z. B. Maße).
+
+        Bei Scroll: Scrollbar standardmäßig aus, nur bei echtem Overflow ein.
+        """
+        if not scrollable:
+            page = QWidget()
+            body = QVBoxLayout(page)
+            body.setContentsMargins(12, 10, 12, 10)
+            body.setSpacing(8)
+            body.setAlignment(Qt.AlignmentFlag.AlignTop)
+            return page, body
+
         page = QWidget()
         outer = QVBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -1057,16 +1167,47 @@ class KdpCoverQtDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # Erst aus — AsNeeded zeigt unter Windows oft schon bei 1 px Overflow.
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        )
         scroll.setAutoFillBackground(True)
         host = QWidget()
         host.setAutoFillBackground(True)
+        host.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
         body = QVBoxLayout(host)
         body.setContentsMargins(12, 10, 12, 10)
         body.setSpacing(8)
+        body.setAlignment(Qt.AlignmentFlag.AlignTop)
         scroll.setWidget(host)
         outer.addWidget(scroll)
+        if not hasattr(self, "_editor_scroll_areas"):
+            self._editor_scroll_areas: list[QScrollArea] = []
+        self._editor_scroll_areas.append(scroll)
+        scroll.viewport().installEventFilter(self)
+        host.installEventFilter(self)
         return page, body
+
+    def _sync_editor_scrollbars(self) -> None:
+        """Scrollbar nur, wenn Inhalt die Viewport-Höhe überschreitet."""
+        for scroll in getattr(self, "_editor_scroll_areas", []):
+            host = scroll.widget()
+            if host is None:
+                continue
+            lay = host.layout()
+            hint_h = lay.sizeHint().height() if lay is not None else host.sizeHint().height()
+            view_h = scroll.viewport().height()
+            need = hint_h > view_h + 2
+            want = (
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded
+                if need
+                else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            if scroll.verticalScrollBarPolicy() != want:
+                scroll.setVerticalScrollBarPolicy(want)
 
     def _build_book_banner(self, parent_layout: QVBoxLayout) -> None:
         section = CollapsibleSection("Buch & KDP-Kanal", expanded=True)
@@ -1116,6 +1257,7 @@ class KdpCoverQtDialog(QDialog):
         banner_layout.addWidget(self.uuid_link_label)
 
         uuid_row = QHBoxLayout()
+        uuid_row.setSpacing(8)
         self.btn_change_uuid = QPushButton("UUID ändern…")
         self.btn_change_uuid.setToolTip(
             "Production-UUID für dieses Cover wählen "
@@ -1123,6 +1265,41 @@ class KdpCoverQtDialog(QDialog):
         )
         self.btn_change_uuid.clicked.connect(self._change_production_uuid)
         uuid_row.addWidget(self.btn_change_uuid)
+
+        self.btn_reset_safe_slots = QPushButton("Zurück auf Safe-Slots")
+        self.btn_reset_safe_slots.setObjectName("kdpCoverResetSafeSlots")
+        self.btn_reset_safe_slots.setToolTip(
+            "Alle Experten-Offsets (Titel/Autor/Rücken) und die Titel-Skalierung "
+            "auf die Standard-Safe-Slots zurücksetzen.\n"
+            "Nur im Modus „Experte“ sinnvoll — im Sicheren Modus sind Offsets ohnehin 0."
+        )
+        self.btn_reset_safe_slots.setStyleSheet(
+            """
+            QPushButton#kdpCoverResetSafeSlots {
+                background: #dc2626;
+                color: #ffffff;
+                border: 1px solid #b91c1c;
+                border-radius: 6px;
+                font-weight: 600;
+                padding: 4px 10px;
+            }
+            QPushButton#kdpCoverResetSafeSlots:hover {
+                background: #ef4444;
+                border-color: #dc2626;
+            }
+            QPushButton#kdpCoverResetSafeSlots:pressed {
+                background: #b91c1c;
+            }
+            QPushButton#kdpCoverResetSafeSlots:disabled {
+                background: #e5e7eb;
+                color: #9ca3af;
+                border: 1px solid #d1d5db;
+            }
+            """
+        )
+        self.btn_reset_safe_slots.clicked.connect(self._reset_free_offsets)
+        self.btn_reset_safe_slots.setEnabled(False)
+        uuid_row.addWidget(self.btn_reset_safe_slots)
         uuid_row.addStretch(1)
         banner_layout.addLayout(uuid_row)
 
@@ -1175,9 +1352,65 @@ class KdpCoverQtDialog(QDialog):
     def _change_production_uuid(self) -> None:
         self._ensure_uuid_link(force=True)
 
+    def _try_bind_uuid_from_active_book(self) -> bool:
+        """UUID des aktiven Buchprojekts übernehmen — ohne Auswahldialog.
+
+        Im Arbeitsweg ist das Buch schon gewählt; die Production-UUID steht am
+        Buch (publish_meta / GG-Export / _book_studio.toml). Nur wenn sie
+        fehlt, muss der Picker noch ran.
+        """
+        if not self._book:
+            return False
+        uid = normalize_uuid(read_book_uuid(self._book))
+        if not uid:
+            return False
+        self._production_uuid = uid
+        if not str(self._cover_role or "").strip():
+            self._cover_role = "primary"
+        if not self._uuid_origin_label:
+            self._uuid_origin_label = "Aktives Buchprojekt"
+        if not self._uuid_source_kinds:
+            self._uuid_source_kinds = ["book_studio"]
+        try:
+            from tools.kdp_cover.assign_link import assign_cover_to_uuid
+
+            existing = (
+                Path(self._project_path)
+                if getattr(self, "_project_path", None)
+                else None
+            )
+            entry = assign_cover_to_uuid(
+                production_uuid=self._production_uuid,
+                cover_label=self._cover_label,
+                cover_role=(
+                    "alternative"
+                    if str(self._cover_role or "").strip().lower() == "alternative"
+                    else "primary"
+                ),
+                title_hint=self._book.name,
+                source_kinds=self._uuid_source_kinds,
+                book_path=self._book,
+                cover_path=existing,
+                repo=self._studio_repo(),
+            )
+            if existing is None and entry is not None:
+                self._project_path = Path(entry.cover_path)
+                label = getattr(self, "project_path_label", None)
+                if label is not None:
+                    label.setText(f"Cover-Layout: {entry.cover_path}")
+        except (OSError, ValueError) as exc:
+            log = getattr(self._studio, "log", None) if self._studio else None
+            if callable(log):
+                log(f"Cover↔UUID (Buch): {exc}", "warning")
+        self._refresh_uuid_link_ui()
+        return bool(normalize_uuid(self._production_uuid))
+
     def _ensure_uuid_link(self, *, force: bool = False) -> bool:
         """Ensure a production UUID is selected; return False if user cancels."""
         if not force and normalize_uuid(self._production_uuid):
+            return True
+        # Geführter Pfad: Buch schon bekannt → UUID vom Buch, kein Picker.
+        if not force and self._try_bind_uuid_from_active_book():
             return True
         from ui_qt.dialogs.kdp_cover_uuid_dialog import pick_cover_uuid
 
@@ -1376,13 +1609,11 @@ class KdpCoverQtDialog(QDialog):
         return form
 
     def _build_compose_front_group(self) -> QWidget:
-        """Experimentelle Vorderseiten-Layer (wegwerfbar mit compose_front-Paket)."""
+        """Vorderseiten-Gestaltung (Layer über Farbe/Bild)."""
         box = QWidget()
         box.setToolTip(
-            "Optionale Layer über dem Vorderseiten-Foto "
-            "(Fade, Band, Titel, Fuß, Ecken-Banner, Badge). "
-            "Ausgeschaltet oder ohne Modul: Export wie bisher. "
-            "Feature-Flag: kdp_compose_front_ui / BSU_KDP_COMPOSE_FRONT."
+            "Layer über der Vorderseite: Fade, Band, Titel, Fuß, Ecken-Banner, Badge. "
+            "Jeder Block hat eigenen An/Aus-Schalter — ohne Master-Kill-Switch."
         )
         root = QVBoxLayout(box)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1393,9 +1624,11 @@ class KdpCoverQtDialog(QDialog):
         top.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         root.addLayout(top)
 
+        # Kein sichtbarer „Layer aktiv“-Schalter: leeres Deckblatt ist kein Use-Case.
+        # JSON-Feld ``enabled`` bleibt True beim Speichern aus dieser UI.
         self.compose_enabled = QCheckBox("Layer aktiv")
-        self.compose_enabled.setChecked(False)
-        top.addRow(self.compose_enabled)
+        self.compose_enabled.setChecked(True)
+        self.compose_enabled.hide()
 
         fade_sec = CollapsibleSection("Fade (oben / unten)", expanded=False)
         fade_form = self._nested_form(fade_sec)
@@ -1553,6 +1786,29 @@ class KdpCoverQtDialog(QDialog):
         self.compose_accent_italic.setToolTip("Akzent-Text kursiv darstellen")
         titles_form.addRow(self.compose_titles_enabled)
         titles_form.addRow("Position 1+2:", self.compose_titles_top)
+        self.compose_titles_align = QComboBox()
+        self.compose_titles_align.addItem("Links", "left")
+        self.compose_titles_align.addItem("Zentriert", "center")
+        self.compose_titles_align.addItem("Rechts", "right")
+        self.compose_titles_align.setCurrentIndex(1)
+        self.compose_titles_align.setToolTip(
+            "Horizontale Ausrichtung für Titelzeile 1+2 und Akzent "
+            "(Seitenrand ≈ 5 % der Vorderseitenbreite)."
+        )
+        self.compose_titles_offset_x = QDoubleSpinBox()
+        self.compose_titles_offset_x.setRange(-45.0, 45.0)
+        self.compose_titles_offset_x.setDecimals(1)
+        self.compose_titles_offset_x.setSingleStep(1.0)
+        self.compose_titles_offset_x.setValue(0.0)
+        self.compose_titles_offset_x.setSuffix(" %X")
+        self.compose_titles_offset_x.setToolTip(
+            "Horizontaler Versatz nach der Ausrichtung "
+            "(negativ = nach links, positiv = nach rechts; % der Vorderseitenbreite)."
+        )
+        titles_form.addRow(
+            "Ausrichtung:",
+            self._pair(self.compose_titles_align, self.compose_titles_offset_x),
+        )
         titles_form.addRow(
             "Titelzeile 1:",
             self._pair(self.compose_series, series_color_host),
@@ -1598,12 +1854,35 @@ class KdpCoverQtDialog(QDialog):
         self.compose_footer_bottom.setToolTip(
             "Abstand der Fußzeile vom unteren Rand (% der Front-Höhe)."
         )
+        self.compose_footer_align = QComboBox()
+        self.compose_footer_align.addItem("Links", "left")
+        self.compose_footer_align.addItem("Zentriert", "center")
+        self.compose_footer_align.addItem("Rechts", "right")
+        self.compose_footer_align.setCurrentIndex(1)
+        self.compose_footer_align.setToolTip(
+            "Horizontale Ausrichtung der Fußzeile "
+            "(Seitenrand ≈ 5 % der Vorderseitenbreite)."
+        )
+        self.compose_footer_offset_x = QDoubleSpinBox()
+        self.compose_footer_offset_x.setRange(-45.0, 45.0)
+        self.compose_footer_offset_x.setDecimals(1)
+        self.compose_footer_offset_x.setSingleStep(1.0)
+        self.compose_footer_offset_x.setValue(0.0)
+        self.compose_footer_offset_x.setSuffix(" %X")
+        self.compose_footer_offset_x.setToolTip(
+            "Horizontaler Versatz nach der Ausrichtung "
+            "(negativ = nach links, positiv = nach rechts)."
+        )
         footer_form.addRow(self.compose_footer_enabled)
         footer_form.addRow("Fußzeile 1:", self.compose_footer_line1)
         footer_form.addRow("Fußzeile 2:", self.compose_footer_line2)
         footer_form.addRow(
             "Farbe / Position:",
             self._pair(footer_color_host, self.compose_footer_bottom),
+        )
+        footer_form.addRow(
+            "Ausrichtung:",
+            self._pair(self.compose_footer_align, self.compose_footer_offset_x),
         )
         root.addWidget(footer_sec)
 
@@ -1650,6 +1929,35 @@ class KdpCoverQtDialog(QDialog):
         self.compose_corner_pos.addItem("Oben rechts", "top_right")
         self.compose_corner_pos.addItem("Unten rechts", "bottom_right")
         self.compose_corner_pos.setToolTip("Platzierung der Ecken-Markierung")
+        self.compose_corner_offset_x = QDoubleSpinBox()
+        self.compose_corner_offset_x.setRange(0.0, 30.0)
+        self.compose_corner_offset_x.setDecimals(1)
+        self.compose_corner_offset_x.setSingleStep(0.5)
+        self.compose_corner_offset_x.setValue(0.0)
+        self.compose_corner_offset_x.setSuffix(" %X")
+        self.compose_corner_offset_x.setToolTip(
+            "Abstand vom rechten Rand (% der Vorderseitenbreite)."
+        )
+        self.compose_corner_offset_y = QDoubleSpinBox()
+        self.compose_corner_offset_y.setRange(0.0, 30.0)
+        self.compose_corner_offset_y.setDecimals(1)
+        self.compose_corner_offset_y.setSingleStep(0.5)
+        self.compose_corner_offset_y.setValue(0.0)
+        self.compose_corner_offset_y.setSuffix(" %Y")
+        self.compose_corner_offset_y.setToolTip(
+            "Abstand vom oberen Rand (bei „Oben rechts“) bzw. unteren Rand "
+            "(bei „Unten rechts“); % der Vorderseitenhöhe."
+        )
+        self.compose_corner_text_pad = QDoubleSpinBox()
+        self.compose_corner_text_pad.setRange(0.0, 40.0)
+        self.compose_corner_text_pad.setDecimals(0)
+        self.compose_corner_text_pad.setSingleStep(2.0)
+        self.compose_corner_text_pad.setValue(10.0)
+        self.compose_corner_text_pad.setSuffix(" %")
+        self.compose_corner_text_pad.setToolTip(
+            "Innenabstand vom Text zum umgebenden Dreieck "
+            "(relativ zur Bandhöhe; höher = mehr Luft um den Text)."
+        )
         self.compose_corner_icon = QCheckBox("Download-Icon")
         self.compose_corner_icon.setChecked(True)
         self.compose_corner_icon.setToolTip("Weißes Download-Symbol im Banner anzeigen")
@@ -1663,7 +1971,14 @@ class KdpCoverQtDialog(QDialog):
             "Banner-Größe / Position:",
             self._pair(self.compose_corner_size, self.compose_corner_pos),
         )
-        corner_form.addRow("Schriftgröße:", self.compose_corner_font)
+        corner_form.addRow(
+            "Offset rechts / oben:",
+            self._pair(self.compose_corner_offset_x, self.compose_corner_offset_y),
+        )
+        corner_form.addRow(
+            "Schrift / Text-Padding:",
+            self._pair(self.compose_corner_font, self.compose_corner_text_pad),
+        )
         corner_form.addRow("", self.compose_corner_icon)
         root.addWidget(corner_sec)
 
@@ -1824,6 +2139,9 @@ class KdpCoverQtDialog(QDialog):
             self.compose_footer_bottom,
             self.compose_corner_size,
             self.compose_corner_font,
+            self.compose_corner_offset_x,
+            self.compose_corner_offset_y,
+            self.compose_corner_text_pad,
             self.compose_badge_x,
             self.compose_badge_y,
             self.compose_badge_scale,
@@ -1835,6 +2153,10 @@ class KdpCoverQtDialog(QDialog):
         ):
             w.valueChanged.connect(self._on_params_changed)
         self.compose_corner_pos.currentIndexChanged.connect(self._on_params_changed)
+        self.compose_titles_align.currentIndexChanged.connect(self._on_params_changed)
+        self.compose_titles_offset_x.valueChanged.connect(self._on_params_changed)
+        self.compose_footer_align.currentIndexChanged.connect(self._on_params_changed)
+        self.compose_footer_offset_x.valueChanged.connect(self._on_params_changed)
         for w in (
             self.compose_band_text,
             self.compose_series,
@@ -1867,7 +2189,7 @@ class KdpCoverQtDialog(QDialog):
         from tools.kdp_cover.compose_front.model import FrontComposeSpec
 
         raw = {
-            "enabled": self.compose_enabled.isChecked(),
+            "enabled": True,
             "fade": {
                 "enabled": self.compose_fade_enabled.isChecked(),
                 "color": self.compose_fade_color.text().strip() or "#F5F0E8",
@@ -1892,6 +2214,8 @@ class KdpCoverQtDialog(QDialog):
             },
             "titles": {
                 "enabled": self.compose_titles_enabled.isChecked(),
+                "align": str(self.compose_titles_align.currentData() or "center"),
+                "offset_x_pct": float(self.compose_titles_offset_x.value()),
                 "lines_size_pct": float(self.compose_lines_size.value()),
                 "lines_bold": self.compose_lines_bold.isChecked(),
                 "series": {
@@ -1918,6 +2242,8 @@ class KdpCoverQtDialog(QDialog):
                 "line2": self.compose_footer_line2.text().strip(),
                 "color": self.compose_footer_color.text().strip() or "#FFFFFF",
                 "bottom_pct": float(self.compose_footer_bottom.value()),
+                "align": str(self.compose_footer_align.currentData() or "center"),
+                "offset_x_pct": float(self.compose_footer_offset_x.value()),
             },
             "corner_ribbon": {
                 "enabled": self.compose_corner_enabled.isChecked(),
@@ -1928,6 +2254,9 @@ class KdpCoverQtDialog(QDialog):
                 "font_scale": float(self.compose_corner_font.value()) / 100.0,
                 "show_icon": self.compose_corner_icon.isChecked(),
                 "corner": str(self.compose_corner_pos.currentData() or "top_right"),
+                "offset_x_pct": float(self.compose_corner_offset_x.value()),
+                "offset_y_pct": float(self.compose_corner_offset_y.value()),
+                "text_padding_pct": float(self.compose_corner_text_pad.value()),
             },
             "badge": {
                 "enabled": self.compose_badge_enabled.isChecked(),
@@ -1961,7 +2290,8 @@ class KdpCoverQtDialog(QDialog):
         self._params_guard = True
         try:
             spec = FrontComposeSpec.from_dict(data if isinstance(data, dict) else None)
-            self.compose_enabled.setChecked(spec.enabled)
+            # UI malt immer über Einzellayer — Master-Flag nicht mehr als Falle.
+            self.compose_enabled.setChecked(True)
             self.compose_fade_enabled.setChecked(spec.fade.enabled)
             self.compose_fade_color.setText(spec.fade.color)
             self.compose_fade_height.setValue(spec.fade.height_pct)
@@ -1978,6 +2308,12 @@ class KdpCoverQtDialog(QDialog):
             self.compose_band_text_color.setText(spec.band.text_color)
             self.compose_band_text_size.setValue(spec.band.text_size_pct)
             self.compose_titles_enabled.setChecked(spec.titles.enabled)
+            align = str(getattr(spec.titles, "align", "center") or "center")
+            ai = self.compose_titles_align.findData(align)
+            self.compose_titles_align.setCurrentIndex(ai if ai >= 0 else 1)
+            self.compose_titles_offset_x.setValue(
+                float(getattr(spec.titles, "offset_x_pct", 0.0) or 0.0)
+            )
             self.compose_titles_top.setValue(spec.titles.top_pct)
             self.compose_series.setText(spec.titles.series.text)
             self.compose_series_color.setText(spec.titles.series.color)
@@ -1996,6 +2332,12 @@ class KdpCoverQtDialog(QDialog):
             self.compose_footer_line2.setText(spec.footer.line2)
             self.compose_footer_color.setText(spec.footer.color)
             self.compose_footer_bottom.setValue(spec.footer.bottom_pct)
+            f_align = str(getattr(spec.footer, "align", "center") or "center")
+            fai = self.compose_footer_align.findData(f_align)
+            self.compose_footer_align.setCurrentIndex(fai if fai >= 0 else 1)
+            self.compose_footer_offset_x.setValue(
+                float(getattr(spec.footer, "offset_x_pct", 0.0) or 0.0)
+            )
             self.compose_corner_enabled.setChecked(spec.corner_ribbon.enabled)
             self.compose_corner_text.setText(spec.corner_ribbon.text)
             self.compose_corner_color.setText(spec.corner_ribbon.color)
@@ -2008,6 +2350,15 @@ class KdpCoverQtDialog(QDialog):
             cidx = self.compose_corner_pos.findData(spec.corner_ribbon.corner)
             if cidx >= 0:
                 self.compose_corner_pos.setCurrentIndex(cidx)
+            self.compose_corner_offset_x.setValue(
+                float(getattr(spec.corner_ribbon, "offset_x_pct", 0.0) or 0.0)
+            )
+            self.compose_corner_offset_y.setValue(
+                float(getattr(spec.corner_ribbon, "offset_y_pct", 0.0) or 0.0)
+            )
+            self.compose_corner_text_pad.setValue(
+                float(getattr(spec.corner_ribbon, "text_padding_pct", 10.0) or 10.0)
+            )
             self.compose_badge_enabled.setChecked(spec.badge.enabled)
             self.compose_badge_image.setText(spec.badge.image)
             self.compose_badge_text.setText(spec.badge.text)
@@ -2044,25 +2395,41 @@ class KdpCoverQtDialog(QDialog):
         free_idx = getattr(self, "_free_tab_index", -1)
         if free_idx >= 0 and hasattr(self, "_editor_tabs"):
             self._editor_tabs.setTabEnabled(free_idx, is_free)
+        reset_btn = getattr(self, "btn_reset_safe_slots", None)
+        if reset_btn is not None:
+            reset_btn.setEnabled(is_free)
 
     def _sync_compose_front_tab_visibility(self) -> None:
-        """Experiment-Tab nur bei Flag oder aktivem Layer im Projekt zeigen."""
+        """Tab „Gestaltung“ bei Flag/Default oder aktivem Layer zeigen."""
         idx = getattr(self, "_layer_tab_index", -1)
         tabs = getattr(self, "_editor_tabs", None)
         if idx < 0 or tabs is None:
             return
         from tools.kdp_cover.compose_front.flags import is_compose_front_ui_enabled
 
-        project_on = bool(
-            getattr(self, "compose_enabled", None)
-            and self.compose_enabled.isChecked()
-        )
+        project_on = True  # Gestaltung-UI aktiv → Layer immer an (Einzellayer steuern)
         show = is_compose_front_ui_enabled(project_enabled=project_on)
         set_visible = getattr(tabs, "setTabVisible", None)
         if callable(set_visible):
             set_visible(idx, show)
         else:
             tabs.setTabEnabled(idx, show)
+
+    def _open_gestaltung_tab(self) -> None:
+        """Zum Tab Gestaltung springen (Texte/Layer auf der Vorderseite)."""
+        idx = getattr(self, "_layer_tab_index", -1)
+        tabs = getattr(self, "_editor_tabs", None)
+        if idx < 0 or tabs is None:
+            return
+        # Sicher sichtbar machen, falls Flag aus war.
+        set_visible = getattr(tabs, "setTabVisible", None)
+        if callable(set_visible):
+            set_visible(idx, True)
+        else:
+            tabs.setTabEnabled(idx, True)
+        tabs.setCurrentIndex(idx)
+        self.raise_()
+        self.activateWindow()
 
     def _on_mode_changed(self, *_args: Any) -> None:
         if self._mode_guard:
@@ -2071,12 +2438,12 @@ class KdpCoverQtDialog(QDialog):
         if new_mode == "free":
             reply = QMessageBox.warning(
                 self,
-                "Frei-Modus",
-                "Im Frei-Modus kannst du Texte frei verschieben. "
+                "Modus Experte",
+                "Im Experten-Modus kannst du Texte per Offset verschieben. "
                 "Safe-Zone und KDP-Regeln werden dann nur noch als Hinweis "
                 "geprüft — der Export kann trotz Warnungen/Fehler erfolgen "
                 "(nach zweistufiger Bestätigung).\n\n"
-                "Trotzdem in den Frei-Modus wechseln?",
+                "Trotzdem in den Experten-Modus wechseln?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -2104,6 +2471,7 @@ class KdpCoverQtDialog(QDialog):
         ):
             spin.setValue(0.0)
         self.title_scale.setValue(1.0)
+        self._on_params_changed()
 
     def _sync_back_frame_controls(self) -> None:
         on = bool(self.back_frame_check.isChecked())
@@ -2193,6 +2561,7 @@ class KdpCoverQtDialog(QDialog):
             front_image_zoom=float(self.front_zoom_spin.value()),
             front_image_offset_x_mm=float(self.front_ox_spin.value()),
             front_image_offset_y_mm=float(self.front_oy_spin.value()),
+            front_color=self.front_color_edit.text().strip() or "#1e3a5f",
             back_image_scale=max(0.05, min(1.0, float(self.back_scale_spin.value()) / 100.0)),
             back_image_frame=bool(self.back_frame_check.isChecked()),
             back_image_frame_mm=float(self.back_frame_mm_spin.value()),
@@ -2267,6 +2636,9 @@ class KdpCoverQtDialog(QDialog):
                 self.mode_combo.setCurrentIndex(midx)
 
             self.front_edit.setText(layout.front_image)
+            self.front_color_edit.setText(
+                str(getattr(layout, "front_color", "") or "").strip() or "#1e3a5f"
+            )
             # Ungültige Front-/Back-Pfade aus altem Projekt nicht behalten
             # (sonst schwarze/fehlschlagende Vorschau ohne erkennbare Ursache).
             front_raw = (layout.front_image or "").strip()
@@ -2477,19 +2849,93 @@ class KdpCoverQtDialog(QDialog):
     def _layout_validation_blocks_persist(
         self, layout: CoverLayout
     ) -> ValidationReport | None:
-        """Validiert vor Speichern; bei Fehlern Dialog und ``None``."""
+        """Validiert vor Speichern; bei Fehlern zum passenden Tab führen."""
         report = validate_layout(layout, resolve_base=self._resolve_base())
         if report.errors:
             detail = "\n".join(f"• {i.message}" for i in report.errors)
-            QMessageBox.critical(
-                self,
-                "Speichern gesperrt — Vorgaben verletzt",
+            hint = self._persist_block_hint(report.errors)
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Critical)
+            box.setWindowTitle("Speichern gesperrt — Vorgaben verletzt")
+            box.setText(
                 "Cover-Layout kann nicht gespeichert werden:\n\n"
-                f"{detail}\n\n"
-                "Bitte Safe-Zone, Barcode-Zone und Bildparameter korrigieren.",
+                f"{detail}"
             )
+            box.setInformativeText(hint)
+            open_btn = box.addButton(
+                "Einstellungen öffnen", QMessageBox.ButtonRole.AcceptRole
+            )
+            box.addButton("Schließen", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(open_btn)
+            box.exec()
+            if box.clickedButton() is open_btn:
+                self._focus_editor_for_issues(report.errors)
             return None
         return report
+
+    def _persist_block_hint(self, errors: list[ValidationIssue]) -> str:
+        codes = {i.code for i in errors}
+        if codes & {
+            "front_image_missing",
+            "front_image_unreadable",
+            "front_image_dpi",
+            "front_color",
+            "front_image_zoom",
+        }:
+            return (
+                "Öffnet den Tab „Vorderseite“: Front-Farbe (Default reicht), "
+                "optional Bild oder Stylecloud-Wortwolke."
+            )
+        if any(c.startswith("back_") or "barcode" in c for c in codes):
+            return (
+                "Öffnet den Tab „Rückseite“: Farbe, optionales Bild, "
+                "Safe-Zone und Barcode-Zone."
+            )
+        if any(c.startswith("spine_") for c in codes):
+            return "Öffnet den Tab „Rücken“: Farbe, Text und Badge."
+        if codes & {"trim_size", "geometry", "page_count", "paper_type"}:
+            return "Öffnet den Tab „Maße“: Trimmgröße, Papier und Seitenzahl."
+        return "Der passende Editor-Tab wird geöffnet."
+
+    def _focus_editor_for_issues(self, errors: list[ValidationIssue]) -> None:
+        """Zum Tab springen, der zum ersten Fehler gehört."""
+        codes = [i.code for i in errors]
+        tab_name = "Vorderseite"
+        for code in codes:
+            if code.startswith("back_") or "barcode" in code:
+                tab_name = "Rückseite"
+                break
+            if code.startswith("spine_"):
+                tab_name = "Rücken"
+                break
+            if code in {"trim_size", "geometry", "page_count", "paper_type"}:
+                tab_name = "Maße"
+                break
+            if code.startswith("front_") or code == "front_color":
+                tab_name = "Vorderseite"
+                break
+        tabs = getattr(self, "_editor_tabs", None)
+        if tabs is None:
+            return
+        for idx in range(tabs.count()):
+            if tabs.tabText(idx) == tab_name:
+                tabs.setCurrentIndex(idx)
+                break
+        self.raise_()
+        self.activateWindow()
+
+    def _open_stylecloud_for_front(self) -> None:
+        """Stylecloud öffnen — Wortwolke kann danach an diesen Dialog übergeben werden."""
+        try:
+            from ui_qt.dialogs.stylecloud_dialog import open_stylecloud_qt
+        except ImportError:
+            QMessageBox.information(
+                self,
+                "Stylecloud",
+                "Stylecloud ist nicht verfügbar.",
+            )
+            return
+        open_stylecloud_qt(self._studio, self)
 
     def _save_project(self) -> None:
         """Kanonisch unter production/covers/<uuid>/…; optional Spiegel am Buch."""
@@ -2542,9 +2988,80 @@ class KdpCoverQtDialog(QDialog):
         self.project_path_label.setText(f"Cover-Layout: {canon}")
         self._refresh_binding_ui()
         self._refresh_uuid_link_ui()
+        # Ampel nutzt die Buch-Bindung (Spiegel), nicht production/covers/…
+        gate_path = mirror if mirror is not None else canon
+        if self._book is not None:
+            try:
+                binding = resolve_cover_binding(self._book)
+                if binding.canonical_path:
+                    gate_path = Path(binding.canonical_path)
+            except (OSError, TypeError, ValueError):
+                pass
+        self._ask_cover_finished(gate_path)
         log = getattr(self._studio, "log", None) if self._studio else None
         if callable(log):
             log(f"KDP-Cover-Layout gespeichert: {canon}", "success")
+
+    def _ask_cover_finished(self, layout_path: Path) -> None:
+        """Nach Speichern: Ampel Cover nur bei explizitem „fertig“ auf Grün."""
+        if self._book is None:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Cover fertig?",
+            "Cover-Layout wurde gespeichert.\n\n"
+            "Ist das Cover fertig für den nächsten Schritt (Render)?\n\n"
+            "• Ja — Ampel „Cover“ wird grün, Designer schließt.\n"
+            "• Nein — Speichern bleibt Zwischenstand, Ampel bleibt offen.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        finished = reply == QMessageBox.StandardButton.Yes
+        try:
+            from services.work_path import mark_cover_finished
+
+            mark_cover_finished(self._book, layout_path, finished=finished)
+        except (OSError, TypeError, ValueError) as exc:
+            QMessageBox.warning(
+                self,
+                "Cover-Status",
+                f"Fertig-Status konnte nicht gespeichert werden:\n{exc}",
+            )
+            return
+        if finished:
+            self.status_label.setText("● Cover als fertig bestätigt — Ampel grün")
+            self.status_label.setStyleSheet("color:#15803d; font-weight:600;")
+        else:
+            self.status_label.setText(
+                "● Cover gespeichert (Zwischenstand) — Ampel bleibt offen"
+            )
+            self.status_label.setStyleSheet("color:#b45309; font-weight:600;")
+        self._notify_work_path_refresh()
+        if finished:
+            self.close()
+
+    def _notify_work_path_refresh(self) -> None:
+        studio = self._studio
+        if studio is None:
+            return
+        for name in ("_refresh_work_path", "refresh_work_path"):
+            fn = getattr(studio, name, None)
+            if callable(fn):
+                try:
+                    fn()
+                except (RuntimeError, TypeError, AttributeError):
+                    pass
+                return
+        host = self.parent()
+        while host is not None:
+            fn = getattr(host, "_refresh_work_path", None)
+            if callable(fn):
+                try:
+                    fn()
+                except (RuntimeError, TypeError, AttributeError):
+                    pass
+                return
+            host = host.parent() if hasattr(host, "parent") else None
 
     def _load_project(self) -> None:
         start_dir, _start_name = self._suggested_save_path()
@@ -2624,7 +3141,7 @@ class KdpCoverQtDialog(QDialog):
         else:
             self.status_label.setText("● OK — bereit zum Export")
             self.status_label.setStyleSheet("color:#15803d; font-weight:600;")
-            self.btn_export.setEnabled(bool(self.front_edit.text().strip()))
+            self.btn_export.setEnabled(True)
 
         lines: list[str] = []
         for issue in report.issues:
@@ -2691,14 +3208,8 @@ class KdpCoverQtDialog(QDialog):
 
         report = validate_layout(layout, geometry=geo, resolve_base=self._resolve_base())
         self._set_status(report)
-        if layout.front_image:
-            # Debounce: viele Spinbox-Signale sonst → Dutzende Vollrenders (UI-Freeze).
-            self._preview_timer.start()
-        else:
-            self._preview_timer.stop()
-            self._preview_full = None
-            self.preview_label.setText("Bitte Vorderseiten-Bild wählen.")
-            self.preview_label.setPixmap(QPixmap())
+        # Farbe allein reicht für Vorschau; Bild optional.
+        self._preview_timer.start()
 
     def _effective_preview_dpi(self) -> float:
         """Bildschirm-Vorschau (120) oder wahlweise Druckauflösung (300)."""
@@ -2708,21 +3219,19 @@ class KdpCoverQtDialog(QDialog):
 
     def _refresh_preview(self) -> None:
         layout = self._build_layout()
-        if not layout.front_image:
-            self._preview_full = None
-            self.preview_label.setText("Bitte Vorderseiten-Bild wählen.")
-            self.preview_label.setPixmap(QPixmap())
-            return
-        front_path = Path(layout.front_image.strip())
-        if not front_path.is_absolute() and self._book is not None:
-            front_path = (self._book / front_path).resolve()
-        if not front_path.is_file():
-            self._preview_full = None
-            self.preview_label.setText(
-                f"Vorderseiten-Bild fehlt:\n{front_path}"
-            )
-            self.preview_label.setPixmap(QPixmap())
-            return
+        front_raw = (layout.front_image or "").strip()
+        if front_raw:
+            front_path = Path(front_raw)
+            if not front_path.is_absolute() and self._book is not None:
+                front_path = (self._book / front_path).resolve()
+            if not front_path.is_file():
+                self._preview_full = None
+                self.preview_label.setText(
+                    f"Vorderseiten-Bild fehlt:\n{front_path}\n"
+                    "(Front-Farbe reicht zum Speichern — Bildpfad korrigieren oder leeren.)"
+                )
+                self.preview_label.setPixmap(QPixmap())
+                return
         dpi = self._effective_preview_dpi()
         try:
             geo = build_geometry(
@@ -2750,7 +3259,45 @@ class KdpCoverQtDialog(QDialog):
         self._preview_fit_size = None
         self._fit_preview_to_viewport()
 
+    def _on_body_splitter_moved(self, *_args: Any) -> None:
+        if getattr(self, "_suppress_geometry_persist", False):
+            return
+        timer = getattr(self, "_geometry_save_timer", None)
+        if timer is not None:
+            timer.start()
+
+    def _apply_restored_layout(self) -> None:
+        """Fenstergröße + Trenner nach dem ersten Show erneut setzen.
+
+        QSplitter kennt seine Breite erst nach Show; setSizes in ``__init__``
+        wird sonst vom Layout/Stretch überschrieben.
+        """
+        self._suppress_geometry_persist = True
+        try:
+            loaded = getattr(self, "_loaded_size", None)
+            if (
+                isinstance(loaded, tuple)
+                and len(loaded) == 2
+                and not getattr(self, "_restore_maximized", False)
+                and not self.isMaximized()
+            ):
+                self.resize(int(loaded[0]), int(loaded[1]))
+            sizes = getattr(self, "_loaded_splitter_sizes", None)
+            splitter = getattr(self, "_body_splitter", None)
+            if splitter is not None and isinstance(sizes, list) and len(sizes) >= 2:
+                splitter.setSizes([int(sizes[0]), int(sizes[1])])
+        finally:
+            # Ein Tick später freigeben — Show/resize-Kaskade noch abwarten.
+            QTimer.singleShot(0, self._enable_geometry_persist)
+
+    def _enable_geometry_persist(self) -> None:
+        self._suppress_geometry_persist = False
+
     def _persist_window_geometry(self) -> None:
+        if getattr(self, "_suppress_geometry_persist", False):
+            return
+        if not self.isVisible():
+            return
         try:
             maximized = bool(self.isMaximized())
             if maximized:
@@ -2760,16 +3307,29 @@ class KdpCoverQtDialog(QDialog):
             else:
                 width = int(self.width())
                 height = int(self.height())
+            if width < MIN_WINDOW_WIDTH or height < MIN_WINDOW_HEIGHT:
+                return
             active_tab = 0
             tabs = getattr(self, "_editor_tabs", None)
             if tabs is not None:
                 active_tab = int(tabs.currentIndex())
+            splitter_sizes: list[int] = []
+            splitter = getattr(self, "_body_splitter", None)
+            if splitter is not None:
+                splitter_sizes = [int(v) for v in splitter.sizes()]
+            if len(splitter_sizes) >= 2:
+                self._loaded_splitter_sizes = [
+                    int(splitter_sizes[0]),
+                    int(splitter_sizes[1]),
+                ]
+            self._loaded_size = (width, height)
             save_settings(
                 {
                     "window_width": width,
                     "window_height": height,
                     "window_maximized": maximized,
                     "active_tab": active_tab,
+                    "body_splitter_sizes": splitter_sizes,
                 }
             )
         except OSError:
@@ -2780,16 +3340,32 @@ class KdpCoverQtDialog(QDialog):
         if getattr(self, "_restore_maximized", False):
             self._restore_maximized = False
             self.showMaximized()
+        if not getattr(self, "_geometry_restore_scheduled", False):
+            self._geometry_restore_scheduled = True
+            QTimer.singleShot(0, self._apply_restored_layout)
+        QTimer.singleShot(0, self._sync_editor_scrollbars)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        timer = getattr(self, "_geometry_save_timer", None)
+        if timer is not None:
+            timer.stop()
+        self._suppress_geometry_persist = False
         self._persist_window_geometry()
         super().closeEvent(event)
 
     def accept(self) -> None:
+        timer = getattr(self, "_geometry_save_timer", None)
+        if timer is not None:
+            timer.stop()
+        self._suppress_geometry_persist = False
         self._persist_window_geometry()
         super().accept()
 
     def reject(self) -> None:
+        timer = getattr(self, "_geometry_save_timer", None)
+        if timer is not None:
+            timer.stop()
+        self._suppress_geometry_persist = False
         self._persist_window_geometry()
         super().reject()
 
@@ -2856,8 +3432,10 @@ class KdpCoverQtDialog(QDialog):
         self._set_preview_zoom(1.0)
 
     def eventFilter(self, obj: Any, event: Any) -> bool:  # noqa: N802
+        preview = getattr(self, "_preview_scroll", None)
         if (
-            obj is self._preview_scroll.viewport()
+            preview is not None
+            and obj is preview.viewport()
             and event.type() == event.Type.Wheel
             and isinstance(event, QWheelEvent)
         ):
@@ -2868,12 +3446,29 @@ class KdpCoverQtDialog(QDialog):
                 elif delta < 0:
                     self._zoom_out()
                 return True
+        et = event.type()
+        if et in (
+            QEvent.Type.Resize,
+            QEvent.Type.LayoutRequest,
+            QEvent.Type.Show,
+        ):
+            scrolls = getattr(self, "_editor_scroll_areas", None) or []
+            for scroll in scrolls:
+                try:
+                    if obj is scroll.viewport() or obj is scroll.widget():
+                        self._sync_editor_scrollbars()
+                        break
+                except RuntimeError:
+                    continue
         return super().eventFilter(obj, event)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         # Debounce: Beim Öffnen feuern Dutzende resizeEvents — sonst Gezucke.
         self._fit_timer.start()
+        self._sync_editor_scrollbars()
+        if getattr(self, "_suppress_geometry_persist", False):
+            return
         timer = getattr(self, "_geometry_save_timer", None)
         if timer is not None:
             timer.start()
@@ -2955,7 +3550,7 @@ class KdpCoverQtDialog(QDialog):
                 title="Validierung — Sicher-Modus",
                 intro=(
                     "Im Sicher-Modus ist der Export bei Fehlern gesperrt. "
-                    "Bitte Fehler beheben oder Modus „Frei“ wählen."
+                    "Bitte Fehler beheben oder Modus „Experte“ wählen."
                 ),
                 display_only=True,
                 reject_label="Schließen",
@@ -2971,7 +3566,7 @@ class KdpCoverQtDialog(QDialog):
             dlg = KdpExportIssuesDialog(
                 self,
                 issues,
-                title="Frei-Modus: Export bestätigen",
+                title="Experte: Export bestätigen",
                 intro=(
                     "Schritt 1/2: Validierungshinweise in der Tabelle prüfen. "
                     "Danach Verantwortung bestätigen (Schritt 2/2)."
@@ -3242,13 +3837,17 @@ def open_kdp_cover_qt(
     ``disable_compose``: when True, turn off front layer compose. Default False
     so title/band/badge layers stay on top of a Stylecloud handoff image.
     """
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return 0
     dlg = KdpCoverQtDialog(studio, parent, front_image=front_image)
     if front_image is not None:
         turn_off = False if disable_compose is None else bool(disable_compose)
         dlg.apply_front_image(front_image, disable_compose=turn_off)
         # Nach Show einmal hard refresh (Viewport-Größe erst dann korrekt).
         QTimer.singleShot(0, dlg._refresh_preview)
-    return int(dlg.exec())
+    show_autonomous_window(dlg, _active)
+    return 0
 
 
 __all__ = ["KdpCoverQtDialog", "open_kdp_cover_qt", "_FreeExportConfirmDialog"]

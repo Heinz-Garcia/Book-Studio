@@ -27,6 +27,13 @@ from PySide6.QtWidgets import (
 
 from tools.publisher_compliance.catalog import DEFAULT_PUBLISHER_PROFILE_ID, get_profile
 from tools.publisher_compliance.validators import CheckResult
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.widgets.help_bar import HelpBar
 
 _SEVERITY_COLORS = {
@@ -42,20 +49,27 @@ _SEVERITY_LABELS = {
     "skipped": "⏭ übersprungen",
 }
 
+_SIZE_KEY = "publisher_compliance_size"
+_DEFAULT_SIZE = (900, 480)
+_MIN_SIZE = (560, 320)
+_active: list[PublisherComplianceQtDialog] = []
+
 
 class PublisherComplianceQtDialog(QDialog):
     def __init__(
         self,
-        parent: Optional[QWidget],
+        host: Optional[QWidget],
         *,
         pdf_path: Path,
         publisher_profile_id: str,
         layout_profile_id: Optional[str],
         results: list[CheckResult],
     ) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self.setWindowTitle("Druck-Freigabe prüfen")
-        self.resize(900, 480)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
 
         profile = get_profile(publisher_profile_id)
         layout = QVBoxLayout(self)
@@ -98,10 +112,20 @@ class PublisherComplianceQtDialog(QDialog):
         layout.addWidget(self.table)
 
         row = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(
+            row, tool_key="publisher_compliance", host=self
+        )
         close = QPushButton("Schließen")
         close.clicked.connect(self.accept)
         row.addWidget(close)
         layout.addLayout(row)
+        prepare_autonomous_window(self, host)
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
 
 def _qcolor(hex_value: str):
@@ -117,9 +141,19 @@ def open_publisher_compliance_qt(
     publisher_profile_id: str = DEFAULT_PUBLISHER_PROFILE_ID,
     **kwargs,
 ) -> None:
+    from ui_qt.work_path_guidance import (
+        go_label_for_action,
+        prompt_redirect_stage,
+        warn_need_book,
+    )
+
     book = getattr(studio, "current_book", None)
     if not book:
-        QMessageBox.warning(parent, "Druck-Freigabe prüfen", "Kein Buchprojekt aktiv.")
+        warn_need_book(
+            parent,
+            title="Druck-Freigabe prüfen",
+            studio=studio,
+        )
         return
     book = Path(book)
 
@@ -127,17 +161,56 @@ def open_publisher_compliance_qt(
 
     pdf_path = newest_output_pdf(book)
     if pdf_path is None:
-        QMessageBox.information(
+        if prompt_redirect_stage(
             parent,
-            "Druck-Freigabe prüfen",
-            "Noch keine gerenderte PDF gefunden — zuerst exportieren/rendern, dann erneut prüfen.",
-        )
+            title="Druck-Freigabe prüfen",
+            message=(
+                "Noch keine Export-PDF.\n\n"
+                "Stufe H im Arbeitsweg: zuerst PDF erzeugen, dann erneut prüfen."
+            ),
+            go_label=go_label_for_action("render"),
+        ):
+            widget = parent
+            while widget is not None:
+                run = getattr(widget, "_work_path_run_action", None)
+                if callable(run):
+                    run("render")
+                    return
+                widget = (
+                    widget.parentWidget()
+                    if hasattr(widget, "parentWidget")
+                    else None
+                )
+            QMessageBox.information(
+                parent,
+                "Freigabe prüfen",
+                "Bitte über Ansicht → Arbeitsweg → H · PDF erzeugen… "
+                "oder Export → Buch rendern starten.",
+            )
+        return
+
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
         return
 
     from tools.publisher_compliance.metadata import read_isbn_from_quarto_yml
 
     isbn = read_isbn_from_quarto_yml(book / "_quarto.yml")
     layout_profile_id = _resolve_last_layout_profile(book)
+
+    try:
+        import fitz as _fitz  # noqa: F401
+    except ImportError as exc:
+        QMessageBox.warning(
+            parent,
+            "Druck-Freigabe prüfen",
+            "PyMuPDF fehlt in dieser Python-Umgebung "
+            f"(import fitz: {exc}).\n\n"
+            "Im Projektordner ausführen:\n"
+            '  pip install "PyMuPDF>=1.23"\n'
+            "(steht in requirements.txt).",
+        )
+        return
 
     from tools.publisher_compliance.validators import run_compliance_report
 
@@ -163,13 +236,26 @@ def open_publisher_compliance_qt(
             "Programm geöffnet?",
         )
         return
-    PublisherComplianceQtDialog(
+    dlg = PublisherComplianceQtDialog(
         parent,
         pdf_path=pdf_path,
         publisher_profile_id=publisher_profile_id,
         layout_profile_id=layout_profile_id,
         results=results,
-    ).exec()
+    )
+    show_autonomous_window(dlg, _active)
+    try:
+        from services.work_path import mark_freigabe_seen
+
+        mark_freigabe_seen(book, pdf_path)
+    except OSError:
+        pass
+    refresh = getattr(parent, "_refresh_work_path", None) if parent is not None else None
+    if callable(refresh):
+        try:
+            refresh()
+        except RuntimeError:
+            pass
 
 
 def _resolve_last_layout_profile(book: Path) -> Optional[str]:

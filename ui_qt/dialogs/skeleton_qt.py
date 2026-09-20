@@ -28,8 +28,13 @@ from tools.skeleton.manifest import (
     load_manifest,
     resolve_library_root,
 )
+from ui_qt.autonomous_window import apply_persisted_size, persist_window_size
 from ui_qt.book_workspace import repo_root
 from ui_qt.widgets.help_bar import HelpBar
+
+_SIZE_KEY = "skeleton_populate_size"
+_DEFAULT_SIZE = (560, 520)
+_MIN_SIZE = (480, 420)
 
 
 def list_optional_manifest_entries(
@@ -58,8 +63,12 @@ class SkeletonPopulateQtDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Skeleton-Rahmen übernehmen")
-        self.resize(560, 520)
-        self.setMinimumSize(480, 420)
+        # Modal on purpose: populate_run must wait for Accepted + selected_profile
+        # before copying templates into the book. Size is still remembered.
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
+        self.setModal(True)
         self._library_root = Path(library_root)
         self.selected_profile: Optional[str] = None
         self.selected_file_overrides: dict[str, bool] = {}
@@ -175,10 +184,16 @@ class SkeletonPopulateQtDialog(QDialog):
         self.selected_file_overrides = file_overrides_for_selected_optionals(selected)
         self.accept()
 
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
+
 
 def open_skeleton_populate_qt(studio: Any, parent: Optional[QWidget] = None, **kwargs) -> int:
     if not getattr(studio, "current_book", None):
-        QMessageBox.warning(parent, "Skeleton", "Kein Buchprojekt aktiv.")
+        from ui_qt.work_path_guidance import warn_need_book
+
+        warn_need_book(parent, title="Skeleton", studio=studio)
         return 1
     root = repo_root()
     settings = read_skeleton_settings(root)

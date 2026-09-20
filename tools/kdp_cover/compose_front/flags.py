@@ -1,13 +1,12 @@
-"""Feature-Flag für die experimentelle Vorderseiten-Compose-UI.
+"""Feature-Flag für die Vorderseiten-Gestaltung (Layer-UI).
 
-Default aus: der KDP-Designer bleibt schlank. Aktivierung:
+Default an: Tab „Gestaltung“ ist sichtbar. Abschalten:
 
-* Umgebungsvariable ``BSU_KDP_COMPOSE_FRONT=1`` (oder ``true``/``on``)
-* ``app_config.json``-Schlüssel ``kdp_compose_front_ui: true``
-* bereits gespeichertes Layout mit ``front_compose.enabled`` (Tab wieder sichtbar)
+* Umgebungsvariable ``BSU_KDP_COMPOSE_FRONT=0`` (oder ``false``/``off``)
+* ``app_config.json``-Schlüssel ``kdp_compose_front_ui: false``
 
-Export-Hook in ``export_pdf`` bleibt unabhängig — er greift nur bei
-``enabled`` im Layout-JSON.
+Bereits gespeicherte Layouts mit ``front_compose.enabled`` zeigen den Tab
+weiterhin. Export-Hook greift nur bei ``enabled`` im Layout-JSON.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from typing import Any
 
 
 def is_compose_front_ui_enabled(*, project_enabled: bool = False) -> bool:
-    """Ob der Experiment-Tab „Vorderseiten-Layer“ im Designer sichtbar sein soll."""
+    """Ob der Tab „Gestaltung“ (Vorderseiten-Layer) sichtbar sein soll."""
     if project_enabled:
         return True
 
@@ -33,9 +32,12 @@ def is_compose_front_ui_enabled(*, project_enabled: bool = False) -> bool:
 
         root = Path(__file__).resolve().parents[3]
         cfg: dict[str, Any] = load_validated_config(root / "app_config.json")
+        # Fehlender Key → Default an (wie app_config.DEFAULTS).
+        if "kdp_compose_front_ui" not in cfg:
+            return True
         return bool(cfg.get("kdp_compose_front_ui"))
     except (OSError, TypeError, ValueError, ImportError):
-        return False
+        return True
 
 
 __all__ = ["is_compose_front_ui_enabled"]

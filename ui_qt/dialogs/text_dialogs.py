@@ -212,6 +212,24 @@ class TextEditorDialog(QDialog):
         self._on_save = on_save
         self._pending_skeleton_command: Optional[dict[str, Any]] = None
         self._is_markdown = self.path.suffix.lower() == ".md"
+        self._is_quarto_yml = self.path.name.lower() in {"_quarto.yml", "_quarto.yaml"}
+        self._is_rahmen_page = False
+        self._rahmen_rel_path: Optional[str] = None
+        if self._is_markdown and self.book_path is not None:
+            try:
+                rel = self.path.resolve().relative_to(self.book_path.resolve()).as_posix()
+            except ValueError:
+                rel = None
+            if rel is not None:
+                from page_required import is_page_required
+
+                try:
+                    content = self.path.read_text(encoding="utf-8") if self.path.is_file() else ""
+                except OSError:
+                    content = ""
+                if is_page_required(rel_path=rel, content=content):
+                    self._is_rahmen_page = True
+                    self._rahmen_rel_path = rel
         self._preview_dirty = True
         self._pdf_preview_dirty = True
         # Inherited from book-global structure search (no duplicate UI here).
@@ -562,6 +580,37 @@ class TextEditorDialog(QDialog):
             "Pfadwechsel würde die Zuordnung im Buchbaum/Skeleton-Sync durcheinanderbringen."
         )
         save_as_btn.clicked.connect(self._save_as)
+        if self._is_quarto_yml:
+            restore_btn = buttons.addButton(
+                "Sicherung wiederherstellen…",
+                QDialogButtonBox.ButtonRole.ActionRole,
+            )
+            restore_btn.setToolTip(
+                "Letzte Backup-Kopie von _quarto.yml unter .backups/quarto_yml/ einspielen."
+            )
+            restore_btn.clicked.connect(lambda: self._restore_quarto_yml_backup())
+            # Ausgangsstand sichern, bevor der Nutzer etwas kaputt speichert
+            try:
+                from services.quarto_yml_guard import create_backup
+
+                create_backup(self.path)
+            except OSError:
+                pass
+        elif self._is_rahmen_page and self.book_path is not None:
+            restore_btn = buttons.addButton(
+                "Sicherung wiederherstellen…",
+                QDialogButtonBox.ButtonRole.ActionRole,
+            )
+            restore_btn.setToolTip(
+                "Letzte Backup-Kopie dieser Rahmenseite unter .backups/rahmen/ einspielen."
+            )
+            restore_btn.clicked.connect(lambda: self._restore_rahmen_backup())
+            try:
+                from services.rahmen_pages import create_backup
+
+                create_backup(self.path, book_path=self.book_path)
+            except OSError:
+                pass
         layout.addWidget(buttons)
 
         save_shortcut = QAction(self)
@@ -1510,8 +1559,13 @@ class TextEditorDialog(QDialog):
 
     def _save(self) -> None:
         """Schreibt die Datei; der Dialog bleibt offen (Schließen separat)."""
+        new_text = self.editor.toPlainText()
+        if self._is_quarto_yml and not self._prepare_quarto_yml_save(new_text):
+            return
+        if self._is_rahmen_page and not self._prepare_rahmen_save(new_text):
+            return
         try:
-            self.path.write_text(self.editor.toPlainText(), encoding="utf-8")
+            self.path.write_text(new_text, encoding="utf-8")
         except OSError as exc:
             QMessageBox.critical(self, "Speichern fehlgeschlagen", str(exc))
             return
@@ -1523,6 +1577,214 @@ class TextEditorDialog(QDialog):
                 pass
         self._mark_content_saved()
         self._set_status("Gespeichert.", level="ok")
+
+    def _prepare_quarto_yml_save(self, new_text: str) -> bool:
+        """Backup der bisherigen Datei + YAML-Check. ``False`` = Speichern abbrechen."""
+        from services.quarto_yml_guard import create_backup, validate_quarto_yml_text
+
+        ok, message, needs_confirm = validate_quarto_yml_text(new_text)
+        if not ok:
+            latest = None
+            try:
+                from services.quarto_yml_guard import latest_backup
+
+                latest = latest_backup(self.path)
+            except OSError:
+                latest = None
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("_quarto.yml — ungültig")
+            box.setText("Speichern abgebrochen.")
+            box.setInformativeText(message)
+            box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
+            restore_btn = None
+            if latest is not None:
+                restore_btn = box.addButton(
+                    "Sicherung wiederherstellen…",
+                    QMessageBox.ButtonRole.ActionRole,
+                )
+            box.exec()
+            if restore_btn is not None and box.clickedButton() is restore_btn:
+                self._restore_quarto_yml_backup(preferred=latest)
+            self._set_status("Speichern abgebrochen (YAML ungültig).", level="error")
+            return False
+        if needs_confirm:
+            reply = QMessageBox.question(
+                self,
+                "_quarto.yml — Warnung",
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self._set_status("Speichern abgebrochen.", level="dim")
+                return False
+        try:
+            backup = create_backup(self.path)
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Backup fehlgeschlagen",
+                f"Vor dem Speichern konnte keine Sicherung angelegt werden:\n{exc}",
+            )
+            return False
+        if backup is not None:
+            self._set_status(f"Sicherung: {backup.name}", level="dim")
+        return True
+
+    def _restore_quarto_yml_backup(self, preferred: Optional[Path] = None) -> None:
+        """Stellt eine Backup-Kopie wieder her und lädt sie in den Editor."""
+        from services.quarto_yml_guard import list_backups, restore_backup
+
+        try:
+            backups = list_backups(self.path)
+        except OSError as exc:
+            QMessageBox.warning(self, "Sicherung", f"Backups nicht lesbar:\n{exc}")
+            return
+        if not backups:
+            QMessageBox.information(
+                self,
+                "Sicherung",
+                "Keine Sicherung unter .backups/quarto_yml/ gefunden.",
+            )
+            return
+        target = preferred if preferred in backups else backups[0]
+        if preferred is None and len(backups) > 1:
+            reply = QMessageBox.question(
+                self,
+                "Sicherung wiederherstellen",
+                (
+                    f"Neueste Sicherung einspielen?\n\n{target.name}\n\n"
+                    f"({len(backups)} Sicherung(en) vorhanden — es wird die neueste verwendet.)\n\n"
+                    "Ungespeicherte Editor-Änderungen gehen verloren."
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        else:
+            reply = QMessageBox.question(
+                self,
+                "Sicherung wiederherstellen",
+                (
+                    f"Sicherung einspielen?\n\n{target.name}\n\n"
+                    "Die aktuelle _quarto.yml wird überschrieben."
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            from services.quarto_yml_guard import create_backup
+
+            create_backup(self.path)
+            restore_backup(self.path, target)
+            self.editor.setPlainText(self.path.read_text(encoding="utf-8"))
+            self._mark_content_saved()
+            self._set_status(f"Wiederhergestellt aus {target.name}.", level="ok")
+        except OSError as exc:
+            QMessageBox.critical(self, "Wiederherstellen fehlgeschlagen", str(exc))
+
+    def _prepare_rahmen_save(self, new_text: str) -> bool:
+        """Backup + Frontmatter-Check für Pflichtseiten. ``False`` = abbrechen."""
+        if self.book_path is None or not self._rahmen_rel_path:
+            return True
+        from services.rahmen_pages import create_backup, validate_rahmen_page_text
+
+        ok, message, needs_confirm = validate_rahmen_page_text(
+            new_text, rel_path=self._rahmen_rel_path
+        )
+        if not ok:
+            latest = None
+            try:
+                from services.rahmen_pages import latest_backup
+
+                latest = latest_backup(self.book_path, stem_hint=self.path.stem)
+            except OSError:
+                latest = None
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("Rahmenseite — ungültig")
+            box.setText("Speichern abgebrochen.")
+            box.setInformativeText(message)
+            box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
+            restore_btn = None
+            if latest is not None:
+                restore_btn = box.addButton(
+                    "Sicherung wiederherstellen…",
+                    QMessageBox.ButtonRole.ActionRole,
+                )
+            box.exec()
+            if restore_btn is not None and box.clickedButton() is restore_btn:
+                self._restore_rahmen_backup(preferred=latest)
+            self._set_status("Speichern abgebrochen (Frontmatter ungültig).", level="error")
+            return False
+        if needs_confirm:
+            reply = QMessageBox.question(
+                self,
+                "Rahmenseite — Warnung",
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self._set_status("Speichern abgebrochen.", level="dim")
+                return False
+        try:
+            backup = create_backup(self.path, book_path=self.book_path)
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Backup fehlgeschlagen",
+                f"Vor dem Speichern konnte keine Sicherung angelegt werden:\n{exc}",
+            )
+            return False
+        if backup is not None:
+            self._set_status(f"Sicherung: {backup.name}", level="dim")
+        return True
+
+    def _restore_rahmen_backup(self, preferred: Optional[Path] = None) -> None:
+        if self.book_path is None:
+            return
+        from services.rahmen_pages import create_backup, list_backups, restore_backup
+
+        try:
+            backups = list_backups(self.book_path, stem_hint=self.path.stem)
+            if not backups:
+                backups = list_backups(self.book_path)
+        except OSError as exc:
+            QMessageBox.warning(self, "Sicherung", f"Backups nicht lesbar:\n{exc}")
+            return
+        if not backups:
+            QMessageBox.information(
+                self,
+                "Sicherung",
+                "Keine Sicherung unter .backups/rahmen/ gefunden.",
+            )
+            return
+        target = preferred if preferred in backups else backups[0]
+        reply = QMessageBox.question(
+            self,
+            "Sicherung wiederherstellen",
+            (
+                f"Sicherung einspielen?\n\n{target.name}\n\n"
+                "Die aktuelle Datei wird überschrieben."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            create_backup(self.path, book_path=self.book_path)
+            restore_backup(self.path, target)
+            self.editor.setPlainText(self.path.read_text(encoding="utf-8"))
+            self._mark_content_saved()
+            self._set_status(f"Wiederhergestellt aus {target.name}.", level="ok")
+        except OSError as exc:
+            QMessageBox.critical(self, "Wiederherstellen fehlgeschlagen", str(exc))
 
     def _save_as(self) -> None:
         """Speichert eine Kopie unter einem neuen Pfad; `self.path` (die hier

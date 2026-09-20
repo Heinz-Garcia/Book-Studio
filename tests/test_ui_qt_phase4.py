@@ -48,6 +48,33 @@ def test_export_dialog_confirm(monkeypatch):
     _ = app
 
 
+def test_export_dialog_size_persists(tmp_path, monkeypatch):
+    """Letzte Größe von Export & Layout bleibt in session_state erhalten."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt import qt_session
+    import ui_qt.dialogs.export_dialog as modul
+    from ui_qt.dialogs.export_dialog import ExportDialog
+
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(
+        qt_session, "session_path", lambda root=None: tmp_path / "session_state.json"
+    )
+    monkeypatch.setattr(qt_session, "repo_root", lambda: tmp_path)
+
+    dlg = ExportDialog(None, ["Standard"])
+    assert dlg._loaded_size == modul._DEFAULT_SIZE  # type: ignore[attr-defined]
+    dlg.resize(720, 540)
+    dlg.done(0)
+
+    dlg2 = ExportDialog(None, ["Standard"])
+    assert dlg2._loaded_size == (720, 540)  # type: ignore[attr-defined]
+    dlg2.close()
+    _ = app
+
+
 def test_export_dialog_prefills_from_book_folder(tmp_path, monkeypatch):
     """Ohne project_label: Anzeigename = Ordnername, Dateiname daraus abgeleitet."""
     pytest.importorskip("PySide6")

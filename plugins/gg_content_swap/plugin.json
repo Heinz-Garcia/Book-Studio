@@ -3,9 +3,9 @@
   "label": "🧬 GrammarGraph-Inhalt aktualisieren…",
   "description": "Nutzinhalt (Body) aus neuem GG-Export tauschen; Frontmatter und Struktur bleiben.",
   "entrypoint": "plugins.gg_content_swap:run",
-  "version": "1.0.0",
+  "version": "1.2.1",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 4,
-  "help_text": "Ein Klick: „Export übernehmen…“ → Publish_*-Ordner wählen. Automatisch: Payload-Body, Anzeigename, Erstellungsprotokoll, publish_meta, Provenance, Bilder. Nie die Publish-Sammelmappe."
+  "help_text": "<b>Maßgeblich</b> ist die <b>rechte Buchstruktur</b> in der Haupt-GUI. Nach einer Lieferung reicht oft: <b>Buchstruktur so belassen — Skip</b>.<br><br><b>Oben</b><ul><li><b>Inhalt aus GrammarGraph nachziehen…</b> — Einzelnen <code>Publish_*</code>-Lauf wählen (nie die Sammelmappe).</li><li><b>Nur .md wählen…</b> — Konkrete Payload-.md bei mehreren Nutzdateien.</li><li><b>Statuszeile</b> — Gewählter Export.</li></ul><b>Pfadzeile</b><ul><li><b>Export-Ordner</b> / <b>Ordner…</b> / <b>Zuordnung prüfen</b></li></ul><b>Hinweise</b><ul><li><b>Rote Warnleiste</b> — ungültige Quelle.</li><li><b>Zusammenfassung</b> — Scan-Statistik.</li></ul><b>Tabelle „Zuordnung“</b><ul><li><b>Aktuelle Buchdatei (Ziel)</b> ← <b>Neuer Payload (Quelle)</b>; Status; Hinweis.</li><li>Klick = Diff; Doppelklick = Editor.</li></ul><b>Im Export gefunden</b> — Sortierung; zuordnen; Anzeigename; Buchdatei öffnen.<br><br><b>Vorschau / Diff</b><br><br><b>Unten (Buttonleiste)</b><ul><li><b>ℹ Handbuch</b></li><li><b>Buchstruktur so belassen — Skip</b> (grün) — Rechte Struktur akzeptieren, ohne Text zu tauschen.</li><li><b>Buchstruktur ändern</b> (rot) — Inhalt aus dem gewählten Export in die Buchdateien schreiben.</li><li><b>Buchdatei öffnen…</b> / <b>Schließen</b></li></ul>"
 }

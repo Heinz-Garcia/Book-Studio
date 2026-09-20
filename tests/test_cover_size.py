@@ -172,6 +172,16 @@ def test_trim_sizes_cover_the_most_common_kdp_format():
     assert "6x9" in ids
 
 
+def test_trim_size_labels_include_orientation_hints():
+    """Dropdown zeigt mehr als Zoll — mm und Stichworte zur Einordnung."""
+    by_id = {t.id: t.label for t in TRIM_SIZES}
+    assert "KDP-Standard" in by_id["6x9"]
+    assert "mm" in by_id["6x9"]
+    assert "Royal" in by_id["6.14x9.21"]
+    assert "A4" in by_id["8.27x11.69"]
+    assert "BoD" not in by_id["6x9"]  # Studio-Eintrag, nicht der 6x9-Katalog
+
+
 def test_trim_sizes_all_within_custom_bounds_or_common_presets():
     """Jede gelistete Trimmgröße muss sinnvolle, positive Maße haben."""
     for trim in TRIM_SIZES:

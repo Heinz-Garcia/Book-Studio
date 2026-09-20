@@ -17,7 +17,14 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui_qt.book_workspace import repo_root
 
@@ -43,7 +50,12 @@ class HelpBar(QFrame):
     """Dezent eingefaerbte Info-Leiste mit 🛈-Icon und Hilfetext."""
 
     def __init__(
-        self, parent: Optional[QWidget], text: str, *, rich_text: bool = False
+        self,
+        parent: Optional[QWidget],
+        text: str,
+        *,
+        rich_text: bool = False,
+        max_height: Optional[int] = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("HelpBar")
@@ -60,7 +72,17 @@ class HelpBar(QFrame):
         self._label.setWordWrap(True)
         if rich_text:
             self._label.setTextFormat(Qt.TextFormat.RichText)
-        row.addWidget(self._label, 1)
+        if max_height is not None and max_height > 0:
+            scroll = QScrollArea(self)
+            scroll.setObjectName("HelpBarScroll")
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setMaximumHeight(max_height)
+            scroll.setWidget(self._label)
+            row.addWidget(scroll, 1)
+        else:
+            row.addWidget(self._label, 1)
 
     def set_text(self, text: str) -> None:
         """Aktualisiert den angezeigten Text (z.B. fuer eine Live-Vorschau
@@ -76,6 +98,7 @@ class HelpBar(QFrame):
         *,
         index: int = 0,
         rich_text: bool = False,
+        max_height: Optional[int] = None,
     ) -> Optional["HelpBar"]:
         """Fuegt eine HelpBar an Position `index` von `parent_layout` ein.
 
@@ -87,17 +110,31 @@ class HelpBar(QFrame):
         """
         if not text.strip():
             return None
-        bar = HelpBar(parent_layout.parentWidget(), text, rich_text=rich_text)
+        bar = HelpBar(
+            parent_layout.parentWidget(),
+            text,
+            rich_text=rich_text,
+            max_height=max_height,
+        )
         parent_layout.insertWidget(index, bar)
         return bar
 
     @staticmethod
     def create_and_prepend_for_plugin(
-        parent_layout: QVBoxLayout, plugin_name: str, *, index: int = 0
+        parent_layout: QVBoxLayout,
+        plugin_name: str,
+        *,
+        index: int = 0,
+        rich_text: bool = False,
+        max_height: Optional[int] = None,
     ) -> Optional["HelpBar"]:
         """Kurzform: laedt `help_text` aus `plugins/<plugin_name>/plugin.json`."""
         return HelpBar.create_and_prepend(
-            parent_layout, load_plugin_help_text(plugin_name), index=index
+            parent_layout,
+            load_plugin_help_text(plugin_name),
+            index=index,
+            rich_text=rich_text,
+            max_height=max_height,
         )
 
 

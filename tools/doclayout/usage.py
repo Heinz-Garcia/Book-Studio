@@ -116,6 +116,112 @@ class ClassUsage:
         return self.name in QUARTO_BUILTIN_CLASSES
 
 
+#: Wie viel Text aus einem Div in die Inventar-Vorschau wandert.
+SNIPPET_MAX_CHARS = 140
+#: Wie viele Fundstellen je Klasse hoechstens zitiert werden.
+SNIPPET_MAX_PER_CLASS = 3
+
+
+def _classes_from_fence_rest(rest: str) -> tuple[list[str], list[str]]:
+    """Klassennamen aus dem Rest einer oeffnenden ``:::``-Zeile.
+
+    Rueckgabe: ``(gueltig, altform)`` -- wie :func:`scan_text_detailed`.
+    """
+    if rest.startswith("{"):
+        treffer = _CLASS_RE.findall(rest)
+        if treffer:
+            return list(treffer), []
+        altform = _BRACED_NO_DOT_RE.match(rest)
+        if altform:
+            name = altform.group(1)
+            return [name], [name]
+        return [], []
+    bare = _BARE_RE.match(rest)
+    if bare:
+        return [bare.group(1)], []
+    return [], []
+
+
+def _trim_snippet(text: str, *, max_chars: int = SNIPPET_MAX_CHARS) -> str:
+    """Whitespace glaetten und auf *max_chars* kuerzen (mit Auslassung)."""
+    kompakt = " ".join(text.split())
+    if not kompakt:
+        return ""
+    if len(kompakt) <= max_chars:
+        return kompakt
+    schnitt = kompakt[: max_chars - 1].rsplit(" ", 1)[0]
+    return (schnitt or kompakt[: max_chars - 1]).rstrip(".,;:") + "…"
+
+
+def extract_class_snippets(
+    body: str,
+    *,
+    max_chars: int = SNIPPET_MAX_CHARS,
+    max_per_class: int = SNIPPET_MAX_PER_CLASS,
+) -> dict[str, list[str]]:
+    """Erste Textzeilen je Fenced-Div-Klasse -- fuer Tooltip/Inventar.
+
+    Laeuft denselben Tokenizer wie der Klassen-Zaehler (keine Code-Fences).
+    Geschachtelte Divs: jeder Block liefert seinen eigenen Inhalt bis zum
+    schliessenden ``:::``.
+    """
+    stack: list[tuple[list[str], list[str]]] = []
+    gefunden: dict[str, list[str]] = {}
+
+    for _number, line, in_code in iter_body_lines_outside_code_fences(body):
+        if in_code:
+            continue
+        match = _FENCE_RE.match(line)
+        if match:
+            rest = match.group(2).strip()
+            if not rest:
+                if not stack:
+                    continue
+                klassen, zeilen = stack.pop()
+                snip = _trim_snippet("\n".join(zeilen), max_chars=max_chars)
+                if not snip:
+                    continue
+                for name in klassen:
+                    bucket = gefunden.setdefault(name, [])
+                    if len(bucket) < max_per_class:
+                        bucket.append(snip)
+                continue
+            klassen, _legacy = _classes_from_fence_rest(rest)
+            if klassen:
+                stack.append((klassen, []))
+            continue
+        if stack:
+            stack[-1][1].append(line)
+    return gefunden
+
+
+def collect_book_snippets(
+    book_path: Path | str,
+    *,
+    max_chars: int = SNIPPET_MAX_CHARS,
+    max_per_class: int = SNIPPET_MAX_PER_CLASS,
+) -> dict[str, tuple[str, ...]]:
+    """Textproben je Klasse ueber alle Manuskriptdateien des Buchs."""
+    root = Path(book_path)
+    gesammelt: dict[str, list[str]] = {}
+    for path in markdown_files(root):
+        try:
+            roh = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        body = frontmatter_parser.parse(roh).body
+        relative = path.relative_to(root).as_posix()
+        for name, snips in extract_class_snippets(
+            body, max_chars=max_chars, max_per_class=max_per_class
+        ).items():
+            bucket = gesammelt.setdefault(name, [])
+            for snip in snips:
+                if len(bucket) >= max_per_class:
+                    break
+                bucket.append(f"{relative}: {snip}")
+    return {name: tuple(werte) for name, werte in sorted(gesammelt.items())}
+
+
 @dataclass(frozen=True)
 class Comparison:
     """Text und Layout nebeneinander."""
@@ -435,9 +541,13 @@ __all__ = [
     "Comparison",
     "IGNORED_DIRECTORIES",
     "QUARTO_BUILTIN_CLASSES",
+    "SNIPPET_MAX_CHARS",
+    "SNIPPET_MAX_PER_CLASS",
     "GENERATOR_CLASSES_FILE",
     "GeneratorClasses",
+    "collect_book_snippets",
     "compare",
+    "extract_class_snippets",
     "markdown_files",
     "read_generator_classes",
     "write_generator_classes",

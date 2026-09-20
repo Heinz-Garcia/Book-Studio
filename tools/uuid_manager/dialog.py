@@ -38,11 +38,23 @@ from tools.production_paths.paths import legacy_publish_hubs_from_content_roots,
 from tools.production_uuid import normalize_uuid
 from tools.uuid_manager.model import UuidRecord, UuidStatus, uuid_status_label
 from tools.uuid_manager.service import collect_uuid_records
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 
 _FILTER_NONE = "__none__"
 _FILTER_ALL = ""
 _FILTER_COVER_YES = "__cover_yes__"
 _FILTER_COVER_NO = "__cover_no__"
+
+_SIZE_KEY = "uuid_manager_size"
+_DEFAULT_SIZE = (1420, 820)
+_MIN_SIZE = (1260, 720)
+_active: list["UuidManagerDialog"] = []
 
 
 def _status_color(status: UuidStatus) -> QColor:
@@ -80,7 +92,7 @@ class UuidManagerDialog(QDialog):
         grammargraph_repo: Path | None = None,
         window_title: str = "UUID-Manager",
     ) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self._studio = studio
         self._book_studio_repo = Path(book_studio_repo).resolve()
         self._grammargraph_repo = (
@@ -92,8 +104,9 @@ class UuidManagerDialog(QDialog):
         self._help_texts = self._read_help_texts()
 
         self.setWindowTitle(window_title)
-        self.setMinimumSize(1260, 720)
-        self.resize(1420, 820)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
 
         layout = QVBoxLayout(self)
         title = QLabel(window_title)
@@ -176,6 +189,9 @@ class UuidManagerDialog(QDialog):
         layout.addWidget(self.detail)
 
         actions = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(actions, tool_key="uuid_manager", host=self)
         self.btn_open_publish = QPushButton("Lieferordner öffnen")
         self.btn_open_publish.clicked.connect(self._open_selected_publish)
         actions.addWidget(self.btn_open_publish)
@@ -204,6 +220,11 @@ class UuidManagerDialog(QDialog):
         layout.addLayout(actions)
 
         self.reload(force_scan=False)
+        prepare_autonomous_window(self, parent)
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     def _log(self, message: str, level: str = "info") -> None:
         log = getattr(self._studio, "log", None)
@@ -560,6 +581,9 @@ def run_dialog(
     grammargraph_repo: Path | None = None,
     window_title: str = "UUID-Manager",
 ) -> int:
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return 0
     dlg = UuidManagerDialog(
         parent,
         studio=studio,
@@ -567,7 +591,8 @@ def run_dialog(
         grammargraph_repo=grammargraph_repo,
         window_title=window_title,
     )
-    return int(dlg.exec())
+    show_autonomous_window(dlg, _active)
+    return 0
 
 
 __all__ = ["UuidManagerDialog", "run_dialog"]

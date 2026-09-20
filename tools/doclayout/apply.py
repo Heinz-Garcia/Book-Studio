@@ -78,6 +78,16 @@ def apply_layout(
     pandoc: Optional[str] = None,
 ) -> ApplyResult:
     """Erzeugt die Vorlagen im Buchprojekt und traegt sie in ``_quarto.yml`` ein."""
+    # Nur BodyText-Ausrichtung nachziehen (Blocksatz), nicht die ganze
+    # Typografie — die bleibt die des Layouts.
+    from dataclasses import replace as dc_replace
+
+    from tools.doclayout.print_defaults import ensure_body_text
+
+    styles = dict(definition.styles)
+    styles["BodyText"] = ensure_body_text(styles.get("BodyText"))
+    definition = dc_replace(definition, styles=styles)
+
     book = Path(book_path)
     if not book.is_dir():
         raise LayoutError(f"Buchprojekt nicht gefunden: {book}")
@@ -226,6 +236,16 @@ def _patch_quarto_yml(
         changed = True
     if docx_cfg.get("filters") != filters:
         docx_cfg["filters"] = filters
+        changed = True
+
+    # IVZ fuer DOCX: Typst-``#outline`` in content/IVZ.md wirkt hier nicht.
+    # Quarto/Pandoc braucht ``toc: true``, sonst bleibt nur ein leeres Feld
+    # oder gar keines -- LibreOffice zeigt dann keinen Inhalt.
+    if docx_cfg.get("toc") is not True:
+        docx_cfg["toc"] = True
+        changed = True
+    if docx_cfg.get("toc-depth") != 3:
+        docx_cfg["toc-depth"] = 3
         changed = True
 
     if not changed:

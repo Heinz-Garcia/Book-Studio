@@ -197,6 +197,8 @@ def _draw_titles(panel: Image.Image, titles: TitlesSpec) -> Image.Image:
     draw = ImageDraw.Draw(panel)
     y = int(round(h * titles.top_pct / 100.0))
     shared = titles.lines_size_pct
+    align = str(getattr(titles, "align", "center") or "center")
+    offset_x_pct = float(getattr(titles, "offset_x_pct", 0.0) or 0.0)
     for line in (titles.series, titles.main):
         y = _draw_title_line(
             draw,
@@ -206,6 +208,8 @@ def _draw_titles(panel: Image.Image, titles: TitlesSpec) -> Image.Image:
             line,
             size_pct_override=shared,
             bold_override=titles.lines_bold,
+            align=align,
+            offset_x_pct=offset_x_pct,
         )
         y += max(4, int(round(h * 0.012)))
     accent_y = int(round(h * titles.accent_top_pct / 100.0))
@@ -216,8 +220,26 @@ def _draw_titles(panel: Image.Image, titles: TitlesSpec) -> Image.Image:
         accent_y,
         titles.accent,
         bold_override=titles.accent.bold,
+        align=align,
+        offset_x_pct=offset_x_pct,
     )
     return panel
+
+
+def _title_x(w: int, tw: int, align: str, *, offset_x_pct: float = 0.0) -> int:
+    """Horizontale Textposition; Seitenrand ~5 % + optionaler Versatz."""
+    margin = max(4, int(round(w * 0.05)))
+    a = (align or "center").strip().lower()
+    if a == "left":
+        x = margin
+    elif a == "right":
+        x = max(margin, w - tw - margin)
+    else:
+        x = max(0, (w - tw) // 2)
+    dx = int(round(w * float(offset_x_pct) / 100.0))
+    x = x + dx
+    # Text auf dem Panel halten
+    return max(0, min(x, max(0, w - tw)))
 
 
 def _draw_title_line(
@@ -229,6 +251,8 @@ def _draw_title_line(
     *,
     size_pct_override: float | None = None,
     bold_override: bool | None = None,
+    align: str = "center",
+    offset_x_pct: float = 0.0,
 ) -> int:
     text = line.text.strip()
     if not text:
@@ -244,7 +268,7 @@ def _draw_title_line(
     bbox = draw.textbbox((0, 0), text, font=font)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
-    x = max(0, (w - tw) // 2)
+    x = _title_x(w, tw, align, offset_x_pct=offset_x_pct)
     draw.text((x, y), text, font=font, fill=(r, g, b, 255))
     return y + th
 
@@ -275,8 +299,10 @@ def _draw_footer(panel: Image.Image, footer: FooterSpec) -> Image.Image:
         sizes.append((ln, tw, th))
         total_h += th + 4
     y = h - int(round(h * footer.bottom_pct / 100.0)) - total_h
+    align = str(getattr(footer, "align", "center") or "center")
+    offset_x_pct = float(getattr(footer, "offset_x_pct", 0.0) or 0.0)
     for ln, tw, th in sizes:
-        x = max(0, (w - tw) // 2)
+        x = _title_x(w, tw, align, offset_x_pct=offset_x_pct)
         draw.text((x, y), ln, font=font, fill=(r, g, b, 255))
         y += th + 4
     return out
@@ -451,29 +477,32 @@ def _draw_corner_ribbon(
     main_rgba = _hex_to_rgba(ribbon.color, fallback=(61, 189, 176))
     text_rgba = _hex_to_rgba(ribbon.text_color, fallback=(255, 255, 255))
 
+    ox = max(0, int(round(w * float(getattr(ribbon, "offset_x_pct", 0.0) or 0.0) / 100.0)))
+    oy = max(0, int(round(h * float(getattr(ribbon, "offset_y_pct", 0.0) or 0.0) / 100.0)))
+    # Dreieck muss auf dem Panel bleiben
+    ox = min(ox, max(0, w - s - 2))
+    oy = min(oy, max(0, h - s - 2))
+
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
     # Hypotenuse A→B; tip = rechte Ecke; tip_n = Spitze → innen
     if bottom:
-        tip = (float(w), float(h))
+        tip = (float(w - ox), float(h - oy))
         tip_n = (-1.0 / math.sqrt(2.0), -1.0 / math.sqrt(2.0))
-        tri = [(w - s, h), (w, h), (w, h - s)]
-        ax, ay = float(w - s), float(h)
-        bx, by = float(w), float(h - s)
+        tri = [(w - s - ox, h - oy), (w - ox, h - oy), (w - ox, h - s - oy)]
+        ax, ay = float(w - s - ox), float(h - oy)
+        bx, by = float(w - ox), float(h - s - oy)
         fold_n = tip_n
-        tri_n = (1.0 / math.sqrt(2.0), 1.0 / math.sqrt(2.0))
         rot_deg = 45.0
     else:
-        tip = (float(w), 0.0)
+        tip = (float(w - ox), float(oy))
         tip_n = (-1.0 / math.sqrt(2.0), 1.0 / math.sqrt(2.0))
-        tri = [(w - s, 0), (w, 0), (w, s)]
-        ax, ay = float(w - s), 0.0
-        bx, by = float(w), float(s)
+        tri = [(w - s - ox, oy), (w - ox, oy), (w - ox, s + oy)]
+        ax, ay = float(w - s - ox), float(oy)
+        bx, by = float(w - ox), float(s + oy)
         fold_n = tip_n
-        tri_n = (1.0 / math.sqrt(2.0), -1.0 / math.sqrt(2.0))
         # −45°: bewährte Ausrichtung (Schrift entlang Hypotenuse, Icon mitrotiert).
-        # Nicht auf +45° drehen — das verdreht Text und Pfeil gegenüber dem Design.
         rot_deg = -45.0
 
     draw.polygon(tri, fill=main_rgba)
@@ -536,17 +565,19 @@ def _draw_corner_ribbon(
 
     # --- Text zweizeilig; font_scale steuert die Größe (Ausrichtung unverändert) ---
     font_scale = max(0.5, min(2.5, float(getattr(ribbon, "font_scale", 1.0) or 1.0)))
+    pad_pct = float(getattr(ribbon, "text_padding_pct", 10.0) or 10.0)
+    pad_pct = max(0.0, min(40.0, pad_pct))
     # Mehr Bandbreite bei größerer Schrift — sonst frisst die Breiten-Korrektur den Scale
     max_strip = max(24, int(round(hyp_len * min(0.72, 0.48 + 0.12 * font_scale))))
     band_h = max(18, int(round(altitude * min(0.72, 0.42 + 0.14 * font_scale))))
-    pad = max(2, int(round(band_h * 0.10)))
+    pad = max(0, int(round(band_h * pad_pct / 100.0)))
     usable_h = max(8, band_h - 2 * pad)
 
     text = (ribbon.text or "").strip()
     target_font = max(8, int(round(usable_h * 0.48 * font_scale)))
     font_size = target_font
     font = _load_font(font_size, bold=True)
-    gap = max(2, font_size // 5)
+    gap = max(2, int(round(max(font_size / 5.0, pad * 0.85))))
     text_budget = max(12, max_strip - gap * 2)
     lines = _wrap_ribbon_lines(text, font, text_budget) if text else []
 

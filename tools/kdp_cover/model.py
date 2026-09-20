@@ -78,7 +78,9 @@ class SpineBadgeSpec:
 class CoverLayout:
     """Wrap-Layout.
 
-    Front: Vollbild (cover-fit) im Front-Panel inkl. Bleed-Überhang.
+    Front: Vollbild (cover-fit) im Front-Panel inkl. Bleed-Überhang —
+    oder einfarbig über ``front_color``, wenn kein Bild gesetzt ist
+    (z. B. reine Farbe oder Stylecloud-Wortwolke als Bild).
     Back: einfarbig oder optionales Bild.
     Spine: einfarbig; optionaler Text nur wenn Seitenzahl es erlaubt.
     Titel/Autor: reine Metadaten (PDF-Info / cover_project), nicht aufs Bild
@@ -102,6 +104,8 @@ class CoverLayout:
     front_image_zoom: float = 1.0
     front_image_offset_x_mm: float = 0.0
     front_image_offset_y_mm: float = 0.0
+    # Vordergrundfarbe, wenn kein Bild (oder als Unterlage unter der Wortwolke).
+    front_color: str = "#1e3a5f"
     # Rückseite: Contain-Skalierung (≤1), zentriert; optional Rahmen.
     back_image_scale: float = 1.0
     back_image_frame: bool = False
@@ -229,6 +233,7 @@ class CoverLayout:
             front_image_zoom=max(1.0, _f("front_image_zoom", 1.0)),
             front_image_offset_x_mm=_f("front_image_offset_x_mm"),
             front_image_offset_y_mm=_f("front_image_offset_y_mm"),
+            front_color=str(data.get("front_color") or "#1e3a5f"),
             back_image_scale=max(0.05, min(1.0, _f("back_image_scale", 1.0) or 1.0)),
             back_image_frame=bool(data.get("back_image_frame", False)),
             back_image_frame_mm=max(0.0, _f("back_image_frame_mm", 2.0)),

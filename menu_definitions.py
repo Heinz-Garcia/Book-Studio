@@ -1,8 +1,8 @@
 """Deklarative Menü-Definitionen (toolkit-agnostisch).
 
-Definiert die Datenstrukturen (MenuCascade, MenuItem, MenuSeparator)
-und die konkreten Menü-Listen (MENU_FILE, MENU_EXPORT, …). Wird von
-``ui_qt.menu_builder`` gelesen, um die Qt-Menüleiste aufzubauen.
+Definiert die Datenstrukturen (MenuCascade, MenuItem, MenuSeparator,
+MenuHeader) und die konkreten Menü-Listen (MENU_FILE, MENU_EXPORT, …).
+Wird von ``ui_qt.menu_builder`` gelesen, um die Qt-Menüleiste aufzubauen.
 """
 
 from __future__ import annotations
@@ -24,9 +24,18 @@ class MenuSeparator:
 
 
 @dataclass
+class MenuHeader:
+    """Nicht klickbare Abschnittsüberschrift (volle Zeile mit Hintergrund)."""
+
+    label: str
+
+
+@dataclass
 class MenuCascade:
     label: str
-    children: List[Union["MenuCascade", MenuItem, MenuSeparator]] = field(default_factory=list)
+    children: List[Union["MenuCascade", MenuItem, MenuSeparator, MenuHeader]] = field(
+        default_factory=list
+    )
 
 
 # --- Datei --------------------------------------------------------------------
@@ -92,6 +101,41 @@ MENU_EDIT = [
 # --- Ansicht ------------------------------------------------------------------
 
 MENU_VIEW = [
+    MenuCascade(
+        label="🧭 Arbeitsweg (Studio)",
+        children=[
+            MenuItem(
+                label="▶ Nächster Schritt",
+                command="work_path_next",
+                accelerator="Ctrl+Shift+N",
+            ),
+            MenuItem(
+                label="📥 Lieferung übernehmen…",
+                command="work_path_delivery_intake",
+            ),
+            MenuItem(
+                label="⛓ Teilkette starten…",
+                command="work_path_pipeline",
+                accelerator="Ctrl+Shift+P",
+            ),
+            MenuItem(
+                label="⛓ Teilkette ab Lieferung…",
+                command="work_path_pipeline_from_delivery",
+            ),
+            MenuSeparator(),
+            MenuItem(label="F · Lieferung übernehmen…", command="work_path_stage_f"),
+            MenuItem(label="G · Bücher wählen…", command="work_path_stage_g"),
+            MenuItem(label="H · PDF erzeugen…", command="work_path_stage_h"),
+            MenuItem(label="I · Freigabe prüfen…", command="work_path_stage_i"),
+            MenuItem(label="J · Ablegen…", command="work_path_stage_j"),
+        ],
+    ),
+    MenuSeparator(),
+    MenuItem(
+        label="🧭 Einstiegsmodus: geführt / Werkstatt…",
+        command="toggle_ui_mode",
+    ),
+    MenuSeparator(),
     MenuItem(label="📄 _quarto.yml anzeigen", command="open_preview"),
     MenuItem(label="🔄 Anzeige aktualisieren", command="refresh_ui_titles"),
     MenuSeparator(),
@@ -101,39 +145,31 @@ MENU_VIEW = [
 ]
 
 
-# --- Tools --------------------------------------------------------------------
-# Blöcke: Inhalt | Studio-Konfig | KDP/Cover | Sicherung | Wartung
+# --- Tools (Menütitel: Tools) -----------------------------------------------
+# App-Wartung/Qualität/Konfig — nicht der Buch-Arbeitsweg (das sind Plugins).
+# Blöcke mit MenuHeader (kein Separator nötig).
 
 MENU_TOOLS = [
-    # Inhalt / Qualität
+    MenuHeader(label="Qualität"),
     MenuItem(label="🧹 Sanitizer", command="run_sanitizer_pipeline"),
     MenuItem(label="🩺 Buch-Doktor", command="run_doctor"),
     MenuItem(label="✨ Frontmatter ergänzen…", command="heal_frontmatter"),
-    MenuSeparator(),
-    # Studio-Konfiguration
+    MenuHeader(label="Konfiguration"),
     MenuItem(label="🧩 Studio-Konfiguration…", command="open_app_config_editor"),
     MenuItem(label="📘 Quarto.yml konfigurieren…", command="open_quarto_config_editor"),
     MenuItem(label="⚙️ Sanitizer-Konfiguration…", command="open_sanitizer_config_editor"),
     MenuItem(label="🔌 Plugin-Konfiguration…", command="open_plugin_config_editor"),
-    MenuSeparator(),
-    # KDP / Cover
+    MenuHeader(label="KDP / Cover"),
     MenuItem(label="📐 KDP-Spezifikationen…", command="open_kdp_specs_editor"),
     MenuItem(label="🔗 Cover ↔ Production-UUID…", command="open_cover_uuid_assign"),
-    MenuSeparator(),
-    # Sicherung / Struktur
+    MenuHeader(label="Sicherung"),
     MenuItem(label="📦 Backup", command="run_backup"),
     MenuItem(label="💾 Struktur-Snapshot speichern…", command="save_structure_snapshot"),
     MenuItem(label="⏪ Struktur-Snapshots", command="open_time_machine"),
-    MenuSeparator(),
-    # Wartung
-    MenuCascade(
-        label="🛠️ Wartung",
-        children=[
-            MenuItem(
-                label="⚠️ _quarto.yml hart zurücksetzen (Nuke)",
-                command="reset_quarto_yml",
-            ),
-        ],
+    MenuHeader(label="Wartung"),
+    MenuItem(
+        label="⚠️ _quarto.yml hart zurücksetzen (Nuke)",
+        command="reset_quarto_yml",
     ),
 ]
 
@@ -168,6 +204,7 @@ __all__ = [
     "MenuCascade",
     "MenuItem",
     "MenuSeparator",
+    "MenuHeader",
     "MENU_FILE",
     "MENU_EXPORT",
     "MENU_EDIT",

@@ -195,3 +195,39 @@ def test_der_assistent_sieht_die_noch_offene_formulareingabe(
     dialog._run_wizard()
 
     assert gesehen and gesehen[0].styles[ziel].size_pt == 14.0
+
+
+def test_focus_unmapped_zeigt_classmap_und_create_missing(
+    qapp, library: Path, tmp_path: Path, monkeypatch
+):
+    """Inventar-CTA: Editor landet bei Klassen-Abbildung mit Abgleich."""
+    from ui_qt.dialogs.doclayout_editor_dialog import _SECTION_CLASSMAP
+
+    monkeypatch.setattr(
+        DocLayoutEditorDialog, "_start_preview", lambda self, **kwargs: None
+    )
+    buch = tmp_path / "buch_gaps"
+    (buch / "content").mkdir(parents=True)
+    (buch / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    (buch / "content" / "k.qmd").write_text(
+        "::: {.spanisch}\nUrgencias\n:::\n", encoding="utf-8"
+    )
+    dlg = DocLayoutEditorDialog(
+        library_dir=library,
+        book_path=buch,
+        select="Probe",
+        focus_unmapped=True,
+    )
+    dlg.show()
+    QApplication.processEvents()
+    try:
+        current = dlg.nav_list.currentItem()
+        assert current is not None
+        data = current.data(Qt.ItemDataRole.UserRole)
+        assert data == ("section", _SECTION_CLASSMAP)
+        assert dlg.classmap_form.isVisible()
+        assert dlg._comparison is not None
+        assert dlg.classmap_form.create_missing_button.isVisible()
+    finally:
+        dlg._session.mark_clean()
+        dlg.close()

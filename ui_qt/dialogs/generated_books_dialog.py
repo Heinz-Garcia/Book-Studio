@@ -24,19 +24,33 @@ from tools.generated_books.discovery import (
     sort_generated_pdfs,
 )
 from tools.mapping_manager.actions import open_path, reveal_in_explorer
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.widgets.help_bar import HelpBar
 
 
 #: Tabellenspalte -> Sortierschluessel von ``sort_generated_pdfs``.
 _SPALTEN_SORTIERUNG = {0: "name", 1: "book", 2: "date"}
 
+_SIZE_KEY = "generated_books_size"
+_DEFAULT_SIZE = (860, 480)
+_MIN_SIZE = (560, 320)
+_active: list[GeneratedBooksQtDialog] = []
+
 
 class GeneratedBooksQtDialog(QDialog):
-    def __init__(self, parent: Optional[QWidget], studio: Any) -> None:
-        super().__init__(parent)
+    def __init__(self, host: Optional[QWidget], studio: Any) -> None:
+        super().__init__(None)
         self._studio = studio
         self.setWindowTitle("Generierte Bücher")
-        self.resize(860, 480)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
         self._entries = []
         self._sort_column = "date"
         self._sort_reverse = True
@@ -56,6 +70,9 @@ class GeneratedBooksQtDialog(QDialog):
         layout.addWidget(self.table)
 
         row = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(row, tool_key="generated_books", host=self)
         for label, slot in (
             ("Öffnen", self._open),
             ("Explorer", self._reveal),
@@ -68,7 +85,11 @@ class GeneratedBooksQtDialog(QDialog):
             row.addWidget(btn)
         layout.addLayout(row)
         self._reload()
+        prepare_autonomous_window(self, host)
 
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
     def _reload(self) -> None:
         settings = load_settings()
         books = collect_book_paths_from_studio(
@@ -163,5 +184,9 @@ class GeneratedBooksQtDialog(QDialog):
 
 
 def open_generated_books_qt(studio: Any, parent: Optional[QWidget] = None) -> int:
-    GeneratedBooksQtDialog(parent, studio).exec()
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return 0
+    dlg = GeneratedBooksQtDialog(parent, studio)
+    show_autonomous_window(dlg, _active)
     return 0

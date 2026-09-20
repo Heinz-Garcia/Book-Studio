@@ -112,3 +112,12 @@ def test_no_placeholder_leaks_into_the_manual() -> None:
     html_doc, _ = build_handbook_html(source.read_text(encoding="utf-8"))
     assert "@@TOK" not in html_doc
 
+
+def test_handbook_css_uses_dark_link_colour() -> None:
+    from tools.handbook_html import _CSS
+    from ui_qt.theme import LINK_COLOR
+
+    assert f"--link: {LINK_COLOR}" in _CSS
+    assert "a { color: var(--link)" in _CSS
+    assert "#2563eb" not in _CSS
+

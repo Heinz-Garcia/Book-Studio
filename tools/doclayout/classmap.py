@@ -43,8 +43,13 @@ end
 --- Absatzformat zu einem Div ermitteln, oder nil.
 local function style_for(classes)
   for _, class in ipairs(classes) do
-    local style = classmap[normalize(class)]
+    local name = normalize(class)
+    local style = classmap[name]
     if style then return style end
+    -- Quarto-Callouts (callout-tip, callout-note, …) auf gemeinsames Format.
+    if string.sub(name, 1, 7) == "callout" then
+      return classmap["callout"] or classmap["callout-tip"] or classmap["callout-note"]
+    end
   end
   return nil
 end
@@ -66,15 +71,58 @@ local function flatten_single_item_list(blocks)
   return {{pandoc.Para(inlines)}}
 end
 
+--- Aufzaehlungen im Div zu Absaetzen mit Bullet: sonst gewinnt der Listenstil
+--- und KeyTakeaway/Spanisch/Callout verlieren ihre Vorlage.
+local function flatten_bullet_lists(blocks, style)
+  local out = {{}}
+  local changed = false
+  for _, block in ipairs(blocks) do
+    if block.t == "BulletList" then
+      changed = true
+      for _, item in ipairs(block.content) do
+        local inlines = {{pandoc.Str("•"), pandoc.Space()}}
+        for _, part in ipairs(item) do
+          if part.t == "Plain" or part.t == "Para" then
+            for _, inline in ipairs(part.content) do
+              table.insert(inlines, inline)
+            end
+          end
+        end
+        local para = pandoc.Para(inlines)
+        table.insert(out, para)
+      end
+    else
+      table.insert(out, block)
+    end
+  end
+  if changed then return out end
+  return nil
+end
+
 function Div(el)
   local style = style_for(el.classes)
   if not style then return nil end
   el.attributes["custom-style"] = style
+  -- Sprache fuer Rechtschreibpruefung (DE/ES parallel im selben Dokument).
+  if style == "Spanisch" then
+    el.attributes["lang"] = "es-ES"
+  elseif style == "Callout" or style == "KeyTakeaway" or style == "Fachtext"
+      or style == "Prompt-Frage" then
+    el.attributes["lang"] = "de-DE"
+  end
   local flattened = flatten_single_item_list(el.content)
   if flattened then el.content = flattened end
+  local bullets = flatten_bullet_lists(el.content, style)
+  if bullets then el.content = bullets end
+  -- Leerer Absatz ohne Schattierung: sonst laufen farbige Kaesten
+  -- (Spanisch/KeyTakeaway/Callout) optisch ineinander.
+  if style == "Spanisch" or style == "KeyTakeaway" or style == "Callout" then
+    return {{el, pandoc.Para({{}})}}
+  end
   return el
 end
 '''
+
 
 
 #: Die Zeichen, die ein Lua-Literal wirklich zerlegen. Alles andere --

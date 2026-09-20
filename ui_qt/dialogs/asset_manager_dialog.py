@@ -41,12 +41,24 @@ from tools.asset_manager.refs import (
     list_book_images,
 )
 from tools.mapping_manager.actions import open_path
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.editor_image import IMAGE_FILTER, import_image_for_markdown
 from ui_qt.widgets.help_bar import HelpBar
 
 _THUMB = 88
 _ROLE_PATH = Qt.ItemDataRole.UserRole
 _ROLE_REF = Qt.ItemDataRole.UserRole + 1
+
+_SIZE_KEY = "asset_manager_size"
+_DEFAULT_SIZE = (1360, 780)
+_MIN_SIZE = (1180, 700)
+_active: list["AssetManagerQtDialog"] = []
 
 
 def _repo_root() -> Path:
@@ -111,7 +123,8 @@ class AssetManagerQtDialog(QDialog):
         pick_mode: bool = False,
         pick_prompt: str | None = None,
     ) -> None:
-        super().__init__(parent)
+        # Nested pickers stay Qt-parented and modal; the Tools-menu open is autonomous.
+        super().__init__(parent if pick_mode else None)
         self.studio = studio
         self._pick_mode = bool(pick_mode)
         self.chosen_path: Path | None = None
@@ -120,8 +133,13 @@ class AssetManagerQtDialog(QDialog):
             self.setWindowTitle(pick_prompt or "Bild wählen — Asset Manager")
         else:
             self.setWindowTitle("Asset Manager")
-        self.setMinimumSize(1180, 700)
-        self.resize(1360, 780)
+        if self._pick_mode:
+            self.setMinimumSize(*_MIN_SIZE)
+            self.resize(*_DEFAULT_SIZE)
+        else:
+            apply_persisted_size(
+                self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+            )
 
         self._repo = _repo_root()
         self._pool_dir = ensure_pool_dir(read_configured_pool_path(self._repo))
@@ -181,6 +199,9 @@ class AssetManagerQtDialog(QDialog):
         splitter.setSizes([380, 56, 380, 420])
 
         footer = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(footer, tool_key="asset_manager", host=self)
         legend = QLabel("Legende:  Grün = ungenutzt (löschbar)  ·  Blau = referenziert")
         legend.setObjectName("assetManagerHint")
         footer.addWidget(legend)
@@ -217,6 +238,13 @@ class AssetManagerQtDialog(QDialog):
         root.addLayout(footer)
 
         self._reload_all()
+        if not self._pick_mode:
+            prepare_autonomous_window(self, parent)
+
+    def done(self, result: int) -> None:
+        if not self._pick_mode:
+            persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     def _section_card(self) -> tuple[QFrame, QVBoxLayout]:
         frame = QFrame()
@@ -870,14 +898,24 @@ def open_asset_manager_qt(studio: Any = None, parent: Optional[QWidget] = None) 
     book = _book_root(studio)
     if book is None:
         host = parent or getattr(studio, "root", None)
-        QMessageBox.information(
+        from ui_qt.work_path_guidance import warn_need_book
+
+        warn_need_book(
             host,
-            "Asset Manager",
-            "Kein aktives Buch. Bitte zuerst ein Buchprojekt wählen.",
+            title="Asset Manager",
+            message=(
+                "Kein aktives Buch.\n\n"
+                "Stufe G: zuerst ein Buchprojekt wählen."
+            ),
+            studio=studio,
         )
         return 0
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return 0
     dialog = AssetManagerQtDialog(parent or getattr(studio, "root", None), studio)
-    return dialog.exec()
+    show_autonomous_window(dialog, _active)
+    return 0
 
 
 def pick_asset_image_qt(
@@ -890,10 +928,16 @@ def pick_asset_image_qt(
     book = _book_root(studio)
     host = parent or getattr(studio, "root", None)
     if book is None:
-        QMessageBox.information(
+        from ui_qt.work_path_guidance import warn_need_book
+
+        warn_need_book(
             host,
-            "Asset Manager",
-            "Kein aktives Buch. Bitte zuerst ein Buchprojekt wählen.",
+            title="Asset Manager",
+            message=(
+                "Kein aktives Buch.\n\n"
+                "Stufe G: zuerst ein Buchprojekt wählen."
+            ),
+            studio=studio,
         )
         return None
     dialog = AssetManagerQtDialog(

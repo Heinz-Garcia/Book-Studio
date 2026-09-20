@@ -78,6 +78,13 @@ from tools.doclayout.schema import (
     Typography,
 )
 from ui_qt import qt_session
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.dialogs.doclayout_editor_style import (
     ALERT_NAME,
     DARK_STYLESHEET,
@@ -139,6 +146,7 @@ _FALLBACK_LAYOUT_PROFILE = "taschenbuch-bod"
 _SIZE_KEY = "doclayout_editor_size"
 _MAXIMIZED_KEY = "doclayout_editor_maximized"
 _DARK_KEY = "doclayout_editor_dark"
+_active: list["DocLayoutEditorDialog"] = []
 
 #: Abschnitt im Handbuch, den der Hilfe-Knopf anspringt. Fest vergeben
 #: (nicht aus der Ueberschrift abgeleitet), damit der Sprung nicht bricht,
@@ -317,20 +325,33 @@ class DocLayoutEditorDialog(QDialog):
         library_dir: Optional[Path] = None,
         book_path: Optional[Path] = None,
         select: Optional[str] = None,
+        focus_unmapped: bool = False,
+        focus_class: Optional[str] = None,
+        focus_style: Optional[str] = None,
+        return_after_apply: bool = False,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self.setWindowTitle("Layout-Editor")
-        self._restore_maximized = False
         self._dark = self._load_dark_preference()
         self._comparison: Optional[Comparison] = None
         #: Was bearbeitet wird und wer es gerade haelt. Alles, was frueher in
         #: vier lose nebeneinanderliegenden Feldern stand -- und zwischen denen
         #: die teuersten Fehler dieses Dialogs sassen.
         self._session = LayoutSession()
-        self._apply_saved_size()
+        apply_persisted_size(
+            self,
+            _SIZE_KEY,
+            default=_DEFAULT_SIZE,
+            min_size=_MIN_SIZE,
+            maximized_key=_MAXIMIZED_KEY,
+        )
 
         self._library = Path(library_dir) if library_dir else LIBRARY_DIR
         self._book_path = Path(book_path) if book_path else None
+        #: Aus dem Textauszeichnungs-Inventar: nach erfolgreichem Anwenden
+        #: Editor schliessen und zum Auftraggeber zurueck -- nicht im
+        #: Nebenwerkzeug steckenbleiben.
+        self._return_after_apply = bool(return_after_apply)
         #: Ob bereits abgeraeumt wurde. Haelt die Rueckfrage nach ungespeicherter
         #: Arbeit davon ab, auf dem Weg ``closeEvent`` -> ``reject`` zweimal zu
         #: erscheinen -- und das Aufraeumen davon, zweimal zu laufen.
@@ -343,9 +364,25 @@ class DocLayoutEditorDialog(QDialog):
         self._requirements = check_requirements()
 
         self._build_ui()
+        if self._return_after_apply:
+            self.apply_button.setToolTip(
+                "Satzvorlage ins Buch legen, danach zurück zum Inventar.\n\n"
+                "Schreibt reference.docx und classmap.lua und trägt sie in "
+                "_quarto.yml ein. Speichert das Layout mit, falls noch nicht "
+                "gespeichert, und schließt diesen Editor.\n\n"
+                "Zum fertigen Band ohne Rückkehr: Editor aus dem Menü öffnen "
+                "und »Buch setzen«."
+            )
         self._apply_dark_mode(persist=False)
         self._apply_requirements()
         self._reload_library(select)
+        if focus_unmapped and self._book_path is not None:
+            self.focus_unmapped_classes()
+        if focus_class:
+            self.focus_class_for_create(str(focus_class).lstrip("."))
+        elif focus_style:
+            self.select_style_in_nav(str(focus_style))
+        prepare_autonomous_window(self, parent)
 
     # -- Naht zur Sitzung --------------------------------------------------
     #
@@ -433,15 +470,23 @@ class DocLayoutEditorDialog(QDialog):
         footer.addWidget(self.problem_label, 1)
         self.apply_button = QPushButton("Auf Buchprojekt anwenden...")
         self.apply_button.setToolTip(
-            "Erzeugt reference.docx und classmap.lua im Buchprojekt und traegt "
-            "sie in dessen _quarto.yml ein (unter format.docx)."
+            "Satzvorlage ins Buch legen — nicht das Buch erzeugen.\n\n"
+            "Schreibt reference.docx und classmap.lua ins Buchprojekt und "
+            "trägt sie in _quarto.yml ein.\n"
+            "Das Manuskript bleibt unberührt; es entsteht kein fertiges DOCX/PDF.\n\n"
+            "Danach reicht ein normales Studio-Rendern, oder dasselbe Layout "
+            "auf weitere Bücher anwenden.\n"
+            "Zum fertigen Band: »Buch setzen«."
         )
         footer.addWidget(self.apply_button)
         self.typeset_button = QPushButton("Buch setzen...")
         self.typeset_button.setToolTip(
-            "Setzt das ganze Buch mit diesem Layout: alle Kapitel aus dem "
-            "_quarto.yml, mit Inhaltsverzeichnis, als .docx und .pdf unter "
-            "export/doclayout. Dauert je nach Umfang bis zu einigen Minuten."
+            "Fertiges Band erzeugen — alle Kapitel als .docx/.pdf.\n\n"
+            "Läuft Pandoc über die Kapitel aus _quarto.yml; Ergebnis unter "
+            "export/doclayout/.\n"
+            "Erneuert die Vorlagen mit (wie »Anwenden«) und setzt dann das Buch.\n\n"
+            "Dauer: je nach Umfang bis zu einigen Minuten.\n"
+            "Nur die Vorlage installieren ohne Satz: »Auf Buchprojekt anwenden«."
         )
         footer.addWidget(self.typeset_button)
         close_button = QPushButton("Schliessen")
@@ -467,6 +512,9 @@ class DocLayoutEditorDialog(QDialog):
 
     def _build_toolbar(self) -> QHBoxLayout:
         bar = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(bar, tool_key="doclayout_editor", host=self)
         bar.addWidget(QLabel("Layout:"))
         self.layout_combo = QComboBox()
         self.layout_combo.setMinimumWidth(220)
@@ -500,13 +548,6 @@ class DocLayoutEditorDialog(QDialog):
             bar.addWidget(button)
         bar.addStretch(1)
 
-        self.help_button = QToolButton()
-        self.help_button.setText("?")
-        self.help_button.setToolTip(
-            "Öffnet das Handbuch direkt bei Kapitel 23 (Layout-Editor)."
-        )
-        bar.addWidget(self.help_button)
-
         self.dark_button = QToolButton()
         self.dark_button.setCheckable(True)
         self.dark_button.setToolTip(
@@ -527,7 +568,6 @@ class DocLayoutEditorDialog(QDialog):
         self.wizard_button.clicked.connect(self._run_wizard)
         self.save_button.clicked.connect(self._save)
         self.dark_button.toggled.connect(self._on_dark_toggled)
-        self.help_button.clicked.connect(self._open_manual)
         return bar
 
     def _build_navigation(self) -> QWidget:
@@ -1023,18 +1063,6 @@ class DocLayoutEditorDialog(QDialog):
     def _update_dirty_label(self) -> None:
         self.dirty_label.setText("ungespeicherte Aenderungen" if self._dirty else "")
 
-    # -- Hilfe -------------------------------------------------------------
-
-    def _open_manual(self) -> None:
-        """Oeffnet das Handbuch beim Kapitel ueber diesen Editor.
-
-        Wer hier nicht weiterkommt, soll nicht erst ein Kapitelverzeichnis
-        durchsuchen muessen -- ein Klick, und der richtige Abschnitt steht da.
-        """
-        from ui_qt.dialogs.help_dialog import open_manual
-
-        open_manual(self, anchor=_HANDBOOK_ANCHOR)
-
     # -- Helligkeit --------------------------------------------------------
 
     def _load_dark_preference(self) -> bool:
@@ -1123,50 +1151,11 @@ class DocLayoutEditorDialog(QDialog):
 
     # -- Fenstergroesse ----------------------------------------------------
 
-    def _apply_saved_size(self) -> None:
-        """Stellt die zuletzt benutzte Groesse wieder her.
-
-        Wie bei der Helligkeit: Steht die Sitzung nicht zur Verfuegung, gilt
-        die Vorgabe. Sie im Konstruktor durchschlagen zu lassen hiesse, den
-        Editor wegen einer gemerkten Fensterbreite nicht zu oeffnen.
-        """
-        width, height = _DEFAULT_SIZE
-        try:
-            state = qt_session.load_session()
-        except (OSError, ValueError):
-            _LOG.debug("Sitzung nicht lesbar -- Vorgabegroesse", exc_info=True)
-            state = {}
-        ui = state.get("ui_state") if isinstance(state, dict) else None
-        if isinstance(ui, dict):
-            saved = ui.get(_SIZE_KEY)
-            if isinstance(saved, (list, tuple)) and len(saved) == 2:
-                try:
-                    width, height = int(saved[0]), int(saved[1])
-                except (TypeError, ValueError):
-                    width, height = _DEFAULT_SIZE
-            self._restore_maximized = bool(ui.get(_MAXIMIZED_KEY))
-        # Untergrenze, damit eine versehentlich winzige Groesse den Editor
-        # nicht unbedienbar zurueckbringt.
-        self.resize(max(_MIN_SIZE[0], width), max(_MIN_SIZE[1], height))
-
-    def _persist_size(self) -> None:
-        """Legt die Groesse ab -- im Vollbild die davor, sonst die aktuelle."""
-        maximized = bool(self.isMaximized())
-        geometry = self.normalGeometry() if maximized else None
-        width = int(geometry.width()) if geometry else int(self.width())
-        height = int(geometry.height()) if geometry else int(self.height())
-        try:
-            qt_session.update_ui_state(
-                {_SIZE_KEY: [width, height], _MAXIMIZED_KEY: maximized}
-            )
-        except OSError:
-            # Eine nicht gespeicherte Fenstergroesse ist kein Grund, das
-            # Schliessen des Dialogs scheitern zu lassen.
-            _LOG.debug("Fenstergroesse konnte nicht abgelegt werden", exc_info=True)
-
     def showEvent(self, event: Any) -> None:  # noqa: N802 - Qt-Vertrag
         super().showEvent(event)
-        if self._restore_maximized:
+        # Direct construction (tests) still restores maximized; the shared
+        # show_autonomous_window path also honours ``_restore_maximized``.
+        if getattr(self, "_restore_maximized", False):
             self._restore_maximized = False
             self.showMaximized()
 
@@ -1670,6 +1659,88 @@ class DocLayoutEditorDialog(QDialog):
         self._update_dirty_label()
         self._run_comparison()
 
+    def focus_unmapped_classes(self) -> None:
+        """Klassen-Abbildung + Buchabgleich — Einstieg vom Inventar/Arbeitsweg.
+
+        Legt nichts stillschweigend an; der Button „Fehlende Klassen anlegen“
+        bleibt die Bestaetigung.
+        """
+        if self._book_path is None or self._definition is None:
+            return
+        self._select_nav_section(_SECTION_CLASSMAP)
+        self._run_comparison()
+        # Abgleich erneut in die sichtbare Classmap schreiben (nach Nav-Wechsel).
+        self._show_section(_SECTION_CLASSMAP)
+
+    def select_style_in_nav(self, style_id: str) -> bool:
+        """Absatzformat in der Navigationsliste anwählen und Formular zeigen."""
+        style_id = str(style_id or "").strip()
+        if not style_id:
+            return False
+        for index in range(self.nav_list.count()):
+            item = self.nav_list.item(index)
+            if item is None:
+                continue
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data and data[0] == "style" and data[1] == style_id:
+                self.nav_list.setCurrentRow(index)
+                return True
+        return False
+
+    def ensure_class_mapping(self, class_name: str) -> Optional[str]:
+        """Legt für *class_name* Absatzformat + Klassen-Abbildung an, falls fehlend.
+
+        Rückgabe: Style-ID (neu oder bereits vorhanden), sonst ``None``.
+        """
+        name = str(class_name or "").lstrip(".").strip()
+        if not name or self._definition is None:
+            return None
+        existing = (self._definition.classmap or {}).get(name)
+        if existing:
+            return str(existing)
+        self._commit_current_style()
+        self._collect_into_definition()
+        definition = self._definition
+        if definition is None:
+            return None
+        style_id = suggested_style_id(name, definition.styles)
+        classmap = dict(definition.classmap)
+        definition = definition.with_style(
+            ParagraphStyle(style_id=style_id, name=style_id, based_on="BodyText")
+        )
+        classmap[name] = style_id
+        self._session.replace_definition(replace(definition, classmap=classmap))
+        self._session.detach_form()
+        self._refresh_navigation()
+        self._update_dirty_label()
+        if self._book_path is not None:
+            self._run_comparison()
+        return style_id
+
+    def focus_class_for_create(self, class_name: str) -> None:
+        """Vom Inventar: Klassen-Abbildung, Format für die Klasse anlegen, Format wählen."""
+        name = str(class_name or "").lstrip(".").strip()
+        if not name:
+            return
+        if self._book_path is not None:
+            self.focus_unmapped_classes()
+        else:
+            self._select_nav_section(_SECTION_CLASSMAP)
+            self._show_section(_SECTION_CLASSMAP)
+        style_id = self.ensure_class_mapping(name)
+        if style_id:
+            self.select_style_in_nav(style_id)
+
+    def _select_nav_section(self, section: str) -> None:
+        for index in range(self.nav_list.count()):
+            item = self.nav_list.item(index)
+            if item is None:
+                continue
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data and data[0] == "section" and data[1] == section:
+                self.nav_list.setCurrentRow(index)
+                return
+
     # -- Anwenden ----------------------------------------------------------
 
     def _apply_to_book(self) -> None:
@@ -1689,6 +1760,22 @@ class DocLayoutEditorDialog(QDialog):
             return
         self._book_path = book
         QMessageBox.information(self, "Angewandt", self._apply_report(result))
+        if self._return_after_apply:
+            self._finish_auftrag_and_return()
+
+    def _finish_auftrag_and_return(self) -> None:
+        """Nach Anwenden aus dem Inventar: speichern falls nötig, Editor zu.
+
+        Das Inventar hat den Auftrag gegeben; die Vorlage liegt im Buch. Wer
+        hier bleibt, steckt im Nebenwerkzeug fest. Ungespeicherte Layout-
+        Aenderungen werden mitgeschrieben -- sonst waere das Format im Buch,
+        aber nicht in der Bibliothek.
+        """
+        if self._dirty:
+            self._save()
+            if self._dirty:
+                return
+        self.accept()
 
     # -- Das ganze Buch setzen ---------------------------------------------
 
@@ -1872,7 +1959,7 @@ class DocLayoutEditorDialog(QDialog):
         if self._closed:
             return
         self._closed = True
-        self._persist_size()
+        persist_window_size(self, _SIZE_KEY, maximized_key=_MAXIMIZED_KEY)
         self._runner.release()
         self._typesetter.release()
 
@@ -1898,6 +1985,63 @@ def open_doclayout_editor_qt(
     studio: Any = None, parent: Optional[QWidget] = None, **kwargs: Any
 ) -> int:
     """Entrypoint fuer den Plugin-Adapter."""
+    focus_unmapped = bool(kwargs.get("focus_unmapped"))
+    focus_class = kwargs.get("focus_class")
+    focus_style = kwargs.get("focus_style")
+    on_closed = kwargs.get("on_closed")
+    return_after_apply = bool(kwargs.get("return_after_apply"))
+    if isinstance(focus_class, str):
+        focus_class = focus_class.lstrip(".").strip() or None
+    else:
+        focus_class = None
+    if isinstance(focus_style, str):
+        focus_style = focus_style.strip() or None
+    else:
+        focus_style = None
+
+    def _wire_closed(dialog: Any) -> None:
+        if not callable(on_closed):
+            return
+        try:
+            dialog.finished.disconnect(on_closed)
+        except (TypeError, RuntimeError):
+            pass
+        dialog.finished.connect(on_closed)
+
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        book = kwargs.get("book_path")
+        if book is None and studio is not None:
+            book = getattr(studio, "current_book", None) or getattr(
+                studio, "book_path", None
+            )
+        if book is not None:
+            existing._book_path = Path(book)
+        # Auftragskontext vom Inventar nachziehen (auch wenn Fenster schon offen).
+        if return_after_apply:
+            existing._return_after_apply = True
+            existing.apply_button.setToolTip(
+                "Satzvorlage ins Buch legen, danach zurück zum Inventar.\n\n"
+                "Schreibt reference.docx und classmap.lua und trägt sie in "
+                "_quarto.yml ein. Speichert das Layout mit, falls noch nicht "
+                "gespeichert, und schließt diesen Editor."
+            )
+        if focus_class:
+            existing.focus_class_for_create(focus_class)
+        elif focus_style:
+            if focus_unmapped:
+                existing.focus_unmapped_classes()
+            existing.select_style_in_nav(focus_style)
+        elif focus_unmapped:
+            existing.focus_unmapped_classes()
+        select = kwargs.get("select")
+        if select and not focus_class and not focus_style:
+            try:
+                existing._reload_library(str(select))
+            except (AttributeError, TypeError, ValueError):
+                pass
+        _wire_closed(existing)
+        return 0
     book_path = kwargs.get("book_path")
     if book_path is None and studio is not None:
         # ``current_book`` zuerst: Das ist der Name, unter dem das aktive Buch
@@ -1913,6 +2057,11 @@ def open_doclayout_editor_qt(
         library_dir=kwargs.get("library_dir"),
         book_path=Path(book_path) if book_path else None,
         select=kwargs.get("select"),
+        focus_unmapped=focus_unmapped or bool(focus_class),
+        focus_class=focus_class,
+        focus_style=focus_style,
+        return_after_apply=return_after_apply,
     )
-    dialog.exec()
+    _wire_closed(dialog)
+    show_autonomous_window(dialog, _active)
     return 0

@@ -46,7 +46,7 @@ def test_order_folgt_der_menuegruppierung() -> None:
     from ui_qt.menu_builder import _PLUGIN_GROUPS
 
     manifeste = _manifeste()
-    erwartet = [name for gruppe in _PLUGIN_GROUPS for name in gruppe]
+    erwartet = [name for _titel, namen in _PLUGIN_GROUPS for name in namen]
     assert sorted(erwartet) == sorted(manifeste), "Gruppen und Manifeste driften"
     tatsaechlich = sorted(manifeste, key=lambda n: manifeste[n].get("order", 0))
     assert tatsaechlich == erwartet

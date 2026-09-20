@@ -59,6 +59,7 @@ from tools.doclayout.inventory import (
 )
 from tools.doclayout.schema import LayoutDefinition, LayoutError, ParagraphStyle
 from tools.doclayout.usage import suggested_style_id
+from ui_qt.autonomous_window import apply_persisted_size, persist_window_size
 from ui_qt.dialogs.doclayout_style_form import _StyleForm
 
 _LOG = logging.getLogger(__name__)
@@ -81,6 +82,10 @@ _STATUS_COLORS = {
     "nothing": StatusFg.NEUTRAL,
 }
 
+_SIZE_KEY = "doclayout_wizard_size"
+_DEFAULT_SIZE = (880, 720)
+_MIN_SIZE = (640, 520)
+
 
 class DocLayoutWizard(QDialog):
     """Fuehrt durch die Formatierungsobjekte eines Buches."""
@@ -94,7 +99,12 @@ class DocLayoutWizard(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Formatierungsobjekte durchgehen")
-        self.resize(880, 720)
+        # Modal on purpose: run_wizard must return changed/saved after the user
+        # finishes stepping through formats before the editor can react.
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
+        self.setModal(True)
 
         self._definition = definition
         self._book_path = Path(book_path)
@@ -110,6 +120,10 @@ class DocLayoutWizard(QDialog):
         self._build_ui()
         self._rebuild_steps()
         self._update_save_state()
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     # -- Aufbau ------------------------------------------------------------
 
@@ -687,6 +701,8 @@ def run_wizard(
 
     *save* legt den Stand ab, ohne den Assistenten zu verlassen; ohne den
     Rueckruf bleibt der Knopf verborgen.
+
+    Stays modal: the editor needs ``changed``/``saved`` before continuing.
     """
     dialog = DocLayoutWizard(parent, definition, book_path, save=save)
     dialog.exec()

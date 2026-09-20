@@ -27,6 +27,17 @@ def test_compose_front_ui_flag_respects_env_and_project(monkeypatch: pytest.Monk
     monkeypatch.setenv("BSU_KDP_COMPOSE_FRONT", "0")
     assert is_compose_front_ui_enabled(project_enabled=False) is False
     assert is_compose_front_ui_enabled(project_enabled=True) is True
+    monkeypatch.delenv("BSU_KDP_COMPOSE_FRONT", raising=False)
+    monkeypatch.setattr(
+        "app_config.load_validated_config",
+        lambda *_a, **_k: {"kdp_compose_front_ui": True},
+    )
+    assert is_compose_front_ui_enabled(project_enabled=False) is True
+    monkeypatch.setattr(
+        "app_config.load_validated_config",
+        lambda *_a, **_k: {},
+    )
+    assert is_compose_front_ui_enabled(project_enabled=False) is True
 
 
 def _solid_rgb(path: Path, color: tuple[int, int, int] = (40, 80, 120)) -> Path:
@@ -179,6 +190,54 @@ def test_footer_two_lines_and_position() -> None:
     out = apply_to_front_panel(base, spec)
     assert out is not None
     assert list(out.getdata()) != list(base.getdata())
+
+
+def test_footer_align_and_offset_x() -> None:
+    """Fußzeile: Ausrichtung + Versatz wie Titelzeilen."""
+    from tools.kdp_cover.compose_front.model import FooterSpec
+
+    f = FooterSpec.from_dict({"align": "left", "offset_x_pct": -10})
+    assert f.align == "left"
+    assert f.offset_x_pct == pytest.approx(-10.0)
+    legacy = FooterSpec.from_dict({})
+    assert legacy.align == "center"
+    assert legacy.offset_x_pct == 0.0
+
+    base = Image.new("RGB", (200, 300), (0, 0, 0))
+
+    def _cx(align: str, offset: float) -> float:
+        out = apply_to_front_panel(
+            base,
+            FrontComposeSpec.from_dict(
+                {
+                    "enabled": True,
+                    "fade": {"enabled": False},
+                    "titles": {"enabled": False},
+                    "band": {"enabled": False},
+                    "footer": {
+                        "enabled": True,
+                        "line1": "FUSS",
+                        "color": "#FFFFFF",
+                        "align": align,
+                        "offset_x_pct": offset,
+                        "bottom_pct": 5.0,
+                        "dim_opacity": 0.0,
+                    },
+                }
+            ),
+        )
+        assert out is not None
+        xs: list[int] = []
+        for y in range(out.height):
+            for x in range(out.width):
+                r, g, b = out.getpixel((x, y))
+                if r + g + b > 200:
+                    xs.append(x)
+        assert xs
+        return sum(xs) / len(xs)
+
+    assert _cx("left", 0.0) < _cx("center", 0.0) < _cx("right", 0.0)
+    assert _cx("center", -15.0) < _cx("center", 0.0) < _cx("center", 15.0)
 
 
 def test_element_set_roundtrip_and_title_filename(tmp_path: Path) -> None:
@@ -418,6 +477,77 @@ def test_corner_ribbon_font_scale_roundtrip() -> None:
     )
 
 
+def test_corner_ribbon_offset_and_text_padding() -> None:
+    """Offset von rechts/oben verschiebt das Dreieck; Padding ist im Modell."""
+    from tools.kdp_cover.compose_front.model import CornerRibbonSpec
+
+    cr = CornerRibbonSpec.from_dict(
+        {
+            "enabled": True,
+            "offset_x_pct": 8.0,
+            "offset_y_pct": 5.0,
+            "text_padding_pct": 22.0,
+            "size_pct": 35.0,
+            "color": "#00FF00",
+            "show_icon": False,
+            "text": "X",
+            "corner": "top_right",
+        }
+    )
+    assert cr.offset_x_pct == pytest.approx(8.0)
+    assert cr.offset_y_pct == pytest.approx(5.0)
+    assert cr.text_padding_pct == pytest.approx(22.0)
+    legacy = CornerRibbonSpec.from_dict({"enabled": True})
+    assert legacy.offset_x_pct == 0.0
+    assert legacy.text_padding_pct == 10.0
+
+    base = Image.new("RGB", (200, 200), (10, 10, 40))
+    flush = apply_to_front_panel(
+        base,
+        FrontComposeSpec.from_dict(
+            {
+                "enabled": True,
+                "fade": {"enabled": False},
+                "titles": {"enabled": False},
+                "corner_ribbon": {
+                    "enabled": True,
+                    "color": "#00FF00",
+                    "size_pct": 35.0,
+                    "show_icon": False,
+                    "text": "A",
+                    "offset_x_pct": 0.0,
+                    "offset_y_pct": 0.0,
+                },
+            }
+        ),
+    )
+    inset = apply_to_front_panel(
+        base,
+        FrontComposeSpec.from_dict(
+            {
+                "enabled": True,
+                "fade": {"enabled": False},
+                "titles": {"enabled": False},
+                "corner_ribbon": {
+                    "enabled": True,
+                    "color": "#00FF00",
+                    "size_pct": 35.0,
+                    "show_icon": False,
+                    "text": "A",
+                    "offset_x_pct": 12.0,
+                    "offset_y_pct": 10.0,
+                },
+            }
+        ),
+    )
+    assert flush is not None and inset is not None
+    # Ohne Offset: Pixel ganz oben rechts grün
+    assert flush.getpixel((198, 1))[1] > 150
+    # Mit Offset: derselbe Randpunkt bleibt dunkel, Farbe sitzt weiter innen
+    assert inset.getpixel((198, 1)) == (10, 10, 40)
+    assert inset.getpixel((170, 25))[1] > 100
+
+
 def test_corner_ribbon_wraps_bonus_material_centered() -> None:
     """„Inkl. Bonus-Material“ → zwei zentrierte Zeilen „Inkl. Bonus“ / „Material“."""
     from tools.kdp_cover.compose_front.render import _load_font, _wrap_ribbon_lines
@@ -570,3 +700,107 @@ def test_render_hook_disabled_matches_no_compose(tmp_path: Path) -> None:
     a = render_wrap_image(no_field, dpi=72.0, resolve_base=tmp_path)
     b = render_wrap_image(disabled, dpi=72.0, resolve_base=tmp_path)
     assert list(a.getdata()) == list(b.getdata())
+
+
+def test_titles_align_left_center_right() -> None:
+    """Titelzeilen: links / mittig / rechts erzeugen unterschiedliche Pixel."""
+    from tools.kdp_cover.compose_front.model import FrontComposeSpec
+    from tools.kdp_cover.compose_front.render import apply_to_front_panel
+
+    base = Image.new("RGB", (200, 300), (20, 40, 80))
+
+    def _render(align: str) -> Image.Image:
+        out = apply_to_front_panel(
+            base,
+            FrontComposeSpec.from_dict(
+                {
+                    "enabled": True,
+                    "fade": {"enabled": False},
+                    "band": {"enabled": False},
+                    "titles": {
+                        "enabled": True,
+                        "align": align,
+                        "top_pct": 10.0,
+                        "lines_size_pct": 8.0,
+                        "lines_bold": True,
+                        "main": {"text": "ALIGN", "color": "#FFFFFF"},
+                        "series": {"text": ""},
+                        "accent": {"text": ""},
+                    },
+                }
+            ),
+        )
+        assert out is not None
+        return out
+
+    left = _render("left")
+    center = _render("center")
+    right = _render("right")
+    assert list(left.getdata()) != list(center.getdata())
+    assert list(center.getdata()) != list(right.getdata())
+    assert list(left.getdata()) != list(right.getdata())
+
+    # Ink-Schwerpunkt: links eher links, rechts eher rechts
+    def ink_cx(img: Image.Image) -> float:
+        xs: list[int] = []
+        for y in range(img.height):
+            for x in range(img.width):
+                r, g, b = img.getpixel((x, y))
+                if r + g + b > 200:  # heller Text auf dunklem Grund
+                    xs.append(x)
+        assert xs
+        return sum(xs) / len(xs)
+
+    assert ink_cx(left) < ink_cx(center) < ink_cx(right)
+
+
+def test_titles_offset_x_shifts_pixels() -> None:
+    """Horizontaler Versatz verschiebt Titelpixel nach links/rechts."""
+    from tools.kdp_cover.compose_front.model import FrontComposeSpec
+    from tools.kdp_cover.compose_front.render import apply_to_front_panel
+
+    base = Image.new("RGB", (200, 300), (20, 40, 80))
+
+    def _cx(offset: float) -> float:
+        out = apply_to_front_panel(
+            base,
+            FrontComposeSpec.from_dict(
+                {
+                    "enabled": True,
+                    "fade": {"enabled": False},
+                    "band": {"enabled": False},
+                    "titles": {
+                        "enabled": True,
+                        "align": "center",
+                        "offset_x_pct": offset,
+                        "top_pct": 10.0,
+                        "lines_size_pct": 8.0,
+                        "main": {"text": "SHIFT", "color": "#FFFFFF"},
+                        "series": {"text": ""},
+                        "accent": {"text": ""},
+                    },
+                }
+            ),
+        )
+        assert out is not None
+        xs: list[int] = []
+        for y in range(out.height):
+            for x in range(out.width):
+                r, g, b = out.getpixel((x, y))
+                if r + g + b > 200:
+                    xs.append(x)
+        assert xs
+        return sum(xs) / len(xs)
+
+    assert _cx(-20.0) < _cx(0.0) < _cx(20.0)
+
+
+def test_titles_align_legacy_defaults_center() -> None:
+    from tools.kdp_cover.compose_front.model import TitlesSpec
+
+    t = TitlesSpec.from_dict({"enabled": True, "main": {"text": "X"}})
+    assert t.align == "center"
+    assert t.offset_x_pct == 0.0
+    t2 = TitlesSpec.from_dict({"align": "weird", "offset_x_pct": 99})
+    assert t2.align == "center"
+    assert t2.offset_x_pct == 45.0

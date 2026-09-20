@@ -287,8 +287,48 @@ def parse_geometry(value: str) -> Optional[tuple[int, int, int, int]]:
 
 
 # silence unused import warning for normalize if ruff complains — keep available for tests
+UI_MODES = frozenset({"guided", "workshop"})
+
+
+def resolve_ui_mode(root: Optional[Path] = None) -> str:
+    """Session-Override oder App-Default — ``guided`` | ``workshop``."""
+    try:
+        data = load_session(root)
+        ui = data.get("ui_state") if isinstance(data, dict) else None
+        if isinstance(ui, dict):
+            mode = str(ui.get("ui_mode") or "").strip().lower()
+            if mode in UI_MODES:
+                return mode
+    except (OSError, TypeError, ValueError):
+        pass
+    try:
+        import app_config as _app_config
+        from ui_qt.book_workspace import repo_root as _repo_root
+
+        base = Path(root) if root is not None else _repo_root()
+        cfg = _app_config.read_config(base / "app_config.json")
+        if hasattr(_app_config, "with_defaults"):
+            cfg = _app_config.with_defaults(cfg)
+        mode = str(cfg.get("ui_mode_default") or "guided").strip().lower()
+        if mode in UI_MODES:
+            return mode
+    except (OSError, TypeError, ValueError, ImportError):
+        pass
+    return "guided"
+
+
+def set_ui_mode(mode: str, root: Optional[Path] = None) -> str:
+    """Persistiert ``ui_mode`` in der Session; Rückgabe normalisierter Wert."""
+    normalized = str(mode or "").strip().lower()
+    if normalized not in UI_MODES:
+        normalized = "guided"
+    update_ui_state({"ui_mode": normalized}, root=root)
+    return normalized
+
+
 __all__ = [
     "MAX_RECENT_BOOKS",
+    "UI_MODES",
     "book_key",
     "geometry_string",
     "update_ui_state",
@@ -298,7 +338,9 @@ __all__ = [
     "parse_geometry",
     "pick_restorable_book",
     "resolve_book_key",
+    "resolve_ui_mode",
     "save_session",
     "session_path",
+    "set_ui_mode",
     "merge_recent",
 ]

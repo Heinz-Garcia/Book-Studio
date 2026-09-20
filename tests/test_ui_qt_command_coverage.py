@@ -17,15 +17,18 @@ from menu_definitions import (
     MENU_TOOLS,
     MENU_VIEW,
     MenuCascade,
+    MenuHeader,
     MenuItem,
     MenuSeparator,
 )
 
 
-def _collect_commands(items: Iterable[Union[MenuCascade, MenuItem, MenuSeparator]]) -> set[str]:
+def _collect_commands(
+    items: Iterable[Union[MenuCascade, MenuItem, MenuSeparator, MenuHeader]],
+) -> set[str]:
     commands: set[str] = set()
     for item in items:
-        if isinstance(item, MenuSeparator):
+        if isinstance(item, (MenuSeparator, MenuHeader)):
             continue
         if isinstance(item, MenuItem):
             commands.add(item.command)

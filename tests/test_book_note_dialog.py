@@ -41,10 +41,10 @@ def buecher(tmp_path: Path) -> list[Path]:
 @pytest.fixture()
 def dialog(qapp, buecher, monkeypatch):
     # Fenstergroesse nicht in die echte Sitzung schreiben.
-    import ui_qt.dialogs.book_note_dialog as modul
+    import ui_qt.qt_session as qt_session
 
-    monkeypatch.setattr(modul.qt_session, "load_session", lambda *a, **k: {})
-    monkeypatch.setattr(modul.qt_session, "update_ui_state", lambda *a, **k: None)
+    monkeypatch.setattr(qt_session, "load_session", lambda *a, **k: {})
+    monkeypatch.setattr(qt_session, "update_ui_state", lambda *a, **k: None)
     dlg = BookNoteDialog(books=buecher)
     dlg.show()
     QApplication.processEvents()
@@ -62,10 +62,10 @@ def test_alle_buecher_stehen_in_der_liste(dialog, buecher):
 
 
 def test_ein_buch_mit_notiz_traegt_ein_zeichen(qapp, buecher, monkeypatch):
-    import ui_qt.dialogs.book_note_dialog as modul
+    import ui_qt.qt_session as qt_session
 
-    monkeypatch.setattr(modul.qt_session, "load_session", lambda *a, **k: {})
-    monkeypatch.setattr(modul.qt_session, "update_ui_state", lambda *a, **k: None)
+    monkeypatch.setattr(qt_session, "load_session", lambda *a, **k: {})
+    monkeypatch.setattr(qt_session, "update_ui_state", lambda *a, **k: None)
     store.save(buecher[1], "steht schon was drin")
     dlg = BookNoteDialog(books=buecher)
     try:
@@ -77,10 +77,10 @@ def test_ein_buch_mit_notiz_traegt_ein_zeichen(qapp, buecher, monkeypatch):
 
 
 def test_das_gewuenschte_buch_ist_vorgewaehlt(qapp, buecher, monkeypatch):
-    import ui_qt.dialogs.book_note_dialog as modul
+    import ui_qt.qt_session as qt_session
 
-    monkeypatch.setattr(modul.qt_session, "load_session", lambda *a, **k: {})
-    monkeypatch.setattr(modul.qt_session, "update_ui_state", lambda *a, **k: None)
+    monkeypatch.setattr(qt_session, "load_session", lambda *a, **k: {})
+    monkeypatch.setattr(qt_session, "update_ui_state", lambda *a, **k: None)
     dlg = BookNoteDialog(books=buecher, select=buecher[2])
     try:
         assert dlg.book_label.text() == "Band_C"
@@ -89,10 +89,10 @@ def test_das_gewuenschte_buch_ist_vorgewaehlt(qapp, buecher, monkeypatch):
 
 
 def test_ohne_buecher_sagt_das_fenster_es(qapp, monkeypatch):
-    import ui_qt.dialogs.book_note_dialog as modul
+    import ui_qt.qt_session as qt_session
 
-    monkeypatch.setattr(modul.qt_session, "load_session", lambda *a, **k: {})
-    monkeypatch.setattr(modul.qt_session, "update_ui_state", lambda *a, **k: None)
+    monkeypatch.setattr(qt_session, "load_session", lambda *a, **k: {})
+    monkeypatch.setattr(qt_session, "update_ui_state", lambda *a, **k: None)
     dlg = BookNoteDialog(books=[])
     try:
         assert "Kein Buchprojekt" in dlg.book_label.text()
@@ -145,10 +145,10 @@ def test_ein_buchwechsel_zeigt_die_andere_notiz(dialog, buecher):
 
 
 def test_schliessen_speichert(qapp, buecher, monkeypatch):
-    import ui_qt.dialogs.book_note_dialog as modul
+    import ui_qt.qt_session as qt_session
 
-    monkeypatch.setattr(modul.qt_session, "load_session", lambda *a, **k: {})
-    monkeypatch.setattr(modul.qt_session, "update_ui_state", lambda *a, **k: None)
+    monkeypatch.setattr(qt_session, "load_session", lambda *a, **k: {})
+    monkeypatch.setattr(qt_session, "update_ui_state", lambda *a, **k: None)
     dlg = BookNoteDialog(books=buecher)
     dlg.show()
     QApplication.processEvents()
@@ -159,10 +159,10 @@ def test_schliessen_speichert(qapp, buecher, monkeypatch):
 
 
 def test_zweimal_schliessen_ist_harmlos(qapp, buecher, monkeypatch):
-    import ui_qt.dialogs.book_note_dialog as modul
+    import ui_qt.qt_session as qt_session
 
-    monkeypatch.setattr(modul.qt_session, "load_session", lambda *a, **k: {})
-    monkeypatch.setattr(modul.qt_session, "update_ui_state", lambda *a, **k: None)
+    monkeypatch.setattr(qt_session, "load_session", lambda *a, **k: {})
+    monkeypatch.setattr(qt_session, "update_ui_state", lambda *a, **k: None)
     dlg = BookNoteDialog(books=buecher)
     dlg.editor.setPlainText("einmal")
     dlg.reject()
@@ -256,10 +256,10 @@ def test_unbekanntes_buch_oeffnet_keine_fremde_notiz(qapp, buecher, tmp_path, mo
     Ueberschrift verriet es. Wer darin weiterschreibt, schreibt ins falsche
     Buch.
     """
-    import ui_qt.dialogs.book_note_dialog as modul
+    import ui_qt.qt_session as qt_session
 
-    monkeypatch.setattr(modul.qt_session, "load_session", lambda *a, **k: {})
-    monkeypatch.setattr(modul.qt_session, "update_ui_state", lambda *a, **k: None)
+    monkeypatch.setattr(qt_session, "load_session", lambda *a, **k: {})
+    monkeypatch.setattr(qt_session, "update_ui_state", lambda *a, **k: None)
     fremd = tmp_path / "Band_Unbekannt"
     dlg = BookNoteDialog(books=buecher, select=fremd)
     try:

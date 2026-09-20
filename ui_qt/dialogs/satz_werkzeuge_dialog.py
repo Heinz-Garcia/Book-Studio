@@ -38,6 +38,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.widgets.help_bar import HelpBar
 
 #: Wurzel des Repos -- von hier aus laufen die ``python -m tools.*``-Aufrufe.
@@ -50,15 +57,22 @@ _HINWEIS_REGELKREIS = (
     "Folgelauf ersetzt.\n\nDas Manuskript wird nicht angefasst.\n\nStarten?"
 )
 
+_SIZE_KEY = "satz_werkzeuge_size"
+_DEFAULT_SIZE = (860, 620)
+_MIN_SIZE = (640, 480)
+_active: list["SatzWerkzeugeQtDialog"] = []
+
 
 class SatzWerkzeugeQtDialog(QDialog):
     """Ein Fenster, zwei Werkzeuge, eine gemeinsame Ausgabe."""
 
     def __init__(self, parent: Optional[QWidget], *, buch: Path,
                  pdf: Optional[Path], layout_profil: Optional[str]) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self.setWindowTitle("Satzprüfung und Regelkreis")
-        self.resize(860, 620)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
         self._buch = buch
         self._pdf = pdf
         self._prozess: Optional[QProcess] = None
@@ -82,6 +96,9 @@ class SatzWerkzeugeQtDialog(QDialog):
         layout.addWidget(self.log, 1)
 
         fuss = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(fuss, tool_key="satz_werkzeuge", host=self)
         self.btn_abbrechen = QPushButton("Lauf abbrechen")
         self.btn_abbrechen.setEnabled(False)
         self.btn_abbrechen.clicked.connect(self._abbrechen)
@@ -95,6 +112,11 @@ class SatzWerkzeugeQtDialog(QDialog):
         schliessen.clicked.connect(self.reject)
         fuss.addWidget(schliessen)
         layout.addLayout(fuss)
+        prepare_autonomous_window(self, parent)
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     # ── Aufbau ──────────────────────────────────────────────────────────
 
@@ -287,6 +309,7 @@ class SatzWerkzeugeQtDialog(QDialog):
         if self._prozess is not None:
             self._prozess.kill()
             self._prozess.waitForFinished(2000)
+        persist_window_size(self, _SIZE_KEY)
         super().closeEvent(event)
 
 
@@ -295,17 +318,23 @@ def open_satz_werkzeuge_qt(studio: Any, parent: Optional[QWidget] = None,
     """Einstieg aus dem Plugin: aktives Buch ermitteln, Dialog öffnen."""
     buch = getattr(studio, "current_book", None)
     if not buch:
-        QMessageBox.warning(parent, "Satzprüfung und Regelkreis",
-                            "Kein Buchprojekt aktiv.")
+        from ui_qt.work_path_guidance import warn_need_book
+
+        warn_need_book(parent, title="Satzprüfung und Regelkreis", studio=studio)
         return
     buch = Path(buch)
 
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return
+
     from tools.live_preview.preview_render import newest_output_pdf
 
-    SatzWerkzeugeQtDialog(
+    dlg = SatzWerkzeugeQtDialog(
         parent, buch=buch, pdf=newest_output_pdf(buch),
         layout_profil=letztes_layout_profil(buch),
-    ).exec()
+    )
+    show_autonomous_window(dlg, _active)
 
 
 def letztes_layout_profil(buch: Path) -> Optional[str]:

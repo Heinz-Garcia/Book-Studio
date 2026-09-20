@@ -49,6 +49,13 @@ from tools.skeleton.manifest import (
     update_manifest_meta,
     validate_profile_name,
 )
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.book_workspace import repo_root
 from ui_qt.dialogs.skeleton_orphan_files_dialog import OrphanFilesDialog
 from ui_qt.dialogs.text_dialogs import TextEditorDialog
@@ -57,6 +64,11 @@ from ui_qt.widgets.help_bar import HelpBar
 _LOG = logging.getLogger(__name__)
 
 _ROLE_INDEX = Qt.ItemDataRole.UserRole
+
+_SIZE_KEY = "skeleton_editor_size"
+_DEFAULT_SIZE = (1400, 860)
+_MIN_SIZE = (1000, 640)
+_active: list["SkeletonEditorQtDialog"] = []
 
 
 def _prompt_text(
@@ -92,11 +104,12 @@ class SkeletonEditorQtDialog(QDialog):
         initial_profile: Optional[str] = None,
         studio: Any = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self.setObjectName("skeletonEditorDialog")
         self.setWindowTitle("Skeleton-Bibliothek bearbeiten")
-        self.resize(1400, 860)
-        self.setModal(True)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
 
         self.library_root = Path(library_root).resolve()
         self._studio = studio
@@ -111,6 +124,11 @@ class SkeletonEditorQtDialog(QDialog):
 
         self._build_ui()
         self._reload_profiles(initial_profile)
+        prepare_autonomous_window(self, parent)
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -340,6 +358,9 @@ class SkeletonEditorQtDialog(QDialog):
         root.addWidget(splitter, stretch=1)
 
         bottom = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(bottom, tool_key="skeleton_editor", host=self)
         self._btn_save_preview = QPushButton("Vorschau speichern")
         self._btn_save_preview.setObjectName("skeletonEditorPrimary")
         self._btn_save_preview.setToolTip(
@@ -1158,6 +1179,7 @@ class SkeletonEditorQtDialog(QDialog):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         if self._confirm_discard():
+            persist_window_size(self, _SIZE_KEY)
             event.accept()
         else:
             event.ignore()
@@ -1166,6 +1188,10 @@ class SkeletonEditorQtDialog(QDialog):
 def open_skeleton_editor_qt(studio: Any = None, parent: Optional[QWidget] = None, **kwargs) -> int:
     """Entrypoint — Feature-Parität zu tools.skeleton.editor.run."""
     import app_config
+
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return 0
 
     root = repo_root()
     try:
@@ -1195,7 +1221,7 @@ def open_skeleton_editor_qt(studio: Any = None, parent: Optional[QWidget] = None
             initial_profile=profile,
             studio=studio,
         )
-        dlg.exec()
+        show_autonomous_window(dlg, _active)
     except (OSError, ValueError) as exc:
         QMessageBox.critical(parent, "Skeleton-Editor", str(exc))
         _LOG.exception("Skeleton editor failed")

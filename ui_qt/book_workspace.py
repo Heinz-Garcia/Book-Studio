@@ -159,7 +159,14 @@ class StructureSession:
         self.doctor_issue_registry = cleaned
 
     def display_title(self, path: str, title: Optional[str] = None) -> str:
-        base = title if title is not None else self.title_registry.get(path, Path(path).name)
+        # Prefix-Icons (📌/🧬/🧭) stecken in title_registry — immer bevorzugen,
+        # sonst bleiben Knoten-/Pool-Titel nach Frontmatter-Edits stale.
+        if path in self.title_registry:
+            base = self.title_registry[path]
+        elif title is not None:
+            base = title
+        else:
+            base = Path(path).name
         return decorate_title(
             str(base),
             path,
@@ -178,6 +185,13 @@ class StructureSession:
         )
         self.avail = [(path, self.display_title(path, title)) for path, title in entries]
 
+    def refresh_titles_and_markers(self) -> None:
+        """Titel-Prefix und Suffix-Marker neu von Disk (ohne YAML-Struktur)."""
+        self.title_registry = self.engine.build_title_registry()
+        self.invalidate_content_search_cache()
+        self._refresh_file_state_registry()
+        self._refresh_avail()
+
     def refresh_from_disk_keep_structure(self) -> None:
         """Neu-Scan Titel/Marker/Avail nach externen Dateien; Buchstruktur behalten.
 
@@ -185,11 +199,8 @@ class StructureSession:
         würde die rechte Struktur aus YAML neu aufbauen und unsaved/in-memory
         Änderungen (oder eine frische GUI-Struktur) unsichtbar machen.
         """
-        self.title_registry = self.engine.build_title_registry()
-        self.invalidate_content_search_cache()
-        self._refresh_file_state_registry()
+        self.refresh_titles_and_markers()
         self._refresh_kdp_excluded_registry()
-        self._refresh_avail()
         self._log(
             "Pool aktualisiert (neue Dateien links) — Buchstruktur rechts unverändert.",
             "info",
@@ -428,9 +439,7 @@ class StructureSession:
     def register_new_file(self, rel_path: str) -> None:
         """Nach Anlegen einer Datei auf Disk: Registry + Pool aktualisieren."""
         del rel_path  # Pfad ist auf Disk; Registry scannt neu
-        self.title_registry = self.engine.build_title_registry()
-        self._refresh_file_state_registry()
-        self._refresh_avail()
+        self.refresh_titles_and_markers()
 
     def remove_paths(self, paths: list[str]) -> bool:
         if not paths:

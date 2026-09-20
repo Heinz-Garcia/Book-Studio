@@ -38,6 +38,13 @@ from tools.mapping_manager.deploy import deploy_pdf, resolve_pdf_deploy_folder
 from tools.mapping_manager.loader import load_renders, load_snapshots
 from tools.mapping_manager.models import RenderView, SnapshotView, layout_profile_label
 from tools.publish_map.store import read_map, remove_render, update_render_fields
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.widgets.help_bar import HelpBar
 from ui_qt.widgets.resize_grip import attach_resize_grip
 
@@ -67,16 +74,23 @@ _MIN_SIZE = (1200, 640)
 
 _LOG = logging.getLogger(__name__)
 
+_active: list[MappingManagerQtDialog] = []
+
 
 class MappingManagerQtDialog(QDialog):
     def __init__(self, parent: Optional[QWidget], studio: Any) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self.studio = studio
         self.setObjectName("finishedPdfsDialog")
         self.setWindowTitle("PDF Manager")
-        self.setMinimumSize(*_MIN_SIZE)
         self._restore_maximized = False
-        self._apply_saved_size()
+        apply_persisted_size(
+            self,
+            _SIZE_KEY,
+            default=_DEFAULT_SIZE,
+            min_size=_MIN_SIZE,
+            maximized_key=_MAXIMIZED_KEY,
+        )
         self._snapshots: list[SnapshotView] = []
         self._renders: list[RenderView] = []
         self._all_renders: list[RenderView] = []
@@ -177,6 +191,9 @@ class MappingManagerQtDialog(QDialog):
         layout.addWidget(self.path_label)
 
         actions = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(actions, tool_key="mapping_manager", host=self)
         self.btn_open = QPushButton("Öffnen")
         self.btn_open.setObjectName("finishedPdfsPrimary")
         self.btn_open.setDefault(True)
@@ -261,6 +278,7 @@ class MappingManagerQtDialog(QDialog):
         layout.addWidget(tip)
 
         self._reload_snapshots()
+        prepare_autonomous_window(self, parent)
 
     def _book(self) -> Path:
         data = self.book_combo.currentData() if hasattr(self, "book_combo") else None
@@ -323,10 +341,10 @@ class MappingManagerQtDialog(QDialog):
             self._sync_host_book(chosen)
 
     def _sync_host_book(self, book: Path) -> None:
-        parent = self.parent()
-        if parent is not None and hasattr(parent, "_try_select_book"):
+        host = getattr(self, "_host", None) or self.parent()
+        if host is not None and hasattr(host, "_try_select_book"):
             try:
-                parent._try_select_book(book)
+                host._try_select_book(book)
             except (OSError, RuntimeError, TypeError, ValueError):
                 pass
 
@@ -600,15 +618,15 @@ class MappingManagerQtDialog(QDialog):
         return renders[0] if renders else None
 
     def _activate_book_in_main_window(self, book: Path) -> bool:
-        """Aktiviert `book` IN SITU im Hauptfenster (`parent._try_select_book`,
+        """Aktiviert `book` IN SITU im Hauptfenster (`_host._try_select_book`,
         löst dort ein volles Neuladen der Struktur aus Disk aus) und holt das
         Fenster nach vorne. Zeigt bei fehlendem Hauptfenster (z. B. Dialog
-        ohne Parent, headless) selbst eine Info an und liefert `False` --
+        ohne Host, headless) selbst eine Info an und liefert `False` --
         Aufrufer entscheiden dann, ob/was zusätzlich noch angezeigt werden
         muss. Gemeinsame Basis für `_open_source_selected` (lebender Stand)
         und `_restore_source_selected` (gerade wiederhergestellter Stand)."""
-        parent = self.parent()
-        if parent is None or not hasattr(parent, "_try_select_book"):
+        host = getattr(self, "_host", None) or self.parent()
+        if host is None or not hasattr(host, "_try_select_book"):
             QMessageBox.information(
                 self,
                 "PDF Manager",
@@ -617,12 +635,12 @@ class MappingManagerQtDialog(QDialog):
             )
             return False
         try:
-            parent._try_select_book(book)
+            host._try_select_book(book)
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             QMessageBox.critical(self, "PDF Manager", str(exc))
             return False
-        parent.raise_()
-        parent.activateWindow()
+        host.raise_()
+        host.activateWindow()
         return True
 
     def _open_source_selected(self) -> None:
@@ -741,7 +759,11 @@ class MappingManagerQtDialog(QDialog):
                 f"Sicherung des vorigen Standes:\n{backup_dir}",
             )
             return
-        show_banner = getattr(self.parent(), "show_restored_source_banner", None)
+        show_banner = getattr(
+            getattr(self, "_host", None) or self.parent(),
+            "show_restored_source_banner",
+            None,
+        )
         if callable(show_banner):
             try:
                 show_banner(banner_text)
@@ -1060,61 +1082,17 @@ class MappingManagerQtDialog(QDialog):
 
     # -- Fenstergroesse ----------------------------------------------------
 
-    def _apply_saved_size(self) -> None:
-        """Stellt die zuletzt benutzte Groesse wieder her.
-
-        Eine unlesbare Sitzung darf den Manager nicht am Oeffnen hindern --
-        dann gilt die Vorgabegroesse.
-        """
-        from ui_qt import qt_session
-
-        width, height = _DEFAULT_SIZE
-        try:
-            state = qt_session.load_session()
-        except (OSError, ValueError):
-            _LOG.debug("Sitzung nicht lesbar — Vorgabegröße", exc_info=True)
-            state = {}
-        ui = state.get("ui_state") if isinstance(state, dict) else None
-        if isinstance(ui, dict):
-            saved = ui.get(_SIZE_KEY)
-            if isinstance(saved, (list, tuple)) and len(saved) == 2:
-                try:
-                    width, height = int(saved[0]), int(saved[1])
-                except (TypeError, ValueError):
-                    width, height = _DEFAULT_SIZE
-            self._restore_maximized = bool(ui.get(_MAXIMIZED_KEY))
-        self.resize(max(_MIN_SIZE[0], width), max(_MIN_SIZE[1], height))
-
-    def _persist_size(self) -> None:
-        """Legt die Groesse ab — im Vollbild die davor, sonst die aktuelle."""
-        from ui_qt import qt_session
-
-        maximized = bool(self.isMaximized())
-        geometry = self.normalGeometry() if maximized else None
-        width = int(geometry.width()) if geometry else int(self.width())
-        height = int(geometry.height()) if geometry else int(self.height())
-        try:
-            qt_session.update_ui_state(
-                {_SIZE_KEY: [width, height], _MAXIMIZED_KEY: maximized}
-            )
-        except OSError:
-            # Eine nicht gespeicherte Fenstergroesse ist kein Grund, das
-            # Schliessen des Dialogs scheitern zu lassen.
-            _LOG.debug("Fenstergröße konnte nicht abgelegt werden", exc_info=True)
-
-    def showEvent(self, event: Any) -> None:  # noqa: N802 - Qt-Vertrag
-        super().showEvent(event)
-        if self._restore_maximized:
-            self._restore_maximized = False
-            self.showMaximized()
-
     def done(self, result: int) -> None:
         """Jeder Ausgang laeuft hier durch — Knopf, Fensterkreuz und Esc."""
-        self._persist_size()
+        persist_window_size(self, _SIZE_KEY, maximized_key=_MAXIMIZED_KEY)
         super().done(result)
 
 
 def open_mapping_manager_qt(studio: Any, parent: Optional[QWidget] = None) -> None:
     # Dialog erlaubt Buchwechsel intern — current_book darf initial fehlen,
     # solange Discovery Bücher findet.
-    MappingManagerQtDialog(parent, studio).exec()
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return
+    dlg = MappingManagerQtDialog(parent, studio)
+    show_autonomous_window(dlg, _active)

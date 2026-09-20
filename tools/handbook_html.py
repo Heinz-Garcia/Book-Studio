@@ -266,7 +266,9 @@ _CSS = """
   --surface: #ffffff;
   --text: #1f2937;
   --muted: #64748b;
-  --accent: #2563eb;
+  --accent: #1e3a8a;
+  --link: #1e3a8a;
+  --link-visited: #1e3a5f;
   --border: #d6dee8;
   --code-bg: #0d1117;
   --code-fg: #e6edf3;
@@ -291,7 +293,8 @@ h1 { font-size: 1.75rem; margin-top: 0; }
 h2 { font-size: 1.35rem; border-bottom: 1px solid var(--border); padding-bottom: 0.25rem; }
 h3 { font-size: 1.1rem; }
 p, li { max-width: 72ch; }
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--link); text-decoration: none; }
+a:visited { color: var(--link-visited); }
 a:hover { text-decoration: underline; }
 hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 code {

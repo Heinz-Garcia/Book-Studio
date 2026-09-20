@@ -239,18 +239,27 @@ def cmd_inventory(args: argparse.Namespace) -> int:
     print()
     kopf = (
         f"{'Auszeichnung':<22s} {'kommt aus':<24s} {'im Buch':>8s}  "
-        f"{'Vorlage':<18s} {'Befund':<14s} {'Zu tun':<18s} Aussehen"
+        f"{'Vorlage':<18s} {'Befund':<14s} {'Zu tun':<18s} "
+        f"{'Erbfolge':<40s} Aussehen"
     )
     print(kopf)
     print("-" * len(kopf))
     for row in inventar.rows:
-        vorlage = row.styles[0] if row.styles else "-"
+        vorlage = ", ".join(row.styles) if row.styles else "-"
         marke = " (Altform)" if row.legacy_form else ""
+        erbfolge = row.preview.inheritance if row.preview else "-"
+        aussehen = (
+            row.preview.effective_appearance
+            if row.preview and row.preview.effective_appearance
+            else (row.appearance or "-")
+        )
         print(
             f"{'.' + row.name:<22s} {row.origin:<24s} {row.book_count:6d}x  "
             f"{vorlage:<18s} {row.verdict.label + marke:<14s} "
-            f"{row.todo or '-':<18s} {row.appearance or '-'}"
+            f"{row.todo or '-':<18s} {erbfolge:<40s} {aussehen}"
         )
+        if row.preview and row.preview.layout_comment:
+            print(f"  Bewertung: {row.preview.layout_comment}")
     offen = inventar.without_template
     if offen:
         print()

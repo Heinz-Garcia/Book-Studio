@@ -48,7 +48,7 @@ def test_log_level_is_string_enum():
 def test_status_fg_hex_values():
     """StatusFg ist jetzt Hex-SSOT direkt in services.constants (kein ui_theme mehr)."""
     fg = constants.StatusFg
-    for attr in ("SUCCESS", "DANGER", "INFO", "WARNING", "PRIMARY"):
+    for attr in ("SUCCESS", "DANGER", "DANGER_SOFT", "INFO", "WARNING", "PRIMARY"):
         value = getattr(fg, attr)
         assert isinstance(value, str), f"{attr} ist kein str (Typ: {type(value)})"
         assert value.startswith("#"), f"{attr} returned non-hex value: {value}"

@@ -7,7 +7,7 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap
-from PySide6.QtWidgets import QMenu, QMenuBar, QWidget
+from PySide6.QtWidgets import QLabel, QMenu, QMenuBar, QWidget, QWidgetAction
 
 from menu_definitions import (
     MENU_EDIT,
@@ -17,6 +17,7 @@ from menu_definitions import (
     MENU_TOOLS,
     MENU_VIEW,
     MenuCascade,
+    MenuHeader,
     MenuItem,
     MenuSeparator,
 )
@@ -104,6 +105,8 @@ def populate_menu(
     for entry in entries:
         if isinstance(entry, MenuSeparator):
             menu.addSeparator()
+        elif isinstance(entry, MenuHeader):
+            _add_menu_group_header(menu, entry.label)
         elif isinstance(entry, MenuCascade):
             sub = menu.addMenu(entry.label)
             populate_menu(sub, entry.children, resolve=resolve)
@@ -125,9 +128,17 @@ def build_menu_bar(
     resolve: CommandResolver,
     plugins_dir: Optional[Path] = None,
     recent_builder: Optional[Callable[[QMenu], None]] = None,
+    ui_mode: str = "workshop",
 ) -> QMenuBar:
-    """Erzeugt die Menüleiste analog zur Tk-App."""
+    """Erzeugt die Menüleiste analog zur Tk-App.
+
+    ``ui_mode="guided"``: Top-Level „Studio-Wartung“ + „Buch-Werkzeuge“
+    (deutsche Labels; gleicher Inhalt wie Tools/Plugins).
+    ``ui_mode="workshop"``: Top-Level „Tools“ + „Plugins“.
+    """
     bar = QMenuBar(parent)
+    mode = str(ui_mode or "workshop").strip().lower()
+    guided = mode == "guided"
 
     # Datei: Recent-Untermenü + Definitionen
     file_menu = bar.addMenu("&Datei")
@@ -140,17 +151,54 @@ def build_menu_bar(
     file_menu.addSeparator()
     populate_menu(file_menu, MENU_FILE, resolve=resolve)
 
-    for label, items in (
-        ("&Export", MENU_EXPORT),
-        ("&Bearbeiten", MENU_EDIT),
-        ("&Ansicht", MENU_VIEW),
-        ("&Tools", MENU_TOOLS),
+    for label, tip, items in (
+        ("&Export", None, MENU_EXPORT),
+        ("&Bearbeiten", None, MENU_EDIT),
+        ("&Ansicht", None, MENU_VIEW),
     ):
         menu = bar.addMenu(label)
+        if tip:
+            menu.setToolTip(tip)
+            menu.setStatusTip(tip)
         populate_menu(menu, items, resolve=resolve)
 
-    plugins_menu = bar.addMenu("&Plugins")
-    _populate_plugins(plugins_menu, resolve=resolve, plugins_dir=plugins_dir or DEFAULT_PLUGINS_DIR)
+    plugins_path = plugins_dir or DEFAULT_PLUGINS_DIR
+    if guided:
+        studio = bar.addMenu("Studio-&Wartung")
+        studio.setToolTip(
+            "App-Konfiguration, Qualität, Sicherung — nicht der Buch-Arbeitsweg."
+        )
+        studio.setStatusTip(
+            "App-Konfiguration, Qualität, Sicherung — nicht der Buch-Arbeitsweg."
+        )
+        populate_menu(studio, MENU_TOOLS, resolve=resolve)
+        buch = bar.addMenu("&Buch-Werkzeuge")
+        buch.setToolTip(
+            "Arbeitsweg G–J: Struktur, Inhalt, Layout, Freigabe, Archiv."
+        )
+        buch.setStatusTip(
+            "Arbeitsweg G–J: Struktur, Inhalt, Layout, Freigabe, Archiv."
+        )
+        _populate_plugins(buch, resolve=resolve, plugins_dir=plugins_path)
+    else:
+        tools = bar.addMenu("&Tools")
+        tools.setToolTip(
+            "App-Konfiguration, Qualität, Sicherung — nicht der Buch-Arbeitsweg."
+        )
+        tools.setStatusTip(
+            "App-Konfiguration, Qualität, Sicherung — nicht der Buch-Arbeitsweg."
+        )
+        populate_menu(tools, MENU_TOOLS, resolve=resolve)
+        plugins_menu = bar.addMenu("&Plugins")
+        plugins_menu.setToolTip(
+            "Arbeitsweg G–J: Struktur, Inhalt, Layout, Freigabe, Archiv."
+        )
+        plugins_menu.setStatusTip(
+            "Arbeitsweg G–J: Struktur, Inhalt, Layout, Freigabe, Archiv."
+        )
+        _populate_plugins(
+            plugins_menu, resolve=resolve, plugins_dir=plugins_path
+        )
 
     help_menu = bar.addMenu("&Hilfe")
     populate_menu(help_menu, MENU_HELP, resolve=resolve)
@@ -164,34 +212,32 @@ def build_menu_bar(
 #: Diese Liste ist der einzige Ort, an dem die Menuegliederung steht -- die
 #: ``order``-Zahlen der Manifeste ordnen nur, was hier nicht genannt ist.
 #: Innerhalb einer Gruppe gilt die hier notierte Reihenfolge, nicht die Zahl:
-#: „Bücher verwalten“ gehoert vor „Skeleton übernehmen“, weil man in dieser
+#: „Bücher wählen“ gehoert vor „Skeleton übernehmen“, weil man in dieser
 #: Reihenfolge arbeitet.
 #:
 #: Ein neues Plugin, das hier fehlt, landet sichtbar in der letzten Gruppe --
 #: es verschwindet nicht, gehoert aber mit einer Zeile an seinen Platz.
-_PLUGIN_GROUPS: tuple[tuple[str, ...], ...] = (
-    # Buch und Gerüst
-    ("book_projects", "skeleton_populate", "skeleton_editor"),
-    # Inhalt hineinholen und pflegen
-    ("gg_content_swap", "asset_manager"),
-    # Layout, Textauszeichnung und Satz
-    ("doclayout_editor", "doclayout_wizard", "markup_inventory", "satz_werkzeuge"),
-    # Umschlag
-    ("cover_size", "kdp_cover", "stylecloud", "breathcloud"),
-    # Vor der Veröffentlichung prüfen
-    ("publish_readiness", "publisher_compliance"),
-    # Ergebnis und Nachweis
+#:
+#: Optionaler Abschnittstitel (Stufe G–J / Thema) als zweites Element.
+_PLUGIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("G · Struktur", ("book_projects", "skeleton_populate", "skeleton_editor")),
+    ("Inhalt", ("gg_content_swap", "asset_manager")),
+    ("Layout / Satz", ("doclayout_editor", "doclayout_wizard", "markup_inventory", "satz_werkzeuge")),
+    ("Umschlag", ("cover_size", "kdp_cover", "stylecloud", "breathcloud")),
+    ("I · Freigabe", ("publisher_compliance",)),
+    ("I · Freigabe (Erweitert)", ("publish_readiness",)),
     (
-        "generated_books",
-        "mapping_manager",
-        "publish_record",
-        "provenance",
-        "uuid_manager",
+        "J · Archiv",
+        (
+            "generated_books",
+            "mapping_manager",
+            "publish_record",
+            "provenance",
+            "uuid_manager",
+        ),
     ),
-    # Notizen
-    ("memo_pad", "book_note"),
-    # Kapitelliste (eigenes Thema)
-    ("file_indexer",),
+    ("Notizen", ("memo_pad", "book_note")),
+    ("Kapitelliste", ("file_indexer",)),
 )
 
 
@@ -215,15 +261,15 @@ def _populate_plugins(
         return
 
     by_name = {i.name: i for i in infos}
-    gruppen = [
-        [by_name[name] for name in gruppe if name in by_name]
-        for gruppe in _PLUGIN_GROUPS
+    gruppen: list[tuple[str | None, list]] = [
+        (titel, [by_name[name] for name in namen if name in by_name])
+        for titel, namen in _PLUGIN_GROUPS
     ]
-    einsortiert = {info.name for gruppe in gruppen for info in gruppe}
+    einsortiert = {info.name for _t, gruppe in gruppen for info in gruppe}
     rest = [i for i in infos if i.name not in einsortiert]
     rest.sort(key=lambda p: (p.order, p.label.casefold(), p.name.casefold()))
     if rest:
-        gruppen.append(rest)
+        gruppen.append(("Weitere", rest))
 
     def _add(info) -> None:
         action = QAction(info.label, menu)
@@ -238,14 +284,28 @@ def _populate_plugins(
             action.setEnabled(False)
         menu.addAction(action)
 
-    # Trennstrich nur zwischen gefuellten Gruppen -- eine leere Gruppe darf
-    # keinen doppelten Strich hinterlassen.
-    schon_etwas = False
-    for gruppe in gruppen:
+    # Abschnittstitel als volle Zeile mit Hintergrund; kein Separator dazwischen
+    # (Header reicht als visuelle Trennung).
+    for titel, gruppe in gruppen:
         if not gruppe:
             continue
-        if schon_etwas:
-            menu.addSeparator()
+        if titel:
+            _add_menu_group_header(menu, titel)
         for info in gruppe:
             _add(info)
-        schon_etwas = True
+
+
+def _add_menu_group_header(menu: QMenu, title: str) -> None:
+    """Nicht klickbare Gruppenzeile mit durchgehendem Hintergrund."""
+    label = QLabel(title)
+    label.setObjectName("pluginMenuGroupHeader")
+    label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    font = label.font()
+    font.setBold(True)
+    label.setFont(font)
+    action = QWidgetAction(menu)
+    action.setText(title)  # fuer Abfragen/Tests; Anzeige ist das Label
+    action.setDefaultWidget(label)
+    # Deaktiviert = kein Menübefehl; Farben kommen aus QSS (:disabled).
+    action.setEnabled(False)
+    menu.addAction(action)

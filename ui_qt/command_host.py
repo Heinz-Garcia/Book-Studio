@@ -56,8 +56,41 @@ class CommandHost:
     def _require_book(self) -> bool:
         if self.w._facade.current_book and self.w._session:
             return True
-        QMessageBox.warning(self.w, "Kein Buch", "Bitte zuerst ein Buchprojekt wählen.")
+        from ui_qt.work_path_guidance import prompt_need_book
+
+        if prompt_need_book(self.w):
+            self.w._work_path_run_action("book_projects")
         return False
+
+    def work_path_next(self) -> None:
+        self.w._work_path_next()
+
+    def toggle_ui_mode(self) -> None:
+        self.w.toggle_ui_mode()
+
+    def work_path_pipeline(self) -> None:
+        self.w._run_studio_pipeline(from_delivery=False)
+
+    def work_path_pipeline_from_delivery(self) -> None:
+        self.w._run_studio_pipeline(from_delivery=True)
+
+    def work_path_delivery_intake(self) -> None:
+        self.w._work_path_run_action("delivery_intake")
+
+    def work_path_stage_f(self) -> None:
+        self.w._work_path_run_action("delivery_intake")
+
+    def work_path_stage_g(self) -> None:
+        self.w._work_path_run_action("book_projects")
+
+    def work_path_stage_h(self) -> None:
+        self.w._work_path_run_action("render")
+
+    def work_path_stage_i(self) -> None:
+        self.w._work_path_run_action("publisher_compliance")
+
+    def work_path_stage_j(self) -> None:
+        self.w._work_path_run_action("mapping_manager")
 
     def _bridge(self):
         from ui_qt.studio_bridge import QtStudioBridge
@@ -531,6 +564,93 @@ class CommandHost:
         from ui_qt.dialogs.text_dialogs import TextEditorDialog
 
         TextEditorDialog(self.w, path, title="Quarto.yml").exec()
+
+    def open_rahmen_editor(self) -> None:
+        """Pflichtseiten-Übersicht: Status prüfen und Markdown bearbeiten."""
+        if not self._require_book():
+            return
+        book = Path(self.w._facade.current_book)
+        from ui_qt.dialogs.rahmen_pages_dialog import open_rahmen_pages_dialog
+
+        def _populate() -> None:
+            cb = self.resolve("plugin:skeleton_populate")
+            if cb is not None:
+                cb()
+            else:
+                from ui_qt.plugin_dispatch import run_plugin_qt
+
+                run_plugin_qt("skeleton_populate", self.w)
+
+        def _changed() -> None:
+            refresh = getattr(self.w, "_refresh_work_path", None)
+            if callable(refresh):
+                refresh()
+            structure = getattr(self.w, "structure", None)
+            if structure is not None and hasattr(structure, "reload_from_session"):
+                session = getattr(structure, "_session", None)
+                if session is not None and hasattr(session, "refresh_titles_and_markers"):
+                    session.refresh_titles_and_markers()
+                structure.reload_from_session()
+
+        open_rahmen_pages_dialog(
+            book,
+            host=self.w,
+            on_populate=_populate,
+            on_changed=_changed,
+        )
+
+    def open_kapitel_editor(self) -> None:
+        """Buchstruktur-Übersicht: Required in Struktur, leere Kapitel, Bearbeiten."""
+        if not self._require_book():
+            return
+        book = Path(self.w._facade.current_book)
+        from ui_qt.dialogs.kapitel_pages_dialog import open_kapitel_pages_dialog
+
+        def _structure_paths() -> list[str] | None:
+            getter = getattr(self.w, "_structure_paths_for_work_path", None)
+            if callable(getter):
+                return getter()
+            return None
+
+        def _content_swap() -> None:
+            cb = self.resolve("plugin:gg_content_swap")
+            if cb is not None:
+                cb()
+            else:
+                from ui_qt.plugin_dispatch import run_plugin_qt
+
+                run_plugin_qt("gg_content_swap", self.w)
+
+        def _add_required() -> None:
+            structure = getattr(self.w, "structure", None)
+            if structure is not None and hasattr(structure, "_on_add_all_required"):
+                structure._on_add_all_required()
+                return
+            raise RuntimeError(
+                "Strukturpanel nicht verfügbar — "
+                "bitte „Hinzufügen (all required)“ im Hauptfenster."
+            )
+
+        def _changed() -> None:
+            refresh = getattr(self.w, "_refresh_work_path", None)
+            if callable(refresh):
+                refresh()
+            structure = getattr(self.w, "structure", None)
+            if structure is not None and hasattr(structure, "reload_from_session"):
+                session = getattr(structure, "_session", None)
+                if session is not None and hasattr(session, "refresh_titles_and_markers"):
+                    session.refresh_titles_and_markers()
+                structure.reload_from_session()
+
+        open_kapitel_pages_dialog(
+            book,
+            host=self.w,
+            structure_paths=_structure_paths(),
+            get_structure_paths=_structure_paths,
+            on_content_swap=_content_swap,
+            on_add_required=_add_required,
+            on_changed=_changed,
+        )
 
     def open_plugin_config_editor(self) -> None:
         from ui_qt.dialogs.plugin_settings_dialog import open_plugin_settings_qt

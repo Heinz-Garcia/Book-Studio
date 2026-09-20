@@ -21,12 +21,12 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLineEdit,
     QMessageBox,
     QScrollArea,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
     QPushButton,
@@ -66,7 +66,7 @@ FIELDS: tuple[ConfigField, ...] = (
         "Buch-Suchpfade",
         "path_list",
         "Pfade",
-        tip="Mehrere Pfade durch Komma trennen. „Ordner…“ hängt einen Pfad an.",
+        tip="Mehrere Pfade durch Komma trennen. „…“ hängt einen Pfad an.",
     ),
     ConfigField(
         "production_root_path",
@@ -254,6 +254,18 @@ FIELDS: tuple[ConfigField, ...] = (
         "Skeleton",
         choices=("append_only", "overwrite"),
     ),
+    ConfigField(
+        "work_path_rahmen_policy",
+        "Rahmen-Policy (Stufe G)",
+        "enum",
+        "Arbeitsweg",
+        tip=(
+            "required_pages: Pflicht-Rahmenseiten müssen existieren. "
+            "off: Rahmen-Untergate überspringen. "
+            "Buch-Override: bookconfig/work_path_policy.json."
+        ),
+        choices=("required_pages", "off"),
+    ),
 )
 
 
@@ -284,7 +296,9 @@ class _PathRow(QWidget):
         if tip:
             self.edit.setToolTip(tip)
             self.edit.setPlaceholderText(tip)
-        browse = QPushButton("Datei…" if file_mode else "Ordner…")
+        browse = QPushButton("...")
+        browse.setToolTip("Datei wählen" if file_mode else "Ordner wählen")
+        browse.setFixedWidth(36)
         browse.clicked.connect(self._browse)
         row.addWidget(self.edit, stretch=1)
         row.addWidget(browse)
@@ -346,28 +360,37 @@ class AppConfigDialog(QDialog):
         self._widgets: dict[str, Any] = {}
 
         root = QVBoxLayout(self)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        body = QWidget()
-        body_layout = QVBoxLayout(body)
-        body_layout.setSpacing(12)
+        tabs = QTabWidget()
 
-        groups: dict[str, QFormLayout] = {}
+        # Eine Registerkarte je Feldgruppe — statt langer Scroll-Liste.
+        tab_forms: dict[str, QFormLayout] = {}
         for spec in FIELDS:
-            if spec.group not in groups:
-                box = QGroupBox(spec.group)
-                form = QFormLayout(box)
-                form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-                groups[spec.group] = form
-                body_layout.addWidget(box)
+            if spec.group not in tab_forms:
+                page = QWidget()
+                page_layout = QVBoxLayout(page)
+                page_layout.setContentsMargins(8, 12, 8, 8)
+                form = QFormLayout()
+                form.setFieldGrowthPolicy(
+                    QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+                )
+                form.setSpacing(8)
+                page_layout.addLayout(form)
+                page_layout.addStretch(1)
+                # Viele Pfadfelder: innerhalb der Karte scrollbar, Hauptfenster nicht.
+                if spec.group == "Pfade":
+                    scroll = QScrollArea()
+                    scroll.setWidgetResizable(True)
+                    scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+                    scroll.setWidget(page)
+                    tabs.addTab(scroll, spec.group)
+                else:
+                    tabs.addTab(page, spec.group)
+                tab_forms[spec.group] = form
             widget = self._build_widget(spec)
             self._widgets[spec.key] = widget
-            groups[spec.group].addRow(f"{spec.label}:", widget)
+            tab_forms[spec.group].addRow(f"{spec.label}:", widget)
 
-        body_layout.addStretch(1)
-        scroll.setWidget(body)
-        root.addWidget(scroll, stretch=1)
+        root.addWidget(tabs, stretch=1)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel

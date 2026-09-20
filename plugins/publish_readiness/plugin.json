@@ -1,11 +1,11 @@
 {
   "name": "publish_readiness",
-  "label": "✅ Publish Readiness…",
-  "description": "Qualitätsbefunde mit Owner und Fix-Spur (Quality Contract).",
+  "label": "✅ Freigabe — Qualitätsbefunde (Erweitert)…",
+  "description": "Qualitätsbefunde mit Owner und Fix-Spur (Quality Contract) — Expertenansicht zur Freigabe-Stufe.",
   "entrypoint": "plugins.publish_readiness:run",
   "version": "1.0.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 14,
-  "help_text": "Zeigt offene Qualitätsbefunde vor der Veröffentlichung, inkl. zuständigem Owner und Fix-Spur. Verantwortungs-Matrix: .doc/quality_contract.md"
+  "order": 15,
+  "help_text": "Zeigt offene Qualitätsbefunde vor der Veröffentlichung, inkl. zuständigem Owner und Fix-Spur. Verantwortungs-Matrix: .doc/quality_contract.md. Primärer Einstieg bleibt „Freigabe prüfen…“."
 }

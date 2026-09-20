@@ -812,3 +812,49 @@ def test_save_keeps_dialog_open(tmp_path: Path, monkeypatch):
     assert dlg.result() != QDialog.DialogCode.Accepted
     dlg.close()
     _ = app
+
+
+def test_quarto_yml_save_blocked_on_syntax_error(tmp_path: Path, monkeypatch):
+    """Ungültiges YAML wird nicht geschrieben; Backup vom Öffnen bleibt."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from services.quarto_yml_guard import list_backups
+    from ui_qt.dialogs.text_dialogs import TextEditorDialog
+
+    app = QApplication.instance() or QApplication([])
+    yml = tmp_path / "_quarto.yml"
+    good = "project:\n  type: book\nbook:\n  chapters: []\n"
+    yml.write_text(good, encoding="utf-8")
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "exec",
+        lambda self: QMessageBox.StandardButton.Ok,  # type: ignore[misc]
+    )
+    # QMessageBox(self) then .exec() — our code uses box.exec(); patch instance method via class
+    original_init = QMessageBox.__init__
+
+    def _init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(QMessageBox, "__init__", _init)
+
+    calls: list[QMessageBox] = []
+
+    def _exec(self):
+        calls.append(self)
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", _exec)
+
+    dlg = TextEditorDialog(None, yml, title="Quarto.yml")
+    assert list_backups(yml), "Öffnen soll Ausgangs-Backup anlegen"
+    dlg.editor.setPlainText("project: [\n  broken\n")
+    dlg._save()
+    assert yml.read_text(encoding="utf-8") == good
+    assert calls, "Fehlerdialog erwartet"
+    dlg.close()
+    _ = app

@@ -202,7 +202,15 @@ class _StyleForm(QWidget):
         self.outline.setRange(-1, 8)
         self.outline.setSpecialValueText("— nicht im Verzeichnis —")
 
-        form.addRow("Ausrichtung", self.align)
+        form.addRow(
+            _info(
+            "Ausrichtung",
+            "Für Fließtext (BodyText) im Druck: Blocksatz.\n"
+            "»geerbt« = Wert aus dem Basisformat; ohne eigenen Wert "
+            "wird beim Anwenden aufs Buch für BodyText Blocksatz gesetzt.",
+        ),
+            self.align,
+        )
         form.addRow(
             _info(
             "Abstand davor",

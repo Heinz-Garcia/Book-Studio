@@ -90,6 +90,11 @@ class TitlesSpec:
     lines_bold: bool = False
     top_pct: float = 6.0  # Start Titelzeile 1+2 von oben
     accent_top_pct: float = 18.0  # eigene Startposition Akzent von oben
+    # Horizontal: left | center | right (gilt für Zeile 1+2 und Akzent)
+    align: str = "center"
+    # Zusätzlicher Horizontal-Versatz nach Ausrichtung (% der Frontbreite;
+    # negativ = nach links, positiv = nach rechts).
+    offset_x_pct: float = 0.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> TitlesSpec:
@@ -108,6 +113,10 @@ class TitlesSpec:
         else:
             # Legacy: Akzent etwas unter den Titelzeilen
             accent_top = _clamp(top + 12.0, 0.0, 100.0)
+        align = str(d.get("align") or "center").strip().lower()
+        if align not in ("left", "center", "right"):
+            align = "center"
+        offset_x = _clamp(_float(d.get("offset_x_pct"), 0.0), -45.0, 45.0)
         return cls(
             enabled=bool(d.get("enabled", True)),
             series=series,
@@ -117,6 +126,8 @@ class TitlesSpec:
             lines_bold=bool(d.get("lines_bold", False)),
             top_pct=top,
             accent_top_pct=accent_top,
+            align=align,
+            offset_x_pct=offset_x,
         )
 
 
@@ -131,6 +142,9 @@ class FooterSpec:
     size_pct: float = 2.4
     bottom_pct: float = 4.0  # Abstand vom unteren Rand (% Front-Höhe)
     dim_opacity: float = 0.35  # Abdunklung unten für Lesbarkeit
+    # Horizontal wie Titelzeilen: left | center | right + Versatz %X
+    align: str = "center"
+    offset_x_pct: float = 0.0
 
     def lines(self) -> list[str]:
         out = [self.line1.strip(), self.line2.strip()]
@@ -151,6 +165,9 @@ class FooterSpec:
             line1 = parts[0].strip()
             line2 = parts[1].strip() if len(parts) > 1 else ""
         joined = "\n".join(ln for ln in (line1, line2) if ln.strip())
+        align = str(d.get("align") or "center").strip().lower()
+        if align not in ("left", "center", "right"):
+            align = "center"
         return cls(
             enabled=bool(d.get("enabled", False)),
             line1=line1,
@@ -160,6 +177,8 @@ class FooterSpec:
             size_pct=_clamp(_float(d.get("size_pct"), 2.4), 1.0, 8.0),
             bottom_pct=_clamp(_float(d.get("bottom_pct"), 4.0), 0.0, 100.0),
             dim_opacity=_clamp(_float(d.get("dim_opacity"), 0.35), 0.0, 1.0),
+            align=align,
+            offset_x_pct=_clamp(_float(d.get("offset_x_pct"), 0.0), -45.0, 45.0),
         )
 
 
@@ -215,6 +234,11 @@ class CornerRibbonSpec:
     font_scale: float = 1.0
     show_icon: bool = True
     corner: str = "top_right"  # top_right | bottom_right
+    # Abstand der Ecke vom Panel-Rand (% Frontbreite / -höhe).
+    offset_x_pct: float = 0.0  # von rechts
+    offset_y_pct: float = 0.0  # von oben (top_right) bzw. unten (bottom_right)
+    # Innenabstand Text ↔ Dreieck (% der Bandhöhe; Default wie bisher ~10).
+    text_padding_pct: float = 10.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> CornerRibbonSpec:
@@ -234,6 +258,9 @@ class CornerRibbonSpec:
             font_scale=_clamp(_float(d.get("font_scale"), 1.0), 0.5, 2.5),
             show_icon=bool(d.get("show_icon", True)),
             corner=corner,
+            offset_x_pct=_clamp(_float(d.get("offset_x_pct"), 0.0), 0.0, 30.0),
+            offset_y_pct=_clamp(_float(d.get("offset_y_pct"), 0.0), 0.0, 30.0),
+            text_padding_pct=_clamp(_float(d.get("text_padding_pct"), 10.0), 0.0, 40.0),
         )
 
 

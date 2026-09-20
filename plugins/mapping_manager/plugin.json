@@ -1,11 +1,11 @@
 {
   "name": "mapping_manager",
-  "label": "🗺️ PDF Manager…",
-  "description": "Generierte PDFs des aktiven Buchs — Anzeigename, Datum, Layout.",
+  "label": "🗺️ Ablegen…",
+  "description": "Generierte PDFs des aktiven Buchs ablegen — Anzeigename, Datum, Layout (PDF Manager).",
   "entrypoint": "plugins.mapping_manager:run",
   "version": "1.2.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 17,
-  "help_text": "Eine Zeile je gerendertes PDF des gewählten Snapshots (Import-/Produktionslinie). Anzeigename umbenennen, öffnen, Explorer, Deploy; Quellarchiv wiederherstellen oder löschen — Löschen aktualisiert publish_map.json. Dauerhafte Kopien unter export/publish_renders/ (nicht die überschriebene Convenience-Kopie export/_book). Mehrfachauswahl für Sammelaktionen. Fertige Ausgaben gehören hierher, nicht unter „Generierte Bücher“."
+  "help_text": "Ablegen = PDF Manager: eine Zeile je gerendertes PDF des gewählten Snapshots. Anzeigename umbenennen, öffnen, Explorer, Deploy; Quellarchiv wiederherstellen oder löschen — Löschen aktualisiert publish_map.json. Dauerhafte Kopien unter export/publish_renders/."
 }

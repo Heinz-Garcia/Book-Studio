@@ -226,6 +226,25 @@ def _copy_book_to_temp(source_book: Path, temp_root: Path) -> Path:
     return destination
 
 
+def _ensure_missing_image_placeholders(temp_book: Path) -> None:
+    """Fehlende Bilder im Temp-Klon durch Platzhalter ersetzen (kein Render-Abbruch)."""
+    try:
+        from services.missing_image_placeholders import ensure_missing_image_placeholders
+    except ImportError:
+        return
+    try:
+        ensure_missing_image_placeholders(
+            temp_book,
+            log=lambda msg: print(f"[safe-render] {msg}", flush=True),
+        )
+    except (OSError, TypeError, ValueError, RuntimeError) as exc:
+        print(
+            f"[safe-render] WARNUNG: Platzhalter für fehlende Bilder "
+            f"konnten nicht gesetzt werden: {exc}",
+            flush=True,
+        )
+
+
 def _ensure_typst_book_author(book_path: Path) -> None:
     """orange-book erwartet `author` als String; ohne Wert knallt Typst (Array-Default).
 
@@ -324,6 +343,7 @@ def run_safe_render(
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
         temp_book = _copy_book_to_temp(book_path, temp_root)
+        _ensure_missing_image_placeholders(temp_book)
 
         engine = QuartoYamlEngine(temp_book)
         tree_data = engine.parse_chapters()

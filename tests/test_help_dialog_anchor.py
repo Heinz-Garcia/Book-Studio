@@ -98,6 +98,7 @@ def test_an_unknown_anchor_does_not_raise(qapp, handbuch: Path):
 def test_the_layout_editor_points_at_its_own_chapter():
     """Der Anker ist fest vergeben, nicht aus der Ueberschrift abgeleitet."""
     from ui_qt.dialogs.doclayout_editor_dialog import _HANDBOOK_ANCHOR
+    from ui_qt.widgets.handbook_info_button import HANDBOOK_ANCHORS
 
     quelle = (
         Path(__file__).resolve().parent.parent / "doc" / "handbuch.md"
@@ -105,3 +106,72 @@ def test_the_layout_editor_points_at_its_own_chapter():
     assert f"{{#{_HANDBOOK_ANCHOR}}}" in quelle, (
         f"Der Anker {_HANDBOOK_ANCHOR} steht nicht mehr im Handbuch"
     )
+    assert HANDBOOK_ANCHORS["doclayout_editor"] == _HANDBOOK_ANCHOR
+
+
+def test_all_handbook_anchors_exist_in_manual():
+    """Jeder Info-Button-Anker muss im Handbuch stehen."""
+    from ui_qt.widgets.handbook_info_button import HANDBOOK_ANCHORS
+
+    quelle = (
+        Path(__file__).resolve().parent.parent / "doc" / "handbuch.md"
+    ).read_text(encoding="utf-8")
+    fehlend = [
+        anker
+        for anker in sorted(set(HANDBOOK_ANCHORS.values()))
+        if f"{{#{anker}}}" not in quelle
+    ]
+    assert not fehlend, f"Anker fehlen im Handbuch: {fehlend}"
+
+
+def test_open_manual_is_non_modal(qapp, handbuch: Path, monkeypatch):
+    """Hilfe blockiert Tool-Fenster nicht (.exec würde das tun)."""
+    from ui_qt.dialogs import help_dialog as modul
+
+    monkeypatch.setattr(
+        "tools.handbook_html.resolve_handbook_html_path",
+        lambda *a, **k: handbuch,
+    )
+    monkeypatch.setattr(
+        "tools.handbook_pdf.resolve_handbook_path",
+        lambda *a, **k: handbuch.with_suffix(".md"),
+    )
+    monkeypatch.setattr(
+        "app_config.read_config",
+        lambda *a, **k: {},
+    )
+    seen: dict = {}
+
+    def fake_show(dialog, registry):
+        seen["dialog"] = dialog
+        registry.append(dialog)
+        dialog.show()
+        return dialog
+
+    monkeypatch.setattr(modul, "show_autonomous_window", fake_show)
+    monkeypatch.setattr(modul, "raise_if_open", lambda *a, **k: None)
+    assert modul.open_manual(None, anchor="sec-doclayout") is True
+    assert "dialog" in seen
+    assert seen["dialog"].isModal() is False
+    seen["dialog"].close()
+    modul._active.clear()
+
+
+def test_help_dialog_size_persists(tmp_path: Path, handbuch: Path, monkeypatch, qapp):
+    """Letzte Fenstergröße bleibt in session_state erhalten."""
+    from ui_qt import qt_session
+    from ui_qt.dialogs import help_dialog as modul
+
+    monkeypatch.setattr(
+        qt_session, "session_path", lambda root=None: tmp_path / "session_state.json"
+    )
+    monkeypatch.setattr(qt_session, "repo_root", lambda: tmp_path)
+
+    dlg = HelpDialog(None, handbuch)
+    assert dlg._loaded_size == modul._DEFAULT_SIZE  # type: ignore[attr-defined]
+    dlg.resize(1100, 820)
+    dlg.done(0)
+
+    dlg2 = HelpDialog(None, handbuch)
+    assert dlg2._loaded_size == (1100, 820)  # type: ignore[attr-defined]
+    dlg2.close()

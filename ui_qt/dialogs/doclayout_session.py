@@ -164,14 +164,23 @@ class LayoutSession:
 
         Beides gehoert zusammen: Die Felder zeigen noch eines der geloeschten
         Formate, und ohne das Freigeben traegt der naechste Auswahlwechsel es
-        umgehend wieder ein.
+        umgehend wieder ein. Klassen-Abbildungen auf geloeschte Formate fallen
+        mit weg -- sonst blieben Karteileichen im Inventar.
         """
         if self._definition is None or not style_ids:
             return
-        styles = dict(self._definition.styles)
-        for style_id in style_ids:
-            styles.pop(style_id, None)
-        self._definition = replace(self._definition, styles=styles)
+        drop = set(style_ids)
+        styles = {
+            key: value
+            for key, value in self._definition.styles.items()
+            if key not in drop
+        }
+        classmap = {
+            cls: style
+            for cls, style in self._definition.classmap.items()
+            if style not in drop
+        }
+        self._definition = replace(self._definition, styles=styles, classmap=classmap)
         self._current_style = None
         self._dirty = True
 

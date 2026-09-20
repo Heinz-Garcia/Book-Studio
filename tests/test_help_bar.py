@@ -85,3 +85,47 @@ def test_create_and_prepend_for_plugin_reads_manifest(tmp_path, monkeypatch):
     assert bar is not None
     assert layout.count() == 1
     _ = app
+
+
+def test_create_and_prepend_respects_max_height_scroll(monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QScrollArea, QVBoxLayout, QWidget
+
+    app = QApplication.instance() or QApplication([])
+    parent = QWidget()
+    layout = QVBoxLayout(parent)
+    bar = help_bar.HelpBar.create_and_prepend(
+        layout, "<b>Lang</b>", rich_text=True, max_height=120
+    )
+    assert bar is not None
+    scrolls = bar.findChildren(QScrollArea)
+    assert len(scrolls) == 1
+    assert scrolls[0].maximumHeight() == 120
+    _ = app
+
+
+def test_gg_content_swap_help_text_nennt_alle_bedienelemente():
+    """Nutzerhilfe muss jedes sichtbare Element des Dialogs benennen."""
+    text = help_bar.load_plugin_help_text("gg_content_swap")
+    assert text
+    for fragment in (
+        "Buchstruktur so belassen",
+        "Inhalt aus GrammarGraph nachziehen",
+        "Nur .md wählen",
+        "Export-Ordner",
+        "Ordner…",
+        "Zuordnung prüfen",
+        "Rote Warnleiste",
+        "Zusammenfassung",
+        "Aktuelle Buchdatei",
+        "Neuer Payload",
+        "Im Export gefunden",
+        "Sortierung",
+        "Buchdatei öffnen",
+        "Vorschau / Diff",
+        "Buchstruktur ändern",
+        "Schließen",
+        "Handbuch",
+    ):
+        assert fragment in text, fragment

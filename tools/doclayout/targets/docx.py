@@ -571,9 +571,74 @@ def _verify_body_font(definition: LayoutDefinition, styles_root: ET.Element) -> 
         )
 
 
+def patch_docx_style_languages(
+    docx_path: Path | str, definition: LayoutDefinition
+) -> int:
+    """Stellt Sprachen in einer gesetzten ``.docx`` wieder her.
+
+    Pandoc ueberschreibt ``w:lang`` in den Absatzformaten oft mit der
+    Dokument-Metasprache (``de``). Spanische Bloecke verlieren damit die
+    spanische Rechtschreibpruefung. Diese Funktion schreibt die Sprachen aus
+    der Layout-Definition zurueck in ``word/styles.xml``.
+    """
+    path = Path(docx_path)
+    wanted = {
+        style_id: (style.language or "").strip()
+        for style_id, style in definition.styles.items()
+        if (style.language or "").strip()
+    }
+    if not wanted:
+        default = (definition.typography.language or "").strip()
+        if default:
+            wanted = {"BodyText": default, "Normal": default}
+    if not wanted or not path.is_file():
+        return 0
+
+    register_namespaces()
+    with zipfile.ZipFile(path, "r") as archive:
+        styles_blob = archive.read(_STYLES_PART)
+        other = {
+            name: archive.read(name)
+            for name in archive.namelist()
+            if name != _STYLES_PART
+        }
+
+    root = ET.fromstring(styles_blob)
+    geaendert = 0
+    for style_el in root.findall(qn("style")):
+        style_id = style_el.get(qn("styleId")) or ""
+        lang = wanted.get(style_id)
+        if not lang:
+            continue
+        rpr = style_el.find(qn("rPr"))
+        if rpr is None:
+            rpr = ET.SubElement(style_el, qn("rPr"))
+        for child in list(rpr):
+            if local_name(child.tag) == "lang":
+                rpr.remove(child)
+        lang_el = ET.Element(qn("lang"))
+        lang_el.set(qn("val"), lang)
+        rpr.append(lang_el)
+        geaendert += 1
+
+    if geaendert == 0:
+        return 0
+
+    from io import BytesIO
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as out:
+        for name, blob in other.items():
+            out.writestr(name, blob)
+        out.writestr(_STYLES_PART, _serialize(root))
+    path.write_bytes(buf.getvalue())
+    return geaendert
+
+
 __all__ = [
     "DocxTargetError",
     "build_reference_docx",
     "fetch_base_reference",
     "find_pandoc",
+    "patch_docx_style_languages",
 ]

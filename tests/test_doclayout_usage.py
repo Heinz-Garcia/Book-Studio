@@ -364,3 +364,53 @@ def test_processed_is_only_skipped_when_content_exists(tmp_path: Path):
     (ohne / "content").mkdir()
     (ohne / "content" / "c.md").write_text("y\n", encoding="utf-8")
     assert [p.name for p in markdown_files(ohne)] == ["c.md"]
+
+
+# ---------------------------------------------------------------------------
+# Textproben fuer Inventar-Tooltip
+# ---------------------------------------------------------------------------
+
+
+def test_extract_class_snippets_takes_first_lines_of_div():
+    from tools.doclayout.usage import extract_class_snippets
+
+    body = "::: {.key-takeaway}\nMerke: Wasser mitnehmen.\nZweite Zeile.\n:::\n"
+    gefunden = extract_class_snippets(body)
+    assert "key-takeaway" in gefunden
+    assert gefunden["key-takeaway"][0].startswith("Merke: Wasser")
+
+
+def test_extract_class_snippets_ignores_code_fences():
+    from tools.doclayout.usage import extract_class_snippets
+
+    body = "```\n::: {.nurbeispiel}\nGeheim\n:::\n```\n\n::: {.echt}\nSichtbar\n:::\n"
+    gefunden = extract_class_snippets(body)
+    assert "nurbeispiel" not in gefunden
+    assert gefunden["echt"] == ["Sichtbar"]
+
+
+def test_extract_class_snippets_caps_length_and_count():
+    from tools.doclayout.usage import SNIPPET_MAX_PER_CLASS, extract_class_snippets
+
+    lang = "Wort " * 80
+    teile = [f"::: {{.merksatz}}\n{lang}\n:::\n" for _ in range(5)]
+    gefunden = extract_class_snippets("\n".join(teile), max_chars=40, max_per_class=2)
+    assert len(gefunden["merksatz"]) == 2
+    assert gefunden["merksatz"][0].endswith("…")
+    assert len(gefunden["merksatz"][0]) <= 40
+    assert SNIPPET_MAX_PER_CLASS >= 2
+
+
+def test_collect_book_snippets_prefixes_relative_path(tmp_path: Path):
+    from tools.doclayout.usage import collect_book_snippets
+
+    root = _book(
+        tmp_path,
+        a="::: {.key-takeaway}\nNimm Wasser mit.\n:::\n",
+        b="::: {.key-takeaway}\nZweite Stelle.\n:::\n",
+    )
+    proben = collect_book_snippets(root, max_per_class=3)
+    assert "key-takeaway" in proben
+    assert len(proben["key-takeaway"]) == 2
+    assert all(": " in s for s in proben["key-takeaway"])
+    assert any("Nimm Wasser" in s for s in proben["key-takeaway"])

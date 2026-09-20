@@ -54,3 +54,16 @@ def test_luminance_is_weighted_not_averaged(app):
     app.setStyleSheet("")
     assert is_dark(_widget_with_window_colour("#0000ff")) is True
     assert is_dark(_widget_with_window_colour("#00ff00")) is False
+
+
+def test_apply_theme_sets_dark_link_colours(app):
+    """Hyperlinks: System-Hellblau ist unleserlich — Theme setzt Dunkelblau."""
+    from ui_qt.theme import LINK_COLOR, LINK_VISITED_COLOR
+
+    try:
+        apply_theme(app)
+        palette = app.palette()
+        assert palette.color(QPalette.ColorRole.Link).name() == LINK_COLOR
+        assert palette.color(QPalette.ColorRole.LinkVisited).name() == LINK_VISITED_COLOR
+    finally:
+        app.setStyleSheet("")

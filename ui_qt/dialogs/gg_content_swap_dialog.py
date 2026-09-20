@@ -48,7 +48,19 @@ from tools.gg_content_swap.swap import (
     run_swap,
 )
 from tools.gg_content_swap.types import SwapPlanLine
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.widgets.help_bar import HelpBar
+
+_SIZE_KEY = "gg_content_swap_size"
+_DEFAULT_SIZE = (1100, 720)
+_MIN_SIZE = (860, 560)
+_active: list["GgContentSwapQtDialog"] = []
 
 _FG = QColor("#1a1d23")
 _STATUS_LABEL = {
@@ -128,8 +140,9 @@ def _initial_source_field(studio: Any) -> str:
 
 class GgContentSwapQtDialog(QDialog):
     def __init__(self, parent: Optional[QWidget], studio: Any) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self._studio = studio
+        self._host = parent
         self._plan: list[SwapPlanLine] = []
         self._export_files: list[str] = []
         self._export_combos: list[Optional[QComboBox]] = []
@@ -137,26 +150,28 @@ class GgContentSwapQtDialog(QDialog):
         self._pinned_sources: dict[str, str] = {}
         self.setObjectName("ggContentSwapDialog")
         self.setWindowTitle("GrammarGraph-Inhalt aktualisieren")
-        self.resize(1100, 720)
-        self.setMinimumSize(860, 560)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
 
         layout = QVBoxLayout(self)
-        HelpBar.create_and_prepend_for_plugin(layout, "gg_content_swap")
+        HelpBar.create_and_prepend_for_plugin(
+            layout, "gg_content_swap", rich_text=True, max_height=240
+        )
 
         steps = QLabel(
-            "<b>Automatisch:</b> Einen <b>Publish_*-Export-Ordner</b> wählen "
-            "(nicht die Sammelmappe). Book Studio übernimmt dann allein: "
-            "Haupt-Payload, Anzeigename, Erstellungsprotokoll, publish_meta, "
-            "Provenance und Bilder. "
-            "Optional: einzelne .md wählen, wenn mehrere Nutzdateien liegen."
+            "<b>Maßgeblich ist die rechte Buchstruktur</b> in der Haupt-GUI "
+            "(welche Dateien, welche Reihenfolge). "
+            "Dieses Fenster kann den Fließtext der Inhaltsdatei aus einem "
+            "GrammarGraph-Lauf nachziehen — nach einer Lieferung oft nicht nötig."
         )
         steps.setWordWrap(True)
         steps.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(steps)
 
         pick_row = QHBoxLayout()
-        self._pick_btn = QPushButton("Export übernehmen…")
-        self._pick_btn.setDefault(True)
+        self._pick_btn = QPushButton("Inhalt aus GrammarGraph nachziehen…")
+        self._pick_btn.setDefault(False)
         self._pick_btn.setMinimumHeight(40)
         self._pick_btn.setStyleSheet(
             "QPushButton { background-color: #2f5d9f; color: white; font-weight: 600; "
@@ -164,7 +179,8 @@ class GgContentSwapQtDialog(QDialog):
             "QPushButton:hover { background-color: #264a80; }"
         )
         self._pick_btn.setToolTip(
-            "Publish_*-Ordner wählen → Payload + Metadaten automatisch ins Buch."
+            "Publish_*-Ordner wählen → Text der Inhaltsdatei aus dem Lauf "
+            "in die rechte Buchstruktur übernehmen."
         )
         self._pick_btn.clicked.connect(self._import_export_bundle)
         pick_row.addWidget(self._pick_btn)
@@ -310,15 +326,39 @@ class GgContentSwapQtDialog(QDialog):
         layout.addWidget(splitter, stretch=1)
 
         btns = QHBoxLayout()
-        apply_btn = QPushButton("Übernehmen (wie gewählt)")
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(btns, tool_key="gg_content_swap", host=self)
+        skip_btn = QPushButton("Buchstruktur so belassen — Skip")
+        skip_btn.setObjectName("ggSwapSkipAsIs")
+        skip_btn.setMinimumHeight(34)
+        skip_btn.setStyleSheet(
+            "QPushButton#ggSwapSkipAsIs {"
+            "  background-color: #1f7a3f; color: white; font-weight: 600;"
+            "  padding: 8px 16px; border: none; border-radius: 4px;"
+            "}"
+            "QPushButton#ggSwapSkipAsIs:hover { background-color: #176433; }"
+            "QPushButton#ggSwapSkipAsIs:pressed { background-color: #14532d; }"
+        )
+        skip_btn.setToolTip(
+            "Rechte Buchstruktur und aktuellen Inhalt akzeptieren — "
+            "ohne GrammarGraph-Text erneut zu tauschen."
+        )
+        skip_btn.clicked.connect(self._accept_structure_as_is)
+        btns.addWidget(skip_btn)
+        apply_btn = QPushButton("Buchstruktur ändern")
+        apply_btn.setObjectName("ggSwapChangeStructure")
         apply_btn.setMinimumHeight(34)
         apply_btn.setStyleSheet(
-            "QPushButton { background-color: #1f7a3f; color: white; font-weight: 600; "
-            "padding: 8px 16px; border: none; border-radius: 4px; }"
-            "QPushButton:hover { background-color: #176433; }"
+            "QPushButton#ggSwapChangeStructure {"
+            "  background-color: #b91c1c; color: white; font-weight: 600;"
+            "  padding: 8px 16px; border: none; border-radius: 4px;"
+            "}"
+            "QPushButton#ggSwapChangeStructure:hover { background-color: #991b1b; }"
+            "QPushButton#ggSwapChangeStructure:pressed { background-color: #7f1d1d; }"
         )
         apply_btn.setToolTip(
-            "Führt die komplette Export-Übernahme für den eingestellten Ordner aus "
+            "Text aus dem eingestellten Export-Ordner in die Buchdateien schreiben "
             "(Payload + Meta + Protokoll + Provenance)."
         )
         apply_btn.clicked.connect(self._apply_bundle_from_field)
@@ -333,12 +373,70 @@ class GgContentSwapQtDialog(QDialog):
         layout.addLayout(btns)
 
         self._scan(quiet_if_empty=True)
+        prepare_autonomous_window(self, parent)
+
+    def _accept_structure_as_is(self) -> None:
+        """Rechte Buchstruktur akzeptieren — ohne GG-Swap; Dialog schließen."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from services.work_path import accept_kapitel_structure_as_is
+
+        book = self._book_path()
+        if book is None:
+            QMessageBox.warning(
+                self,
+                "Buchstruktur",
+                "Kein aktives Buch — zuerst ein Projekt wählen.",
+            )
+            return
+        paths = None
+        host = self._host
+        if host is not None:
+            getter = getattr(host, "_structure_paths_for_work_path", None)
+            if callable(getter):
+                try:
+                    paths = getter()
+                except (AttributeError, RuntimeError, TypeError):
+                    paths = None
+        ok, message = accept_kapitel_structure_as_is(book, structure_paths=paths)
+        if not ok:
+            QMessageBox.warning(self, "Buchstruktur so belassen", message)
+            return
+        if host is not None and hasattr(host, "_refresh_work_path"):
+            try:
+                host._refresh_work_path()
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+        log = getattr(self._studio, "log", None)
+        if callable(log):
+            try:
+                log(message, "success")
+            except (TypeError, RuntimeError):
+                pass
+        self.accept()
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     def _book_path(self) -> Optional[Path]:
         book = getattr(self._studio, "current_book", None)
         if not book:
             return None
         return Path(book)
+
+    def _warn_need_book(self) -> None:
+        from ui_qt.work_path_guidance import warn_need_book
+
+        warn_need_book(
+            self,
+            title="GG-Swap",
+            message=(
+                "Kein Buch geladen.\n\n"
+                "Stufe G: zuerst ein Buchprojekt wählen."
+            ),
+            studio=self._studio,
+        )
 
     def _show_hub_banner(self, reason: str) -> None:
         self._hub_banner.setText(f"⛔ {reason}")
@@ -394,7 +492,7 @@ class GgContentSwapQtDialog(QDialog):
     ) -> None:
         book = self._book_path()
         if book is None:
-            QMessageBox.information(self, "GG-Swap", "Bitte zuerst ein Buch laden.")
+            self._warn_need_book()
             return
         hub = check_source_folder(source_root)
         if hub.is_publish_hub:
@@ -510,7 +608,7 @@ class GgContentSwapQtDialog(QDialog):
         """Hauptaktion: Publish_*-Ordner wählen und alles automatisch übernehmen."""
         book = self._book_path()
         if book is None:
-            QMessageBox.information(self, "GG-Swap", "Bitte zuerst ein Buch laden.")
+            self._warn_need_book()
             return
         start = self._source.text().strip() or str(_default_source_dir(self._studio))
         start_path = Path(start)
@@ -578,7 +676,7 @@ class GgContentSwapQtDialog(QDialog):
         """Einzelne Payload-.md wählen und sofort den Bundle-Lauf starten."""
         book = self._book_path()
         if book is None:
-            QMessageBox.information(self, "GG-Swap", "Bitte zuerst ein Buch laden.")
+            self._warn_need_book()
             return
         start = self._source.text().strip() or str(_default_source_dir(self._studio))
         chosen = QFileDialog.getOpenFileName(
@@ -907,7 +1005,7 @@ class GgContentSwapQtDialog(QDialog):
         book = self._book_path()
         if book is None:
             if not quiet_if_empty:
-                QMessageBox.information(self, "GG-Swap", "Bitte zuerst ein Buch laden.")
+                self._warn_need_book()
             return
         raw = self._source.text().strip()
         if not raw:
@@ -1218,6 +1316,20 @@ class GgContentSwapQtDialog(QDialog):
 
 def open_gg_content_swap_qt(studio: Any, parent: Optional[QWidget] = None) -> None:
     if not getattr(studio, "current_book", None):
-        QMessageBox.information(parent, "GG-Swap", "Bitte zuerst ein Buch laden.")
+        from ui_qt.work_path_guidance import warn_need_book
+
+        warn_need_book(
+            parent,
+            title="GG-Swap",
+            message=(
+                "Kein Buch geladen.\n\n"
+                "Stufe G: zuerst ein Buchprojekt wählen."
+            ),
+            studio=studio,
+        )
         return
-    GgContentSwapQtDialog(parent, studio).exec()
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return
+    dlg = GgContentSwapQtDialog(parent, studio)
+    show_autonomous_window(dlg, _active)

@@ -39,8 +39,12 @@ class StatusFg:
 
     SUCCESS = "#16a34a"
     DANGER = "#b91c1c"
+    #: Klarrot fuer blockierte Arbeitsweg-Substufen („Warum Rot?“).
+    #: Bewusst saettig, damit der Strich nicht wie Amber/Braun wirkt.
+    DANGER_SOFT = "#dc2626"
     INFO = "#1d4ed8"
-    WARNING = "#d97706"
+    #: Amber fuer offene Schritte — gelblich, klar getrennt vom Rot.
+    WARNING = "#ca8a04"
     PRIMARY = "#2563eb"
     WARNING_ALT = "#f59e0b"
     NEUTRAL = "#64748b"

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -118,14 +119,29 @@ class BookStructureTree(QTreeWidget):
 class StructurePanel(QWidget):
     """Linke Avail-Liste, rechte Buchstruktur, Aktionsbuttons."""
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    #: Icon-Legende ein-/ausgeklappt — Shell lässt das Live-Log mitwachsen.
+    icon_legend_collapsed_changed = Signal(bool)
+    #: Struktur geändert (Hinzufügen/Entfernen/Speichern/…) — Arbeitsweg neu ableiten.
+    structure_changed = Signal()
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        *,
+        icon_legend_collapsed: bool = False,
+    ) -> None:
         super().__init__(parent)
         self._session: Optional[StructureSession] = None
+        self._icon_legend_collapsed = bool(icon_legend_collapsed)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(200)
         self._search_timer.timeout.connect(self._apply_search_filter)
         self._build()
+
+    @property
+    def icon_legend_collapsed(self) -> bool:
+        return self._icon_legend_collapsed
 
     def _build(self) -> None:
         root = QGridLayout(self)
@@ -186,13 +202,25 @@ class StructurePanel(QWidget):
         mid.setSpacing(8)
         mid_wrap = QWidget()
         mid_wrap.setObjectName("structureMidColumn")
-        # +120 zur früheren Breite (260–300): Buttons ziehen organisch mit.
-        mid_wrap.setMinimumWidth(380)
-        mid_wrap.setMaximumWidth(420)
-        mid_wrap.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        # Feste Breite: sonst ändert Einklappen der Icon-Legende die
+        # sizeHint und die Spalte „atmet“ horizontal mit (störend).
+        _MID_COLUMN_WIDTH = 440
+        mid_wrap.setFixedWidth(_MID_COLUMN_WIDTH)
+        # Nur so hoch wie Inhalt (Buttons + Legende) — kein vertikales
+        # Aufblasen mit leerem Stretch, sonst wandert Platz nicht ins Log.
+        mid_wrap.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Maximum)
         mid_wrap.setLayout(mid)
+        self._mid_column = mid_wrap
         # Kein Stretch oben: Buttons starten auf derselben Höhe wie die Tree-Boxen
         self.btn_add = QPushButton("➡️ Hinzufügen")
+        self.btn_add.setToolTip(
+            "Ausgewählte Kapitel aus „Nicht zugeordnet“ in die Buchstruktur übernehmen."
+        )
+        self.btn_add_required = QPushButton("➡️ Hinzufügen (all required)")
+        self.btn_add_required.setToolTip(
+            "Alle Pflichtseiten (required) aus dem Pool hinzufügen — "
+            "unabhängig von der aktuellen Auswahl."
+        )
         self.btn_remove = QPushButton("⬅️ Entfernen")
         self.btn_outline = QPushButton("🧭 Gliederungspunkt…")
         self.btn_up = QPushButton("⬆️ Hoch")
@@ -205,8 +233,8 @@ class StructurePanel(QWidget):
         self.btn_load = QPushButton("📂 Buchstruktur laden")
         self.btn_undo = QPushButton("↩️ Undo")
         self.btn_redo = QPushButton("↪️ Redo")
+        self._add_button_pair_row(mid, self.btn_add, self.btn_add_required)
         for btn in (
-            self.btn_add,
             self.btn_remove,
             self.btn_outline,
             self.btn_up,
@@ -223,7 +251,6 @@ class StructurePanel(QWidget):
         self._add_button_pair_row(mid, self.btn_load, self.btn_save)
         self._add_button_pair_row(mid, self.btn_undo, self.btn_redo)
         mid.addWidget(self._build_icon_legend())
-        mid.addStretch(1)
         root.addWidget(mid_wrap, 1, 1, alignment=Qt.AlignmentFlag.AlignTop)
 
         self.book_tree = BookStructureTree()
@@ -236,6 +263,7 @@ class StructurePanel(QWidget):
         root.addWidget(self.book_tree, 1, 2)
 
         self.btn_add.clicked.connect(self._on_add)
+        self.btn_add_required.clicked.connect(self._on_add_all_required)
         self.btn_remove.clicked.connect(self._on_remove)
         self.btn_outline.clicked.connect(self.create_outline_page)
         self.btn_up.clicked.connect(self._on_up)
@@ -394,23 +422,71 @@ class StructurePanel(QWidget):
         layout.addLayout(row)
 
     def _build_icon_legend(self) -> QWidget:
+        """Icon-Legende — zuklappbar, damit die Mittelspalte und das Log atmen."""
         frame = QFrame()
         frame.setObjectName("iconLegend")
         frame.setFrameShape(QFrame.Shape.StyledPanel)
-        frame.setMinimumWidth(360)
+        # Keine eigene Mindestbreite — Spaltenbreite kommt nur von mid_wrap.
+        frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self._icon_legend_frame = frame
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(5)
-        title = QLabel(ICON_LEGEND_TITLE)
-        title.setObjectName("iconLegendTitle")
-        layout.addWidget(title)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(4)
+
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(6)
+        self._icon_legend_toggle = QToolButton()
+        self._icon_legend_toggle.setAutoRaise(True)
+        self._icon_legend_toggle.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self._icon_legend_toggle.setToolTip("Icon-Legende ein- oder ausklappen")
+        self._icon_legend_toggle.clicked.connect(self._toggle_icon_legend)
+        head.addWidget(self._icon_legend_toggle)
+        head.addStretch(1)
+        layout.addLayout(head)
+
+        self._icon_legend_details = QWidget()
+        details = QVBoxLayout(self._icon_legend_details)
+        details.setContentsMargins(4, 0, 4, 4)
+        details.setSpacing(5)
         for line in ICON_LEGEND_LINES:
             label = QLabel(line)
             label.setObjectName("iconLegendLine")
             label.setWordWrap(False)
             label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-            layout.addWidget(label)
+            details.addWidget(label)
+        layout.addWidget(self._icon_legend_details)
+
+        self._apply_icon_legend_chrome()
         return frame
+
+    def _toggle_icon_legend(self) -> None:
+        self.set_icon_legend_collapsed(not self._icon_legend_collapsed)
+
+    def set_icon_legend_collapsed(self, collapsed: bool) -> None:
+        flag = bool(collapsed)
+        if flag == self._icon_legend_collapsed:
+            self._apply_icon_legend_chrome()
+            return
+        self._icon_legend_collapsed = flag
+        self._apply_icon_legend_chrome()
+        self.icon_legend_collapsed_changed.emit(self._icon_legend_collapsed)
+
+    def _apply_icon_legend_chrome(self) -> None:
+        if not hasattr(self, "_icon_legend_details"):
+            return
+        self._icon_legend_details.setVisible(not self._icon_legend_collapsed)
+        arrow = "▶" if self._icon_legend_collapsed else "▼"
+        self._icon_legend_toggle.setText(f"{arrow} {ICON_LEGEND_TITLE}")
+        # Eingeklappt: nur Kopfzeile, ohne aufgeblähten Rahmen.
+        if self._icon_legend_collapsed:
+            self._icon_legend_frame.layout().setContentsMargins(6, 2, 6, 2)
+        else:
+            self._icon_legend_frame.layout().setContentsMargins(8, 6, 8, 6)
+        self._icon_legend_frame.updateGeometry()
+        self.updateGeometry()
 
     def set_session(self, session: Optional[StructureSession]) -> None:
         self._session = session
@@ -629,6 +705,7 @@ class StructurePanel(QWidget):
         keep = list(paths) if paths is not None else self._selected_book_paths()
         self.reload_from_session()
         self._select_book_paths(keep)
+        self.structure_changed.emit()
 
     def _selected_book_paths(self) -> list[str]:
         paths = []
@@ -673,6 +750,39 @@ class StructurePanel(QWidget):
         if self._session.add_paths(added, after_path=self._cursor_book_path()):
             self._reload_keeping_selection(added)
 
+    def _required_avail_paths(self) -> list[str]:
+        """Pflichtseiten im linken Pool (Reihenfolge wie in ``avail``)."""
+        if not self._session:
+            return []
+        from page_required import is_page_required_at
+
+        book = self._session.book_path
+        paths: list[str] = []
+        for path, _title in self._session.avail:
+            try:
+                if is_page_required_at(book, path):
+                    paths.append(path)
+            except (OSError, TypeError, ValueError):
+                continue
+        return paths
+
+    def _on_add_all_required(self) -> None:
+        if not self._session:
+            return
+        added = self._required_avail_paths()
+        if not added:
+            self._session._log(
+                "Keine required-Seiten im Pool „Nicht zugeordnet“.",
+                "info",
+            )
+            return
+        if self._session.add_paths(added, after_path=self._cursor_book_path()):
+            self._reload_keeping_selection(added)
+            self._session._log(
+                f"{len(added)} required-Seite(n) in die Buchstruktur übernommen.",
+                "success",
+            )
+
     def create_outline_page(self) -> None:
         """🧭 Gliederungspunkt anlegen (Datei + optional rechts einhängen)."""
         if not self._session:
@@ -689,8 +799,10 @@ class StructurePanel(QWidget):
                 self._reload_keeping_selection([rel_path])
             else:
                 self.reload_from_session()
+                self.structure_changed.emit()
         else:
             self.reload_from_session()
+            self.structure_changed.emit()
         self._session._log(
             f"Gliederungspunkt angelegt: {rel_path}"
             + (" (in Buchstruktur)" if add_to_book else " (nur Pool links)"),
@@ -702,6 +814,7 @@ class StructurePanel(QWidget):
             return
         if self._session.remove_paths(self._selected_book_paths()):
             self.reload_from_session()
+            self.structure_changed.emit()
 
     def _on_up(self) -> None:
         paths = self._selected_book_paths()
@@ -750,6 +863,7 @@ class StructurePanel(QWidget):
         if label is None:
             return
         self._session.save(snapshot_label=label)
+        self.structure_changed.emit()
 
     def _confirm_load_despite_filter(self) -> bool:
         """Warn if search hides chapters — common reason for unnecessary snapshot reloads."""
@@ -855,10 +969,10 @@ class StructurePanel(QWidget):
         def _after_save() -> None:
             if self._session is None:
                 return
-            self._session.invalidate_content_search_cache()
-            self._session._refresh_file_state_registry()
-            self._session._refresh_avail()
+            # title_registry trägt 📌 — ohne Rebuild bleibt das Pool-Icon stale
+            self._session.refresh_titles_and_markers()
             self.reload_from_session()
+            self.structure_changed.emit()
 
         TextEditorDialog(
             self,
@@ -870,6 +984,11 @@ class StructurePanel(QWidget):
             initial_find_whole_word=self.search_whole_word.isChecked(),
             initial_find_case_sensitive=self.search_case_sensitive.isChecked(),
         ).exec()
+        # Auch nach Schließen: falls gespeichert wurde, Icons/Titel nachziehen
+        if self._session is not None:
+            self._session.refresh_titles_and_markers()
+            self.reload_from_session()
+            self.structure_changed.emit()
 
     def _avail_context_menu(self, pos) -> None:
         item = self.avail_tree.itemAt(pos)

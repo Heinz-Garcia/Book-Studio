@@ -29,6 +29,11 @@ DEFAULT_UUID_PICKER_WINDOW_HEIGHT = 560
 MIN_UUID_PICKER_WINDOW_WIDTH = 640
 MIN_UUID_PICKER_WINDOW_HEIGHT = 420
 
+#: Linker Editor / rechte Vorschau im Cover-Designer (QSplitter-Pixel).
+DEFAULT_BODY_SPLITTER_SIZES = [620, 880]
+MIN_BODY_SPLITTER_LEFT = 360
+MIN_BODY_SPLITTER_RIGHT = 320
+
 
 def settings_path() -> Path:
     return Path(__file__).resolve().parent / _SETTINGS_FILENAME
@@ -49,6 +54,7 @@ def default_settings() -> dict[str, Any]:
         "uuid_picker_window_maximized": False,
         # Per-column widths for CoverUuidPickDialog (empty = use Qt defaults).
         "uuid_picker_column_widths": [],
+        "body_splitter_sizes": list(DEFAULT_BODY_SPLITTER_SIZES),
     }
 
 
@@ -168,6 +174,19 @@ def resolve_active_tab(data: dict[str, Any], *, tab_count: int) -> int:
     return max(0, min(tab_count - 1, idx))
 
 
+def resolve_body_splitter_sizes(data: dict[str, Any]) -> list[int]:
+    """Linker/rechter Anteil des Cover-Designer-Splitters."""
+    raw = data.get("body_splitter_sizes")
+    if not isinstance(raw, list) or len(raw) < 2:
+        return list(DEFAULT_BODY_SPLITTER_SIZES)
+    try:
+        left = max(MIN_BODY_SPLITTER_LEFT, int(raw[0]))
+        right = max(MIN_BODY_SPLITTER_RIGHT, int(raw[1]))
+    except (TypeError, ValueError):
+        return list(DEFAULT_BODY_SPLITTER_SIZES)
+    return [left, right]
+
+
 def save_settings(data: dict[str, Any], path: Path | None = None) -> Path:
     """Write session settings (write then replace)."""
     target = path or settings_path()
@@ -219,6 +238,17 @@ def save_settings(data: dict[str, Any], path: Path | None = None) -> Path:
             payload["uuid_picker_column_widths"] = []
     else:
         payload["uuid_picker_column_widths"] = []
+    split = payload.get("body_splitter_sizes")
+    if isinstance(split, list) and len(split) >= 2:
+        try:
+            payload["body_splitter_sizes"] = [
+                max(MIN_BODY_SPLITTER_LEFT, int(split[0])),
+                max(MIN_BODY_SPLITTER_RIGHT, int(split[1])),
+            ]
+        except (TypeError, ValueError):
+            payload["body_splitter_sizes"] = list(DEFAULT_BODY_SPLITTER_SIZES)
+    else:
+        payload["body_splitter_sizes"] = list(DEFAULT_BODY_SPLITTER_SIZES)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".tmp")
     tmp.write_text(

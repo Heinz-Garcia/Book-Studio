@@ -4,6 +4,9 @@ Mit ``anchor`` oeffnet er direkt bei einem Abschnitt. Das ist mehr als
 Bequemlichkeit: Ein Handbuch mit dreiundzwanzig Kapiteln liest niemand von
 vorn, wenn er gerade an einer Stelle nicht weiterkommt. Der Weg von der Frage
 zur Antwort soll ein Klick sein, kein Suchlauf.
+
+Nicht-modal und ohne Qt-Parent zur Haupt-GUI — Tool und Handbuch sind
+gleichzeitig bedienbar (wie autonome Plugin-Fenster).
 """
 
 from __future__ import annotations
@@ -22,6 +25,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
+
+_SIZE_KEY = "help_dialog_size"
+_MAXIMIZED_KEY = "help_dialog_maximized"
+_DEFAULT_SIZE = (900, 700)
+_MIN_SIZE = (480, 360)
+
+_active: list["HelpDialog"] = []
+
 
 class HelpDialog(QDialog):
     def __init__(
@@ -32,13 +50,21 @@ class HelpDialog(QDialog):
         md_path: Optional[Path] = None,
         anchor: Optional[str] = None,
     ) -> None:
-        super().__init__(parent)
+        # Kein Qt-Parent: sonst bleibt die Hilfe modal/oben und blockiert Tools.
+        super().__init__(None)
         self.setWindowTitle("Handbuch")
-        self.resize(900, 700)
+        apply_persisted_size(
+            self,
+            _SIZE_KEY,
+            default=_DEFAULT_SIZE,
+            min_size=_MIN_SIZE,
+            maximized_key=_MAXIMIZED_KEY,
+        )
         self._html_path = Path(html_path)
         self._md_path = Path(md_path) if md_path else None
         self._anchor = (anchor or "").strip()
         self._anchor_done = False
+        self._host = parent
 
         layout = QVBoxLayout(self)
         search_row = QHBoxLayout()
@@ -76,6 +102,9 @@ class HelpDialog(QDialog):
         except OSError as exc:
             self.browser.setPlainText(f"Hilfe konnte nicht geladen werden:\n{exc}")
 
+        if parent is not None:
+            prepare_autonomous_window(self, parent)
+
     def showEvent(self, event) -> None:  # noqa: N802 - Qt-Vertrag
         """Springt den Abschnitt an, sobald das Fenster wirklich steht.
 
@@ -89,16 +118,31 @@ class HelpDialog(QDialog):
             self._anchor_done = True
             QTimer.singleShot(0, lambda: self.browser.scrollToAnchor(self._anchor))
 
+    def jump_to_anchor(self, anchor: Optional[str]) -> None:
+        """Bereits offenes Fenster zum Abschnitt scrollen (Wiederverwendung)."""
+        self._anchor = (anchor or "").strip()
+        self._anchor_done = False
+        if self._anchor:
+            QTimer.singleShot(0, lambda: self.browser.scrollToAnchor(self._anchor))
+
     def _find(self) -> None:
         term = self.search.text().strip()
         if term:
             self.browser.find(term)
 
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY, maximized_key=_MAXIMIZED_KEY)
+        super().done(result)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt-Vertrag
+        persist_window_size(self, _SIZE_KEY, maximized_key=_MAXIMIZED_KEY)
+        super().closeEvent(event)
+
 
 def open_manual(
     parent: Optional[QWidget] = None, *, anchor: Optional[str] = None
 ) -> bool:
-    """Oeffnet das Handbuch, optional direkt bei *anchor*.
+    """Oeffnet das Handbuch nicht-modal, optional direkt bei *anchor*.
 
     Die Pfadaufloesung steht hier und nicht bei jedem Aufrufer: Sie haengt an
     ``app_config.json`` und aendert sich mit ihm. Zwei Kopien davon liefen
@@ -125,7 +169,14 @@ def open_manual(
         md_path = resolve_handbook_path(base, cfg)
     except (ValueError, FileNotFoundError, OSError):
         md_path = None
-    HelpDialog(parent, html_path, md_path=md_path, anchor=anchor).exec()
+
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        existing.jump_to_anchor(anchor)
+        return True
+
+    dialog = HelpDialog(parent, html_path, md_path=md_path, anchor=anchor)
+    show_autonomous_window(dialog, _active)
     return True
 
 

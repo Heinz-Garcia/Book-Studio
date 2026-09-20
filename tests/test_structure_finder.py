@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from ui_qt.book_workspace import StructureSession
 from ui_qt.dialogs.structure_finder_dialog import (
     discover_structure_snapshots,
@@ -116,3 +118,52 @@ def test_session_load_wipes_unsaved_structure_empty_yml(tmp_path: Path) -> None:
     session.refresh_from_disk_keep_structure()
     paths = [n.get("path") for n in session.book_nodes]
     assert payload in paths
+
+
+def test_refresh_titles_updates_required_icon_in_avail(tmp_path: Path) -> None:
+    """Nach Frontmatter-Änderung (required) muss das Pool-📌 neu gelesen werden."""
+    book = _make_book(tmp_path, "Band_RequiredIcon", with_struct=False)
+    md = book / "content" / "A.md"
+    md.write_text("---\ntitle: A\nrequired: true\n---\n# A\n", encoding="utf-8")
+    session = StructureSession(book)
+    session.load()
+    titles = dict(session.avail)
+    assert "content/A.md" in titles
+    assert titles["content/A.md"].startswith("📌")
+
+    md.write_text("---\ntitle: A\nrequired: false\n---\n# A\n", encoding="utf-8")
+    session.refresh_titles_and_markers()
+    titles = dict(session.avail)
+    assert not titles["content/A.md"].startswith("📌")
+    # display_title bevorzugt Registry — stale node-Titel werden überschrieben
+    assert not session.display_title("content/A.md", "📌 A").startswith("📌")
+
+
+def test_add_all_required_only_picks_required_pool_pages(tmp_path: Path) -> None:
+    """„Hinzufügen (all required)“ nimmt nur required-Seiten aus dem Pool."""
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.widgets.structure_panel import StructurePanel
+
+    book = _make_book(tmp_path, "Band_AddReq", with_struct=False)
+    (book / "content" / "Rahmen.md").write_text(
+        "---\ntitle: Rahmen\nrequired: true\norder: \"10\"\n---\n",
+        encoding="utf-8",
+    )
+    (book / "content" / "Kapitel.md").write_text(
+        "---\ntitle: Kapitel\nrequired: false\n---\n# Text\n",
+        encoding="utf-8",
+    )
+    session = StructureSession(book)
+    session.load()
+    app = QApplication.instance() or QApplication([])
+    panel = StructurePanel()
+    panel.set_session(session)
+    assert panel._required_avail_paths() == ["content/Rahmen.md"]
+    panel._on_add_all_required()
+    paths = [n.get("path") for n in session.book_nodes]
+    assert "content/Rahmen.md" in paths
+    assert "content/Kapitel.md" not in paths
+    panel.close()
+    app.processEvents()

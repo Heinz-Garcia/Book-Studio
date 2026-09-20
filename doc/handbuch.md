@@ -561,7 +561,9 @@ Verwandte Tools-Einträge (Konfiguration, thematisch gruppiert):
 |---------|-----------|
 | `content_root_path` | Wo Buchprojekte gesucht werden (`.` = Studio-Ordner); Pflege auch im **Buchprojekt-Manager** |
 
-**Bücher verwalten** (**Plugins → Bücher verwalten…**): große Liste der gefundenen Bücher mit Spalten **Anzeigename**, Ordnername, Pfad. Anzeigename per **Anzeigename…** setzen (`bookconfig/project_label.json`); ohne Vergabe bleibt die Spalte leer. Fertige Ausgaben: Button **PDF Manager…** oder **Plugins → PDF Manager…** (nicht „Buchordner“). Dort auch **ISBN…** setzen — Kapitel 21.
+### Bücher verwalten {#sec-book-projects}
+
+**Plugins → Bücher verwalten…**: große Liste der gefundenen Bücher mit Spalten **Anzeigename**, Ordnername, Pfad. Anzeigename per **Anzeigename…** setzen (`bookconfig/project_label.json`); ohne Vergabe bleibt die Spalte leer. Fertige Ausgaben: Button **PDF Manager…** oder **Plugins → PDF Manager…** (nicht „Buchordner“). Dort auch **ISBN…** setzen — Kapitel 21.
 
 | `help_manual_path` | Handbuch-Quelle Markdown (`doc/handbuch.md`) — PDF + Pflege |
 | `help_html_path` | Angezeigte Hilfe HTML (`doc/handbuch.html`) — Hilfe-Fenster |
@@ -1055,6 +1057,10 @@ Wenn Provenance vorhanden ist, siehst du zusätzlich Export-Zeitpunkt und LLM-Mo
 Vollständige Matrix (20 Befundtypen): Entwickler-Doku `.doc/quality_contract.md`. Die Taxonomy in `tools/publish_readiness/taxonomy.py` deckt **jeden** Contract-Satz (#1–20) mit mindestens einem Muster ab.
 
 ### Provenance & Publish Record (Viewer)
+
+### Provenance-Viewer {#sec-provenance}
+
+### Publish-Record-Viewer {#sec-publish-record}
 
 | Menü | Inhalt |
 |------|--------|
@@ -2047,12 +2053,20 @@ Nach einem Import ohne Pflichtseiten: **Ja** zum Rahmen öffnet denselben Profil
 | Menü | Zweck |
 |------|-------|
 | **Layout-Assistent…** | Standalone durch alle Formatierungsobjekte des Buchs; Speichern nur auf Nachfrage |
-| **Textauszeichnungs-Inventar…** | Tabelle: Herkunft, Nutzung, Vorlage, Befund |
-| **Kapitelliste exportieren (CSV)…** | Lesereihenfolge aus `_quarto.yml` → `export/kapitelliste.csv` (Excel: UTF-8 mit BOM) |
+| **Textauszeichnungs-Inventar…** | Tabelle: Herkunft, Nutzung, Vorlage, Befund — siehe unten |
+| **Kapitelliste exportieren (CSV)…** | Lesereihenfolge aus `_quarto.yml` → CSV — siehe unten |
 
 `Publish_*`-Ordner erscheinen in den Buchauswahllisten dieser Werkzeuge **nicht** (Exportläufe, keine Arbeitsbücher).
 
-### Satzprüfung und Regelkreis
+### Textauszeichnungs-Inventar {#sec-markup-inventory}
+
+**Plugins → Textauszeichnungs-Inventar…** — Tabelle aller Fenced-Div-Klassen: Herkunft, Nutzung im Buch, zugeordnete Vorlage, Befund. Zeilen *ohne Vorlage* müssen im Layout-Editor (Klassen-Abbildung / „Fehlende Klassen anlegen“) geschlossen werden, bevor der Arbeitsweg-Chip **Formate** grün wird. Doppelklick: Fundstelle oder Layout. Details zum Layout-Editor: Kapitel 23.
+
+### Kapitelliste (CSV) {#sec-kapitelliste}
+
+**Plugins → Kapitelliste exportieren (CSV)…** — Lesereihenfolge aus `_quarto.yml` nach `export/kapitelliste.csv` (Excel: UTF-8 mit BOM).
+
+### Satzprüfung und Regelkreis {#sec-satz-werkzeuge}
 
 **Plugins → Satzprüfung und Regelkreis…**
 
@@ -2062,27 +2076,67 @@ Nach einem Import ohne Pflichtseiten: **Ja** zum Rahmen öffnet denselben Profil
 
 Layout-Profil für den Regelkreis kommt aus dem **letzten Render** in `publish_map.json` (nicht aus dem nächsten geplanten Export).
 
-### Druck-Freigabe
+### Druck-Freigabe {#sec-druck-freigabe}
 
 **Plugins → Druck-Freigabe prüfen…** nutzt dasselbe „letztes Layout-Profil“ wie die Satzwerkzeuge. Prüft das zuletzt gerenderte Convenience-PDF unter `export/_book/`.
 
-### Cover-Schlagwortwolke
+### Cover-Schlagwortwolke {#sec-stylecloud}
 
 **Plugins → Cover-Schlagwortwolke…** — Formen inkl. Freie Form/Hub (ehemals eigener Breathcloud-Menüpunkt), Presets, Muss-Wort. CLI für den Hub-Packer unverändert: `python -m tools.breathcloud …`.
 
 ### Asset Manager & Buchnotizen
 
-- **Asset Manager:** Bilder unter `img/` auch in Unterordnern sichtbar (Orphans/Referenzen).
-- **Buchnotizen…:** eine Notiz je Buch (`bookconfig/notiz.md`, geteilt mit GrammarGraph). Ungültige Kodierung → Warnung, Speichern gesperrt (Datei wird nicht überschrieben).
-- **Memo-Block…:** projektlose Schnellnotiz (nicht mit Buchnotiz verwechseln).
+- **Asset Manager:** Bilder unter `img/` auch in Unterordnern sichtbar (Orphans/Referenzen) — Kapitel 19.
+- **Buchnotizen…:** siehe unten.
+- **Memo-Block…:** siehe unten.
 
-### GrammarGraph-Inhalt aktualisieren
+### Buchnotizen {#sec-book-note}
 
-Ohne aktives Buch: klarer Hinweis „Bitte zuerst ein Buch laden.“ Mit Buch: **Export übernehmen…** wie Kapitel 16 / Phase 3b.
+**Plugins → Buchnotizen…** — eine Notiz je Buch (`bookconfig/notiz.md`, geteilt mit GrammarGraph). Ungültige Kodierung → Warnung, Speichern gesperrt (Datei wird nicht überschrieben).
 
-### UUID-Manager
+### Memo-Block {#sec-memo-pad}
 
-GrammarGraph-Repo wird erkannt über Sibling-Ordner, Umgebungsvariable `GRAMMARGRAPH_ROOT` oder den Inbox-Pfad aus der Studio-Konfiguration.
+**Plugins → Memo-Block…** — projektlose Schnellnotiz (nicht mit Buchnotiz verwechseln).
+
+### GrammarGraph-Inhalt aktualisieren {#sec-gg-content-swap}
+
+**Plugins → 🧬 GrammarGraph-Inhalt aktualisieren…** (oder Editor-Button **🧬**).
+Voraussetzung: aktives Buch.
+
+**Was es tut:** Nutzinhalt (Body) aus einem GrammarGraph-`Publish_*`-Lauf ins
+Buch schreiben. Frontmatter und `_quarto.yml` bleiben erhalten.
+
+#### Bedienelemente
+
+| Element | Bedeutung |
+|---------|-----------|
+| **Buchstruktur so belassen — Skip** | Unten, grün: Rechte Struktur akzeptieren (kein GG-Tausch). Nach Lieferung der Normalweg. |
+| **Buchstruktur ändern** | Unten, rot: Inhalt aus dem gewählten Export in die Buchdateien schreiben. |
+| **Inhalt aus GrammarGraph nachziehen…** | Einzelnen `Publish_*`-Laufordner wählen (nicht die Sammelmappe). |
+| **Nur .md wählen…** | Konkrete Payload-.md, wenn mehrere Nutzdateien im Export liegen. |
+| Statuszeile daneben | Gewählter Export bzw. „Noch kein Export gewählt.“ |
+| **Export-Ordner** | Pfad zum Lauf (editierbar). |
+| **Ordner…** | Ordner manuell browsen. |
+| **Zuordnung prüfen** | Scan Buch ↔ Export → Tabelle + Export-Liste. |
+| Rote Warnleiste | Quelle ungültig (z. B. Sammelmappe statt Einzellauf). |
+| Zusammenfassung | Kurzstatistik nach dem Scan. |
+| Tabelle **Zuordnung** | Ziel-Buchdatei ← Quell-Payload; Status; Hinweis. Klick = Diff; Doppelklick Buchdatei = Editor. |
+| **Im Export gefunden** | Weitere Export-.md; Sortierung (Datum/Name); Doppelklick = öffnen. |
+| **Auswahl der Buchzeile zuordnen** | Markierte Export-Datei der markierten Buchzeile zuweisen. |
+| **Anzeigename an Payload anpassen** | Frontmatter-Titel an Payload-Namen. |
+| **Buchdatei öffnen…** | Markierte Buch-.md im Editor. |
+| **Vorschau / Diff** | Unterschied Ziel ↔ Quelle. |
+| **ℹ** | Sprung in dieses Handbuchkapitel. |
+| **Buchstruktur ändern** | Komplette Übernahme: Payload, Meta, Protokoll, Provenance, Bilder. |
+| **Schließen** | Fenster schließen. |
+
+**Happy Path:** Nach Lieferung meist **Buchstruktur so belassen — Skip**.  
+Optional: Inhalt aus GrammarGraph nachziehen → Zuordnung prüfen → Inhalt nachziehen.  
+Details auch in [.doc/gg-content-swap.md](../.doc/gg-content-swap.md). Ohne Buch erscheint nur der Hinweis, zuerst ein Projekt zu wählen.
+
+### UUID-Manager {#sec-uuid-manager}
+
+**Plugins → UUID-Manager…** — Production-UUIDs aus Lieferungen und Büchern. GrammarGraph-Repo wird erkannt über Sibling-Ordner, Umgebungsvariable `GRAMMARGRAPH_ROOT` oder den Inbox-Pfad aus der Studio-Konfiguration.
 
 ### Provenance beim Re-Import
 

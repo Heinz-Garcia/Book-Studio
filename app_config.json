@@ -50,7 +50,9 @@
     "skeleton_default_profile": "standard",
     "skeleton_on_conflict": "ask",
     "skeleton_populate_mode": "missing_only",
+    "work_path_rahmen_policy": "required_pages",
     "handbuch_pdf_format": "typst",
     "exiftool_path": "C:\\ExifTool\\exiftool.exe",
-    "asset_pool_path": "assets/pool"
+    "asset_pool_path": "assets/pool",
+    "kdp_compose_front_ui": true
 }

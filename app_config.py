@@ -40,9 +40,9 @@ DEFAULTS: dict[str, Any] = {
     "pdf_deploy_folder": "",
     # ExifTool für Production-UUID in PDF-Metadaten (Custom-Feld UUID). Leer = PATH.
     "exiftool_path": "",
-    # Experimentelle Vorderseiten-Layer im KDP-Designer (Tab „Experiment“).
-    # Alternativ: Umgebungsvariable BSU_KDP_COMPOSE_FRONT=1
-    "kdp_compose_front_ui": False,
+    # Vorderseiten-Gestaltung (Layer: Titel, Band, Fade, …) im KDP-Designer.
+    # Tab „Gestaltung“. Abschalten: false oder BSU_KDP_COMPOSE_FRONT=0
+    "kdp_compose_front_ui": True,
     "uuid_manager_help_text": (
         "Wähle links einen Statusfilter. Hier erscheint direkt die passende "
         "Kurzorientierung zum aktuell sichtbaren Zustand."
@@ -116,6 +116,11 @@ DEFAULTS: dict[str, Any] = {
     "skeleton_on_conflict": "ask",
     # all | missing_only — nur fehlende Dateien kopieren
     "skeleton_populate_mode": "all",
+    # Arbeitsweg G: Rahmen-Policy — required_pages | off
+    # (Buch kann via bookconfig/work_path_policy.json überschreiben)
+    "work_path_rahmen_policy": "required_pages",
+    # UI-Einstieg: guided = Studio-Wartung + Buch-Werkzeuge; workshop = Tools + Plugins
+    "ui_mode_default": "guided",
     # Zentraler Bild-Pool für den Asset Manager (relativ zum Repo oder absolut)
     "asset_pool_path": "assets/pool",
     "handbuch_pdf_format": "typst",

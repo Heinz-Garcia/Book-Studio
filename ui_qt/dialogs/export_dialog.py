@@ -6,12 +6,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QLabel,
     QLineEdit,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -33,6 +35,11 @@ from tools.layout_profiles.catalog import (
     profile_id_from_label,
     profile_labels,
 )
+from ui_qt.autonomous_window import apply_persisted_size, persist_window_size
+
+_SIZE_KEY = "export_dialog_size"
+_DEFAULT_SIZE = (560, 360)
+_MIN_SIZE = (480, 320)
 
 _CHANNEL_STANDARD_LABEL = "Standard"
 _CHANNEL_KDP_LABEL = "Amazon KDP (Interior, ohne Cover-Seiten)"
@@ -72,25 +79,47 @@ def _default_pdf_stem(
     return ""
 
 
-#: Was in der Auswahl steht, wenn keine Formatvorlage gewuenscht ist. Dann
-#: rendert Quarto wie bisher -- mit dem, was in der ``_quarto.yml`` steht.
-DOCLAYOUT_NONE = "— keine (wie im Buch eingetragen)"
+#: Sentinel-Text ohne Buchkontext (Tests / Fallback). Mit Buch siehe
+#: ``_doclayout_none_label`` — zeigt den angewendeten Namen, wenn bekannt.
+DOCLAYOUT_NONE = "— Buch-Stand belassen"
 
 
-def _doclayout_choices() -> list[str]:
-    """Die Formatvorlagen der Bibliothek, alphabetisch, mit Leereintrag zuerst.
+def _doclayout_none_label(book_path: Optional[Path] = None) -> str:
+    """Leereintrag: keine Bibliotheks-Override — was im Buch steht, bleibt.
 
-    Faellt die Bibliothek aus (fehlendes Paket, kaputte Datei), bleibt die
-    Auswahl auf dem Leereintrag stehen statt den Dialog mitzureissen: Der
-    Export ist wichtiger als diese eine Zeile.
+    Wenn bekannt, steht der Name der zuletzt angewendeten Formatvorlage in
+    Klammern — damit man nicht raten muss, welche YAML im Buch aktiv ist.
     """
+    name = ""
+    if book_path is not None:
+        try:
+            from tools.doclayout.markup_inventory import applied_layout_name
+
+            name = str(applied_layout_name(Path(book_path)) or "").strip()
+        except Exception:  # noqa: BLE001 - Label darf den Dialog nicht killen
+            name = ""
+    if name:
+        return f"— Buch-Stand belassen ({name})"
+    return "— Buch-Stand belassen (noch keine Formatvorlage angewendet)"
+
+
+def _doclayout_library_names() -> list[str]:
+    """Formatvorlagen-Namen der Bibliothek, alphabetisch."""
     try:
         from tools.doclayout.library import available_layouts
 
-        namen = sorted(p.stem for p in available_layouts())
+        return sorted(p.stem for p in available_layouts())
     except Exception:  # noqa: BLE001 - der Dialog muss trotzdem aufgehen
-        namen = []
-    return [DOCLAYOUT_NONE, *namen]
+        return []
+
+
+def _doclayout_choices(book_path: Optional[Path] = None) -> list[str]:
+    """Anzeigetexte: Leereintrag zuerst, dann Bibliothek.
+
+    Der Leereintrag ist kein „keine Vorlage“, sondern „nichts überschreiben“ —
+    Quarto/DOCX nutzt den Buch-Stand (zuletzt »Auf Buchprojekt anwenden«).
+    """
+    return [_doclayout_none_label(book_path), *_doclayout_library_names()]
 
 
 class ExportDialog(QDialog):
@@ -105,7 +134,9 @@ class ExportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Export & Layout")
         self.setModal(True)
-        self.resize(560, 420)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
         self.book_path = Path(book_path) if book_path else None
         self._profile_name = str((initial or {}).get("profile_name") or "").strip() or None
         self.result: Optional[dict[str, Any]] = None
@@ -136,12 +167,38 @@ class ExportDialog(QDialog):
             )
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(6)
+        layout.setContentsMargins(10, 10, 10, 10)
         form = QFormLayout()
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(4)
+        form.setContentsMargins(0, 0, 0, 0)
 
         self.format_combo = QComboBox()
         self.format_combo.addItems(["typst", "docx", "html", "pdf"])
         self.format_combo.setCurrentText(initial_format)
         form.addRow("Format:", self.format_combo)
+
+        # ACHTUNG: Layout-Editor-Formate gelten nur für DOCX — hellrote Box.
+        from tools.doclayout import DOCX_ONLY_NOTICE
+
+        self.format_warn = QLabel(f"⚠ ACHTUNG: {DOCX_ONLY_NOTICE}")
+        self.format_warn.setObjectName("exportFormatWarn")
+        self.format_warn.setWordWrap(True)
+        self.format_warn.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
+        self.format_warn.setStyleSheet(
+            "QLabel#exportFormatWarn {"
+            "  color: #7f1d1d;"
+            "  background: #fecaca;"
+            "  border: 1px solid #f87171;"
+            "  border-radius: 4px;"
+            "  padding: 2px 6px;"
+            "  font-weight: 600;"
+            "}"
+        )
+        form.addRow(self.format_warn)
 
         self.template_combo = QComboBox()
         self.template_combo.addItems(templates)
@@ -161,10 +218,22 @@ class ExportDialog(QDialog):
         # anwenden« in die ``_quarto.yml`` geschrieben hatte -- ein unsichtbarer
         # Zustand im Buch, den man nur durch Nachsehen erfuhr.
         self.doclayout_combo = QComboBox()
-        self.doclayout_combo.addItems(_doclayout_choices())
+        none_label = _doclayout_none_label(self.book_path)
+        self.doclayout_combo.addItem(none_label, "")
+        for name in _doclayout_library_names():
+            self.doclayout_combo.addItem(name, name)
+        self.doclayout_combo.setToolTip(
+            "Leereintrag = Buch-Stand belassen (was zuletzt mit "
+            "»Auf Buchprojekt anwenden« ins Buch geschrieben wurde).\n"
+            "Ein Name = diese Bibliotheks-Vorlage für diesen Export verwenden."
+        )
         gewaehlt = str(initial.get("doclayout") or "") if initial else ""
-        if gewaehlt and gewaehlt in _doclayout_choices():
-            self.doclayout_combo.setCurrentText(gewaehlt)
+        if gewaehlt:
+            idx = self.doclayout_combo.findData(gewaehlt)
+            if idx >= 0:
+                self.doclayout_combo.setCurrentIndex(idx)
+            else:
+                self.doclayout_combo.setCurrentIndex(0)
         self.doclayout_row_label = QLabel("Formatvorlage:")
         form.addRow(self.doclayout_row_label, self.doclayout_combo)
 
@@ -187,6 +256,9 @@ class ExportDialog(QDialog):
 
         self.strictness_hint = QLabel("")
         self.strictness_hint.setWordWrap(True)
+        self.strictness_hint.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
         form.addRow("", self.strictness_hint)
         self.strictness_combo.currentTextChanged.connect(self._on_strictness_changed)
         self._on_strictness_changed()
@@ -206,6 +278,9 @@ class ExportDialog(QDialog):
 
         self.channel_hint = QLabel("")
         self.channel_hint.setWordWrap(True)
+        self.channel_hint.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
         form.addRow("", self.channel_hint)
 
         self.notes_edit = QLineEdit()
@@ -228,6 +303,34 @@ class ExportDialog(QDialog):
         self.path_edit.setReadOnly(True)
         self.path_edit.setPlaceholderText("Zielpfad der gerenderten Datei")
         form.addRow("Pfad:", self.path_edit)
+
+        self.cover_deckblatt_check = QCheckBox(
+            "Zusätzlich: PDF mit Cover-Deckblatt (neben dem Innenwerk)"
+        )
+        self.cover_deckblatt_check.setObjectName("exportCoverDeckblatt")
+        self.cover_deckblatt_check.setToolTip(
+            "Erzeugt neben der Innenwerk-PDF eine zweite Datei "
+            "„…_mit_Deckblatt.pdf“: Cover-Vorderseite als erste Seite, "
+            "danach das Innenwerk. Das KDP-Wrap-PDF für den Upload bleibt separat."
+        )
+        has_cover = False
+        if self.book_path is not None:
+            try:
+                from services.cover_deckblatt_pdf import cover_layout_path_for_book
+
+                has_cover = cover_layout_path_for_book(self.book_path) is not None
+            except Exception:  # noqa: BLE001 - Dialog muss öffnen
+                has_cover = False
+        want_bundle = initial.get("bundle_cover_deckblatt")
+        if want_bundle is None:
+            want_bundle = has_cover
+        self.cover_deckblatt_check.setChecked(bool(want_bundle) and has_cover)
+        self.cover_deckblatt_check.setEnabled(has_cover)
+        if not has_cover:
+            self.cover_deckblatt_check.setToolTip(
+                "Kein Cover-Layout für dieses Buch — zuerst im Cover-Designer speichern."
+            )
+        form.addRow("", self.cover_deckblatt_check)
 
         market_variant = ""
         variant_system_prompt = ""
@@ -262,34 +365,33 @@ class ExportDialog(QDialog):
                 "Marktvariante: keine (Basisbuch / ohne Variantenkontext)"
             )
             self.market_variant_label.setStyleSheet("color: #5b6573;")
+        self.market_variant_label.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
         form.addRow("Provenance:", self.market_variant_label)
         self._market_variant = market_variant
         self._variant_system_prompt = variant_system_prompt
 
         layout.addLayout(form)
 
-        self.hint = QLabel(initial_profile.description)
+        # Ein kompakter Hinweisblock statt mehrerer gestreckter Labels.
+        self.hint = QLabel()
+        self.hint.setObjectName("exportFooterHelp")
         self.hint.setWordWrap(True)
+        self.hint.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
+        self.hint.setStyleSheet(
+            "QLabel#exportFooterHelp {"
+            "  color: #475569;"
+            "  background: #f1f5f9;"
+            "  border: 1px solid #e2e8f0;"
+            "  border-radius: 4px;"
+            "  padding: 4px 6px;"
+            "}"
+        )
+        self._set_footer_help(initial_profile.description)
         layout.addWidget(self.hint)
-        layout.addWidget(
-            QLabel(
-                "Anzeigename = vorbelegt aus dem Buchprojekt "
-                "(project_label oder Ordnername). "
-                "Dateiname = normalisierte Ableitung davon (änderbar)."
-            )
-        )
-        layout.addWidget(
-            QLabel(
-                "Pfad = Convenience-Ausgabe unter export/_book "
-                "(Archiv zusätzlich im PDF Manager)."
-            )
-        )
-        layout.addWidget(
-            QLabel(
-                "Layout wird nur in die Temp-Kopie für den Render geschrieben — "
-                "_quarto.yml bleibt unverändert."
-            )
-        )
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -307,6 +409,7 @@ class ExportDialog(QDialog):
         self.format_combo.currentTextChanged.connect(self._sync_format_rows)
         self.channel_combo.currentTextChanged.connect(self._on_channel_changed)
         self._on_channel_changed()
+        self._sync_format_rows()
 
     def _selected_render_channel_id(self) -> str:
         return _CHANNEL_LABEL_TO_ID.get(self.channel_combo.currentText(), "")
@@ -332,11 +435,11 @@ class ExportDialog(QDialog):
         self._refresh_path_preview()
 
     def _selected_doclayout(self) -> str:
-        """Der Name der gewaehlten Formatvorlage -- oder "" fuer "wie im Buch"."""
+        """Der Name der gewaehlten Formatvorlage -- oder "" fuer Buch-Stand."""
         if self.format_combo.currentText().lower() != "docx":
             return ""
-        gewaehlt = self.doclayout_combo.currentText()
-        return "" if gewaehlt == DOCLAYOUT_NONE else gewaehlt
+        data = self.doclayout_combo.currentData()
+        return str(data or "").strip()
 
     def _sync_format_rows(self) -> None:
         """Zeigt je Format nur, was dort auch wirkt.
@@ -346,11 +449,17 @@ class ExportDialog(QDialog):
         erfragen, die im gewaehlten Format nichts tut -- und genau daraus
         entsteht die Erwartung, sie taete doch etwas.
         """
-        ist_docx = self.format_combo.currentText().lower() == "docx"
+        fmt = self.format_combo.currentText().lower()
+        ist_docx = fmt == "docx"
+        ist_pdf_familie = fmt in {"typst", "pdf"}
         for widget in (self.doclayout_row_label, self.doclayout_combo):
             widget.setVisible(ist_docx)
         for widget in (self.profile_row_label, self.profile_combo):
             widget.setVisible(not ist_docx)
+        # Warnung nur wenn Formatvorlagen wirkungslos wären
+        self.format_warn.setVisible(not ist_docx)
+        # Cover-Deckblatt-Bundle nur für PDF-Ausgaben sinnvoll
+        self.cover_deckblatt_check.setVisible(ist_pdf_familie)
 
     def _artifact_suffix(self) -> str:
         fmt = (self.format_combo.currentText() or "typst").lower()
@@ -401,9 +510,24 @@ class ExportDialog(QDialog):
             return
         self.path_edit.setText(str(out_dir / f"{stem}{self._artifact_suffix()}"))
 
+    def _set_footer_help(self, profile_description: str) -> None:
+        """Kompakter Hinweis unter dem Formular (Profil + kurze Erklärungen)."""
+        desc = str(profile_description or "").strip()
+        lines = []
+        if desc:
+            lines.append(desc)
+        lines.extend(
+            [
+                "Anzeigename aus dem Buchprojekt; Dateiname daraus abgeleitet (änderbar).",
+                "Pfad: Convenience unter export/_book · Archiv im PDF Manager.",
+                "Layout nur in die Temp-Kopie — _quarto.yml bleibt unverändert.",
+            ]
+        )
+        self.hint.setText("\n".join(lines))
+
     def _on_profile_changed(self, _text: str = "") -> None:
         profile = get_profile(profile_id_from_label(self.profile_combo.currentText()))
-        self.hint.setText(profile.description)
+        self._set_footer_help(profile.description)
         self.linestretch_combo.setCurrentText(linestretch_label(profile.linestretch))
         self.strictness_combo.setCurrentText(
             linebreak_strictness_label(profile.linebreak_strictness)
@@ -455,8 +579,17 @@ class ExportDialog(QDialog):
             "pdf_stem": stem,
             "market_variant": self._market_variant,
             "render_channel": self._selected_render_channel_id(),
+            "bundle_cover_deckblatt": bool(
+                self.cover_deckblatt_check.isChecked()
+                and self.cover_deckblatt_check.isEnabled()
+                and self.cover_deckblatt_check.isVisible()
+            ),
         }
         self.accept()
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
 
 def ask_export_options(

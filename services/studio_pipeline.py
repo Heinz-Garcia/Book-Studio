@@ -1,0 +1,721 @@
+"""Studio-Teilkette Phase 3 — dünne Orchestrierung Skeleton → Render → Freigabe → Archiv.
+
+Ruft bestehende SSOTs auf; schreibt Gates/Entscheidungen nach ``book_run.json``.
+Kein UI-Toolkit — Interrupt über Hooks.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+from services.work_path import (
+    _has_publish_archive,
+    _has_quarto,
+    _newest_pdf,
+    _pdf_token,
+    gate_action,
+    mark_gate,
+    record_interrupt_decision,
+    record_pipeline_step,
+    start_pipeline_run,
+)
+
+__all__ = [
+    "InterruptDecision",
+    "PipelineHooks",
+    "PipelineOptions",
+    "PipelineResult",
+    "STAGE_CHAIN",
+    "StageOutcome",
+    "StageStatus",
+    "run_studio_chain",
+]
+
+STAGE_CHAIN: tuple[str, ...] = (
+    "delivery",
+    "skeleton",
+    "render",
+    "compliance",
+    "archive",
+)
+
+
+class StageStatus(str, Enum):
+    PASS = "pass"
+    FAIL = "fail"
+    SKIPPED = "skipped"
+    ABORTED = "aborted"
+
+
+class InterruptDecision(str, Enum):
+    CONTINUE_OVERRIDE = "continue_override"
+    RETRY = "retry"
+    ABORT = "abort"
+
+
+@dataclass(frozen=True)
+class StageOutcome:
+    id: str
+    status: StageStatus
+    message: str = ""
+    details: dict[str, Any] = field(default_factory=dict)
+    allow_override: bool = False
+
+
+@dataclass
+class PipelineOptions:
+    """Optionale Overrides; Export-/Profil-Daten kommen primär aus Hooks."""
+
+    conflict_mode: str = "skip"
+    stop_on_warning: bool = True
+    publisher_profile_id: str = "kdp"
+
+
+@dataclass
+class PipelineHooks:
+    log: Callable[[str, str], None] = lambda _m, _l="info": None
+    get_export_options: Callable[[], dict[str, Any]] = lambda: {}
+    resolve_skeleton_profile: Callable[[], Optional[Path]] = lambda: None
+    on_interrupt: Callable[[StageOutcome], InterruptDecision] = (
+        lambda _o: InterruptDecision.ABORT
+    )
+    #: UI kann bei Retry einen Dialog öffnen (z. B. Render mit Export-Optionen).
+    on_retry_stage: Optional[Callable[[str], None]] = None
+    #: Optional: liefert einen Inbox-Pfad für Stufe ``delivery`` (sonst Skip/Fail).
+    resolve_delivery: Optional[Callable[[Path], Optional[Path]]] = None
+    #: Repo-Root für F′-Import (Default: Studio-Root).
+    repo_root: Optional[Path] = None
+
+
+@dataclass
+class PipelineResult:
+    outcomes: list[StageOutcome] = field(default_factory=list)
+    status: str = "aborted"  # passed | failed | aborted
+    message: str = ""
+
+
+def _happy_path_export_defaults() -> dict[str, Any]:
+    """Stabile Render-Defaults aus app_config — Teilkette ohne Optionsdialog."""
+    try:
+        import app_config as _app_config
+        from services.work_path import _studio_repo_root
+
+        cfg = _app_config.read_config(_studio_repo_root() / "app_config.json")
+        cfg = _app_config.with_defaults(cfg) if hasattr(_app_config, "with_defaults") else cfg
+    except (OSError, TypeError, ValueError, ImportError):
+        cfg = {}
+    fmt = str(cfg.get("default_export_format") or "typst").strip() or "typst"
+    template = str(cfg.get("default_export_template") or "Standard").strip() or "Standard"
+    return {
+        "format": fmt,
+        "template": template,
+        "layout_profile": str(cfg.get("default_layout_profile") or "taschenbuch-bod"),
+        "linestretch": float(cfg.get("default_linestretch") or 1.2),
+    }
+
+
+def run_studio_chain(
+    book_path: Path,
+    *,
+    options: Optional[PipelineOptions] = None,
+    hooks: Optional[PipelineHooks] = None,
+    start_at: str = "skeleton",
+) -> PipelineResult:
+    """Führt die Studio-Teilkette aus (deterministische Gates, Interrupt bei Fail)."""
+    opts = options or PipelineOptions()
+    h = hooks or PipelineHooks()
+    book = Path(book_path)
+    result = PipelineResult()
+
+    try:
+        from services.happy_path_defaults import ensure_happy_path_book_defaults
+
+        ensure_happy_path_book_defaults(
+            book, repo=Path(h.repo_root) if h.repo_root else None
+        )
+    except (OSError, TypeError, ValueError, ImportError):
+        pass
+
+    gate = gate_action("studio_pipeline", book)
+    if not gate.allowed:
+        outcome = StageOutcome(
+            "preflight",
+            StageStatus.FAIL,
+            gate.message,
+            details={"redirect": gate.redirect_action},
+        )
+        result.outcomes.append(outcome)
+        result.status = "failed"
+        result.message = gate.message
+        return result
+
+    try:
+        start_pipeline_run(book)
+    except OSError as exc:
+        result.status = "failed"
+        result.message = f"Lauf-Objekt nicht schreibbar: {exc}"
+        return result
+
+    stages = list(STAGE_CHAIN)
+    if start_at in stages:
+        stages = stages[stages.index(start_at) :]
+
+    idx = 0
+    while idx < len(stages):
+        stage_id = stages[idx]
+        h.log(f"Teilkette: Stufe {stage_id} …", "info")
+        outcome = _run_stage(book, stage_id, opts, h)
+        result.outcomes.append(outcome)
+        _persist_step(book, outcome)
+
+        if outcome.status in {StageStatus.PASS, StageStatus.SKIPPED}:
+            idx += 1
+            continue
+
+        if outcome.status == StageStatus.ABORTED:
+            result.status = "aborted"
+            result.message = outcome.message
+            _finish(book, result)
+            return result
+
+        # fail → Interrupt
+        decision = h.on_interrupt(outcome)
+        try:
+            record_interrupt_decision(
+                book,
+                stage_id=stage_id,
+                choice=decision.value,
+                message=outcome.message,
+            )
+        except OSError:
+            pass
+
+        if decision == InterruptDecision.ABORT:
+            result.status = "aborted"
+            result.message = outcome.message or "Abgebrochen"
+            _finish(book, result)
+            return result
+
+        if decision == InterruptDecision.CONTINUE_OVERRIDE:
+            if not outcome.allow_override:
+                result.status = "failed"
+                result.message = "Override für diese Stufe nicht erlaubt."
+                _finish(book, result)
+                return result
+            h.log(
+                f"Teilkette: Override auf {stage_id} — {outcome.message}",
+                "warning",
+            )
+            try:
+                record_pipeline_step(
+                    book,
+                    stage_id=stage_id,
+                    status="override",
+                    message=outcome.message,
+                    details=outcome.details,
+                )
+            except OSError:
+                pass
+            if stage_id == "compliance":
+                pdf = _newest_pdf(book)
+                try:
+                    mark_gate(
+                        book,
+                        "I",
+                        "pass",
+                        pdf_token=_pdf_token(pdf),
+                        errors=int(outcome.details.get("errors") or 0),
+                        warnings=int(outcome.details.get("warnings") or 0),
+                        override=True,
+                        current_stage="I",
+                    )
+                except OSError:
+                    pass
+            idx += 1
+            continue
+
+        # RETRY
+        if h.on_retry_stage is not None:
+            try:
+                h.on_retry_stage(stage_id)
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                h.log(f"Retry-Hook fehlgeschlagen ({stage_id}): {exc}", "warning")
+        # gleiche Stufe erneut
+        continue
+
+    result.status = "passed"
+    result.message = "Teilkette F′–J durchlaufen"
+    _finish(book, result)
+    return result
+
+
+def _finish(book: Path, result: PipelineResult) -> None:
+    try:
+        record_pipeline_step(
+            book,
+            stage_id="pipeline",
+            status=result.status,
+            message=result.message,
+            pipeline_status=result.status,
+        )
+    except OSError:
+        pass
+
+
+def _persist_step(book: Path, outcome: StageOutcome) -> None:
+    try:
+        record_pipeline_step(
+            book,
+            stage_id=outcome.id,
+            status=outcome.status.value,
+            message=outcome.message,
+            details=outcome.details,
+        )
+    except OSError:
+        pass
+
+
+def _run_stage(
+    book: Path,
+    stage_id: str,
+    opts: PipelineOptions,
+    hooks: PipelineHooks,
+) -> StageOutcome:
+    if stage_id == "delivery":
+        return _stage_delivery(book, hooks)
+    if stage_id == "skeleton":
+        return _stage_skeleton(book, opts, hooks)
+    if stage_id == "render":
+        return _stage_render(book, hooks)
+    if stage_id == "compliance":
+        return _stage_compliance(book, opts)
+    if stage_id == "archive":
+        return _stage_archive(book)
+    return StageOutcome(stage_id, StageStatus.FAIL, f"Unbekannte Stufe: {stage_id}")
+
+
+def _stage_delivery(book: Path, hooks: PipelineHooks) -> StageOutcome:
+    """F′: Lieferung übernehmen oder überspringen, wenn Gate F schon pass."""
+    from services.delivery_intake import accept_delivery, gate_f_ok
+
+    if gate_f_ok(book):
+        data = __import__("services.work_path", fromlist=["read_book_run"]).read_book_run(
+            book
+        )
+        art = data.get("artifacts") if isinstance(data.get("artifacts"), dict) else {}
+        src = str((art or {}).get("delivery") or "")
+        return StageOutcome(
+            "delivery",
+            StageStatus.SKIPPED,
+            "Lieferung bereits übernommen."
+            + (f" ({Path(src).name})" if src else ""),
+            details={"delivery": src} if src else {},
+        )
+
+    delivery: Optional[Path] = None
+    if hooks.resolve_delivery is not None:
+        try:
+            raw = hooks.resolve_delivery(book)
+            if raw is not None:
+                delivery = Path(raw)
+        except (OSError, TypeError, ValueError, RuntimeError) as exc:
+            return StageOutcome(
+                "delivery",
+                StageStatus.FAIL,
+                f"Lieferung nicht auflösbar: {exc}",
+                details={"redirect": "delivery_intake"},
+            )
+
+    if delivery is None or not delivery.is_dir():
+        return StageOutcome(
+            "delivery",
+            StageStatus.FAIL,
+            "Keine Lieferung gewählt — bitte Inbox übernehmen.",
+            details={"redirect": "delivery_intake"},
+            allow_override=False,
+        )
+
+    repo = Path(hooks.repo_root) if hooks.repo_root else book.parent.parent
+    try:
+        result = accept_delivery(delivery, repo=repo)
+    except (OSError, ValueError, TypeError) as exc:
+        return StageOutcome(
+            "delivery",
+            StageStatus.FAIL,
+            f"Lieferung übernehmen fehlgeschlagen: {exc}",
+            details={"redirect": "delivery_intake", "delivery": str(delivery)},
+        )
+
+    if result.book_path.resolve() != book.resolve():
+        # Materialize landete in anderem Ordner — für die Kette muss das
+        # aktive Buch passen; UI sollte vorher aktiviert haben.
+        return StageOutcome(
+            "delivery",
+            StageStatus.FAIL,
+            f"Lieferung wurde nach {result.book_path.name} materialisiert — "
+            "bitte dieses Buch aktivieren und erneut starten.",
+            details={
+                "redirect": "book_projects",
+                "book": str(result.book_path),
+                "delivery": str(delivery),
+            },
+        )
+
+    return StageOutcome(
+        "delivery",
+        StageStatus.PASS,
+        f"Lieferung übernommen: {delivery.name}",
+        details={"delivery": str(delivery), "book": str(result.book_path)},
+    )
+
+
+def _stage_skeleton(
+    book: Path,
+    opts: PipelineOptions,
+    hooks: PipelineHooks,
+) -> StageOutcome:
+    if not _has_quarto(book):
+        return StageOutcome(
+            "skeleton",
+            StageStatus.FAIL,
+            "Keine _quarto.yml — zuerst Bücher wählen.",
+            details={"redirect": "book_projects"},
+        )
+    try:
+        from page_required import book_has_required_pages
+    except ImportError:
+        book_has_required_pages = lambda _p: True  # noqa: E731
+
+    if book_has_required_pages(book):
+        mark_gate(book, "G", "pass", detail="required pages vorhanden", current_stage="G")
+        return StageOutcome(
+            "skeleton",
+            StageStatus.SKIPPED,
+            "Gerüst vorhanden — Skeleton übersprungen.",
+        )
+
+    profile_dir = hooks.resolve_skeleton_profile()
+    if profile_dir is None or not Path(profile_dir).is_dir():
+        return StageOutcome(
+            "skeleton",
+            StageStatus.FAIL,
+            "Kein Skeleton-Profil — bitte Skeleton öffnen oder Default in der "
+            "Studio-Konfiguration setzen.",
+            details={"redirect": "skeleton_populate"},
+            allow_override=False,
+        )
+
+    try:
+        from tools.skeleton.populate import populate_book
+    except ImportError as exc:
+        return StageOutcome(
+            "skeleton",
+            StageStatus.FAIL,
+            f"Skeleton-Modul nicht ladbar: {exc}",
+        )
+
+    conflict = opts.conflict_mode if opts.conflict_mode in {"skip", "replace"} else "skip"
+    try:
+        result = populate_book(
+            book,
+            profile_dir=Path(profile_dir),
+            conflict_mode=conflict,  # type: ignore[arg-type]
+            skip_dialog=True,
+            save=True,
+        )
+    except (OSError, ValueError, TypeError, FileNotFoundError) as exc:
+        return StageOutcome("skeleton", StageStatus.FAIL, f"Populate fehlgeschlagen: {exc}")
+
+    if getattr(result, "cancelled", False):
+        return StageOutcome("skeleton", StageStatus.FAIL, "Skeleton abgebrochen.")
+    if not book_has_required_pages(book) and not getattr(result, "ok", False):
+        return StageOutcome(
+            "skeleton",
+            StageStatus.FAIL,
+            "Skeleton hat keine Pflichtseiten erzeugt.",
+            details={
+                "redirect": "skeleton_populate",
+                "copied": list(getattr(result, "copied", []) or []),
+                "replaced": list(getattr(result, "replaced", []) or []),
+            },
+        )
+
+    mark_gate(book, "G", "pass", detail="populated", current_stage="G")
+    return StageOutcome(
+        "skeleton",
+        StageStatus.PASS,
+        "Skeleton übernommen.",
+        details={
+            "copied": list(getattr(result, "copied", []) or []),
+            "replaced": list(getattr(result, "replaced", []) or []),
+        },
+    )
+
+
+def _stage_render(book: Path, hooks: PipelineHooks) -> StageOutcome:
+    from services.work_path import _cover_gap, _g_content_gap
+
+    gap = _g_content_gap(book)
+    if gap is not None:
+        return StageOutcome(
+            "render",
+            StageStatus.FAIL,
+            gap[1],
+            details={"redirect": gap[0]},
+            allow_override=False,
+        )
+    cover = _cover_gap(book)
+    if cover is not None:
+        return StageOutcome(
+            "render",
+            StageStatus.FAIL,
+            cover[1],
+            details={"redirect": cover[0]},
+            allow_override=False,
+        )
+
+    export = dict(hooks.get_export_options() or {})
+    if not export:
+        export = _happy_path_export_defaults()
+    if not export:
+        return StageOutcome(
+            "render",
+            StageStatus.FAIL,
+            "Keine Export-Optionen (Session/App-Defaults leer). "
+            "Einmal manuell rendern oder Retry öffnet den Dialog.",
+            details={"redirect": "render"},
+            allow_override=False,
+        )
+
+    try:
+        target_fmt, profile_name, extra_opts, archive_dir, render_channel = (
+            _resolve_render_args(book, export)
+        )
+    except (ValueError, TypeError, KeyError, ImportError) as exc:
+        return StageOutcome(
+            "render",
+            StageStatus.FAIL,
+            f"Export-Optionen ungültig: {exc}",
+        )
+
+    try:
+        from quarto_render_safe import run_safe_render
+    except ImportError as exc:
+        return StageOutcome("render", StageStatus.FAIL, f"Render-Modul fehlt: {exc}")
+
+    try:
+        code = run_safe_render(
+            book,
+            target_fmt,
+            profile_name=profile_name,
+            extra_format_options=extra_opts,
+            archive_dir=archive_dir,
+            render_channel=render_channel,
+        )
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        return StageOutcome("render", StageStatus.FAIL, f"Render-Fehler: {exc}")
+
+    pdf = _newest_pdf(book)
+    if int(code) != 0 or pdf is None:
+        return StageOutcome(
+            "render",
+            StageStatus.FAIL,
+            f"Render fehlgeschlagen (code={code})"
+            + ("" if pdf else " — keine Export-PDF."),
+            details={"returncode": int(code)},
+        )
+
+    mark_gate(
+        book,
+        "H",
+        "pass",
+        pdf=str(pdf),
+        pdf_token=_pdf_token(pdf),
+        current_stage="H",
+    )
+    return StageOutcome(
+        "render",
+        StageStatus.PASS,
+        f"Render ok: {pdf.name}",
+        details={"pdf": str(pdf), "returncode": 0},
+    )
+
+
+def _resolve_render_args(
+    book: Path, selected: dict[str, Any]
+) -> tuple[str, Optional[str], Optional[dict], Optional[Path], Optional[str]]:
+    from services.render_service import RenderService
+
+    base_fmt = str(
+        selected.get("format")
+        or selected.get("output_format")
+        or selected.get("target_format")
+        or "typst"
+    ).strip() or "typst"
+    template = str(selected.get("template") or "Standard")
+    target_fmt, extra_opts = RenderService.resolve_target_format(
+        base_fmt, template=template
+    )
+    layout_profile = str(selected.get("layout_profile") or "taschenbuch-bod")
+    linestretch = float(selected.get("linestretch") or 1.2)
+    linebreak = selected.get("linebreak_strictness")
+    extra_opts = RenderService.apply_layout_profile(
+        extra_opts,
+        target_fmt=target_fmt,
+        layout_profile=layout_profile,
+        linestretch=linestretch,
+        linebreak_strictness=str(linebreak) if linebreak is not None else None,
+    )
+    render_channel = str(selected.get("render_channel") or "").strip() or None
+    profile_name = selected.get("profile_name")
+    if profile_name is not None:
+        profile_name = str(profile_name).strip() or None
+    profile_name = RenderService.compose_channel_profile_name(
+        profile_name, render_channel or ""
+    )
+    if not profile_name:
+        profile_name = None
+
+    archive_dir: Optional[Path] = None
+    try:
+        from tools.publish_map.store import (
+            ensure_active_snapshot_id,
+            snapshot_render_dir,
+        )
+
+        snap = ensure_active_snapshot_id(book)
+        archive_dir = snapshot_render_dir(book, snap)
+    except (ImportError, OSError, TypeError, ValueError):
+        archive_dir = None
+
+    return target_fmt, profile_name, extra_opts, archive_dir, render_channel
+
+
+def _stage_compliance(book: Path, opts: PipelineOptions) -> StageOutcome:
+    pdf = _newest_pdf(book)
+    if pdf is None:
+        return StageOutcome(
+            "compliance",
+            StageStatus.FAIL,
+            "Keine Export-PDF für die Freigabe.",
+            details={"redirect": "render"},
+        )
+
+    try:
+        from tools.publisher_compliance.validators import run_compliance_report
+        from tools.publish_map.store import last_layout_profile
+        from tools.publisher_compliance.metadata import read_isbn_from_quarto_yml
+    except ImportError as exc:
+        return StageOutcome(
+            "compliance",
+            StageStatus.FAIL,
+            f"Compliance-Modul fehlt: {exc}",
+        )
+
+    layout = last_layout_profile(book)
+    isbn = None
+    try:
+        isbn = read_isbn_from_quarto_yml(book / "_quarto.yml")
+    except (OSError, TypeError, ValueError):
+        isbn = None
+
+    try:
+        report = run_compliance_report(
+            pdf,
+            isbn=isbn,
+            layout_profile_id=layout,
+            publisher_profile_id=opts.publisher_profile_id,
+        )
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        return StageOutcome(
+            "compliance",
+            StageStatus.FAIL,
+            f"Compliance-Lauf fehlgeschlagen: {exc}",
+        )
+
+    errors = [r for r in report if getattr(r, "severity", "") == "error"]
+    warnings = [r for r in report if getattr(r, "severity", "") == "warning"]
+    summary = {
+        "errors": len(errors),
+        "warnings": len(warnings),
+        "checks": len(report),
+        "pdf": str(pdf),
+    }
+
+    if errors:
+        msgs = "; ".join(
+            f"{getattr(r, 'check_id', '?')}: {getattr(r, 'message', '')}" for r in errors[:5]
+        )
+        mark_gate(
+            book,
+            "I",
+            "fail",
+            pdf_token=_pdf_token(pdf),
+            errors=len(errors),
+            warnings=len(warnings),
+            current_stage="I",
+        )
+        return StageOutcome(
+            "compliance",
+            StageStatus.FAIL,
+            f"Druck-Freigabe: {len(errors)} Fehler — {msgs}",
+            details={**summary, "redirect": "publisher_compliance"},
+            allow_override=True,
+        )
+
+    if warnings and opts.stop_on_warning:
+        msgs = "; ".join(
+            f"{getattr(r, 'check_id', '?')}: {getattr(r, 'message', '')}"
+            for r in warnings[:5]
+        )
+        mark_gate(
+            book,
+            "I",
+            "fail",
+            pdf_token=_pdf_token(pdf),
+            errors=0,
+            warnings=len(warnings),
+            current_stage="I",
+        )
+        return StageOutcome(
+            "compliance",
+            StageStatus.FAIL,
+            f"Druck-Freigabe: {len(warnings)} Warnung(en) — {msgs}",
+            details=summary,
+            allow_override=True,
+        )
+
+    mark_gate(
+        book,
+        "I",
+        "pass",
+        pdf_token=_pdf_token(pdf),
+        errors=0,
+        warnings=len(warnings),
+        current_stage="I",
+    )
+    return StageOutcome(
+        "compliance",
+        StageStatus.PASS,
+        "Druck-Freigabe bestanden.",
+        details=summary,
+    )
+
+
+def _stage_archive(book: Path) -> StageOutcome:
+    if _has_publish_archive(book):
+        mark_gate(book, "J", "pass", detail="publish archive", current_stage="J")
+        return StageOutcome(
+            "archive",
+            StageStatus.PASS,
+            "Publish-Archiv / Publish-Map vorhanden.",
+        )
+    return StageOutcome(
+        "archive",
+        StageStatus.FAIL,
+        "Kein Publish-Archiv — Render mit Archiv oder PDF Manager prüfen.",
+        allow_override=False,
+    )

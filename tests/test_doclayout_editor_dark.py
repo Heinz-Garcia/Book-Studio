@@ -54,16 +54,41 @@ def test_help_bar_is_overridden():
     "selector",
     [
         "QGroupBox",
+        "QGroupBox::indicator",
         "QPushButton",
         "QListWidget",
         "QCheckBox::indicator",
         "QComboBox QAbstractItemView",
+        "QSpinBox::up-arrow",
+        "QSpinBox::down-arrow",
     ],
 )
 def test_every_styled_widget_type_is_answered(selector: str):
     """Was das App-Thema einfaerbt, muss die dunkle Fassung beantworten."""
     assert selector in PITU_CORE_STYLESHEET
     assert selector in DARK_STYLESHEET
+
+
+def test_checkable_group_box_indicator_matches_checkbox_language():
+    """Rahmen-Kanten (Oben/…) sind checkbare GroupBoxes -- Kästchen muss sichtbar sein."""
+    for ss in (PITU_CORE_STYLESHEET, DARK_STYLESHEET):
+        unchecked = _rule(ss, "QGroupBox::indicator")
+        checked = _rule(ss, "QGroupBox::indicator:checked")
+        assert "border" in unchecked
+        assert "background" in unchecked
+        assert "background" in checked
+
+
+def test_spinbox_arrows_are_drawn_explicitly():
+    """Frame-Stylesheet loescht native Pfeile -- SVG-Icons muessen gesetzt sein."""
+    for ss in (PITU_CORE_STYLESHEET, DARK_STYLESHEET):
+        assert "QSpinBox::up-button" in ss
+        assert "QSpinBox::down-button" in ss
+        assert "QSpinBox::up-arrow" in ss
+        assert "QSpinBox::down-arrow" in ss
+        assert "image: url(" in ss
+        assert "spin_up.svg" in ss
+        assert "spin_down.svg" in ss
 
 
 def test_dark_stylesheet_sets_no_colour_for_the_preview():

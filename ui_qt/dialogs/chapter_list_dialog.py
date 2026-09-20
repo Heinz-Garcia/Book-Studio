@@ -42,6 +42,13 @@ from tools.chapter_list.builder import (
     build_chapter_list_detailed,
     write_chapter_list,
 )
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -50,6 +57,11 @@ _ANDERES_VERZEICHNIS = "Anderes Verzeichnis …"
 
 #: Rechtsbuendige Spalten: Nummer und die beiden Umfangsangaben.
 _ZAHLENSPALTEN = (0, 3, 4)
+
+_SIZE_KEY = "chapter_list_size"
+_DEFAULT_SIZE = (880, 520)
+_MIN_SIZE = (560, 360)
+_active: list[ChapterListDialog] = []
 
 
 class ChapterListDialog(QDialog):
@@ -62,13 +74,15 @@ class ChapterListDialog(QDialog):
         studio: Any = None,
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self._studio = studio
         self._book_path = Path(book_path) if book_path else None
         self._liste: Optional[ChapterList] = None
         self._letzte_csv: Optional[Path] = None
         self.setWindowTitle("Kapitelliste exportieren")
-        self.resize(880, 520)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
         self._build()
         self.fill_book_choices()
         if self._book_path is None:
@@ -79,8 +93,14 @@ class ChapterListDialog(QDialog):
                 self._book_path = Path(str(daten))
         if self._book_path is not None:
             self.refresh()
+        prepare_autonomous_window(self, parent)
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     # -- Aufbau ------------------------------------------------------------
+
     def _build(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 12)
@@ -131,6 +151,9 @@ class ChapterListDialog(QDialog):
         layout.addWidget(self.befund_label)
 
         knopfleiste = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(knopfleiste, tool_key="chapter_list", host=self)
         self.btn_aktualisieren = QPushButton("Aktualisieren")
         self.btn_aktualisieren.clicked.connect(self.refresh)
         knopfleiste.addWidget(self.btn_aktualisieren)
@@ -167,7 +190,10 @@ class ChapterListDialog(QDialog):
     def refresh(self) -> None:
         """Kapitelliste neu erheben und anzeigen."""
         if self._book_path is None:
-            self.buch_label.setText("Kein Buchprojekt gewählt.")
+            self.buch_label.setText(
+                "Kein Buchprojekt gewählt — oben in der Liste wählen "
+                "oder über Ansicht → Arbeitsweg → Bücher verwalten."
+            )
             return
         try:
             self._liste = build_chapter_list_detailed(self._book_path)
@@ -379,14 +405,17 @@ def open_chapter_list_qt(
     studio: Any = None, parent: Optional[QWidget] = None, **kwargs: Any
 ) -> int:
     """Entrypoint fuer den Plugin-Adapter."""
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return 0
     book_path = kwargs.get("book_path")
     if book_path is None and studio is not None:
         book_path = getattr(studio, "current_book", None) or getattr(studio, "book_path", None)
-    dialog = ChapterListDialog(Path(book_path) if book_path else None, studio=studio, parent=parent)
-    # Der Rueckgabewert des Dialogs geht hinaus, statt fest ``0`` zu melden:
-    # Der Adapter deklariert ``-> int``, und ein abgebrochener Dialog soll
-    # nicht wie ein erfolgreicher Lauf aussehen.
-    return int(dialog.exec())
+    dialog = ChapterListDialog(
+        Path(book_path) if book_path else None, studio=studio, parent=parent
+    )
+    show_autonomous_window(dialog, _active)
+    return 0
 
 
 __all__ = ["ChapterListDialog", "open_chapter_list_qt"]

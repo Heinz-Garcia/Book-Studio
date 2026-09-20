@@ -63,6 +63,106 @@ def test_overlay_checkbox_mentions_barcode(monkeypatch, tmp_path):
     dlg.close()
 
 
+def test_body_splitter_separates_editor_and_preview(monkeypatch, tmp_path):
+    """Linker Editor und rechte Vorschau sind per QSplitter verschiebbar."""
+    from PySide6.QtWidgets import QSplitter
+
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    try:
+        assert isinstance(dlg._body_splitter, QSplitter)
+        assert dlg._body_splitter.count() == 2
+        assert dlg._body_splitter.orientation().name == "Horizontal"
+        assert dlg._body_splitter.childrenCollapsible() is False
+        sizes = dlg._body_splitter.sizes()
+        assert len(sizes) == 2
+        assert all(s > 0 for s in sizes)
+    finally:
+        dlg.close()
+
+
+def test_editor_tabs_have_no_top_pane_border(monkeypatch, tmp_path):
+    """Pane-border-top wuerde einen Strich quer durch die Tab-Koepfe zeichnen."""
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    try:
+        assert dlg._editor_tabs.documentMode() is True
+        assert dlg._editor_tabs.tabBar().drawBase() is False
+        ss = dlg._editor_tabs.styleSheet()
+        assert "border-top: 0px" in ss or "border-top: none" in ss
+        assert "kdpCoverEditorTabs::pane" in ss
+    finally:
+        dlg.close()
+
+
+def test_editor_tab_scrollbars_as_needed(monkeypatch, tmp_path):
+    """Maße ohne ScrollArea; andere Tabs: Scrollbar standardmäßig aus."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QScrollArea
+
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    try:
+        masse_page = dlg._editor_tabs.widget(0)
+        assert masse_page is not None
+        assert dlg._editor_tabs.tabText(0) == "Maße"
+        assert masse_page.findChildren(QScrollArea) == []
+
+        scrolls = getattr(dlg, "_editor_scroll_areas", [])
+        assert scrolls
+        for scroll in scrolls:
+            assert (
+                scroll.verticalScrollBarPolicy()
+                == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            host = scroll.widget()
+            assert host is not None
+            assert host.sizePolicy().verticalPolicy() == host.sizePolicy().Policy.Minimum
+        dlg._sync_editor_scrollbars()
+        for scroll in scrolls:
+            assert scroll.verticalScrollBarPolicy() in (
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded,
+            )
+    finally:
+        dlg.close()
+
+
+def test_window_and_splitter_geometry_persist_roundtrip(monkeypatch, tmp_path):
+    """Fenstergröße und Trenner-Position überleben Schließen/Öffnen."""
+    from tools.kdp_cover import settings as kdp_settings
+
+    session = tmp_path / "last_session.json"
+    monkeypatch.setattr(kdp_settings, "settings_path", lambda: session)
+
+    kdp_settings.save_settings(
+        {
+            "window_width": 1700,
+            "window_height": 950,
+            "window_maximized": False,
+            "body_splitter_sizes": [480, 1100],
+        },
+        session,
+    )
+
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    try:
+        assert dlg._loaded_size == (1700, 950)
+        assert dlg._loaded_splitter_sizes == [480, 1100]
+        # Nach Show erneut anwenden (wie im echten Dialog).
+        dlg.show()
+        dlg._apply_restored_layout()
+        assert dlg._body_splitter.sizes()[0] == 480
+        # Benutzer verschiebt Trenner — Persistenz speichert.
+        dlg._suppress_geometry_persist = False
+        dlg._body_splitter.setSizes([520, 1060])
+        dlg.resize(1700, 950)
+        dlg._persist_window_geometry()
+    finally:
+        dlg.close()
+
+    loaded = kdp_settings.load_settings(session)
+    assert kdp_settings.resolve_window_size(loaded) == (1700, 950)
+    assert kdp_settings.resolve_body_splitter_sizes(loaded)[0] == 520
+
+
 def test_draw_overlays_paints_barcode_placeholder(monkeypatch, tmp_path):
     from PySide6.QtGui import QColor, QPixmap
     from tools.kdp_cover.geometry import build_geometry
@@ -219,18 +319,17 @@ def test_kdp_channel_checkbox_is_form_style(monkeypatch, tmp_path):
 
 
 def test_kdp_dialog_keeps_preview_column(monkeypatch, tmp_path):
-    """Linke Spalte begrenzt — Vorschau darf nicht weggequetscht werden."""
+    """Tabs inkl. Experte; Vorschau-Spalte und Safe-Slots-Reset sichtbar."""
     from PySide6.QtWidgets import QTabWidget, QWidget
 
     _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
-    assert dlg._preview_scroll.minimumWidth() >= 400
+    assert dlg._preview_scroll.minimumWidth() >= 280
     assert dlg.preview_label.objectName() == "kdpCoverPreview"
     panels = [
         w for w in dlg.findChildren(QWidget) if w.objectName() == "kdpCoverLeftPanel"
     ]
     assert panels
-    assert panels[0].minimumWidth() >= 560
-    assert panels[0].maximumWidth() >= 650
+    assert panels[0].minimumWidth() >= 360
     assert isinstance(dlg._editor_tabs, QTabWidget)
     assert dlg._editor_tabs.count() == 7
     labels = [dlg._editor_tabs.tabText(i) for i in range(7)]
@@ -240,9 +339,17 @@ def test_kdp_dialog_keeps_preview_column(monkeypatch, tmp_path):
         "Vorderseite",
         "Rücken",
         "Rückseite",
-        "Experiment",
-        "Frei",
+        "Gestaltung",
+        "Experte",
     ]
+    assert dlg.btn_reset_safe_slots.text() == "Zurück auf Safe-Slots"
+    assert not dlg.btn_reset_safe_slots.isEnabled()  # Sicher-Modus
+    assert "#dc2626" in dlg.btn_reset_safe_slots.styleSheet()
+    # Neben UUID, nicht in der sticky Aktionsleiste.
+    assert dlg.btn_reset_safe_slots.parent() is dlg.btn_change_uuid.parent()
+    free_idx = dlg.mode_combo.findData("free")
+    assert free_idx >= 0
+    assert dlg.mode_combo.itemText(free_idx) == "Experte"
     dlg.close()
 
 
@@ -351,6 +458,7 @@ def test_build_layout_mode_free(monkeypatch, tmp_path):
     layout = dlg._build_layout()
     assert layout.mode == "free"
     assert dlg.free_box.isEnabled()
+    assert dlg.btn_reset_safe_slots.isEnabled()
     assert layout.page_count == dlg.pages_spin.value()
     dlg.close()
 
@@ -423,6 +531,126 @@ def test_spine_badge_ui_roundtrip(monkeypatch, tmp_path):
     dlg.close()
 
 
+def test_ask_cover_finished_marks_gate(monkeypatch, tmp_path):
+    """Nach Speichern: Ja → Cover-Gate done; Ampel-Logik greift; Designer schließt."""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from PySide6.QtWidgets import QMessageBox
+
+    from services.work_path import cover_finished_ok, read_book_run
+    from tools.distribution.book_store import set_kdp_paperback
+
+    _app, dlg, studio = _app_and_dialog(monkeypatch, tmp_path)
+    book = Path(studio.current_book)
+    set_kdp_paperback(book, True)
+    layout = book / "export" / "kdp_cover" / f"{book.name}_kdp_cover.json"
+    layout.parent.mkdir(parents=True, exist_ok=True)
+    layout.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *a, **k: QMessageBox.StandardButton.Yes,
+    )
+    close_mock = MagicMock(wraps=dlg.close)
+    monkeypatch.setattr(dlg, "close", close_mock)
+    dlg._ask_cover_finished(layout)
+    assert cover_finished_ok(book, layout) is True
+    data = read_book_run(book)
+    assert data["gates"]["cover"]["status"] == "done"
+    close_mock.assert_called_once()
+
+
+def test_ask_cover_finished_no_keeps_designer_open(monkeypatch, tmp_path):
+    """Nein → Zwischenstand; Cover-Designer bleibt offen."""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from PySide6.QtWidgets import QMessageBox
+
+    from services.work_path import cover_finished_ok
+    from tools.distribution.book_store import set_kdp_paperback
+
+    _app, dlg, studio = _app_and_dialog(monkeypatch, tmp_path)
+    book = Path(studio.current_book)
+    set_kdp_paperback(book, True)
+    layout = book / "export" / "kdp_cover" / f"{book.name}_kdp_cover.json"
+    layout.parent.mkdir(parents=True, exist_ok=True)
+    layout.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *a, **k: QMessageBox.StandardButton.No,
+    )
+    close_mock = MagicMock(wraps=dlg.close)
+    monkeypatch.setattr(dlg, "close", close_mock)
+    dlg._ask_cover_finished(layout)
+    assert cover_finished_ok(book, layout) is False
+    close_mock.assert_not_called()
+    dlg.close()
+
+
+def test_compose_titles_align_ui_roundtrip(monkeypatch, tmp_path):
+    """Ausrichtung links/zentriert/rechts in Collect/Apply."""
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    assert hasattr(dlg, "compose_titles_align")
+    idx = dlg.compose_titles_align.findData("right")
+    assert idx >= 0
+    dlg.compose_titles_align.setCurrentIndex(idx)
+    dlg.compose_titles_enabled.setChecked(True)
+    dlg.compose_series.setText("Links-Test")
+    raw = dlg._collect_front_compose()
+    assert raw["titles"]["align"] == "right"
+    dlg.compose_titles_offset_x.setValue(-12.5)
+    raw2 = dlg._collect_front_compose()
+    assert raw2["titles"]["offset_x_pct"] == pytest.approx(-12.5)
+    dlg._apply_front_compose(
+        {
+            "enabled": True,
+            "titles": {
+                "enabled": True,
+                "align": "left",
+                "offset_x_pct": 8.0,
+                "main": {"text": "A"},
+            },
+        }
+    )
+    assert dlg.compose_titles_align.currentData() == "left"
+    assert dlg.compose_titles_offset_x.value() == pytest.approx(8.0)
+    dlg.close()
+
+
+def test_compose_footer_align_ui_roundtrip(monkeypatch, tmp_path):
+    """Fußzeile: Ausrichtung + Versatz Collect/Apply."""
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    assert hasattr(dlg, "compose_footer_align")
+    assert hasattr(dlg, "compose_footer_offset_x")
+    idx = dlg.compose_footer_align.findData("right")
+    assert idx >= 0
+    dlg.compose_footer_align.setCurrentIndex(idx)
+    dlg.compose_footer_offset_x.setValue(7.5)
+    dlg.compose_footer_enabled.setChecked(True)
+    raw = dlg._collect_front_compose()
+    assert raw["footer"]["align"] == "right"
+    assert raw["footer"]["offset_x_pct"] == pytest.approx(7.5)
+    dlg._apply_front_compose(
+        {
+            "enabled": True,
+            "footer": {
+                "enabled": True,
+                "align": "left",
+                "offset_x_pct": -3.0,
+                "line1": "X",
+            },
+        }
+    )
+    assert dlg.compose_footer_align.currentData() == "left"
+    assert dlg.compose_footer_offset_x.value() == pytest.approx(-3.0)
+    dlg.close()
+
+
 def test_compose_badge2_ui_roundtrip(monkeypatch, tmp_path):
     """Zweites Vorderseiten-Badge: gleiche Controls, Collect/Apply."""
     _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
@@ -485,6 +713,9 @@ def test_compose_corner_ribbon_ui_roundtrip(monkeypatch, tmp_path):
     dlg.compose_corner_text_color.setText("#FFFFFF")
     dlg.compose_corner_size.setValue(32.0)
     dlg.compose_corner_font.setValue(140.0)
+    dlg.compose_corner_offset_x.setValue(4.5)
+    dlg.compose_corner_offset_y.setValue(3.0)
+    dlg.compose_corner_text_pad.setValue(18.0)
     dlg.compose_corner_icon.setChecked(True)
     dlg.compose_corner_pos.setCurrentIndex(
         dlg.compose_corner_pos.findData("bottom_right")
@@ -498,6 +729,9 @@ def test_compose_corner_ribbon_ui_roundtrip(monkeypatch, tmp_path):
     assert raw["corner_ribbon"]["font_scale"] == pytest.approx(1.4)
     assert raw["corner_ribbon"]["show_icon"] is True
     assert raw["corner_ribbon"]["corner"] == "bottom_right"
+    assert raw["corner_ribbon"]["offset_x_pct"] == pytest.approx(4.5)
+    assert raw["corner_ribbon"]["offset_y_pct"] == pytest.approx(3.0)
+    assert raw["corner_ribbon"]["text_padding_pct"] == pytest.approx(18.0)
 
     dlg._apply_front_compose(
         {
@@ -511,6 +745,9 @@ def test_compose_corner_ribbon_ui_roundtrip(monkeypatch, tmp_path):
                 "font_scale": 0.8,
                 "show_icon": False,
                 "corner": "top_right",
+                "offset_x_pct": 6.0,
+                "offset_y_pct": 2.5,
+                "text_padding_pct": 25.0,
             },
         }
     )
@@ -520,6 +757,9 @@ def test_compose_corner_ribbon_ui_roundtrip(monkeypatch, tmp_path):
     assert dlg.compose_corner_font.value() == pytest.approx(80.0)
     assert dlg.compose_corner_icon.isChecked() is False
     assert dlg.compose_corner_pos.currentData() == "top_right"
+    assert dlg.compose_corner_offset_x.value() == pytest.approx(6.0)
+    assert dlg.compose_corner_offset_y.value() == pytest.approx(2.5)
+    assert dlg.compose_corner_text_pad.value() == pytest.approx(25.0)
     dlg.close()
 
 
@@ -599,6 +839,13 @@ def test_dialog_book_banner_and_kdp_flag(monkeypatch, tmp_path):
     assert "KDP aus" in dlg.binding_status_label.text()
     assert "Cover-Layout speichern" in dlg.btn_save_project.text()
     assert "…" in dlg.btn_save_project.text()
+    layout_tip = dlg.btn_save_project.toolTip()
+    element_tip = dlg.btn_save_elementset.toolTip()
+    assert "Ganzes Cover-Projekt" in layout_tip or "komplett" in layout_tip.lower()
+    assert "Elementset" in layout_tip
+    assert "Vorderseiten-Gestaltung" in element_tip or "Fade" in element_tip
+    assert "ohne Maße" in element_tip.lower() or "Ohne Maße" in element_tip
+    assert "Cover-Layout" in element_tip
 
     dlg.kdp_channel_check.setChecked(True)
     book = Path(tmp_path / "book")
@@ -761,9 +1008,9 @@ def test_kdp_dialog_prefills_front_image_from_kwarg(monkeypatch, tmp_path):
 
     dlg = KdpCoverQtDialog(_Studio(), None, front_image=stylecloud_png)
     assert Path(dlg.front_edit.text()).resolve() == stylecloud_png.resolve()
-    # Ohne Projekt-Compose bleibt „Layer aktiv“ aus — Übergabe schaltet ihn
-    # nicht mehr zwangsweise aus.
-    assert dlg.compose_enabled.isChecked() is False
+    # Ohne Master-Kill: Gestaltung-Layer sind an; Einzellayer steuern die Zeichnung.
+    assert dlg.compose_enabled.isChecked() is True
+    assert dlg.compose_enabled.isHidden()
     dlg.close()
 
 
@@ -909,16 +1156,19 @@ def test_open_kdp_cover_qt_forwards_front_image(monkeypatch, tmp_path):
         def _refresh_preview(self) -> None:
             seen["refreshed"] = True
 
-        def exec(self) -> int:
-            return 0
+    def fake_show(dlg, registry):
+        seen["shown"] = True
+        return dlg
 
     monkeypatch.setattr(mod, "KdpCoverQtDialog", _FakeDlg)
+    monkeypatch.setattr(mod, "show_autonomous_window", fake_show)
     # Avoid queued refresh depending on event loop timing in this unit test.
     monkeypatch.setattr(mod.QTimer, "singleShot", lambda *a, **k: None)
     rc = mod.open_kdp_cover_qt(object(), None, front_image=png)
     assert rc == 0
     assert Path(str(seen["front_image"])).resolve() == png.resolve()
     assert seen.get("applied") == (str(png), False)
+    assert seen.get("shown") is True
 
 
 def test_kdp_dialog_save_stamps_production_uuid(monkeypatch, tmp_path):
@@ -1011,4 +1261,74 @@ def test_kdp_dialog_save_stamps_production_uuid(monkeypatch, tmp_path):
     covers = list_covers_for_uuid(uid, path=reg)
     assert len(covers) == 1
     assert covers[0].cover_role == "primary"
+    dlg.close()
+
+
+def test_save_uses_book_uuid_without_picker(monkeypatch, tmp_path):
+    """Arbeitsweg: Buch-UUID ist bekannt → Speichern ohne UUID-Auswahldialog."""
+    import json
+    from uuid import uuid4
+
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from tools.kdp_cover.model import load_layout
+    from tools.kdp_cover.validate import ValidationReport
+    from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
+    from ui_qt.theme import apply_theme
+
+    for name in ("warning", "critical", "information", "question"):
+        monkeypatch.setattr(
+            QMessageBox,
+            name,
+            lambda *a, **k: QMessageBox.StandardButton.Yes,
+        )
+
+    app = QApplication.instance() or QApplication([])
+    apply_theme(app)
+
+    book = tmp_path / "book"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("title: T\nauthor: A\n", encoding="utf-8")
+    uid = str(uuid4())
+    (book / "publish_meta.json").write_text(
+        json.dumps({"uuid": uid, "title": "T"}), encoding="utf-8"
+    )
+    front = tmp_path / "front.png"
+    Image.new("RGB", (2000, 3200), (20, 40, 80)).save(front)
+    reg = tmp_path / "cover_uuid_registry.json"
+
+    def _fail_picker(*_a, **_k):
+        raise AssertionError("UUID-Picker darf bei bekannter Buch-UUID nicht erscheinen")
+
+    monkeypatch.setattr(
+        "ui_qt.dialogs.kdp_cover_uuid_dialog.pick_cover_uuid",
+        _fail_picker,
+    )
+    monkeypatch.setattr(
+        "tools.kdp_cover.cover_registry.registry_path",
+        lambda: reg,
+    )
+    monkeypatch.setattr(
+        KdpCoverQtDialog,
+        "_layout_validation_blocks_persist",
+        lambda self, layout: ValidationReport(),
+    )
+
+    class _Studio:
+        current_book = str(book)
+
+        def log(self, msg, level="info"):
+            pass
+
+    dlg = KdpCoverQtDialog(_Studio(), None)
+    assert dlg._production_uuid == uid
+    assert "Aktives Buch" in dlg.uuid_link_label.text() or uid[:8] in dlg.uuid_link_label.text()
+    dlg.front_edit.setText(str(front))
+    dlg._params_guard = False
+    dlg._save_project()
+    assert dlg._project_path is not None
+    loaded = load_layout(Path(dlg._project_path))
+    assert loaded.production_uuid == uid
     dlg.close()

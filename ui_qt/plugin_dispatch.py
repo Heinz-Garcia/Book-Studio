@@ -62,22 +62,22 @@ def run_plugin_qt(plugin_name: str, window: "MainWindow") -> bool:
 
 def _book_projects(studio, parent, log) -> None:
     _plugin_ausfuehren("book_projects", studio, parent)
-    log("Bücher verwalten geschlossen.", "info")
+    log("Bücher verwalten geöffnet.", "info")
 
 
 def _mapping(studio, parent, log) -> None:
     _plugin_ausfuehren("mapping_manager", studio, parent)
-    log("PDF Manager geschlossen.", "info")
+    log("PDF Manager geöffnet.", "info")
 
 
 def _generated(studio, parent, log) -> None:
     _plugin_ausfuehren("generated_books", studio, parent)
-    log("Generierte Bücher geschlossen.", "info")
+    log("Generierte Bücher geöffnet.", "info")
 
 
 def _readiness(studio, parent, log) -> None:
     _plugin_ausfuehren("publish_readiness", studio, parent)
-    log("Publish Readiness geschlossen.", "info")
+    log("Publish Readiness geöffnet.", "info")
 
 
 def _skeleton_populate(studio, parent, log) -> None:
@@ -90,6 +90,8 @@ def _skeleton_populate(studio, parent, log) -> None:
     konnte die rechte Struktur wegwischen". Hier stand bis eben ein solches
     ``session.load()``, das dem Bridge-Verhalten widersprach -- und den
     Import-Hook-Weg, der es nicht durchlief, um nichts ärmer machte.
+
+    Bleibt synchron/modal: Profilwahl muss vor dem Kopieren abgeschlossen sein.
     """
     code = _plugin_ausfuehren("skeleton_populate", studio, parent)
     log(f"Skeleton-Populate beendet (code={code}).", "info")
@@ -97,19 +99,19 @@ def _skeleton_populate(studio, parent, log) -> None:
 
 def _skeleton_editor(studio, parent, log) -> None:
     _plugin_ausfuehren("skeleton_editor", studio, parent)
-    log("Skeleton-Editor geschlossen.", "info")
+    log("Skeleton-Editor geöffnet.", "info")
 
 
 def _publish_record(studio, parent, log) -> None:
     _plugin_ausfuehren("publish_record", studio, parent)
-    log("Publish Record geschlossen.", "info")
+    log("Publish Record geöffnet.", "info")
 
 
 def _provenance(studio, parent, log) -> None:
     _plugin_ausfuehren("provenance", studio, parent)
-    log("Provenance geschlossen.", "info")
+    log("Provenance geöffnet.", "info")
 
 
 def _gg_content_swap(studio, parent, log) -> None:
     _plugin_ausfuehren("gg_content_swap", studio, parent)
-    log("GG-Content-Swap geschlossen.", "info")
+    log("GG-Content-Swap geöffnet.", "info")

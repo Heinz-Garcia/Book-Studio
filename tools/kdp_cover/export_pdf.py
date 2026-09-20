@@ -110,6 +110,114 @@ def _resolve(path_str: str, base: Path) -> Path:
     return p
 
 
+def build_front_panel_image(
+    layout: CoverLayout,
+    *,
+    width_px: int,
+    height_px: int,
+    dpi: float,
+    resolve_base: Optional[Path] = None,
+) -> Image.Image:
+    """Vorderseiten-Panel (Bild + Compose) in gegebener Pixelgröße.
+
+    Gemeinsame Basis für Wrap-Export und Innenwerk-Deckblatt (Trim ohne Bleed).
+    """
+    base = Path(resolve_base) if resolve_base else Path.cwd()
+    fw = max(1, int(width_px))
+    fh = max(1, int(height_px))
+    scale_mm = dpi / 25.4
+    front_fill = _hex_to_rgb(getattr(layout, "front_color", None) or "#1e3a5f")
+    if not layout.front_image.strip():
+        panel = Image.new("RGB", (fw, fh), front_fill)
+    else:
+        front_path = _resolve(layout.front_image, base)
+        try:
+            front_zoom = float(getattr(layout, "front_image_zoom", 1.0) or 1.0)
+        except (TypeError, ValueError):
+            front_zoom = 1.0
+        try:
+            ox_mm = float(getattr(layout, "front_image_offset_x_mm", 0.0) or 0.0)
+            oy_mm = float(getattr(layout, "front_image_offset_y_mm", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            ox_mm, oy_mm = 0.0, 0.0
+        with Image.open(front_path) as im:
+            im.load()
+            front_rgb = im.convert("RGB")
+        panel = Image.new("RGB", (fw, fh), front_fill)
+        _cover_fit_paste(
+            panel,
+            front_rgb,
+            (0, 0, fw, fh),
+            zoom=front_zoom,
+            offset_x_px=int(round(ox_mm * scale_mm)),
+            offset_y_px=int(round(oy_mm * scale_mm)),
+        )
+    try:
+        from tools.kdp_cover.compose_front import apply_to_front_panel
+
+        composed = apply_to_front_panel(
+            panel,
+            getattr(layout, "front_compose", None),
+            resolve_base=base,
+        )
+        if composed is not None:
+            panel = composed
+    except ImportError:
+        pass
+    return panel
+
+
+def render_front_trim_image(
+    layout: CoverLayout,
+    *,
+    geometry: Optional[WrapGeometry] = None,
+    dpi: float = DEFAULT_EXPORT_DPI,
+    resolve_base: Optional[Path] = None,
+) -> Image.Image:
+    """Nur die Trim-Vorderseite (ohne Bleed) — Deckblatt fürs Innenwerk."""
+    geo = geometry or build_geometry(
+        page_count=layout.page_count,
+        paper_type_id=layout.paper_type_id,
+        trim_width_mm=layout.trim_width_mm,
+        trim_height_mm=layout.trim_height_mm,
+    )
+    dpi = clamp_print_dpi(dpi)
+    scale = dpi / 25.4
+    w = max(1, int(round(geo.trim_width_mm * scale)))
+    h = max(1, int(round(geo.trim_height_mm * scale)))
+    return build_front_panel_image(
+        layout,
+        width_px=w,
+        height_px=h,
+        dpi=dpi,
+        resolve_base=resolve_base,
+    )
+
+
+def export_front_deckblatt_pdf(
+    layout: CoverLayout,
+    output_pdf: Path,
+    *,
+    dpi: float = DEFAULT_EXPORT_DPI,
+    resolve_base: Optional[Path] = None,
+) -> Path:
+    """Einseitiges PDF der Cover-Vorderseite (Trim) fürs Bundle mit Innenwerk."""
+    dpi = clamp_print_dpi(dpi)
+    image = render_front_trim_image(
+        layout, dpi=dpi, resolve_base=resolve_base
+    )
+    output_pdf = Path(output_pdf)
+    output_pdf.parent.mkdir(parents=True, exist_ok=True)
+    rgb = image.convert("RGB")
+    save_kwargs: dict = {"resolution": float(dpi)}
+    if layout.title.strip():
+        save_kwargs["title"] = layout.title.strip()
+    if layout.author.strip():
+        save_kwargs["author"] = layout.author.strip()
+    rgb.save(output_pdf, "PDF", **save_kwargs)
+    return output_pdf
+
+
 def _load_font(size_px: int) -> ImageFont.ImageFont:
     # Windows: Arial; Fallback Default.
     for name in ("arial.ttf", "Arial.ttf", "DejaVuSans.ttf"):
@@ -391,48 +499,15 @@ def render_wrap_image(
     # Spine
     draw.rectangle(_box_xyxy(spine_ext, dpi), fill=_hex_to_rgb(layout.spine_color))
 
-    # Front
-    if not layout.front_image.strip():
-        raise ValueError("Vorderseiten-Bild fehlt — Export abgebrochen.")
-    front_path = _resolve(layout.front_image, base)
+    # Front: Bild (optional) oder einfarbig — Default-Farbe reicht zum Speichern.
     fx, fy, fw, fh = _mm_rect_to_px(front_ext, dpi)
-    scale_mm = dpi / 25.4
-    try:
-        front_zoom = float(getattr(layout, "front_image_zoom", 1.0) or 1.0)
-    except (TypeError, ValueError):
-        front_zoom = 1.0
-    try:
-        ox_mm = float(getattr(layout, "front_image_offset_x_mm", 0.0) or 0.0)
-        oy_mm = float(getattr(layout, "front_image_offset_y_mm", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        ox_mm, oy_mm = 0.0, 0.0
-    with Image.open(front_path) as im:
-        im.load()
-        front_rgb = im.convert("RGB")
-    panel = Image.new("RGB", (max(1, fw), max(1, fh)), (0, 0, 0))
-    _cover_fit_paste(
-        panel,
-        front_rgb,
-        (0, 0, fw, fh),
-        zoom=front_zoom,
-        offset_x_px=int(round(ox_mm * scale_mm)),
-        offset_y_px=int(round(oy_mm * scale_mm)),
+    panel = build_front_panel_image(
+        layout,
+        width_px=fw,
+        height_px=fh,
+        dpi=dpi,
+        resolve_base=base,
     )
-
-    # Experimenteller Hook (wegwerfbar): Vorderseiten-Layer.
-    # Fehlt das Modul oder enabled=false → panel unverändert.
-    try:
-        from tools.kdp_cover.compose_front import apply_to_front_panel
-
-        composed = apply_to_front_panel(
-            panel,
-            getattr(layout, "front_compose", None),
-            resolve_base=base,
-        )
-        if composed is not None:
-            panel = composed
-    except ImportError:
-        pass
 
     canvas.paste(panel, (fx, fy))
 
@@ -512,6 +587,9 @@ def export_wrap_pdf(
 
 
 __all__ = [
-    "render_wrap_image",
+    "build_front_panel_image",
+    "export_front_deckblatt_pdf",
     "export_wrap_pdf",
+    "render_front_trim_image",
+    "render_wrap_image",
 ]

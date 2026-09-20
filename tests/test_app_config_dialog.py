@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import app_config
+import pytest
+
 from ui_qt.dialogs.app_config_dialog import FIELDS, _path_list_to_text
 
 
@@ -35,3 +39,29 @@ def test_path_list_to_text_joins_lists():
     assert _path_list_to_text(["a", "b"]) == "a, b"
     assert _path_list_to_text(".") == "."
     assert _path_list_to_text([]) == ""
+
+
+def test_dialog_uses_tabs_and_short_browse_buttons(tmp_path: Path):
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication, QPushButton, QTabWidget
+
+    from ui_qt.dialogs.app_config_dialog import AppConfigDialog, _PathRow
+
+    app = QApplication.instance() or QApplication([])
+    cfg = tmp_path / "app_config.json"
+    cfg.write_text("{}", encoding="utf-8")
+    dlg = AppConfigDialog(None, cfg)
+
+    tabs = dlg.findChild(QTabWidget)
+    assert tabs is not None
+    titles = [tabs.tabText(i) for i in range(tabs.count())]
+    assert titles == ["Pfade", "Export", "Log & Editor", "Skeleton", "Arbeitsweg"]
+
+    browse_labels = {
+        btn.text()
+        for row in dlg.findChildren(_PathRow)
+        for btn in row.findChildren(QPushButton)
+    }
+    assert browse_labels == {"..."}
+    dlg.close()
+    app.processEvents()

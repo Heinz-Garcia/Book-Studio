@@ -284,6 +284,13 @@ def typeset_book(
     if ergebnis.returncode != 0 or not docx.is_file():
         raise TypesetError(f"Pandoc konnte das Buch nicht setzen:\n{meldungen}")
 
+    try:
+        from tools.doclayout.targets.docx import patch_docx_style_languages
+
+        patch_docx_style_languages(docx, definition)
+    except Exception:  # noqa: BLE001 - Sprache ist Zusatz, Satz darf nicht scheitern
+        pass
+
     warnungen = tuple(
         zeile.strip() for zeile in meldungen.splitlines() if zeile.strip()
     )[:20]

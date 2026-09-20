@@ -16,6 +16,13 @@ faelschen.
 
 from __future__ import annotations
 
+from ui_qt.pitugrafo_look import (
+    SPIN_ARROW_DOWN,
+    SPIN_ARROW_DOWN_DISABLED,
+    SPIN_ARROW_UP,
+    SPIN_ARROW_UP_DISABLED,
+)
+
 #: Grundtoene. An einer Stelle, damit eine Korrektur nicht sechs Regeln braucht.
 BACKGROUND = "#23262b"
 PANEL = "#2b2f36"
@@ -68,6 +75,17 @@ QGroupBox::title {{
     top: 0px;
     padding: 0 6px;
 }}
+/* Wie QCheckBox: leeres Kästchen / blau gefüllt -- sonst unsichtbar neben Oben/… */
+QGroupBox::indicator {{
+    width: 14px; height: 14px;
+    border: 1px solid {BORDER};
+    border-radius: 2px;
+    background: {INPUT};
+}}
+QGroupBox::indicator:checked {{
+    background: {ACCENT};
+    border: 1px solid {ACCENT};
+}}
 
 QLineEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {{
     background-color: {INPUT};
@@ -114,6 +132,44 @@ QComboBox:disabled {{ color: {TEXT_MUTED}; background-color: {BACKGROUND}; }}
 QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
     color: {TEXT_MUTED};
     background-color: {BACKGROUND};
+}}
+/* Native SpinBox-Pfeile verschwinden mit dem Frame-Stylesheet -- SVG nachziehen. */
+QSpinBox, QDoubleSpinBox {{
+    padding-right: 20px;
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 16px;
+    border-left: 1px solid {BORDER};
+    background: {BUTTON};
+    border-top-right-radius: 3px;
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 16px;
+    border-left: 1px solid {BORDER};
+    background: {BUTTON};
+    border-bottom-right-radius: 3px;
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background: {BUTTON_HOVER};
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    image: url({SPIN_ARROW_UP});
+    width: 10px; height: 6px;
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    image: url({SPIN_ARROW_DOWN});
+    width: 10px; height: 6px;
+}}
+QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled {{
+    image: url({SPIN_ARROW_UP_DISABLED});
+}}
+QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {{
+    image: url({SPIN_ARROW_DOWN_DISABLED});
 }}
 QComboBox QAbstractItemView {{
     background-color: {INPUT};

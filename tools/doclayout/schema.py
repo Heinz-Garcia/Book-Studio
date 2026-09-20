@@ -169,6 +169,9 @@ class ParagraphStyle:
 
     shading: Optional[str] = None
     borders: dict[str, Border] = field(default_factory=dict)
+    #: BCP-47 language for spellcheck (e.g. ``de-DE``, ``es-ES``). Written as
+    #: ``w:lang`` on the style so LibreOffice/Word use the matching dictionary.
+    language: Optional[str] = None
 
     def carries_formatting(self) -> bool:
         """Traegt das Format eigene Gestaltung -- oder ist es nur ein Name?
@@ -195,6 +198,7 @@ class ParagraphStyle:
                 self.outline_level is not None,
                 self.shading,
                 self.borders,
+                self.language,
             )
         )
 
@@ -266,6 +270,7 @@ class ParagraphStyle:
             outline_level=outline,
             shading=_opt_str(data.get("shading")),
             borders=borders,
+            language=_opt_str(data.get("language")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -284,6 +289,7 @@ class ParagraphStyle:
             ("line_height", self.line_height),
             ("outline_level", self.outline_level),
             ("shading", self.shading),
+            ("language", self.language),
         ):
             if value is not None:
                 out[key] = value
@@ -406,7 +412,7 @@ class Page:
 class Typography:
     """Grundeinstellungen, die jedes Format erbt, solange es nichts anderes sagt."""
 
-    body_font: str = "Calibri"
+    body_font: str = "Cambria"
     heading_font: str = ""
     mono_font: str = "Consolas"
     base_size_pt: float = 11.0
@@ -442,7 +448,7 @@ class Typography:
                     f"typography.table_size_pt={tabelle} ausserhalb 4..72"
                 )
         return cls(
-            body_font=str(data.get("body_font", "Calibri")),
+            body_font=str(data.get("body_font", "Cambria")),
             heading_font=str(data.get("heading_font", "") or ""),
             mono_font=str(data.get("mono_font", "Consolas")),
             base_size_pt=size,
@@ -554,6 +560,24 @@ class LayoutDefinition:
             if name != style_id and not self.inherits_from(name, style_id)
         )
 
+    def inheritance_chain(self, style_id: str) -> tuple[str, ...]:
+        """Erbfolge vom Format zur Wurzel, z. B. ``Fachtext → BodyText → Normal``.
+
+        Unbekannte Vorfahren (Pandoc-Basis wie ``Normal``) bleiben in der
+        Kette stehen. Ringschluesse beenden die Suche.
+        """
+        kette: list[str] = []
+        gesehen: set[str] = set()
+        aktuell: Optional[str] = style_id
+        while aktuell and aktuell not in gesehen:
+            gesehen.add(aktuell)
+            kette.append(aktuell)
+            style = self.styles.get(aktuell)
+            if style is None:
+                break
+            aktuell = style.based_on
+        return tuple(kette)
+
     def resolve_size_pt(self, style_id: str) -> Optional[float]:
         """Die Schriftgroesse, die fuer *style_id* tatsaechlich gilt.
 
@@ -591,6 +615,72 @@ class LayoutDefinition:
                 return aktuell
             aktuell = style.based_on
         return None
+
+    def resolve_style(self, style_id: str) -> Optional[ParagraphStyle]:
+        """Wirksames Absatzformat: eigene und geerbte Merkmale zusammengelegt.
+
+        Lauft die Kette von der Wurzel zum Blatt; spaetere Werte ueberschreiben
+        fruehere. Schriftgroesse ohne Eintrag in der Kette kommt aus der
+        Typografie. Fehlt das Format in der Definition, liefert ``None``.
+        """
+        if style_id not in self.styles:
+            return None
+
+        kette = self.inheritance_chain(style_id)
+        wirksam = ParagraphStyle(style_id=style_id, name=style_id)
+        for name in reversed(kette):
+            stil = self.styles.get(name)
+            if stil is None:
+                continue
+            wirksam = ParagraphStyle(
+                style_id=style_id,
+                name=stil.name or wirksam.name,
+                based_on=stil.based_on,
+                next_style=(
+                    stil.next_style
+                    if stil.next_style is not None
+                    else wirksam.next_style
+                ),
+                size_pt=stil.size_pt if stil.size_pt is not None else wirksam.size_pt,
+                bold=stil.bold or wirksam.bold,
+                italic=stil.italic or wirksam.italic,
+                color=stil.color if stil.color is not None else wirksam.color,
+                letter_spacing_pt=(
+                    stil.letter_spacing_pt
+                    if stil.letter_spacing_pt is not None
+                    else wirksam.letter_spacing_pt
+                ),
+                align=stil.align if stil.align is not None else wirksam.align,
+                space_before_pt=(
+                    stil.space_before_pt
+                    if stil.space_before_pt is not None
+                    else wirksam.space_before_pt
+                ),
+                space_after_pt=(
+                    stil.space_after_pt
+                    if stil.space_after_pt is not None
+                    else wirksam.space_after_pt
+                ),
+                line_height=(
+                    stil.line_height
+                    if stil.line_height is not None
+                    else wirksam.line_height
+                ),
+                indent=stil.indent if not stil.indent.is_empty() else wirksam.indent,
+                keep_next=stil.keep_next or wirksam.keep_next,
+                keep_lines=stil.keep_lines or wirksam.keep_lines,
+                page_break_before=stil.page_break_before or wirksam.page_break_before,
+                outline_level=(
+                    stil.outline_level
+                    if stil.outline_level is not None
+                    else wirksam.outline_level
+                ),
+                shading=stil.shading if stil.shading is not None else wirksam.shading,
+                borders=stil.borders if stil.borders else wirksam.borders,
+            )
+        if wirksam.size_pt is None:
+            wirksam = replace(wirksam, size_pt=self.typography.base_size_pt)
+        return wirksam
 
     def with_style(self, style: ParagraphStyle) -> "LayoutDefinition":
         """Kopie mit ersetztem/ergaenztem Format -- der Editor arbeitet so."""

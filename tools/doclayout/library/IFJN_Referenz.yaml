@@ -18,11 +18,12 @@ page:
     page_number: true
     align: center
 typography:
-  body_font: Calibri
-  heading_font: ''
+  body_font: Cambria
+  heading_font: Calibri
   mono_font: Consolas
   base_size_pt: 11.0
-  line_height: 1.15
+  table_size_pt: 8.5
+  line_height: 1.2
   language: de-DE
   hyphenation: true
   hyphenation_zone_mm: 5.0
@@ -41,8 +42,13 @@ styles:
   Normal:
     name: Normal
   BodyText:
+    name: Fließtext
+    based_on: Normal
+    next: BodyText
+    align: justify
     space_before_pt: 0.0
     space_after_pt: 7.0
+    line_height: 1.2
   FirstParagraph:
     based_on: BodyText
     space_before_pt: 0.0
@@ -270,6 +276,7 @@ styles:
     name: Fachtext
     based_on: BodyText
     next: Fachtext
+    align: justify
     space_before_pt: 0.0
     space_after_pt: 7.0
   Prompt-Trenner:
@@ -283,25 +290,6 @@ styles:
     space_after_pt: 6.0
     line_height: 1.0
     keep_next: true
-  Themenblock:
-    name: Themenblock
-    based_on: Heading2
-    next: BodyText
-    size_pt: 20.0
-    color: accent
-    space_before_pt: 0.0
-    space_after_pt: 16.0
-    outline_level: 0
-    bold: true
-    keep_next: true
-    keep_lines: true
-    page_break_before: true
-    borders:
-      bottom:
-        width_pt: 1.5
-        color: accent2
-        space_pt: 3.0
-        style: single
   TOC1:
     size_pt: 12.0
     color: accent
@@ -338,4 +326,3 @@ classmap:
   fachtext: Fachtext
   prompt: Prompt-Frage
   prompt-separator: Prompt-Trenner
-  themenblock: Themenblock

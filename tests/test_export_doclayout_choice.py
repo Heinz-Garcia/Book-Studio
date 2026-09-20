@@ -42,7 +42,7 @@ def dialog(app):
 
 def test_the_library_shows_up_in_the_choice():
     auswahl = E._doclayout_choices()
-    assert auswahl[0] == E.DOCLAYOUT_NONE
+    assert auswahl[0].startswith("— Buch-Stand belassen")
     assert "IFJN_layout" in auswahl
 
 
@@ -54,13 +54,14 @@ def test_a_broken_library_does_not_take_the_dialog_down(monkeypatch):
         raise RuntimeError("Bibliothek unlesbar")
 
     monkeypatch.setattr(L, "available_layouts", kaputt)
-    assert E._doclayout_choices() == [E.DOCLAYOUT_NONE]
+    assert E._doclayout_choices() == [E._doclayout_none_label()]
 
 
 def test_the_choice_is_offered_in_the_dialog(dialog):
     eintraege = [dialog.doclayout_combo.itemText(i)
                  for i in range(dialog.doclayout_combo.count())]
-    assert eintraege[0] == E.DOCLAYOUT_NONE
+    assert eintraege[0].startswith("— Buch-Stand belassen")
+    assert dialog.doclayout_combo.itemData(0) == ""
     assert "IFJN_layout" in eintraege
 
 
@@ -95,10 +96,23 @@ def test_the_chosen_template_is_returned_for_docx(dialog):
 
 
 def test_no_template_means_render_as_before(dialog):
-    """Der Leereintrag ist keine Vorlage -- dann rendert Quarto wie bisher."""
+    """Der Leereintrag ist keine Vorlage -- dann bleibt der Buch-Stand."""
     dialog.format_combo.setCurrentText("docx")
-    dialog.doclayout_combo.setCurrentText(E.DOCLAYOUT_NONE)
+    dialog.doclayout_combo.setCurrentIndex(0)
     assert dialog._selected_doclayout() == ""
+
+
+def test_none_label_shows_applied_layout_name(tmp_path, monkeypatch):
+    """Wer den Namen vergessen hat, sieht ihn im Leereintrag."""
+    book = tmp_path / "Band"
+    doc = book / "bookconfig" / "doclayout"
+    doc.mkdir(parents=True)
+    (doc / "classmap.lua").write_text(
+        "-- Layout: Reisefuehrer_Andalusien\nreturn {}\n", encoding="utf-8"
+    )
+    label = E._doclayout_none_label(book)
+    assert "Reisefuehrer_Andalusien" in label
+    assert "Buch-Stand belassen" in label
 
 
 def test_for_other_formats_nothing_is_returned(dialog):
@@ -108,7 +122,9 @@ def test_for_other_formats_nothing_is_returned(dialog):
     versprechen, die es dort nicht gibt.
     """
     dialog.format_combo.setCurrentText("docx")
-    dialog.doclayout_combo.setCurrentText("IFJN_layout")
+    idx = dialog.doclayout_combo.findData("IFJN_layout")
+    assert idx >= 0
+    dialog.doclayout_combo.setCurrentIndex(idx)
     dialog.format_combo.setCurrentText("typst")
     assert dialog._selected_doclayout() == ""
 
@@ -118,7 +134,7 @@ def test_a_remembered_choice_comes_back(app):
         None, ["Standard"], initial={"format": "docx", "doclayout": "IFJN_layout"}
     )
     try:
-        assert fenster.doclayout_combo.currentText() == "IFJN_layout"
+        assert fenster.doclayout_combo.currentData() == "IFJN_layout"
     finally:
         fenster.deleteLater()
 
@@ -129,6 +145,8 @@ def test_an_unknown_remembered_choice_falls_back(app):
         None, ["Standard"], initial={"format": "docx", "doclayout": "gibt_es_nicht"}
     )
     try:
-        assert fenster.doclayout_combo.currentText() == E.DOCLAYOUT_NONE
+        assert fenster.doclayout_combo.currentIndex() == 0
+        assert fenster.doclayout_combo.currentData() == ""
+        assert "Buch-Stand belassen" in fenster.doclayout_combo.currentText()
     finally:
         fenster.deleteLater()

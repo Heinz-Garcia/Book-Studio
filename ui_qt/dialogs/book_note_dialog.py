@@ -43,7 +43,13 @@ from PySide6.QtWidgets import (
 )
 
 from tools.book_note import store
-from ui_qt import qt_session
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -67,7 +73,7 @@ class BookNoteDialog(QDialog):
         books: Optional[list[Path]] = None,
         select: Optional[Path] = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self.setWindowTitle("Buchnotizen")
         self._books: list[Path] = list(books or [])
         self._current: Optional[Path] = None
@@ -77,9 +83,12 @@ class BookNoteDialog(QDialog):
         #: ``_on_book_changed`` nicht erneut anlaufen.
         self._switching = False
 
-        self._apply_saved_size()
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
         self._build_ui()
         self._fill_books(select)
+        prepare_autonomous_window(self, parent)
 
     # -- Aufbau ------------------------------------------------------------
 
@@ -132,6 +141,9 @@ class BookNoteDialog(QDialog):
         outer.addWidget(splitter, 1)
 
         fuss = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(fuss, tool_key="book_note", host=self)
         self.path_label = QLabel()
         self.path_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
@@ -163,7 +175,8 @@ class BookNoteDialog(QDialog):
             self.book_label.setText("Kein Buchprojekt gefunden.")
             self.editor.setEnabled(False)
             self.status_label.setText(
-                "Gesucht wurde nach Ordnern mit einer _quarto.yml."
+                "Gesucht wurde nach Ordnern mit einer _quarto.yml. "
+                "Ansicht → Arbeitsweg → Bücher verwalten."
             )
             return
 
@@ -298,45 +311,21 @@ class BookNoteDialog(QDialog):
 
     # -- Fenstergroesse und Schliessen -------------------------------------
 
-    def _apply_saved_size(self) -> None:
-        breite, hoehe = _DEFAULT_SIZE
-        try:
-            state = qt_session.load_session()
-        except (OSError, ValueError):
-            state = {}
-        ui = state.get("ui_state") if isinstance(state, dict) else None
-        if isinstance(ui, dict):
-            gemerkt = ui.get(_SIZE_KEY)
-            if isinstance(gemerkt, (list, tuple)) and len(gemerkt) == 2:
-                try:
-                    breite, hoehe = int(gemerkt[0]), int(gemerkt[1])
-                except (TypeError, ValueError):
-                    breite, hoehe = _DEFAULT_SIZE
-        self.resize(max(_MIN_SIZE[0], breite), max(_MIN_SIZE[1], hoehe))
-
     def _teardown(self) -> None:
-        """Sichern und Groesse merken -- genau einmal, egal auf welchem Weg."""
+        """Notiz sichern -- genau einmal, egal auf welchem Weg."""
         if self._closed:
             return
         self._closed = True
         self._save_current()
-        try:
-            qt_session.update_ui_state(
-                {_SIZE_KEY: [int(self.width()), int(self.height())]}
-            )
-        except OSError:
-            _LOG.debug("Fenstergroesse nicht abgelegt", exc_info=True)
 
-    def reject(self) -> None:  # noqa: D102 - Qt-Vertrag
+    def done(self, result: int) -> None:
         self._teardown()
-        super().reject()
-
-    def accept(self) -> None:  # noqa: D102 - Qt-Vertrag
-        self._teardown()
-        super().accept()
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt-Vertrag
         self._teardown()
+        persist_window_size(self, _SIZE_KEY)
         super().closeEvent(event)
 
 
@@ -366,10 +355,16 @@ def _discover_books(studio: Any = None) -> list[Path]:
     return store.find_books(Path(__file__).resolve().parent.parent.parent)
 
 
+_active: list[BookNoteDialog] = []
+
+
 def open_book_note_qt(
     studio: Any = None, parent: Optional[QWidget] = None, **kwargs: Any
 ) -> int:
     """Entrypoint fuer den Plugin-Adapter."""
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return 0
     auswahl = kwargs.get("book_path")
     if auswahl is None and studio is not None:
         auswahl = getattr(studio, "current_book", None) or getattr(
@@ -380,10 +375,8 @@ def open_book_note_qt(
         books=_discover_books(studio),
         select=Path(auswahl) if auswahl else None,
     )
-    # Rueckgabe des Dialogs statt fest ``0``: Der Adapter deklariert ``-> int``,
-    # und ein abgebrochenes Fenster soll nicht wie ein erfolgreicher Lauf
-    # aussehen.
-    return int(dialog.exec())
+    show_autonomous_window(dialog, _active)
+    return 0
 
 
 __all__ = ["BookNoteDialog", "open_book_note_qt"]

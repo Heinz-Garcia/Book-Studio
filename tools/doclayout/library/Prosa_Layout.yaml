@@ -111,25 +111,6 @@ styles:
     space_after_pt: 6.0
     line_height: 1.0
     keep_lines: true
-  Themenblock:
-    name: Themenblock
-    based_on: Heading2
-    next: BodyText
-    size_pt: 20.0
-    color: accent
-    space_before_pt: 0.0
-    space_after_pt: 16.0
-    outline_level: 0
-    bold: true
-    keep_next: true
-    keep_lines: true
-    page_break_before: true
-    borders:
-      bottom:
-        width_pt: 1.5
-        color: accent2
-        space_pt: 3.0
-        style: single
   TOC1:
     size_pt: 12.0
     color: accent
@@ -140,4 +121,3 @@ classmap:
   fachtext: Fachtext
   prompt: Prompt-Frage
   prompt-separator: Prompt-Trenner
-  themenblock: Themenblock

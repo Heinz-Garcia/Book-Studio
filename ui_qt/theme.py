@@ -9,6 +9,11 @@ from ui_qt.pitugrafo_look import PITU_CORE_STYLESHEET
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication, QWidget
 
+# Hyperlinks (QTextBrowser, RichText-QLabel, Handbuch-HTML): dunkles Blau —
+# System-Hellblau ist auf hellem Hintergrund kaum lesbar.
+LINK_COLOR = "#1e3a8a"
+LINK_VISITED_COLOR = "#1e3a5f"
+
 # App-spezifische Ergänzungen (ObjectNames / Hauptfenster-Struktur).
 # Kernfarben/Checkboxen/Buttons kommen aus PITU_CORE_STYLESHEET.
 _APP_EXTRAS = """
@@ -36,6 +41,15 @@ QMenu::separator {
     height: 1px;
     background: #c8d3ec;
     margin: 4px 8px;
+}
+QLabel#pluginMenuGroupHeader,
+QLabel#pluginMenuGroupHeader:disabled {
+    background-color: #d4deef;
+    color: #1c2740;
+    padding: 6px 12px;
+    margin: 0px;
+    font-weight: 600;
+    border: none;
 }
 QStatusBar {
     background-color: #e9eefb;
@@ -181,13 +195,61 @@ QLabel#HelpBarText {
     color: #1c2740;
     font-size: 13px;
 }
+QWidget#workPathBar QLabel#workPathSummary {
+    color: #5b6785;
+    font-size: 12px;
+}
+QPushButton#workPathPrimaryCta {
+    background: #32CD32;
+    color: #064e3b;
+    border: 1px solid #22c55e;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 6px 16px;
+    min-height: 32px;
+}
+QPushButton#workPathPrimaryCta:hover {
+    background: #5DFF5D;
+    color: #064e3b;
+    border-color: #16a34a;
+}
+QPushButton#workPathPrimaryCta:pressed {
+    background: #22c55e;
+    color: #ffffff;
+    border-color: #15803d;
+}
+QPushButton#workPathPrimaryCta:disabled {
+    background: #d8dde5;
+    color: #8899bb;
+    border: 1px solid #c5cad3;
+}
+QFrame#workPathStageColumn {
+    background: transparent;
+    border: none;
+}
+QLabel#workPathStageNodeLabel {
+    font-size: 11px;
+    font-weight: 600;
+}
+QPushButton#workPathSubChip {
+    font-size: 11px;
+    padding: 2px 8px;
+}
 """
 
 
 def apply_theme(app: "QApplication") -> None:
     """Fusion + El-Pitugrafo-Kern + App-Extras — gilt für Hauptfenster und alle Dialoge."""
+    from PySide6.QtGui import QColor, QPalette
+
     app.setStyle("Fusion")
     app.setStyleSheet(PITU_CORE_STYLESHEET + "\n" + _APP_EXTRAS)
+    # QTextBrowser/QLabel-Links folgen der Palette, nicht dem Stylesheet.
+    palette = app.palette()
+    palette.setColor(QPalette.ColorRole.Link, QColor(LINK_COLOR))
+    palette.setColor(QPalette.ColorRole.LinkVisited, QColor(LINK_VISITED_COLOR))
+    app.setPalette(palette)
 
 
 def is_dark(widget: "QWidget | None" = None) -> bool:

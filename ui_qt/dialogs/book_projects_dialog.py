@@ -39,6 +39,13 @@ from tools.book_projects.catalog import (
 from tools.book_projects.label import read_display_name, write_display_name
 from tools.book_projects.scaffold import is_quarto_book
 from tools.mapping_manager.actions import reveal_in_explorer
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.book_workspace import repo_root
 from ui_qt.widgets.help_bar import HelpBar
 
@@ -55,12 +62,16 @@ _COL_PATH = 3
 
 _NO_ISBN_PLACEHOLDER = "(keine ISBN)"
 
+_SIZE_KEY = "book_projects_size"
+_DEFAULT_SIZE = (1280, 720)
+_MIN_SIZE = (1180, 640)
+_active: list["BookProjectsQtDialog"] = []
+
 
 class BookProjectsQtDialog(QDialog):
     def __init__(self, parent: Optional[QWidget], studio: Any = None) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self.studio = studio
-        self._host = parent
         self._repo = repo_root()
         self._books: list[BookInfo] = []
         #: Einmal je ``_reload`` gefuellt -- nicht bei jedem Tastendruck.
@@ -68,8 +79,9 @@ class BookProjectsQtDialog(QDialog):
         self._isbn_cache: dict[Path, str] = {}
         self.setObjectName("bookProjectsDialog")
         self.setWindowTitle("Buchprojekte verwalten")
-        self.setMinimumSize(1180, 640)
-        self.resize(1280, 720)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
@@ -163,6 +175,9 @@ class BookProjectsQtDialog(QDialog):
 
         # --- Actions ---
         actions = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(actions, tool_key="book_projects", host=self)
         self.btn_open = QPushButton("Öffnen")
         self.btn_open.setObjectName("bookProjectsPrimary")
         self.btn_open.setDefault(True)
@@ -219,11 +234,17 @@ class BookProjectsQtDialog(QDialog):
         layout.addWidget(hint)
 
         self._reload()
+        prepare_autonomous_window(self, parent)
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     def _active_book_path(self) -> Path | None:
         raw = getattr(self.studio, "current_book", None) if self.studio else None
-        if raw is None and self._host is not None:
-            facade = getattr(self._host, "_facade", None)
+        host = getattr(self, "_host", None)
+        if raw is None and host is not None:
+            facade = getattr(host, "_facade", None)
             raw = getattr(facade, "current_book", None) if facade else None
         if raw is None:
             return None
@@ -394,7 +415,7 @@ class BookProjectsQtDialog(QDialog):
         return Path(data) if data is not None else None
 
     def _notify_host_refresh(self, activate: Path | None = None) -> None:
-        host = self._host
+        host = getattr(self, "_host", None)
         if host is not None and hasattr(host, "_refresh_book_list"):
             try:
                 host._refresh_book_list()
@@ -676,8 +697,11 @@ class BookProjectsQtDialog(QDialog):
 
 
 def open_book_projects_qt(studio: Any = None, parent: Optional[QWidget] = None) -> None:
+    existing = raise_if_open(_active, lambda _d: True)
+    if existing is not None:
+        return
     dlg = BookProjectsQtDialog(parent, studio)
-    dlg.exec()
+    show_autonomous_window(dlg, _active)
 
 
 __all__ = ["BookProjectsQtDialog", "open_book_projects_qt"]

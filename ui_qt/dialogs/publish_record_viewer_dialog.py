@@ -22,6 +22,13 @@ from PySide6.QtWidgets import (
 )
 
 from tools.publish_record.record import publish_record_path, read_record
+from ui_qt.autonomous_window import (
+    apply_persisted_size,
+    persist_window_size,
+    prepare_autonomous_window,
+    raise_if_open,
+    show_autonomous_window,
+)
 from ui_qt.widgets.help_bar import HelpBar
 
 _EVENT_LABELS = {
@@ -29,6 +36,11 @@ _EVENT_LABELS = {
     "doctor_check": "Buch-Doktor",
     "render_success": "Render",
 }
+
+_SIZE_KEY = "publish_record_viewer_size"
+_DEFAULT_SIZE = (900, 560)
+_MIN_SIZE = (560, 360)
+_active: list[PublishRecordViewerDialog] = []
 
 
 def _payload_summary(event_type: str, payload: dict[str, Any]) -> str:
@@ -53,15 +65,18 @@ class PublishRecordViewerDialog(QDialog):
 
     def __init__(
         self,
-        parent: Optional[QWidget],
+        host: Optional[QWidget],
         *,
         book_path: Path,
         record: dict[str, Any],
     ) -> None:
-        super().__init__(parent)
+        super().__init__(None)
+        self._book_path = Path(book_path)
         self._events = list(record.get("events") or [])
         self.setWindowTitle("Publish Record (Veröffentlichungs-Protokoll)")
-        self.resize(900, 560)
+        apply_persisted_size(
+            self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
+        )
 
         layout = QVBoxLayout(self)
         HelpBar.create_and_prepend_for_plugin(layout, "publish_record")
@@ -116,6 +131,9 @@ class PublishRecordViewerDialog(QDialog):
         layout.addWidget(splitter, 1)
 
         buttons = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(buttons, tool_key="publish_record", host=self)
         buttons.addStretch(1)
         close = QPushButton("Schließen")
         close.clicked.connect(self.accept)
@@ -124,6 +142,11 @@ class PublishRecordViewerDialog(QDialog):
 
         if self._display:
             self.table.selectRow(0)
+        prepare_autonomous_window(self, host)
+
+    def done(self, result: int) -> None:
+        persist_window_size(self, _SIZE_KEY)
+        super().done(result)
 
     def _show_detail(self) -> None:
         rows = self.table.selectionModel().selectedRows()
@@ -141,9 +164,16 @@ class PublishRecordViewerDialog(QDialog):
 def open_publish_record_viewer_qt(studio: Any, parent: Optional[QWidget] = None) -> None:
     book = getattr(studio, "current_book", None)
     if not book:
-        QMessageBox.warning(parent, "Publish Record", "Kein Buchprojekt aktiv.")
+        from ui_qt.work_path_guidance import warn_need_book
+
+        warn_need_book(parent, title="Publish Record", studio=studio)
         return
     book_path = Path(book)
+    existing = raise_if_open(
+        _active, lambda d: Path(d._book_path) == book_path
+    )
+    if existing is not None:
+        return
     record = read_record(book_path)
     if record is None:
         QMessageBox.information(
@@ -153,4 +183,5 @@ def open_publish_record_viewer_qt(studio: Any, parent: Optional[QWidget] = None)
             "(bookconfig/publish_record.json).",
         )
         return
-    PublishRecordViewerDialog(parent, book_path=book_path, record=record).exec()
+    dlg = PublishRecordViewerDialog(parent, book_path=book_path, record=record)
+    show_autonomous_window(dlg, _active)
