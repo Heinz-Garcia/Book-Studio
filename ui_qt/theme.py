@@ -23,7 +23,7 @@ QMenuBar {
     color: #1c2740;
 }
 QMenuBar::item:selected {
-    background-color: #dce5f8;
+    background-color: #b6c9ef;
 }
 QMenu {
     background-color: #ffffff;
@@ -35,7 +35,7 @@ QMenu::item {
     color: #1c2740;
 }
 QMenu::item:selected {
-    background-color: #dce5f8;
+    background-color: #b6c9ef;
 }
 QMenu::separator {
     height: 1px;
@@ -44,8 +44,8 @@ QMenu::separator {
 }
 QLabel#pluginMenuGroupHeader,
 QLabel#pluginMenuGroupHeader:disabled {
-    background-color: #d4deef;
-    color: #1c2740;
+    background-color: #e8ecf4;
+    color: #334b86;
     padding: 6px 12px;
     margin: 0px;
     font-weight: 600;

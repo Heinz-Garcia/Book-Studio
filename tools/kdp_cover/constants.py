@@ -20,6 +20,12 @@ DEFAULT_EXPORT_DPI = 300
 # Mindest-DPI für eingebettete Bilder (KDP-Richtlinie).
 MIN_IMAGE_DPI = 300
 
+# Vorderseite: Bild nur im oberen Anteil der Panelhöhe (Rest = Front-Farbe).
+# Goldener Schnitt: kleinerer Abschnitt ≈ 1/φ² ≈ 0.382 der Gesamthöhe.
+FRONT_IMAGE_GOLDEN_SECTION_FRACTION = 0.382
+# Alias für ältere Importe / gespeicherte Modus-ID ``top_third``.
+FRONT_IMAGE_TOP_THIRD_FRACTION = FRONT_IMAGE_GOLDEN_SECTION_FRACTION
+
 
 def clamp_print_dpi(dpi: float) -> float:
     """Erzwingt mindestens KDP-Druckauflösung (``MIN_IMAGE_DPI``)."""

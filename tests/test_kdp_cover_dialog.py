@@ -235,12 +235,29 @@ def test_dialog_validation_ok_enables_export(monkeypatch, tmp_path):
 
 
 def test_dialog_safe_mode_blocks_export_without_front(monkeypatch):
+    """Bildmodus vollflächig ohne gültige Datei → Sicher-Export gesperrt."""
     _app, dlg, _ = _app_and_dialog(monkeypatch)
-    dlg.front_edit.setText("")
+    dlg.front_mode_full.setChecked(True)
+    dlg.front_edit.setText(r"C:\missing\front_cover.png")
     dlg.mode_combo.setCurrentIndex(0)  # safe
+    dlg._sync_front_image_mode_controls()
     dlg._on_params_changed()
     assert not dlg.btn_export.isEnabled()
     assert "Fehler" in dlg.status_label.text()
+    dlg.close()
+
+
+def test_dialog_none_mode_allows_export_without_front(monkeypatch):
+    """Kein-Bild-Modus: nur Front-Farbe reicht für den Export."""
+    _app, dlg, _ = _app_and_dialog(monkeypatch)
+    dlg.front_mode_none.setChecked(True)
+    dlg.front_edit.setText("")
+    dlg.front_color_edit.setText("#1e3a5f")
+    dlg.mode_combo.setCurrentIndex(0)  # safe
+    dlg._sync_front_image_mode_controls()
+    dlg._on_params_changed()
+    assert dlg.btn_export.isEnabled()
+    assert "OK" in dlg.status_label.text() or "Warnungen" in dlg.status_label.text()
     dlg.close()
 
 
@@ -312,6 +329,8 @@ def test_kdp_channel_checkbox_is_form_style(monkeypatch, tmp_path):
     _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
     assert "KDP-Taschenbuch" in dlg.kdp_channel_check.text()
     assert dlg.kdp_channel_check.isEnabled()
+    assert dlg.btn_pipette.text() == "Pipette…"
+    assert dlg.btn_open_cover_dir.parent() is dlg.btn_pipette.parent()
     app_ss = QApplication.instance().styleSheet() or ""
     assert "QCheckBox::indicator" in app_ss
     assert "QCheckBox::indicator" in PITU_CORE_STYLESHEET
@@ -336,10 +355,10 @@ def test_kdp_dialog_keeps_preview_column(monkeypatch, tmp_path):
     assert labels == [
         "Maße",
         "Allgemein",
-        "Vorderseite",
+        "Vorderseite · Bild",
+        "Vorderseite · Layout",
         "Rücken",
         "Rückseite",
-        "Gestaltung",
         "Experte",
     ]
     assert dlg.btn_reset_safe_slots.text() == "Zurück auf Safe-Slots"
@@ -784,6 +803,45 @@ def test_apply_layout_roundtrip(monkeypatch, tmp_path):
     assert built.mode == "free"
     assert built.title == "Geladen"
     assert built.title_offset_x_mm == pytest.approx(2.0)
+    dlg.close()
+
+
+def test_front_image_mode_radios_roundtrip(monkeypatch, tmp_path):
+    _app, dlg, book_studio = _app_and_dialog(monkeypatch, tmp_path)
+    front = Path(book_studio.current_book) / "img" / "Deckblatt.png"
+    assert front.is_file()
+
+    dlg.front_mode_none.setChecked(True)
+    dlg._sync_front_image_mode_controls()
+    assert not dlg.front_zoom_spin.isEnabled()
+    built_none = dlg._build_layout()
+    assert built_none.front_image_mode == "none"
+
+    dlg.front_edit.setText(str(front))
+    dlg.front_mode_top_third.setChecked(True)
+    dlg.front_zoom_spin.setValue(1.5)
+    dlg.front_oy_spin.setValue(3.0)
+    dlg._sync_front_image_mode_controls()
+    assert dlg.front_zoom_spin.isEnabled()
+    built_third = dlg._build_layout()
+    assert built_third.front_image_mode == "top_third"
+    assert built_third.front_image_zoom == pytest.approx(1.5)
+    assert built_third.front_image_offset_y_mm == pytest.approx(3.0)
+
+    dlg._apply_layout(
+        CoverLayout(
+            page_count=120,
+            paper_type_id="white_bw",
+            trim_width_mm=135.0,
+            trim_height_mm=215.0,
+            front_image=str(front),
+            front_image_mode="full",
+            front_color="#1e3a5f",
+        ),
+        project_path=tmp_path / "m.json",
+    )
+    assert dlg.front_mode_full.isChecked()
+    assert dlg._build_layout().front_image_mode == "full"
     dlg.close()
 
 

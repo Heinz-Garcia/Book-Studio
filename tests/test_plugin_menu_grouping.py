@@ -55,7 +55,7 @@ class TestGruppendefinition:
         } <= set(gruppe)
 
     def test_kapitelliste_ist_eigene_gruppe(self) -> None:
-        """Trennstrich oberhalb von Kapitelliste — getrennt von Notizen."""
+        """Trennstrich oberhalb von Kapitelliste — getrennt von Merkhilfen."""
         assert any(namen == ("file_indexer",) for _t, namen in _PLUGIN_GROUPS)
         notizen = next(_group_names(g) for g in _PLUGIN_GROUPS if "memo_pad" in g[1])
         assert "file_indexer" not in notizen
@@ -66,9 +66,15 @@ class TestGruppendefinition:
     def test_freigabe_und_archiv_tragen_stufenmarkierung(self) -> None:
         titel_map = {titel: namen for titel, namen in _PLUGIN_GROUPS}
         assert "publisher_compliance" in titel_map["I · Freigabe"]
-        assert "publish_readiness" in titel_map["I · Freigabe (Erweitert)"]
+        assert "publish_readiness" in titel_map["I · Freigabe"]
+        assert "I · Freigabe (Erweitert)" not in titel_map
         assert "mapping_manager" in titel_map["J · Archiv"]
         assert "book_projects" in titel_map["G · Struktur"]
+
+    def test_freigabe_gruppe_reihenfolge(self) -> None:
+        """Primäre Freigabe vor erweiterter Qualitätsansicht."""
+        namen = next(n for t, n in _PLUGIN_GROUPS if t == "I · Freigabe")
+        assert namen.index("publisher_compliance") < namen.index("publish_readiness")
 
 
 @pytest.mark.gui

@@ -191,9 +191,16 @@ Pitugrafo C–F und Phase-2-Pfadführung dort: noch offen (absichtlich getrennt)
 | Kette | Smart G′ (Skeleton nur wenn nötig) → headless Render → Compliance → Archiv |
 | Tests | `tests/test_studio_pipeline.py` |
 
-Pitugrafo-Teilkette und Aggregator-*Ausführung* (Brücke mit Pitugrafo): noch offen.
+Aggregator-*Ausführung* (Brücke mit Pitugrafo, Phase 3b): noch offen.
 **Studio F′ (Slice A, 2026-09-19):** Inbox-Übernahme + Stufe F + Teilkette ab
 Lieferung — siehe [prompt_1klick_studio.md](prompt_1klick_studio.md).
+**Pitugrafo-Teilkette (2026-09-21, umgesetzt):** Zuschnitt-Veto → Lauf →
+Kanon-Drift → Nachbesserung, mit Interrupt/Protokoll wie auf der Studio-Seite,
+Aggregator-Brücke bewusst ausgeklammert — `tools/teilkette/` im GrammarGraph-
+Repo (Version 31.55.0), siehe
+[prompt_1klick_pitugrafo.md](prompt_1klick_pitugrafo.md). Lauf und
+Nachbesserung sind darin gemockt getestet, nicht gegen ein echtes,
+bezahltes Buchprojekt erprobt.
 
 ### Phase 4 — 1-Klick-Produktion (Vollautomatik mit Notausgang)
 
@@ -282,6 +289,8 @@ Bekannte Stärken, die erhalten bleiben:
 
 - Studio-Maßnahmen 1-Klick + Einfachheit: [einfachheit_und_1klick.md](einfachheit_und_1klick.md)
 - Prompt Umsetzung Studio 1-Klick §1 (Checkboxen): [prompt_1klick_studio.md](prompt_1klick_studio.md)
+- Prompt Umsetzung Pitugrafo-Teilkette (Checkboxen, umgesetzt):
+  [prompt_1klick_pitugrafo.md](prompt_1klick_pitugrafo.md)
 - 1:1-Mapping Stufen A–J → konkrete Commands/Plugins/Artefaktpfade
 - Gate-Vertrag (Schema) pro Stufe
 - Implementierungsplan nur für Meilenstein 1 (Book-Studio-Arbeitsweg)

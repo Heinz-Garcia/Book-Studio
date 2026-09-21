@@ -88,6 +88,10 @@ tools/stylecloud/presets/*.json
 # Memo-Block: eine Notiz, nicht versioniert.
 tools/memo_pad/memo.json
 
+# Pfad-Favoriten: user-lokale Favoritenliste + Fenstergröße
+tools/path_favorites/favorites.json
+tools/path_favorites/last_session.json
+
 # Zwischenprodukte des atomaren Schreibers (json_io.write_json_atomic legt
 # ".<name>.<zufall>.tmp" neben die Zieldatei). Ein harter Abbruch laesst sie
 # liegen; ohne diese Regel landet der Sitzungszustand im Repo.

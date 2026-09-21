@@ -484,6 +484,122 @@ def test_front_zoom_and_offset_change_pixels(tmp_path: Path):
     ) != list(render_wrap_image(zoomed, dpi=72, resolve_base=tmp_path).getdata())
 
 
+def test_front_image_mode_none_ignores_path(tmp_path: Path):
+    from tools.kdp_cover.export_pdf import build_front_panel_image
+    from tools.kdp_cover.validate import validate_layout
+
+    front = tmp_path / "ignored.png"
+    Image.new("RGB", (800, 1200), (255, 0, 0)).save(front)
+    layout = CoverLayout(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+        front_image_mode="none",
+        front_color="#112233",
+    )
+    report = validate_layout(layout, resolve_base=tmp_path)
+    assert not any(i.code.startswith("front_image_") for i in report.errors)
+    panel = build_front_panel_image(
+        layout, width_px=90, height_px=150, dpi=72, resolve_base=tmp_path
+    )
+    assert panel.getpixel((45, 75)) == (0x11, 0x22, 0x33)
+
+
+def test_front_image_mode_top_third_and_zoom(tmp_path: Path):
+    from PIL import ImageDraw
+    from tools.kdp_cover.export_pdf import build_front_panel_image
+
+    front = tmp_path / "band.png"
+    im = Image.new("RGB", (900, 900), (10, 20, 30))
+    ImageDraw.Draw(im).rectangle([0, 0, 900, 300], fill=(200, 40, 40))
+    im.save(front)
+    common = dict(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+        front_image_mode="top_third",
+        front_color="#00AA55",
+    )
+    plain = CoverLayout(**common)
+    panel = build_front_panel_image(
+        plain, width_px=300, height_px=300, dpi=72, resolve_base=tmp_path
+    )
+    # Unterhalb des goldenen Schnitts (~38,2 %) = Front-Farbe
+    assert panel.getpixel((150, 250)) == (0x00, 0xAA, 0x55)
+    # Oberes Band hat Bildpixel (nicht die reine Farbe)
+    assert panel.getpixel((150, 20)) != (0x00, 0xAA, 0x55)
+    # Grenze des Bildbands: y ≈ 0.382 * 300 ≈ 115 → darunter Farbe
+    assert panel.getpixel((150, 130)) == (0x00, 0xAA, 0x55)
+    assert panel.getpixel((150, 100)) != (0x00, 0xAA, 0x55)
+    zoomed = CoverLayout(**common, front_image_zoom=2.0, front_image_offset_y_mm=5.0)
+    panel_z = build_front_panel_image(
+        zoomed, width_px=300, height_px=300, dpi=72, resolve_base=tmp_path
+    )
+    assert list(panel.getdata()) != list(panel_z.getdata())
+    assert panel_z.getpixel((150, 250)) == (0x00, 0xAA, 0x55)
+
+
+def test_front_image_offset_y_works_at_zoom_one(tmp_path: Path):
+    """Y-Versatz darf bei Cover-Fit (Zoom 1) nicht still verworfen werden."""
+    from PIL import ImageDraw
+    from tools.kdp_cover.export_pdf import build_front_panel_image
+
+    front = tmp_path / "portrait.png"
+    im = Image.new("RGB", (600, 900), (20, 40, 60))
+    ImageDraw.Draw(im).rectangle([0, 0, 600, 300], fill=(220, 30, 30))
+    im.save(front)
+    common = dict(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+        front_image_mode="full",
+        front_image_zoom=1.0,
+        front_color="#00AA55",
+    )
+    centered = build_front_panel_image(
+        CoverLayout(**common),
+        width_px=270,
+        height_px=430,
+        dpi=72,
+        resolve_base=tmp_path,
+    )
+    shifted = build_front_panel_image(
+        CoverLayout(**common, front_image_offset_y_mm=25.0),
+        width_px=270,
+        height_px=430,
+        dpi=72,
+        resolve_base=tmp_path,
+    )
+    assert list(centered.getdata()) != list(shifted.getdata())
+    # Nach unten verschoben → am oberen Rand Front-Farbe sichtbar
+    assert shifted.getpixel((135, 2)) == (0x00, 0xAA, 0x55)
+
+
+def test_front_image_mode_legacy_roundtrip(tmp_path: Path):
+    """Alte JSON ohne front_image_mode: Pfad gesetzt → full."""
+    front = _make_front(tmp_path)
+    raw = {
+        "page_count": 120,
+        "paper_type_id": "white_bw",
+        "trim_width_mm": 135.0,
+        "trim_height_mm": 215.0,
+        "front_image": str(front),
+        "front_color": "#1e3a5f",
+    }
+    layout = CoverLayout.from_dict(raw)
+    assert layout.front_image_mode == "full"
+    path = tmp_path / "mode.json"
+    save_layout(layout, path)
+    loaded = load_layout(path)
+    assert loaded.front_image_mode == "full"
+
+
 def test_barcode_reserve_on_back_bottom_right():
     from tools.cover_size.calculator import inch_to_mm
     from tools.kdp_cover.constants import BARCODE_HEIGHT_IN, BARCODE_WIDTH_IN

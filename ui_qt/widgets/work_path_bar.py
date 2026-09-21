@@ -470,9 +470,11 @@ class WorkPathBar(QWidget):
             col.setFixedWidth(content_w + pad + 2)
 
     def _apply_collapsed_chrome(self) -> None:
-        self._details.setVisible(not self._collapsed)
-        # Primär-CTA bleibt immer sichtbar — eine Handlung pro Zustand.
-        self._primary_cta.setVisible(True)
+        expanded = not self._collapsed
+        self._details.setVisible(expanded)
+        # Weiter / Aktualisieren gehören zum Panelinhalt — platzsparend einklappbar.
+        self._primary_cta.setVisible(expanded)
+        self._refresh_btn.setVisible(expanded)
         arrow = "▶" if self._collapsed else "▼"
         self._toggle.setText(f"{arrow} Arbeitsweg")
 

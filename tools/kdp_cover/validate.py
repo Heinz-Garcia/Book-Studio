@@ -8,12 +8,17 @@ from typing import Literal, Optional
 
 import tools.kdp_specs as kdp_specs
 from tools.kdp_cover.constants import (
+    FRONT_IMAGE_GOLDEN_SECTION_FRACTION,
     MIN_IMAGE_DPI,
     MIN_SPINE_TEXT_PAGE_COUNT,
     SPINE_EDGE_PADDING_MIN_MM,
 )
 from tools.kdp_cover.geometry import WrapGeometry, build_geometry
-from tools.kdp_cover.model import CoverLayout
+from tools.kdp_cover.model import (
+    CoverLayout,
+    normalize_front_image_mode,
+    uses_front_image,
+)
 
 Severity = Literal["error", "warning"]
 
@@ -153,9 +158,8 @@ def validate_layout(
         )
         return report
 
-    if not layout.front_image.strip():
-        # Bild optional: einfarbige Vorderseite (Default-Farbe) oder später
-        # Stylecloud-PNG. Ohne Bild muss die Front-Farbe gültig sein.
+    if not uses_front_image(layout):
+        # Bild optional / Modus „Kein Bild“: einfarbige Vorderseite.
         if _parse_hex_color(getattr(layout, "front_color", "") or "") is None:
             report.issues.append(
                 ValidationIssue(
@@ -183,6 +187,12 @@ def validate_layout(
             # Panel inkl. Bleed-Überhang in der jeweiligen Achse
             panel_w = geo.trim_width_mm + geo.bleed_mm
             panel_h = geo.trim_height_mm + 2 * geo.bleed_mm
+            front_mode = normalize_front_image_mode(
+                getattr(layout, "front_image_mode", None),
+                front_image=layout.front_image,
+            )
+            if front_mode == "top_third":
+                panel_h = panel_h * FRONT_IMAGE_GOLDEN_SECTION_FRACTION
             dpi = _image_dpi_for_panel(front_path, panel_w, panel_h)
             if dpi is None and not _pillow_fehlt():
                 # Datei da, aber nicht als Bild lesbar. Das ist ein Befund und
@@ -209,6 +219,19 @@ def validate_layout(
                         ),
                     )
                 )
+            # Unter dem Bildband bleibt die Front-Farbe sichtbar.
+            if front_mode == "top_third":
+                if _parse_hex_color(getattr(layout, "front_color", "") or "") is None:
+                    report.issues.append(
+                        ValidationIssue(
+                            code="front_color",
+                            severity="error",
+                            message=(
+                                f"Ungültige Vorderseiten-Farbe: "
+                                f"{getattr(layout, 'front_color', '')!r}"
+                            ),
+                        )
+                    )
 
     if layout.back_image.strip():
         back_path = Path(layout.back_image)

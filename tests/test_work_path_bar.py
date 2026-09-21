@@ -33,8 +33,9 @@ def test_work_path_bar_applies_no_book_state():
     assert bar._refresh_btn.text() == "Aktualisieren"
     assert not hasattr(bar, "_pipeline_btn")
     assert bar.collapsed is False
-    # Primär-CTA immer sichtbar (auch ausgeklappt)
+    # Primär-CTA und Aktualisieren nur im ausgeklappten Panel
     assert not bar._primary_cta.isHidden()
+    assert not bar._refresh_btn.isHidden()
     assert bar._primary_cta.objectName() == "workPathPrimaryCta"
     assert "Weiter" in bar._primary_cta.text()
     import ui_qt.theme as theme_mod
@@ -79,7 +80,7 @@ def test_work_path_bar_stage_buttons_equal_width():
     app.processEvents()
 
 
-def test_work_path_bar_collapsed_keeps_primary_cta():
+def test_work_path_bar_collapsed_hides_panel_actions():
     from services.work_path import assess_work_path
     from ui_qt.widgets.work_path_bar import WorkPathBar
 
@@ -91,13 +92,14 @@ def test_work_path_bar_collapsed_keeps_primary_cta():
     bar.set_collapsed(True)
     assert bar.collapsed is True
     assert bar._details.isHidden() is True
-    assert not bar._primary_cta.isHidden()
-    assert bar._primary_cta.isEnabled()
-    assert "Weiter" in bar._primary_cta.text()
+    assert bar._primary_cta.isHidden()
+    assert bar._refresh_btn.isHidden()
     assert seen == [True]
     bar.set_collapsed(False)
     assert bar._details.isHidden() is False
     assert not bar._primary_cta.isHidden()
+    assert not bar._refresh_btn.isHidden()
+    assert "Weiter" in bar._primary_cta.text()
     assert seen == [True, False]
     bar.close()
     app.processEvents()

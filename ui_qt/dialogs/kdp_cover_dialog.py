@@ -14,6 +14,7 @@ from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap, QResizeEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QColorDialog,
     QComboBox,
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
@@ -68,10 +70,12 @@ from tools.kdp_cover.export_pdf import export_wrap_pdf, render_wrap_image
 from tools.kdp_cover.geometry import WrapGeometry, build_geometry
 from tools.kdp_cover.model import (
     CoverLayout,
+    FrontImageMode,
     SpineBadgeSpec,
     default_project_path,
     default_wrap_pdf_path,
     load_layout,
+    normalize_front_image_mode,
     resolve_existing_project_path,
     sanitize_book_filename_stem,
     save_layout,
@@ -571,7 +575,7 @@ class KdpCoverQtDialog(QDialog):
         # --- Tab: Vorderseite ---
         tab_front, front_body = self._make_editor_tab()
         front_hint = QLabel(
-            "Bild optional. Ohne Bild gilt die Front-Farbe. "
+            "Bildmodus wählbar: nur Farbe, goldener Schnitt oder vollflächig. "
             "Wortwolke: Stylecloud → Übergabe hierher."
         )
         front_hint.setWordWrap(True)
@@ -584,9 +588,42 @@ class KdpCoverQtDialog(QDialog):
         front_color_host, self.front_color_edit = self._color_field(
             "#1e3a5f",
             max_width=100,
-            tooltip="Vorderseiten-Farbe (Default), wenn kein Bild gewählt ist",
+            tooltip=(
+                "Vorderseiten-Farbe: allein bei „Kein Bild“, "
+                "unter dem Bildband bei „goldener Schnitt“, "
+                "Unterlage bei Vollbild/Wortwolke."
+            ),
         )
         design_front.addRow("Front-Farbe:", front_color_host)
+
+        self.front_mode_none = QRadioButton("Kein Bild (nur Farbe)")
+        self.front_mode_top_third = QRadioButton("Bild im goldenen Schnitt")
+        self.front_mode_full = QRadioButton("Bild vollflächig")
+        self.front_mode_none.setToolTip(
+            "Nur Front-Farbe — Bildpfad bleibt erhalten, wird aber nicht gezeichnet."
+        )
+        self.front_mode_top_third.setToolTip(
+            "Bild füllt die oberen ~38,2 % (goldener Schnitt; Zoom/Verschieben "
+            "möglich); darunter die Front-Farbe."
+        )
+        self.front_mode_full.setToolTip(
+            "Bild deckt die gesamte Vorderseite ab (Cover-Fit + Zoom/Verschieben)."
+        )
+        self.front_mode_none.setChecked(True)
+        self.front_mode_group = QButtonGroup(self)
+        self.front_mode_group.addButton(self.front_mode_none, 0)
+        self.front_mode_group.addButton(self.front_mode_top_third, 1)
+        self.front_mode_group.addButton(self.front_mode_full, 2)
+        front_mode_row = QHBoxLayout()
+        front_mode_row.setContentsMargins(0, 0, 0, 0)
+        front_mode_row.setSpacing(12)
+        front_mode_row.addWidget(self.front_mode_none)
+        front_mode_row.addWidget(self.front_mode_top_third)
+        front_mode_row.addWidget(self.front_mode_full)
+        front_mode_row.addStretch(1)
+        front_mode_host = QWidget()
+        front_mode_host.setLayout(front_mode_row)
+        design_front.addRow("Bildmodus:", front_mode_host)
 
         self.front_edit = QLineEdit()
         self.front_edit.setPlaceholderText(
@@ -594,30 +631,32 @@ class KdpCoverQtDialog(QDialog):
         )
         front_row = QHBoxLayout()
         front_row.addWidget(self.front_edit)
-        btn_front_asset = QPushButton("Asset…")
-        btn_front_asset.setToolTip(
+        self._btn_front_asset = QPushButton("Asset…")
+        self._btn_front_asset.setToolTip(
             "Bild aus dem Asset Manager wählen (Pool oder Buch-img/)."
         )
-        btn_front_asset.clicked.connect(lambda: self._pick_image_via_asset("front"))
-        front_row.addWidget(btn_front_asset)
-        btn_front = QPushButton("…")
-        btn_front.setFixedWidth(32)
-        btn_front.setToolTip("Datei im Dateisystem wählen")
-        btn_front.clicked.connect(self._browse_front)
-        front_row.addWidget(btn_front)
+        self._btn_front_asset.clicked.connect(
+            lambda: self._pick_image_via_asset("front")
+        )
+        front_row.addWidget(self._btn_front_asset)
+        self._btn_front_browse = QPushButton("…")
+        self._btn_front_browse.setFixedWidth(32)
+        self._btn_front_browse.setToolTip("Datei im Dateisystem wählen")
+        self._btn_front_browse.clicked.connect(self._browse_front)
+        front_row.addWidget(self._btn_front_browse)
         design_front.addRow("Bild / Wortwolke:", front_row)
 
-        btn_stylecloud = QPushButton("Wortwolke (Stylecloud)…")
-        btn_stylecloud.setToolTip(
+        self._btn_stylecloud = QPushButton("Wortwolke (Stylecloud)…")
+        self._btn_stylecloud.setToolTip(
             "Öffnet Stylecloud. Nach dem Erzeugen: „An KDP Cover übergeben“."
         )
-        btn_stylecloud.clicked.connect(self._open_stylecloud_for_front)
-        design_front.addRow("", btn_stylecloud)
+        self._btn_stylecloud.clicked.connect(self._open_stylecloud_for_front)
+        design_front.addRow("", self._btn_stylecloud)
 
-        btn_gestalten = QPushButton("Gestaltung öffnen…")
+        btn_gestalten = QPushButton("Layout öffnen…")
         btn_gestalten.setToolTip(
-            "Tab „Gestaltung“: Titel, Band, Fade, Fußzeile, Banner, Badge "
-            "auf der Vorderseite (je Block ein/aus)."
+            "Tab „Vorderseite · Layout“: Titel, Band, Fade, Fußzeile, Banner, Badge "
+            "(je Block ein/aus)."
         )
         btn_gestalten.clicked.connect(self._open_gestaltung_tab)
         design_front.addRow("", btn_gestalten)
@@ -628,21 +667,41 @@ class KdpCoverQtDialog(QDialog):
         self.front_zoom_spin.setSingleStep(0.05)
         self.front_zoom_spin.setValue(1.0)
         self.front_zoom_spin.setToolTip(
-            "Vergrößern über Cover-Fit (≥ 1,0). Danach Ausschnitt mit Offset verschieben."
+            "Vergrößern über Cover-Fit (≥ 1,0). Danach Ausschnitt mit Offset "
+            "verschieben — gilt für goldenen Schnitt und Vollfläche."
         )
         design_front.addRow("Front-Zoom:", self.front_zoom_spin)
         self.front_ox_spin = self._mm_spin()
         self.front_oy_spin = self._mm_spin()
-        self.front_ox_spin.setToolTip("Ausschnitt horizontal verschieben (mm).")
-        self.front_oy_spin.setToolTip("Ausschnitt vertikal verschieben (mm).")
-        design_front.addRow(
-            "Front-Verschiebung:", self._pair(self.front_ox_spin, self.front_oy_spin)
+        self.front_ox_spin.setToolTip(
+            "Horizontal (X): Bild nach rechts (+) / links (−) verschieben. "
+            "Freie Ränder bleiben Front-Farbe."
         )
-        self._editor_tabs.addTab(tab_front, "Vorderseite")
+        self.front_oy_spin.setToolTip(
+            "Vertikal (Y): Bild nach unten (+) / oben (−) verschieben. "
+            "Freie Ränder bleiben Front-Farbe."
+        )
+        design_front.addRow(
+            "Front-Verschiebung (X / Y):",
+            self._pair(self.front_ox_spin, self.front_oy_spin),
+        )
+        self._editor_tabs.addTab(tab_front, "Vorderseite · Bild")
         self._editor_tabs.setTabToolTip(
             self._editor_tabs.count() - 1,
-            "3 · Vorderseite (Farbe, Bild oder Stylecloud-Wortwolke)",
+            "3 · Vorderseite · Bild (Farbe, Bildmodus, Bild oder Stylecloud)",
         )
+
+        # --- Tab: Vorderseite · Layout (Layer über Farbe/Bild) ---
+        tab_layer, layer_body = self._make_editor_tab()
+        layer_body.addWidget(self._build_compose_front_group())
+        self._layer_tab_index = self._editor_tabs.addTab(
+            tab_layer, "Vorderseite · Layout"
+        )
+        self._editor_tabs.setTabToolTip(
+            self._layer_tab_index,
+            "4 · Vorderseite · Layout (Fade, Band, Titel, Fuß, Banner, Badge).",
+        )
+        self._sync_compose_front_tab_visibility()
 
         # --- Tab: Rücken ---
         tab_spine, spine_body = self._make_editor_tab()
@@ -724,7 +783,7 @@ class KdpCoverQtDialog(QDialog):
         self.title_color_edit.hide()
         self._editor_tabs.addTab(tab_spine, "Rücken")
         self._editor_tabs.setTabToolTip(
-            self._editor_tabs.count() - 1, "4 · Rücken (Farbe, Text, Badge)"
+            self._editor_tabs.count() - 1, "5 · Rücken (Farbe, Text, Badge)"
         )
         self._sync_spine_badge_controls()
 
@@ -784,18 +843,8 @@ class KdpCoverQtDialog(QDialog):
         self._sync_back_frame_controls()
         self._editor_tabs.addTab(tab_back, "Rückseite")
         self._editor_tabs.setTabToolTip(
-            self._editor_tabs.count() - 1, "5 · Rückseite (Farbe, Bild, Rahmen)"
+            self._editor_tabs.count() - 1, "6 · Rückseite (Farbe, Bild, Rahmen)"
         )
-
-        # --- Tab: Gestaltung (Vorderseiten-Layer) ---
-        tab_layer, layer_body = self._make_editor_tab()
-        layer_body.addWidget(self._build_compose_front_group())
-        self._layer_tab_index = self._editor_tabs.addTab(tab_layer, "Gestaltung")
-        self._editor_tabs.setTabToolTip(
-            self._layer_tab_index,
-            "Gestaltung · Vorderseiten-Layer (Fade, Band, Titel, Fuß, Banner, Badge).",
-        )
-        self._sync_compose_front_tab_visibility()
 
         # --- Tab: Experte (selten; nur bei Modus Experte aktiv) ---
         tab_free, free_body = self._make_editor_tab()
@@ -1046,6 +1095,7 @@ class KdpCoverQtDialog(QDialog):
                 )
                 if candidates:
                     self.front_edit.setText(str(candidates[0]))
+                    self.front_mode_full.setChecked(True)
 
         for w in (
             self.pages_spin,
@@ -1070,6 +1120,7 @@ class KdpCoverQtDialog(QDialog):
                 w.toggled.connect(self._on_params_changed)
 
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self.front_mode_group.idClicked.connect(self._on_front_image_mode_changed)
         self.front_edit.editingFinished.connect(self._on_params_changed)
         self.back_edit.editingFinished.connect(self._on_params_changed)
         self.front_zoom_spin.valueChanged.connect(self._on_params_changed)
@@ -1094,6 +1145,7 @@ class KdpCoverQtDialog(QDialog):
 
         self._on_trim_changed()
         self._sync_free_controls()
+        self._sync_front_image_mode_controls()
         if self._book:
             auto = resolve_existing_project_path(self._book)
             if auto is not None:
@@ -1128,6 +1180,7 @@ class KdpCoverQtDialog(QDialog):
         if not resolved.is_file():
             return False
         self.front_edit.setText(str(resolved))
+        self._ensure_front_image_mode_for_path()
         if not self._params_guard:
             self._preview_timer.stop()
             self._refresh_preview()
@@ -1243,13 +1296,25 @@ class KdpCoverQtDialog(QDialog):
         self.binding_status_label.setStyleSheet("color:#5b6785; font-size:12px;")
         banner_layout.addWidget(self.binding_status_label)
 
+        cover_dir_row = QHBoxLayout()
+        cover_dir_row.setSpacing(8)
         self.btn_open_cover_dir = QPushButton("Cover-Ordner öffnen…")
         self.btn_open_cover_dir.setToolTip(
             "Öffnet export/kdp_cover/ im Explorer (legt den Ordner bei Bedarf an)."
         )
         self.btn_open_cover_dir.clicked.connect(self._open_cover_export_dir)
         self.btn_open_cover_dir.setEnabled(bool(self._book))
-        banner_layout.addWidget(self.btn_open_cover_dir)
+        cover_dir_row.addWidget(self.btn_open_cover_dir, stretch=1)
+
+        self.btn_pipette = QPushButton("Pipette…")
+        self.btn_pipette.setToolTip(
+            "Referenzbild laden, Farbe per Klick aufnehmen — Hex landet in der "
+            "Zwischenablage (Fenster bleibt im Vordergrund). "
+            "Für Front-, Rücken- und Layout-Farben."
+        )
+        self.btn_pipette.clicked.connect(self._open_color_pipette)
+        cover_dir_row.addWidget(self.btn_pipette, stretch=1)
+        banner_layout.addLayout(cover_dir_row)
 
         self.uuid_link_label = QLabel("")
         self.uuid_link_label.setWordWrap(True)
@@ -2399,15 +2464,56 @@ class KdpCoverQtDialog(QDialog):
         if reset_btn is not None:
             reset_btn.setEnabled(is_free)
 
+    def _current_front_image_mode(self) -> FrontImageMode:
+        if self.front_mode_top_third.isChecked():
+            return "top_third"
+        if self.front_mode_full.isChecked():
+            return "full"
+        return "none"
+
+    def _set_front_image_mode_ui(self, mode: FrontImageMode) -> None:
+        if mode == "top_third":
+            self.front_mode_top_third.setChecked(True)
+        elif mode == "full":
+            self.front_mode_full.setChecked(True)
+        else:
+            self.front_mode_none.setChecked(True)
+
+    def _sync_front_image_mode_controls(self) -> None:
+        """Bildpfad/Zoom/Pan nur bei Bildmodi aktiv; Farbe immer."""
+        image_on = not self.front_mode_none.isChecked()
+        for w in (
+            self.front_edit,
+            self._btn_front_asset,
+            self._btn_front_browse,
+            self._btn_stylecloud,
+            self.front_zoom_spin,
+            self.front_ox_spin,
+            self.front_oy_spin,
+        ):
+            w.setEnabled(image_on)
+
+    def _on_front_image_mode_changed(self, *_args: Any) -> None:
+        if self._params_guard:
+            return
+        self._sync_front_image_mode_controls()
+        self._on_params_changed()
+
+    def _ensure_front_image_mode_for_path(self) -> None:
+        """Nach Bildwahl: „Kein Bild“ → Vollfläche, damit die Auswahl sichtbar wird."""
+        if self.front_mode_none.isChecked():
+            self.front_mode_full.setChecked(True)
+        self._sync_front_image_mode_controls()
+
     def _sync_compose_front_tab_visibility(self) -> None:
-        """Tab „Gestaltung“ bei Flag/Default oder aktivem Layer zeigen."""
+        """Tab „Vorderseite · Layout“ bei Flag/Default oder aktivem Layer zeigen."""
         idx = getattr(self, "_layer_tab_index", -1)
         tabs = getattr(self, "_editor_tabs", None)
         if idx < 0 or tabs is None:
             return
         from tools.kdp_cover.compose_front.flags import is_compose_front_ui_enabled
 
-        project_on = True  # Gestaltung-UI aktiv → Layer immer an (Einzellayer steuern)
+        project_on = True  # Layout-UI aktiv → Layer immer an (Einzellayer steuern)
         show = is_compose_front_ui_enabled(project_enabled=project_on)
         set_visible = getattr(tabs, "setTabVisible", None)
         if callable(set_visible):
@@ -2416,7 +2522,7 @@ class KdpCoverQtDialog(QDialog):
             tabs.setTabEnabled(idx, show)
 
     def _open_gestaltung_tab(self) -> None:
-        """Zum Tab Gestaltung springen (Texte/Layer auf der Vorderseite)."""
+        """Zum Tab Vorderseite · Layout springen (Texte/Layer)."""
         idx = getattr(self, "_layer_tab_index", -1)
         tabs = getattr(self, "_editor_tabs", None)
         if idx < 0 or tabs is None:
@@ -2430,6 +2536,29 @@ class KdpCoverQtDialog(QDialog):
         tabs.setCurrentIndex(idx)
         self.raise_()
         self.activateWindow()
+
+    def _open_color_pipette(self) -> None:
+        """Always-on-top: Farbe aus Referenzbild → Hex in Zwischenablage."""
+        from ui_qt.dialogs.color_pipette_dialog import open_color_pipette
+
+        initial: str | None = None
+        front = self.front_edit.text().strip() if hasattr(self, "front_edit") else ""
+        if front:
+            p = Path(front)
+            if not p.is_absolute() and self._book is not None:
+                p = (self._book / p).resolve()
+            if p.is_file():
+                initial = str(p)
+        start_dir: str | None = None
+        if self._book is not None:
+            res_dir = Path(self._book) / "res"
+            if res_dir.is_dir():
+                start_dir = str(res_dir)
+            else:
+                start_dir = str(Path(self._book))
+        open_color_pipette(
+            parent=self, initial_image=initial, start_dir=start_dir
+        )
 
     def _on_mode_changed(self, *_args: Any) -> None:
         if self._mode_guard:
@@ -2558,6 +2687,7 @@ class KdpCoverQtDialog(QDialog):
             mode=mode,  # type: ignore[arg-type]
             front_image=self.front_edit.text().strip(),
             back_image=self.back_edit.text().strip(),
+            front_image_mode=self._current_front_image_mode(),
             front_image_zoom=float(self.front_zoom_spin.value()),
             front_image_offset_x_mm=float(self.front_ox_spin.value()),
             front_image_offset_y_mm=float(self.front_oy_spin.value()),
@@ -2648,6 +2778,13 @@ class KdpCoverQtDialog(QDialog):
                     front_p = (self._book / front_p).resolve()
                 if not front_p.is_file():
                     self.front_edit.clear()
+                    front_raw = ""
+            self._set_front_image_mode_ui(
+                normalize_front_image_mode(
+                    getattr(layout, "front_image_mode", None),
+                    front_image=front_raw or layout.front_image,
+                )
+            )
             self.back_edit.setText(layout.back_image)
             back_raw = (layout.back_image or "").strip()
             if back_raw:
@@ -2717,6 +2854,7 @@ class KdpCoverQtDialog(QDialog):
                 self.project_path_label.setText(f"Cover-Layout: {project_path}")
             self._on_trim_changed()
             self._sync_free_controls()
+            self._sync_front_image_mode_controls()
             self._refresh_binding_ui()
             self._refresh_uuid_link_ui()
         finally:
@@ -2728,6 +2866,7 @@ class KdpCoverQtDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, "Vorderseiten-Bild", start, _IMAGE_FILTER)
         if path:
             self.front_edit.setText(path)
+            self._ensure_front_image_mode_for_path()
             self._on_params_changed()
 
     def _browse_back(self) -> None:
@@ -2757,6 +2896,7 @@ class KdpCoverQtDialog(QDialog):
         text = str(chosen)
         if target == "front":
             self.front_edit.setText(text)
+            self._ensure_front_image_mode_for_path()
         elif target == "back":
             self.back_edit.setText(text)
         elif target == "badge":
@@ -2883,7 +3023,7 @@ class KdpCoverQtDialog(QDialog):
             "front_image_zoom",
         }:
             return (
-                "Öffnet den Tab „Vorderseite“: Front-Farbe (Default reicht), "
+                "Öffnet den Tab „Vorderseite · Bild“: Front-Farbe (Default reicht), "
                 "optional Bild oder Stylecloud-Wortwolke."
             )
         if any(c.startswith("back_") or "barcode" in c for c in codes):
@@ -2900,7 +3040,7 @@ class KdpCoverQtDialog(QDialog):
     def _focus_editor_for_issues(self, errors: list[ValidationIssue]) -> None:
         """Zum Tab springen, der zum ersten Fehler gehört."""
         codes = [i.code for i in errors]
-        tab_name = "Vorderseite"
+        tab_name = "Vorderseite · Bild"
         for code in codes:
             if code.startswith("back_") or "barcode" in code:
                 tab_name = "Rückseite"
@@ -2912,7 +3052,7 @@ class KdpCoverQtDialog(QDialog):
                 tab_name = "Maße"
                 break
             if code.startswith("front_") or code == "front_color":
-                tab_name = "Vorderseite"
+                tab_name = "Vorderseite · Bild"
                 break
         tabs = getattr(self, "_editor_tabs", None)
         if tabs is None:

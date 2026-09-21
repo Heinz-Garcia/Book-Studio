@@ -43,8 +43,10 @@ def _cover_fit_paste(
 ) -> None:
     """Bild so skalieren, dass ``box`` voll abgedeckt ist (cover); Zoom/Pan optional.
 
-    ``zoom`` ≥ 1 vergrößert über Cover-Fit hinaus; Offsets verschieben den Ausschnitt
-    (positiv X = Motiv nach links / Fenster nach rechts, positiv Y = nach unten).
+    ``zoom`` ≥ 1 vergrößert über Cover-Fit hinaus. Offsets verschieben das Bild
+    in der Box (positiv X = nach rechts, positiv Y = nach unten). Liegt das Bild
+    durch den Versatz nicht mehr bündig, bleiben die Canvas-Pixel darunter
+    sichtbar (typisch Front-Farbe) — kein stilles Verwerfen des Offsets.
     """
     x, y, w, h = box
     if w <= 0 or h <= 0:
@@ -55,13 +57,13 @@ def _cover_fit_paste(
     new_w = max(1, int(round(img.width * scale)))
     new_h = max(1, int(round(img.height * scale)))
     resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    # Basis: zentriert; Offset verschiebt das Motiv (Fenster gegenläufig).
-    left = (new_w - w) // 2 - int(offset_x_px)
-    top = (new_h - h) // 2 - int(offset_y_px)
-    left = max(0, min(max(0, new_w - w), left))
-    top = max(0, min(max(0, new_h - h), top))
-    cropped = resized.crop((left, top, left + w, top + h))
-    canvas.paste(cropped, (x, y))
+    # Zentriert + Offset; nicht in den Bildüberstand klemmen (sonst wirkungslos
+    # bei Cover-Fit ohne Überstand in dieser Achse, z. B. Y bei Zoom 1).
+    paste_x = x + (w - new_w) // 2 + int(offset_x_px)
+    paste_y = y + (h - new_h) // 2 + int(offset_y_px)
+    layer = canvas.crop((x, y, x + w, y + h))
+    layer.paste(resized, (paste_x - x, paste_y - y))
+    canvas.paste(layer, (x, y))
 
 
 def _paste_back_image(
@@ -122,14 +124,20 @@ def build_front_panel_image(
 
     Gemeinsame Basis für Wrap-Export und Innenwerk-Deckblatt (Trim ohne Bleed).
     """
+    from tools.kdp_cover.constants import FRONT_IMAGE_GOLDEN_SECTION_FRACTION
+    from tools.kdp_cover.model import normalize_front_image_mode, uses_front_image
+
     base = Path(resolve_base) if resolve_base else Path.cwd()
     fw = max(1, int(width_px))
     fh = max(1, int(height_px))
     scale_mm = dpi / 25.4
     front_fill = _hex_to_rgb(getattr(layout, "front_color", None) or "#1e3a5f")
-    if not layout.front_image.strip():
-        panel = Image.new("RGB", (fw, fh), front_fill)
-    else:
+    panel = Image.new("RGB", (fw, fh), front_fill)
+    mode = normalize_front_image_mode(
+        getattr(layout, "front_image_mode", None),
+        front_image=str(getattr(layout, "front_image", "") or ""),
+    )
+    if uses_front_image(layout):
         front_path = _resolve(layout.front_image, base)
         try:
             front_zoom = float(getattr(layout, "front_image_zoom", 1.0) or 1.0)
@@ -143,11 +151,15 @@ def build_front_panel_image(
         with Image.open(front_path) as im:
             im.load()
             front_rgb = im.convert("RGB")
-        panel = Image.new("RGB", (fw, fh), front_fill)
+        if mode == "top_third":
+            image_h = max(1, int(round(fh * FRONT_IMAGE_GOLDEN_SECTION_FRACTION)))
+            box = (0, 0, fw, image_h)
+        else:
+            box = (0, 0, fw, fh)
         _cover_fit_paste(
             panel,
             front_rgb,
-            (0, 0, fw, fh),
+            box,
             zoom=front_zoom,
             offset_x_px=int(round(ox_mm * scale_mm)),
             offset_y_px=int(round(oy_mm * scale_mm)),

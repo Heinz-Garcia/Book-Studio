@@ -1,6 +1,6 @@
-"""Feature-Flag für die Vorderseiten-Gestaltung (Layer-UI).
+"""Feature-Flag für die Vorderseiten-Layout-Layer (Tab „Vorderseite · Layout“).
 
-Default an: Tab „Gestaltung“ ist sichtbar. Abschalten:
+Default an: Tab ist sichtbar. Abschalten:
 
 * Umgebungsvariable ``BSU_KDP_COMPOSE_FRONT=0`` (oder ``false``/``off``)
 * ``app_config.json``-Schlüssel ``kdp_compose_front_ui: false``
@@ -17,7 +17,7 @@ from typing import Any
 
 
 def is_compose_front_ui_enabled(*, project_enabled: bool = False) -> bool:
-    """Ob der Tab „Gestaltung“ (Vorderseiten-Layer) sichtbar sein soll."""
+    """Ob der Tab „Vorderseite · Layout“ sichtbar sein soll."""
     if project_enabled:
         return True
 

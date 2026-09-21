@@ -12,6 +12,30 @@ from typing import Any, Literal, Optional
 
 Mode = Literal["safe", "free"]
 SpineBadgePosition = Literal["before", "after"]
+FrontImageMode = Literal["none", "top_third", "full"]
+
+
+def normalize_front_image_mode(
+    value: object,
+    *,
+    front_image: str = "",
+) -> FrontImageMode:
+    """Normalize persisted/UI mode; missing value inferred from ``front_image``."""
+    raw = str(value or "").strip().lower().replace("-", "_")
+    if raw in ("none", "top_third", "full"):
+        return raw  # type: ignore[return-value]
+    if str(front_image or "").strip():
+        return "full"
+    return "none"
+
+
+def uses_front_image(layout: CoverLayout) -> bool:
+    """True when a front image path is set and the mode actually draws it."""
+    mode = normalize_front_image_mode(
+        getattr(layout, "front_image_mode", None),
+        front_image=str(getattr(layout, "front_image", "") or ""),
+    )
+    return mode != "none" and bool(str(getattr(layout, "front_image", "") or "").strip())
 
 
 @dataclass
@@ -78,9 +102,10 @@ class SpineBadgeSpec:
 class CoverLayout:
     """Wrap-Layout.
 
-    Front: Vollbild (cover-fit) im Front-Panel inkl. Bleed-Überhang —
-    oder einfarbig über ``front_color``, wenn kein Bild gesetzt ist
-    (z. B. reine Farbe oder Stylecloud-Wortwolke als Bild).
+    Front: ``front_image_mode`` steuert die Bildnutzung — ``none`` (nur
+    ``front_color``), ``top_third`` (Bild im goldenen Schnitt ~38,2 %, Rest
+    Farbe) oder ``full`` (Vollbild cover-fit inkl. Bleed). Zoom/Pan gelten für
+    ``top_third`` und ``full``. Ohne Bildpfad bleibt die Front-Farbe.
     Back: einfarbig oder optionales Bild.
     Spine: einfarbig; optionaler Text nur wenn Seitenzahl es erlaubt.
     Titel/Autor: reine Metadaten (PDF-Info / cover_project), nicht aufs Bild
@@ -100,11 +125,13 @@ class CoverLayout:
     mode: Mode = "safe"
     front_image: str = ""
     back_image: str = ""
+    # none | top_third | full — Default full = Legacy (Pfad gesetzt → zeichnen).
+    front_image_mode: FrontImageMode = "full"
     # Vorderseite: Cover-Fit + Zoom (≥1) + Verschiebung des Ausschnitts (mm).
     front_image_zoom: float = 1.0
     front_image_offset_x_mm: float = 0.0
     front_image_offset_y_mm: float = 0.0
-    # Vordergrundfarbe, wenn kein Bild (oder als Unterlage unter der Wortwolke).
+    # Vordergrundfarbe, wenn kein Bild / unter dem Bildband (goldener Schnitt).
     front_color: str = "#1e3a5f"
     # Rückseite: Contain-Skalierung (≤1), zentriert; optional Rahmen.
     back_image_scale: float = 1.0
@@ -230,6 +257,10 @@ class CoverLayout:
             mode=mode,  # type: ignore[arg-type]
             front_image=str(data.get("front_image") or ""),
             back_image=str(data.get("back_image") or ""),
+            front_image_mode=normalize_front_image_mode(
+                data.get("front_image_mode"),
+                front_image=str(data.get("front_image") or ""),
+            ),
             front_image_zoom=max(1.0, _f("front_image_zoom", 1.0)),
             front_image_offset_x_mm=_f("front_image_offset_x_mm"),
             front_image_offset_y_mm=_f("front_image_offset_y_mm"),
@@ -361,8 +392,11 @@ def resolve_existing_project_path(book_root: Path) -> Path | None:
 __all__ = [
     "Mode",
     "SpineBadgePosition",
+    "FrontImageMode",
     "SpineBadgeSpec",
     "CoverLayout",
+    "normalize_front_image_mode",
+    "uses_front_image",
     "save_layout",
     "load_layout",
     "ensure_cover_layout_dict",

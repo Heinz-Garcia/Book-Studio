@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "mirror_root": "%USERPROFILE%/StudioFavoriten",
+  "nodes": [
+    {
+      "id": "pitugrafo",
+      "label": "El Pitugrafo",
+      "children": [
+        {
+          "id": "gg-root",
+          "label": "Repo",
+          "path": "{grammargraph_root}"
+        },
+        {
+          "id": "gg-projects",
+          "label": "projects",
+          "path": "{grammargraph_root}/projects"
+        },
+        {
+          "id": "gg-shared",
+          "label": "shared",
+          "path": "{grammargraph_root}/shared"
+        },
+        {
+          "id": "gg-active",
+          "label": "Aktives Projekt",
+          "path": "{active_project}"
+        }
+      ]
+    },
+    {
+      "id": "book-studio",
+      "label": "Book Studio",
+      "children": [
+        {
+          "id": "bs-root",
+          "label": "Repo",
+          "path": "{book_studio_root}"
+        },
+        {
+          "id": "bs-workspace",
+          "label": "Bücher-Workspace",
+          "path": "{content_root}"
+        },
+        {
+          "id": "bs-active-book",
+          "label": "Aktives Buch",
+          "path": "{active_book}"
+        },
+        {
+          "id": "bs-book-img",
+          "label": "Aktives Buch · img",
+          "path": "{active_book}/img"
+        },
+        {
+          "id": "bs-kdp-cover",
+          "label": "Aktives Buch · export/kdp_cover",
+          "path": "{active_book}/export/kdp_cover"
+        },
+        {
+          "id": "bs-gg-inbox",
+          "label": "GrammarGraph-Inbox",
+          "path": "{grammargraph_inbox}"
+        }
+      ]
+    }
+  ]
+}

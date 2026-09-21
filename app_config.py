@@ -40,8 +40,8 @@ DEFAULTS: dict[str, Any] = {
     "pdf_deploy_folder": "",
     # ExifTool für Production-UUID in PDF-Metadaten (Custom-Feld UUID). Leer = PATH.
     "exiftool_path": "",
-    # Vorderseiten-Gestaltung (Layer: Titel, Band, Fade, …) im KDP-Designer.
-    # Tab „Gestaltung“. Abschalten: false oder BSU_KDP_COMPOSE_FRONT=0
+    # Vorderseiten-Layout (Layer: Titel, Band, Fade, …) im KDP-Designer.
+    # Tab „Vorderseite · Layout“. Abschalten: false oder BSU_KDP_COMPOSE_FRONT=0
     "kdp_compose_front_ui": True,
     "uuid_manager_help_text": (
         "Wähle links einen Statusfilter. Hier erscheint direkt die passende "

@@ -1,0 +1,11 @@
+{
+  "name": "path_favorites",
+  "label": "📁 Pfad-Favoriten…",
+  "description": "Ein Klick zu den wichtigen Ordnern (El Pitugrafo & Book Studio). Optional: dieselben Favoriten als Verknüpfungsordner für den Explorer.",
+  "entrypoint": "plugins.path_favorites:run",
+  "version": "1.0.0",
+  "author": "Book Studio Team",
+  "menu_section": "Plugins",
+  "order": 22,
+  "help_text": "Favoritenbaum aus tools/path_favorites/favorites.json. Doppelklick/Öffnen startet den Explorer. Rechtsklick: Pfad kopieren, JSON-Pfad kopieren, unter Gruppe hinzufügen, entfernen. Explorer-Favoriten = Verknüpfungsordner unter %USERPROFILE%\\\\StudioFavoriten."
+}

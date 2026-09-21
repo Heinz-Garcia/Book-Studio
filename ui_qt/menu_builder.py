@@ -224,8 +224,7 @@ _PLUGIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Inhalt", ("gg_content_swap", "asset_manager")),
     ("Layout / Satz", ("doclayout_editor", "doclayout_wizard", "markup_inventory", "satz_werkzeuge")),
     ("Umschlag", ("cover_size", "kdp_cover", "stylecloud", "breathcloud")),
-    ("I · Freigabe", ("publisher_compliance",)),
-    ("I · Freigabe (Erweitert)", ("publish_readiness",)),
+    ("I · Freigabe", ("publisher_compliance", "publish_readiness")),
     (
         "J · Archiv",
         (
@@ -236,7 +235,7 @@ _PLUGIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "uuid_manager",
         ),
     ),
-    ("Notizen", ("memo_pad", "book_note")),
+    ("Merkhilfen", ("memo_pad", "book_note", "path_favorites")),
     ("Kapitelliste", ("file_indexer",)),
 )
 
