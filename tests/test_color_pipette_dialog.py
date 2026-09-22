@@ -35,3 +35,33 @@ def test_color_pipette_dialog_smoke(monkeypatch):
         assert dlg.canvas is not None
     finally:
         dlg.close()
+
+
+def test_suspend_stay_on_top_clears_and_restores(monkeypatch):
+    """Modal color dialogs must not stay buried under the pipette (freeze)."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs import color_pipette_dialog as mod
+    from ui_qt.dialogs.color_pipette_dialog import (
+        ColorPipetteDialog,
+        suspend_stay_on_top,
+    )
+    from ui_qt.theme import apply_theme
+
+    app = QApplication.instance() or QApplication([])
+    apply_theme(app)
+    dlg = ColorPipetteDialog(None)
+    mod._active.append(dlg)
+    dlg.show()
+    try:
+        assert bool(dlg.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        with suspend_stay_on_top():
+            assert not bool(dlg.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        assert bool(dlg.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+    finally:
+        if dlg in mod._active:
+            mod._active.remove(dlg)
+        dlg.close()

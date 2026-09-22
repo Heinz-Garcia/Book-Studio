@@ -137,6 +137,8 @@ def build_front_panel_image(
         getattr(layout, "front_image_mode", None),
         front_image=str(getattr(layout, "front_image", "") or ""),
     )
+    # Fade oben: bei goldenem Schnitt erst ab Unterkante Bildband (Front-Farbe).
+    fade_top_origin_y = 0
     if uses_front_image(layout):
         front_path = _resolve(layout.front_image, base)
         try:
@@ -154,6 +156,7 @@ def build_front_panel_image(
         if mode == "top_third":
             image_h = max(1, int(round(fh * FRONT_IMAGE_GOLDEN_SECTION_FRACTION)))
             box = (0, 0, fw, image_h)
+            fade_top_origin_y = image_h
         else:
             box = (0, 0, fw, fh)
         _cover_fit_paste(
@@ -171,6 +174,7 @@ def build_front_panel_image(
             panel,
             getattr(layout, "front_compose", None),
             resolve_base=base,
+            fade_top_origin_y=fade_top_origin_y,
         )
         if composed is not None:
             panel = composed
@@ -230,14 +234,18 @@ def export_front_deckblatt_pdf(
     return output_pdf
 
 
-def _load_font(size_px: int) -> ImageFont.ImageFont:
-    # Windows: Arial; Fallback Default.
-    for name in ("arial.ttf", "Arial.ttf", "DejaVuSans.ttf"):
-        try:
-            return ImageFont.truetype(name, size=size_px)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+def _load_font(
+    size_px: int,
+    *,
+    family: str = "sans",
+    bold: bool = False,
+    italic: bool = False,
+) -> ImageFont.ImageFont:
+    from tools.kdp_cover.fonts import load_cover_font
+
+    return load_cover_font(
+        size_px, family=family, bold=bold, italic=italic
+    )
 
 
 def _render_spine_text_tile(
@@ -310,13 +318,19 @@ def _spine_font_metrics(
     *,
     dpi: float,
     spine_width_mm: float,
+    family: str = "sans",
 ) -> tuple[int, ImageFont.ImageFont, ImageFont.ImageFont]:
     """(band_height_px, main_font, base_badge_font) ohne Badge-Skalierung."""
     usable_mm = max(2.0, float(spine_width_mm) - 3.2)
     band_h = max(10, int(round((usable_mm / 25.4) * dpi * 0.85)))
     main_font_size = max(10, min(int(round(dpi * 0.1)), band_h - 2))
     badge_font_size = max(8, int(round(band_h * 0.55)))
-    return band_h, _load_font(main_font_size), _load_font(badge_font_size)
+    fam = str(family or "sans")
+    return (
+        band_h,
+        _load_font(main_font_size, family=fam),
+        _load_font(badge_font_size, family=fam),
+    )
 
 
 def _compose_spine_group_bottom(
@@ -329,8 +343,9 @@ def _compose_spine_group_bottom(
     text = layout.spine_text.strip()
     if not text:
         return None
+    family = str(getattr(layout, "spine_font", "sans") or "sans")
     _band_h, main_font, _badge_font = _spine_font_metrics(
-        dpi=dpi, spine_width_mm=spine_width_mm
+        dpi=dpi, spine_width_mm=spine_width_mm, family=family
     )
     return _render_spine_text_tile(
         text, font=main_font, fill=(255, 255, 255, 255)
@@ -354,8 +369,9 @@ def _compose_spine_group_top(
     if not text and not badge_active:
         return None
 
+    family = str(getattr(layout, "spine_font", "sans") or "sans")
     band_h, main_font, _base_badge_font = _spine_font_metrics(
-        dpi=dpi, spine_width_mm=spine_width_mm
+        dpi=dpi, spine_width_mm=spine_width_mm, family=family
     )
     gap = max(4, int(round(dpi * 0.04)))
 
@@ -369,7 +385,7 @@ def _compose_spine_group_top(
     if badge_active:
         scale = badge.scale_factor()
         badge_font_size = max(6, int(round(band_h * 0.55 * scale)))
-        badge_font = _load_font(badge_font_size)
+        badge_font = _load_font(badge_font_size, family=family)
         badge_tile = _render_spine_badge_tile(
             badge,
             font=badge_font,
@@ -554,10 +570,13 @@ def export_wrap_pdf(
     resolve_base: Optional[Path] = None,
     validation_json: Optional[Path] = None,
     require_safe: bool = True,
+    production_uuid: str = "",
+    layout_path: Optional[Path] = None,
 ) -> tuple[Path, ValidationReport]:
     """Validiert, rendert und schreibt das Wrap-PDF.
 
     Bei ``require_safe=True`` (Default) wird bei Errors abgebrochen.
+    Optional ``production_uuid`` / ``layout_path`` landen in der Validation-JSON.
     """
     base = Path(resolve_base) if resolve_base else Path.cwd()
     geo = build_geometry(
@@ -585,6 +604,8 @@ def export_wrap_pdf(
     rgb.save(output_pdf, "PDF", **save_kwargs)
 
     if validation_json is not None:
+        from tools.kdp_cover.cover_link import enrich_validation_payload
+
         vpath = Path(validation_json)
         vpath.parent.mkdir(parents=True, exist_ok=True)
         payload = report.to_dict()
@@ -593,7 +614,17 @@ def export_wrap_pdf(
         payload["cover_height_mm"] = geo.cover_height_mm
         payload["spine_width_mm"] = geo.spine_width_mm
         payload["dpi"] = dpi
-        vpath.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        uid = str(production_uuid or getattr(layout, "production_uuid", "") or "").strip()
+        layout_ref = layout_path
+        payload = enrich_validation_payload(
+            payload,
+            production_uuid=uid,
+            layout_path=layout_ref,
+        )
+        vpath.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
     return output_pdf, report
 

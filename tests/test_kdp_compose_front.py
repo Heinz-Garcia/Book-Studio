@@ -75,6 +75,46 @@ def test_fade_bottom_affects_lower_edge() -> None:
     assert top[2] >= 250 and top[0] <= 5
 
 
+def test_fade_soft_white_preset_ssot() -> None:
+    from tools.kdp_cover.compose_front import (
+        FADE_SOFT_WHITE_COLOR,
+        FADE_SOFT_WHITE_HEIGHT_PCT,
+        FADE_SOFT_WHITE_OPACITY,
+        FadeSpec,
+        resolve_autofade_side,
+    )
+
+    soft = FadeSpec.soft_white()
+    assert soft.enabled is True
+    assert soft.color == FADE_SOFT_WHITE_COLOR == "#FFFFFF"
+    assert soft.height_pct == FADE_SOFT_WHITE_HEIGHT_PCT == 30.0
+    assert soft.opacity == FADE_SOFT_WHITE_OPACITY == 0.60
+    # Default: optional — solid front color without softener
+    assert FadeSpec().enabled is False
+    assert FrontComposeSpec.from_dict({"enabled": True}).fade.enabled is False
+    assert resolve_autofade_side(top_enabled=True, bottom_enabled=False) == "bottom"
+    assert resolve_autofade_side(top_enabled=False, bottom_enabled=True) == "top"
+    assert resolve_autofade_side(top_enabled=False, bottom_enabled=False) is None
+    assert (
+        resolve_autofade_side(
+            top_enabled=True,
+            bottom_enabled=True,
+            top_color="#E85D04",
+            bottom_color="#FFFFFF",
+        )
+        == "bottom"
+    )
+    assert (
+        resolve_autofade_side(
+            top_enabled=True,
+            bottom_enabled=True,
+            top_color="#FFFFFF",
+            bottom_color="#E85D04",
+        )
+        == "top"
+    )
+
+
 def test_fade_bottom_roundtrip_json() -> None:
     data = FrontComposeSpec.from_dict(
         {
@@ -95,6 +135,39 @@ def test_fade_bottom_roundtrip_json() -> None:
     # Legacy ohne fade_bottom → disabled
     legacy = FrontComposeSpec.from_dict({"enabled": True, "fade": {"enabled": True}})
     assert legacy.fade_bottom.enabled is False
+
+
+def test_fade_top_respects_origin_y() -> None:
+    """Fade oben mit start_y lässt den Bildbereich darüber unverändert."""
+    # Obere Hälfte „Bild“ (grün), untere „Front-Farbe“ (blau)
+    base = Image.new("RGB", (100, 200), (0, 0, 255))
+    for y in range(80):
+        for x in range(100):
+            base.putpixel((x, y), (0, 200, 0))
+    spec = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "fade": {
+                "enabled": True,
+                "color": "#FF0000",
+                "height_pct": 30.0,
+                "opacity": 1.0,
+            },
+            "fade_bottom": {"enabled": False},
+            "band": {"enabled": False},
+            "titles": {"enabled": False},
+            "badge": {"enabled": False},
+        }
+    )
+    out = apply_to_front_panel(base, spec, fade_top_origin_y=80)
+    assert out is not None
+    # Im Bildband: unverändert (kein Fade)
+    assert out.getpixel((50, 10)) == (0, 200, 0)
+    assert out.getpixel((50, 79)) == (0, 200, 0)
+    # Ab origin: Fade-Farbe mischt sich ein (nicht mehr reines Blau)
+    assert out.getpixel((50, 80)) != (0, 0, 255)
+    r, g, b = out.getpixel((50, 80))
+    assert r > 200 and g < 50 and b < 50
 
 
 def test_compose_enabled_changes_pixels(tmp_path: Path) -> None:
@@ -331,6 +404,7 @@ def test_titles_shared_size_and_accent_italic() -> None:
                 "enabled": True,
                 "lines_size_pct": 6.0,
                 "lines_bold": True,
+                "lines_gap_pct": 2.5,
                 "series": {"text": "Zeile1", "color": "#000000"},
                 "main": {"text": "Zeile2", "color": "#000000"},
                 "accent": {
@@ -346,14 +420,182 @@ def test_titles_shared_size_and_accent_italic() -> None:
     )
     assert spec.titles.lines_size_pct == 6.0
     assert spec.titles.lines_bold is True
+    assert spec.titles.lines_gap_pct == 2.5
     assert spec.titles.accent.italic is True
     assert spec.titles.accent.bold is True
     assert spec.titles.accent_top_pct == 22.0
     assert spec.titles.accent.size_pct == 3.0
+    claim_spec = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "titles": {
+                "enabled": True,
+                "claim": {"text": "Mein Claim", "color": "#AABBCC"},
+            },
+        }
+    )
+    assert claim_spec.titles.accent.text == "Mein Claim"
+    assert claim_spec.titles.accent.color.upper() == "#AABBCC"
     base = Image.new("RGB", (240, 320), (255, 255, 255))
     out = apply_to_front_panel(base, spec)
     assert out is not None
     assert list(out.getdata()) != list(base.getdata())
+
+
+def test_title_lines_gap_zero_and_black_font() -> None:
+    from tools.kdp_cover.fonts import load_cover_font, normalize_font_family
+
+    assert normalize_font_family("black") == "black"
+    assert normalize_font_family("arial_black") == "black"
+    black = load_cover_font(48, family="black")
+    sans = load_cover_font(48, family="sans", bold=True)
+    # Black face should load (may fall back to bold sans on some systems)
+    assert black is not None and sans is not None
+
+    base = Image.new("RGB", (200, 300), (30, 30, 30))
+    tight = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "fade": {"enabled": False},
+            "titles": {
+                "enabled": True,
+                "lines_size_pct": 8.0,
+                "lines_font": "black",
+                "lines_gap_pct": 0.0,
+                "top_pct": 10.0,
+                "series": {"text": "AAAA", "color": "#FFFFFF"},
+                "main": {"text": "BBBB", "color": "#FFFFFF"},
+                "accent": {"text": ""},
+            },
+        }
+    )
+    assert tight.titles.lines_gap_pct == 0.0
+    assert tight.titles.lines_font == "black"
+    neg = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "titles": {
+                "enabled": True,
+                "lines_gap_pct": -2.0,
+                "series": {"text": "A"},
+                "main": {"text": "B"},
+            },
+        }
+    )
+    assert neg.titles.lines_gap_pct == -2.0
+    out0 = apply_to_front_panel(base, tight)
+    out_neg = apply_to_front_panel(base, neg)
+    assert out0 is not None and out_neg is not None
+    assert list(out0.getdata()) != list(base.getdata())
+
+
+def test_subtitle_two_lines_separate_font_roundtrip() -> None:
+    data = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "titles": {
+                "enabled": True,
+                "subtitle": {
+                    "enabled": True,
+                    "top_pct": 30.0,
+                    "gap_pct": 1.0,
+                    "line1": {
+                        "text": "Sub eins",
+                        "color": "#FFEE00",
+                        "size_pct": 3.5,
+                        "font": "serif",
+                        "bold": True,
+                    },
+                    "line2": {
+                        "text": "Sub zwei",
+                        "color": "#00FFEE",
+                        "size_pct": 2.8,
+                        "font": "mono",
+                        "italic": True,
+                    },
+                },
+            },
+        }
+    ).to_dict()
+    again = FrontComposeSpec.from_dict(data)
+    assert again.titles.subtitle.enabled is True
+    assert again.titles.subtitle.line1.text == "Sub eins"
+    assert again.titles.subtitle.line1.font == "serif"
+    assert again.titles.subtitle.line1.bold is True
+    assert again.titles.subtitle.line2.font == "mono"
+    assert again.titles.subtitle.line2.italic is True
+    base = Image.new("RGB", (160, 240), (20, 20, 20))
+    out = apply_to_front_panel(base, again)
+    assert out is not None
+    assert list(out.getdata()) != list(base.getdata())
+
+
+def test_subtitle_and_footer_text_band_full_width() -> None:
+    """Band hinter Subtitel/Fußzeile: vollbreit, Farbe + Padding."""
+    base = Image.new("RGB", (200, 300), (240, 240, 240))
+    spec = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "fade": {"enabled": False},
+            "titles": {
+                "enabled": True,
+                "series": {"text": ""},
+                "main": {"text": ""},
+                "accent": {"text": ""},
+                "subtitle": {
+                    "enabled": True,
+                    "top_pct": 40.0,
+                    "gap_pct": 0.5,
+                    "band": {
+                        "enabled": True,
+                        "color": "#112233",
+                        "padding_pct": 2.0,
+                    },
+                    "line1": {"text": "SUB", "color": "#FFFFFF", "size_pct": 4.0},
+                    "line2": {"text": "", "color": "#FFFFFF"},
+                },
+            },
+            "footer": {
+                "enabled": True,
+                "line1": "FOOT",
+                "line2": "",
+                "color": "#FFFFFF",
+                "bottom_pct": 5.0,
+                "dim_opacity": 0.0,
+                "band": {
+                    "enabled": True,
+                    "color": "#AA2244",
+                    "padding_pct": 1.5,
+                },
+            },
+        }
+    )
+    assert spec.titles.subtitle.band.enabled is True
+    assert spec.titles.subtitle.band.color == "#112233"
+    assert spec.titles.subtitle.band.padding_pct == 2.0
+    assert spec.footer.band.enabled is True
+    assert spec.footer.band.color == "#AA2244"
+    again = FrontComposeSpec.from_dict(spec.to_dict())
+    assert again.footer.band.padding_pct == 1.5
+    out = apply_to_front_panel(base, again)
+    assert out is not None
+    # Band muss am linken und rechten Rand Pixel der Bandfarbe tragen.
+    mid_y = int(round(300 * 0.40)) + 8
+    left = out.getpixel((2, mid_y))
+    right = out.getpixel((197, mid_y))
+    assert left[:3] == (0x11, 0x22, 0x33)
+    assert right[:3] == (0x11, 0x22, 0x33)
+    foot_rows = [
+        y
+        for y in range(out.size[1])
+        if out.getpixel((2, y))[:3] == (0xAA, 0x22, 0x44)
+    ]
+    assert foot_rows, "Fußzeilen-Band nicht gefunden"
+    foot_y = foot_rows[len(foot_rows) // 2]
+    fl = out.getpixel((2, foot_y))
+    fr = out.getpixel((197, foot_y))
+    assert fl[:3] == (0xAA, 0x22, 0x44)
+    assert fr[:3] == (0xAA, 0x22, 0x44)
 
 
 def test_badge_text_color_renders(tmp_path: Path) -> None:

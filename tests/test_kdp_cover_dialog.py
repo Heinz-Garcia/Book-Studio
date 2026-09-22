@@ -301,6 +301,12 @@ def test_suggested_elementset_path_uses_book_title(monkeypatch, tmp_path):
     assert start_name == "Diagnose_Brustkrebs_elementset.json"
     assert dlg.btn_save_elementset.text().startswith("Elementset speichern")
     assert dlg.btn_load_elementset.text().startswith("Elementset laden")
+    # Zwei IO-Zeilen à 3 Buttons (nicht sechs in einer Zeile gequetscht).
+    assert dlg.btn_quick_save.minimumHeight() >= 28
+    assert dlg.btn_save_elementset.minimumHeight() >= 28
+    tip = dlg.status_label.toolTip()
+    assert "Validierung" in tip or "validate_layout" in tip
+    assert "Ampel" in tip
     dlg.close()
 
 
@@ -331,6 +337,8 @@ def test_kdp_channel_checkbox_is_form_style(monkeypatch, tmp_path):
     assert dlg.kdp_channel_check.isEnabled()
     assert dlg.btn_pipette.text() == "Pipette…"
     assert dlg.btn_open_cover_dir.parent() is dlg.btn_pipette.parent()
+    assert dlg.btn_change_uuid.parent() is dlg.btn_pipette.parent()
+    assert dlg.btn_reset_safe_slots.parent() is dlg.btn_pipette.parent()
     app_ss = QApplication.instance().styleSheet() or ""
     assert "QCheckBox::indicator" in app_ss
     assert "QCheckBox::indicator" in PITU_CORE_STYLESHEET
@@ -364,8 +372,11 @@ def test_kdp_dialog_keeps_preview_column(monkeypatch, tmp_path):
     assert dlg.btn_reset_safe_slots.text() == "Zurück auf Safe-Slots"
     assert not dlg.btn_reset_safe_slots.isEnabled()  # Sicher-Modus
     assert "#dc2626" in dlg.btn_reset_safe_slots.styleSheet()
-    # Neben UUID, nicht in der sticky Aktionsleiste.
-    assert dlg.btn_reset_safe_slots.parent() is dlg.btn_change_uuid.parent()
+    # Eine Banner-Zeile mit Cover-Ordner / Pipette / UUID / Safe-Slots.
+    parent = dlg.btn_pipette.parent()
+    assert dlg.btn_open_cover_dir.parent() is parent
+    assert dlg.btn_change_uuid.parent() is parent
+    assert dlg.btn_reset_safe_slots.parent() is parent
     free_idx = dlg.mode_combo.findData("free")
     assert free_idx >= 0
     assert dlg.mode_combo.itemText(free_idx) == "Experte"
@@ -385,6 +396,78 @@ def test_color_fields_open_dialog_helpers(monkeypatch, tmp_path):
     assert parent.findChildren(QPushButton)
     dlg.back_color_edit.setText("#AABBCC")
     assert dlg.back_color_edit.text() == "#AABBCC"
+    dlg.close()
+
+
+def test_fade_autofade_opposite_side(monkeypatch, tmp_path):
+    """Vollfarbe oben/unten → Autofade Weiß auf der Gegenseite."""
+    from tools.kdp_cover.compose_front import (
+        FADE_SOFT_WHITE_COLOR,
+        FADE_SOFT_WHITE_HEIGHT_PCT,
+        FADE_SOFT_WHITE_OPACITY,
+    )
+
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    assert dlg.btn_fade_autofade.text() == "Autofade"
+    assert dlg.compose_fade_enabled.isChecked() is False
+
+    # Vollfarbe oben → Softener unten; oben bleibt unverändert
+    dlg.compose_fade_enabled.setChecked(True)
+    dlg.compose_fade_color.setText("#E85D04")
+    dlg.compose_fade_height.setValue(45.0)
+    dlg.compose_fade_opacity.setValue(1.0)
+    dlg._apply_fade_autofade()
+    assert dlg.compose_fade_enabled.isChecked() is True
+    assert dlg.compose_fade_color.text().upper() == "#E85D04"
+    assert dlg.compose_fade_height.value() == pytest.approx(45.0)
+    assert dlg.compose_fade_bottom_enabled.isChecked() is True
+    assert dlg.compose_fade_bottom_color.text().upper() == FADE_SOFT_WHITE_COLOR
+    assert dlg.compose_fade_bottom_height.value() == pytest.approx(
+        FADE_SOFT_WHITE_HEIGHT_PCT
+    )
+    assert dlg.compose_fade_bottom_opacity.value() == pytest.approx(
+        FADE_SOFT_WHITE_OPACITY
+    )
+
+    # Reset: Vollfarbe unten → Softener oben
+    dlg.compose_fade_enabled.setChecked(False)
+    dlg.compose_fade_bottom_enabled.setChecked(True)
+    dlg.compose_fade_bottom_color.setText("#9B2C3E")
+    dlg.compose_fade_bottom_height.setValue(50.0)
+    dlg.compose_fade_bottom_opacity.setValue(1.0)
+    dlg.compose_fade_color.setText("#112233")
+    dlg._apply_fade_autofade()
+    assert dlg.compose_fade_bottom_color.text().upper() == "#9B2C3E"
+    assert dlg.compose_fade_enabled.isChecked() is True
+    assert dlg.compose_fade_color.text().upper() == FADE_SOFT_WHITE_COLOR
+    assert dlg.compose_fade_opacity.value() == pytest.approx(FADE_SOFT_WHITE_OPACITY)
+    dlg.close()
+
+
+def test_fade_invert_direction(monkeypatch, tmp_path):
+    """Invert Fading Direction tauscht oben ↔ unten vollständig."""
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    assert dlg.btn_fade_invert.text() == "Invert Fading Direction"
+    dlg.compose_fade_enabled.setChecked(True)
+    dlg.compose_fade_color.setText("#E85D04")
+    dlg.compose_fade_height.setValue(45.0)
+    dlg.compose_fade_opacity.setValue(1.0)
+    dlg.compose_fade_bottom_enabled.setChecked(True)
+    dlg.compose_fade_bottom_color.setText("#FFFFFF")
+    dlg.compose_fade_bottom_height.setValue(30.0)
+    dlg.compose_fade_bottom_opacity.setValue(0.6)
+    dlg._invert_fade_direction()
+    assert dlg.compose_fade_enabled.isChecked() is True
+    assert dlg.compose_fade_color.text().upper() == "#FFFFFF"
+    assert dlg.compose_fade_height.value() == pytest.approx(30.0)
+    assert dlg.compose_fade_opacity.value() == pytest.approx(0.6)
+    assert dlg.compose_fade_bottom_enabled.isChecked() is True
+    assert dlg.compose_fade_bottom_color.text().upper() == "#E85D04"
+    assert dlg.compose_fade_bottom_height.value() == pytest.approx(45.0)
+    assert dlg.compose_fade_bottom_opacity.value() == pytest.approx(1.0)
+    dlg._invert_fade_direction()
+    assert dlg.compose_fade_color.text().upper() == "#E85D04"
+    assert dlg.compose_fade_bottom_color.text().upper() == "#FFFFFF"
     dlg.close()
 
 
@@ -525,9 +608,11 @@ def test_spine_badge_ui_roundtrip(monkeypatch, tmp_path):
     )
     dlg.spine_badge_scale.setCurrentIndex(dlg.spine_badge_scale.findData(3))
     dlg.spine_padding_spin.setValue(12.5)
+    dlg._set_font_combo(dlg.spine_font_combo, "serif")
     built = dlg._build_layout()
     assert built.spine_text == "Autor"
     assert built.spine_text_down == "Titel"
+    assert built.spine_font == "serif"
     assert built.spine_padding_mm == pytest.approx(12.5)
     assert built.spine_badge.enabled is True
     assert built.spine_badge.text == "MEDIZIN"
@@ -609,6 +694,180 @@ def test_ask_cover_finished_no_keeps_designer_open(monkeypatch, tmp_path):
     assert cover_finished_ok(book, layout) is False
     close_mock.assert_not_called()
     dlg.close()
+
+
+def test_quick_save_skips_both_dialogs(monkeypatch, tmp_path):
+    """Zwischenspeichern: keine Pfad- und keine Fertig-Abfrage; Ampel offen."""
+    import json
+    from unittest.mock import MagicMock
+    from uuid import uuid4
+
+    from PySide6.QtWidgets import QMessageBox
+
+    from services.work_path import cover_finished_ok
+    from tools.distribution.book_store import set_kdp_paperback
+    from tools.kdp_cover.model import load_layout
+    from tools.kdp_cover.validate import ValidationReport
+    from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
+
+    _app, dlg, studio = _app_and_dialog(monkeypatch, tmp_path, auto_yes_mode=False)
+    book = Path(studio.current_book)
+    set_kdp_paperback(book, True)
+    uid = str(uuid4())
+    (book / "publish_meta.json").write_text(
+        json.dumps({"uuid": uid, "title": "Testbuch"}), encoding="utf-8"
+    )
+    dlg._production_uuid = uid
+    dlg._cover_label = "Haupt"
+    dlg._cover_role = "primary"
+    front = book / "img" / "Deckblatt.png"
+    dlg.front_edit.setText(str(front))
+    dlg._params_guard = False
+
+    reg = tmp_path / "cover_uuid_registry.json"
+    monkeypatch.setattr(
+        "tools.kdp_cover.cover_registry.registry_path",
+        lambda: reg,
+    )
+    monkeypatch.setattr(
+        KdpCoverQtDialog,
+        "_layout_validation_blocks_persist",
+        lambda self, layout: ValidationReport(),
+    )
+
+    questions: list[str] = []
+
+    def _fail_question(*a, **_k):
+        title = str(a[1]) if len(a) > 1 else ""
+        questions.append(title)
+        raise AssertionError(f"Zwischenspeichern darf keinen Dialog zeigen: {title!r}")
+
+    monkeypatch.setattr(QMessageBox, "question", _fail_question)
+    monkeypatch.setattr(
+        QMessageBox, "critical", lambda *a, **k: QMessageBox.StandardButton.Ok
+    )
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok
+    )
+    close_mock = MagicMock(wraps=dlg.close)
+    monkeypatch.setattr(dlg, "close", close_mock)
+
+    dlg._quick_save_project()
+    assert questions == []
+    assert dlg._project_path is not None
+    loaded = load_layout(Path(dlg._project_path))
+    assert loaded.production_uuid == uid
+    gate = book / "export" / "kdp_cover" / f"{book.name}_kdp_cover.json"
+    assert gate.is_file()
+    assert cover_finished_ok(book, gate) is False
+    assert "zwischengespeichert" in dlg.status_label.text().lower()
+    close_mock.assert_not_called()
+    dlg.close()
+
+
+def test_compose_titles_claim_subtitle_gap_ui(monkeypatch, tmp_path):
+    """Abstand 1↔2, Claim-Label, Subtitel mit getrenntem Font."""
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    assert dlg.compose_accent.placeholderText() == "Claim"
+    assert hasattr(dlg, "compose_lines_gap")
+    assert hasattr(dlg, "compose_subtitle_enabled")
+    assert hasattr(dlg, "compose_subtitle_band_enabled")
+    assert hasattr(dlg, "compose_footer_band_enabled")
+    assert hasattr(dlg, "compose_lines_font")
+    assert hasattr(dlg, "compose_footer_font")
+    assert hasattr(dlg, "compose_band_font")
+    assert hasattr(dlg, "compose_corner_font_family")
+    assert hasattr(dlg, "compose_badge_font")
+    dlg.compose_titles_enabled.setChecked(True)
+    dlg.compose_series.setText("Eins")
+    dlg.compose_main.setText("Zwei")
+    dlg.compose_lines_gap.setValue(3.0)
+    dlg._set_font_combo(dlg.compose_lines_font, "serif")
+    dlg.compose_subtitle_enabled.setChecked(True)
+    dlg.compose_subtitle_band_enabled.setChecked(True)
+    dlg.compose_subtitle_band_color.setText("#102030")
+    dlg.compose_subtitle_band_pad.setValue(2.5)
+    dlg.compose_sub1.setText("Sub A")
+    dlg.compose_sub1_color.setText("#FFEEDD")
+    dlg.compose_sub1_size.setValue(3.5)
+    idx = dlg.compose_sub1_font.findData("serif")
+    assert idx >= 0
+    dlg.compose_sub1_font.setCurrentIndex(idx)
+    dlg.compose_sub1_bold.setChecked(True)
+    dlg.compose_sub2.setText("Sub B")
+    dlg.compose_sub2_font.setCurrentIndex(dlg.compose_sub2_font.findData("mono"))
+    dlg.compose_accent.setText("Claim Text")
+    dlg._set_font_combo(dlg.compose_accent_font, "mono")
+    dlg._set_font_combo(dlg.compose_footer_font, "serif")
+    dlg._set_font_combo(dlg.compose_band_font, "mono")
+    dlg._set_font_combo(dlg.compose_corner_font_family, "serif")
+    dlg._set_font_combo(dlg.compose_badge_font, "mono")
+    dlg.compose_footer_enabled.setChecked(True)
+    dlg.compose_footer_line1.setText("Fuss")
+    dlg.compose_footer_band_enabled.setChecked(True)
+    dlg.compose_footer_band_color.setText("#334455")
+    dlg.compose_footer_band_pad.setValue(1.8)
+    raw = dlg._collect_front_compose()
+    assert raw["titles"]["lines_gap_pct"] == pytest.approx(3.0)
+    assert raw["titles"]["lines_font"] == "serif"
+    assert raw["titles"]["accent"]["text"] == "Claim Text"
+    assert raw["titles"]["accent"]["font"] == "mono"
+    assert raw["titles"]["subtitle"]["enabled"] is True
+    assert raw["titles"]["subtitle"]["band"]["enabled"] is True
+    assert raw["titles"]["subtitle"]["band"]["color"] == "#102030"
+    assert raw["titles"]["subtitle"]["band"]["padding_pct"] == pytest.approx(2.5)
+    assert raw["titles"]["subtitle"]["line1"]["font"] == "serif"
+    assert raw["titles"]["subtitle"]["line1"]["bold"] is True
+    assert raw["footer"]["band"]["enabled"] is True
+    assert raw["footer"]["band"]["color"] == "#334455"
+    assert raw["footer"]["band"]["padding_pct"] == pytest.approx(1.8)
+    assert raw["titles"]["subtitle"]["line2"]["font"] == "mono"
+    assert raw["footer"]["font"] == "serif"
+    assert raw["band"]["font"] == "mono"
+    assert raw["corner_ribbon"]["font"] == "serif"
+    assert raw["badge"]["font"] == "mono"
+    dlg._apply_front_compose(raw)
+    assert dlg.compose_lines_gap.value() == pytest.approx(3.0)
+    assert dlg.compose_lines_font.currentData() == "serif"
+    assert dlg.compose_sub1_font.currentData() == "serif"
+    assert dlg.compose_sub2_font.currentData() == "mono"
+    assert dlg.compose_accent.text() == "Claim Text"
+    assert dlg.compose_accent_font.currentData() == "mono"
+    assert dlg.compose_footer_font.currentData() == "serif"
+    dlg.close()
+
+
+def test_all_compose_text_fonts_roundtrip_model() -> None:
+    from tools.kdp_cover.compose_front.model import FrontComposeSpec
+
+    spec = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "titles": {
+                "enabled": True,
+                "lines_font": "serif",
+                "accent": {"text": "C", "font": "mono"},
+                "subtitle": {
+                    "enabled": True,
+                    "line1": {"text": "a", "font": "serif"},
+                    "line2": {"text": "b", "font": "mono"},
+                },
+            },
+            "footer": {"enabled": True, "line1": "F", "font": "serif"},
+            "band": {"enabled": True, "text": "B", "font": "mono"},
+            "badge": {"enabled": True, "text": "X", "font": "serif"},
+            "corner_ribbon": {"enabled": True, "text": "Y", "font": "mono"},
+        }
+    )
+    assert spec.titles.lines_font == "serif"
+    assert spec.titles.accent.font == "mono"
+    assert spec.footer.font == "serif"
+    assert spec.band.font == "mono"
+    assert spec.badge.font == "serif"
+    assert spec.corner_ribbon.font == "mono"
+    again = FrontComposeSpec.from_dict(spec.to_dict())
+    assert again.titles.lines_font == "serif"
+    assert again.corner_ribbon.font == "mono"
 
 
 def test_compose_titles_align_ui_roundtrip(monkeypatch, tmp_path):
@@ -897,9 +1156,12 @@ def test_dialog_book_banner_and_kdp_flag(monkeypatch, tmp_path):
     assert "KDP aus" in dlg.binding_status_label.text()
     assert "Cover-Layout speichern" in dlg.btn_save_project.text()
     assert "…" in dlg.btn_save_project.text()
+    assert dlg.btn_quick_save.text() == "Zwischenspeichern"
+    assert "ohne" in dlg.btn_quick_save.toolTip().lower()
     layout_tip = dlg.btn_save_project.toolTip()
     element_tip = dlg.btn_save_elementset.toolTip()
     assert "Ganzes Cover-Projekt" in layout_tip or "komplett" in layout_tip.lower()
+    assert "Zwischenspeichern" in layout_tip
     assert "Elementset" in layout_tip
     assert "Vorderseiten-Gestaltung" in element_tip or "Fade" in element_tip
     assert "ohne Maße" in element_tip.lower() or "Ohne Maße" in element_tip
@@ -957,22 +1219,30 @@ def test_dialog_binding_ready_status(monkeypatch, tmp_path):
 
 
 def test_copy_wrap_to_configured_folder(monkeypatch, tmp_path):
-    """Export-Erfolg: gleiche Deploy-SSOT wie PDF Manager („Copy to configured folder“)."""
+    """Deploy: Ordner in situ wählbar; PDF + Sidecar landen im Ziel."""
     pytest.importorskip("PySide6")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication, QMessageBox
 
+    from tools.kdp_cover.cover_link import cover_link_path_for_pdf, write_cover_link
     from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
 
     dest = tmp_path / "deploy_target"
     dest.mkdir()
     src = tmp_path / "wrap.pdf"
     src.write_bytes(b"%PDF-1.4 wrap")
+    layout = tmp_path / "Band_kdp_cover.json"
+    layout.write_text("{}", encoding="utf-8")
+    write_cover_link(
+        src,
+        production_uuid="6fe531b5-bbda-46b3-9d6d-2137a0adcdb0",
+        layout_path=layout,
+    )
 
     monkeypatch.setattr(
         KdpCoverQtDialog,
-        "_configured_deploy_folder",
-        lambda self: str(dest),
+        "_pick_deploy_folder",
+        lambda self, pdf_name="": dest,
     )
     monkeypatch.setattr(
         QMessageBox,
@@ -987,9 +1257,57 @@ def test_copy_wrap_to_configured_folder(monkeypatch, tmp_path):
 
     _app = QApplication.instance() or QApplication([])
     dlg = KdpCoverQtDialog(None, None)
-    dlg._copy_wrap_to_configured_folder(src)
+    dlg._copy_wrap_to_configured_folder(
+        src,
+        layout_path=layout,
+        production_uuid="6fe531b5-bbda-46b3-9d6d-2137a0adcdb0",
+    )
     assert (dest / "wrap.pdf").is_file()
     assert (dest / "wrap.pdf").read_bytes() == b"%PDF-1.4 wrap"
+    assert cover_link_path_for_pdf(dest / "wrap.pdf").is_file()
+    assert "Bearbeiten aus Wrap-PDF" in dlg.btn_open_from_wrap.text()
+    dlg.close()
+
+
+def test_deploy_folder_dialog_and_save(monkeypatch, tmp_path):
+    """In-situ Deploy-Dialog speichert pdf_deploy_folder in app_config."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QDialogButtonBox, QLabel
+
+    import app_config as _app_config
+    from ui_qt.dialogs.kdp_cover_dialog import (
+        KdpCoverQtDialog,
+        _DeployFolderDialog,
+    )
+
+    cfg = tmp_path / "app_config.json"
+    cfg.write_text("{}", encoding="utf-8")
+    dest = tmp_path / "meine_uploads"
+    dest.mkdir()
+
+    monkeypatch.setattr(
+        "ui_qt.book_workspace.repo_root",
+        lambda: tmp_path,
+    )
+
+    _app = QApplication.instance() or QApplication([])
+    pick = _DeployFolderDialog(
+        None, initial_folder=str(dest), pdf_name="Band_kdp_wrap.pdf"
+    )
+    labels = " ".join(w.text() for w in pick.findChildren(QLabel))
+    assert "Druckdatei" in labels
+    assert "bearbeitbaren Quelle" in labels or "Cover-Layout" in labels
+    assert pick.folder_path() == str(dest)
+    ok = pick.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok)
+    assert ok is not None
+    assert ok.text() == "Kopieren"
+    pick.close()
+
+    dlg = KdpCoverQtDialog(None, None)
+    dlg._save_deploy_folder(str(dest))
+    saved = _app_config.read_config(cfg)
+    assert Path(saved["pdf_deploy_folder"]).resolve() == dest.resolve()
     dlg.close()
 
 

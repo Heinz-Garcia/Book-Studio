@@ -317,6 +317,7 @@ def test_spine_badge_roundtrip_json(tmp_path: Path):
         trim_height_mm=215.0,
         spine_text="Ich frage ja nur",
         spine_text_down="Bandtitel",
+        spine_font="serif",
         spine_badge=SpineBadgeSpec(
             enabled=True,
             text="MEDIZIN",
@@ -329,6 +330,7 @@ def test_spine_badge_roundtrip_json(tmp_path: Path):
     loaded = load_layout(path)
     assert loaded.spine_text == "Ich frage ja nur"
     assert loaded.spine_text_down == "Bandtitel"
+    assert loaded.spine_font == "serif"
     assert loaded.spine_badge.enabled is True
     assert loaded.spine_badge.text == "MEDIZIN"
     assert loaded.spine_badge.color == "#0D6E6E"
@@ -407,16 +409,14 @@ def test_spine_anchor_top_vs_bottom_differ(tmp_path: Path):
 
 
 def test_spine_badge_scale_steps_differ(tmp_path: Path):
-    from tools.kdp_cover.export_pdf import render_wrap_image
+    from tools.kdp_cover.export_pdf import _compose_spine_group_top
     from tools.kdp_cover.model import SpineBadgeSpec
 
-    front = _make_front(tmp_path)
     common = dict(
         page_count=120,
         paper_type_id="white_bw",
         trim_width_mm=135.0,
         trim_height_mm=215.0,
-        front_image=str(front),
         spine_color="#222222",
         spine_text_down="Titel",
     )
@@ -432,9 +432,12 @@ def test_spine_badge_scale_steps_differ(tmp_path: Path):
             enabled=True, text="MEDIZIN", color="#CC0000", scale_step=4
         ),
     )
-    assert list(
-        render_wrap_image(full, dpi=72, resolve_base=tmp_path).getdata()
-    ) != list(render_wrap_image(small, dpi=72, resolve_base=tmp_path).getdata())
+    tile_full = _compose_spine_group_top(full, dpi=144, spine_width_mm=12.0)
+    tile_small = _compose_spine_group_top(small, dpi=144, spine_width_mm=12.0)
+    assert tile_full is not None and tile_small is not None
+    assert tile_full.size != tile_small.size or list(tile_full.getdata()) != list(
+        tile_small.getdata()
+    )
 
 
 def test_spine_padding_moves_blocks_together(tmp_path: Path):
@@ -541,6 +544,48 @@ def test_front_image_mode_top_third_and_zoom(tmp_path: Path):
     )
     assert list(panel.getdata()) != list(panel_z.getdata())
     assert panel_z.getpixel((150, 250)) == (0x00, 0xAA, 0x55)
+
+
+def test_fade_top_starts_at_golden_section_boundary(tmp_path: Path):
+    """Bei OBEN (goldener Schnitt) beginnt Fade oben erst in der Front-Farbe."""
+    from tools.kdp_cover.constants import FRONT_IMAGE_GOLDEN_SECTION_FRACTION
+    from tools.kdp_cover.export_pdf import build_front_panel_image
+
+    front = tmp_path / "band.png"
+    Image.new("RGB", (300, 300), (10, 180, 10)).save(front)
+    fh = 300
+    image_h = max(1, int(round(fh * FRONT_IMAGE_GOLDEN_SECTION_FRACTION)))
+    layout = CoverLayout(
+        page_count=120,
+        paper_type_id="white_bw",
+        trim_width_mm=135.0,
+        trim_height_mm=215.0,
+        front_image=str(front),
+        front_image_mode="top_third",
+        front_color="#0000FF",
+        front_compose={
+            "enabled": True,
+            "fade": {
+                "enabled": True,
+                "color": "#FF0000",
+                "height_pct": 40.0,
+                "opacity": 1.0,
+            },
+            "fade_bottom": {"enabled": False},
+            "band": {"enabled": False},
+            "titles": {"enabled": False},
+            "badge": {"enabled": False},
+        },
+    )
+    panel = build_front_panel_image(
+        layout, width_px=300, height_px=fh, dpi=72, resolve_base=tmp_path
+    )
+    # Bildband bleibt grün (kein Fade darüber)
+    assert panel.getpixel((150, 5))[1] > 100
+    assert panel.getpixel((150, image_h - 2))[1] > 100
+    # Direkt an der Front-Farbe beginnt der rote Fade
+    r, g, b = panel.getpixel((150, image_h))
+    assert r > 180 and g < 80 and b < 80
 
 
 def test_front_image_offset_y_works_at_zoom_one(tmp_path: Path):

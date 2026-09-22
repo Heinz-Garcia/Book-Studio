@@ -29,6 +29,12 @@ def normalize_front_image_mode(
     return "none"
 
 
+def _normalize_spine_font(value: object, default: str = "sans") -> str:
+    from tools.kdp_cover.fonts import normalize_font_family
+
+    return normalize_font_family(value, default)
+
+
 def uses_front_image(layout: CoverLayout) -> bool:
     """True when a front image path is set and the mode actually draws it."""
     mode = normalize_front_image_mode(
@@ -144,6 +150,8 @@ class CoverLayout:
     author: str = ""
     spine_text: str = ""  # Element 1: unten verankert, Lesrichtung unten → oben
     spine_text_down: str = ""  # Element 2: oben verankert, Lesrichtung unten → oben
+    # Font für Rücken-Text 1+2 und Badge: sans | serif | mono
+    spine_font: str = "sans"
     # Paralleler Abstand vom Kopf- und Fußrand (mm) — größer = Texte näher zusammen.
     spine_padding_mm: float = 1.6
     title_color: str = "#FFFFFF"
@@ -275,6 +283,7 @@ class CoverLayout:
             author=str(data.get("author") or ""),
             spine_text=str(data.get("spine_text") or ""),
             spine_text_down=str(data.get("spine_text_down") or ""),
+            spine_font=_normalize_spine_font(data.get("spine_font")),
             spine_padding_mm=max(0.0, _f("spine_padding_mm", 1.6)),
             title_color=str(data.get("title_color") or "#FFFFFF"),
             title_offset_x_mm=_f("title_offset_x_mm"),

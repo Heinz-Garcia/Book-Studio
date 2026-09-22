@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPixmap, QResizeEvent
@@ -270,6 +271,41 @@ class ColorPipetteDialog(QDialog):
         self.clip_status.setStyleSheet("color:#15803d; font-size:12px;")
 
 
+@contextmanager
+def suspend_stay_on_top() -> Iterator[None]:
+    """Temporarily drop ``WindowStaysOnTopHint`` on open pipette windows.
+
+    A modal ``QColorDialog`` / ``QMessageBox`` otherwise opens *behind* the
+    always-on-top pipette: the event loop is blocked, the dialog is invisible
+    or unreachable → the app looks frozen. Restore Stay-on-top when done.
+    """
+    restored: list[tuple[ColorPipetteDialog, Qt.WindowType]] = []
+    for dlg in list(_active):
+        try:
+            if not dlg.isVisible():
+                continue
+            flags = dlg.windowFlags()
+            if not (flags & Qt.WindowType.WindowStaysOnTopHint):
+                continue
+            restored.append((dlg, flags))
+            dlg.setWindowFlags(flags & ~Qt.WindowType.WindowStaysOnTopHint)
+            dlg.show()
+        except RuntimeError:
+            continue
+    try:
+        yield
+    finally:
+        for dlg, flags in restored:
+            try:
+                visible = dlg.isVisible()
+                dlg.setWindowFlags(flags)
+                if visible:
+                    dlg.show()
+                    dlg.raise_()
+            except RuntimeError:
+                pass
+
+
 def open_color_pipette(
     parent: Optional[QWidget] = None,
     *,
@@ -298,4 +334,5 @@ __all__ = [
     "hex_at_image_pixel",
     "open_color_pipette",
     "rgb_to_hex",
+    "suspend_stay_on_top",
 ]

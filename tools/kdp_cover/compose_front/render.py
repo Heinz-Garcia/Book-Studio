@@ -16,6 +16,7 @@ from tools.kdp_cover.compose_front.model import (
     FadeSpec,
     FooterSpec,
     FrontComposeSpec,
+    TextBandSpec,
     TitleLineSpec,
     TitlesSpec,
 )
@@ -46,46 +47,13 @@ def _load_font(
     *,
     italic: bool = False,
     bold: bool = False,
+    family: str = "sans",
 ) -> ImageFont.ImageFont:
-    size_px = max(8, int(size_px))
-    if bold and italic:
-        names = (
-            "arialbi.ttf",
-            "Arial Bold Italic.ttf",
-            "DejaVuSans-BoldOblique.ttf",
-            "arialbd.ttf",
-            "ariali.ttf",
-            "arial.ttf",
-        )
-    elif bold:
-        names = (
-            "arialbd.ttf",
-            "Arial Bold.ttf",
-            "DejaVuSans-Bold.ttf",
-            "arial.ttf",
-            "Arial.ttf",
-        )
-    elif italic:
-        names = (
-            "ariali.ttf",
-            "Arial Italic.ttf",
-            "arialbi.ttf",
-            "DejaVuSans-Oblique.ttf",
-            "DejaVuSans.ttf",
-            "arial.ttf",
-        )
-    else:
-        names = (
-            "arial.ttf",
-            "Arial.ttf",
-            "DejaVuSans.ttf",
-        )
-    for name in names:
-        try:
-            return ImageFont.truetype(name, size=size_px)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    from tools.kdp_cover.fonts import load_cover_font
+
+    return load_cover_font(
+        size_px, italic=italic, bold=bold, family=family
+    )
 
 
 def _resolve(path_str: str, base: Path) -> Path:
@@ -100,8 +68,13 @@ def apply_to_front_panel(
     spec: Union[FrontComposeSpec, dict, None],
     *,
     resolve_base: Optional[Path] = None,
+    fade_top_origin_y: int = 0,
 ) -> Optional[Image.Image]:
     """Wendet Layer auf ein Front-Panel-RGB an.
+
+    ``fade_top_origin_y``: Y-Start für „Fade oben“ (0 = oberer Panelrand).
+    Bei Bild im goldenen Schnitt = Unterkante des Bildbands, damit der
+    Verlauf erst in der Front-Farbe beginnt.
 
     Returns:
         Neues RGB-Bild wenn ``enabled``, sonst ``None`` (Caller behält Original).
@@ -120,7 +93,12 @@ def apply_to_front_panel(
     w, h = panel.size
 
     if parsed.fade.enabled:
-        panel = _draw_fade(panel, parsed.fade, from_bottom=False)
+        panel = _draw_fade(
+            panel,
+            parsed.fade,
+            from_bottom=False,
+            start_y=max(0, int(fade_top_origin_y)),
+        )
     if parsed.fade_bottom.enabled:
         panel = _draw_fade(panel, parsed.fade_bottom, from_bottom=True)
     if parsed.band.enabled:
@@ -144,22 +122,86 @@ def _draw_fade(
     fade: FadeSpec,
     *,
     from_bottom: bool = False,
+    start_y: int = 0,
 ) -> Image.Image:
-    """Farbverlauf: oben deckend → transparent (oder umgekehrt von unten)."""
+    """Farbverlauf: am Start deckend → transparent (oder von unten nach oben).
+
+    Bei Fade oben: ``start_y`` verschiebt den Beginn (z. B. Unterkante
+    Bildband beim goldenen Schnitt). ``height_pct`` bezieht sich weiter
+    auf die volle Panelhöhe.
+    """
     w, h = panel.size
     fade_h = max(1, int(round(h * fade.height_pct / 100.0)))
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     r, g, b, _ = _hex_to_rgba(fade.color)
     edge_a = int(round(255 * fade.opacity))
     draw = ImageDraw.Draw(overlay)
+    origin = 0 if from_bottom else max(0, min(h - 1, int(start_y)))
     for i in range(fade_h):
         t = i / max(1, fade_h - 1)
         a = int(round(edge_a * (1.0 - t)))
         if a <= 0:
             continue
-        y = (h - 1 - i) if from_bottom else i
+        if from_bottom:
+            y = h - 1 - i
+        else:
+            y = origin + i
+            if y >= h:
+                break
         draw.line([(0, y), (w, y)], fill=(r, g, b, a))
     return Image.alpha_composite(panel, overlay)
+
+
+def _draw_full_width_text_band(
+    panel: Image.Image,
+    *,
+    y0: int,
+    y1: int,
+    color: str,
+) -> Image.Image:
+    """Volle Cover-Breite; Höhe = [y0, y1] (Textblock + Padding)."""
+    w, h = panel.size
+    top = max(0, min(h, int(y0)))
+    bottom = max(0, min(h, int(y1)))
+    if bottom <= top:
+        return panel
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    r, g, b, _ = _hex_to_rgba(color, fallback=(30, 58, 95))
+    ImageDraw.Draw(overlay).rectangle([0, top, w, bottom], fill=(r, g, b, 255))
+    return Image.alpha_composite(panel.convert("RGBA"), overlay)
+
+
+def _title_line_metrics(
+    draw: ImageDraw.ImageDraw,
+    h: int,
+    line: TitleLineSpec,
+    *,
+    size_pct_override: float | None = None,
+    bold_override: bool | None = None,
+    font_override: str | None = None,
+) -> tuple[str, object, int, int] | None:
+    text = line.text.strip()
+    if not text:
+        return None
+    size_pct = size_pct_override if size_pct_override is not None else line.size_pct
+    size = max(10, int(round(h * size_pct / 100.0)))
+    if bold_override is not None:
+        bold = bool(bold_override)
+    else:
+        bold = bool(line.bold)
+    family = (
+        font_override
+        if font_override is not None
+        else str(getattr(line, "font", "sans") or "sans")
+    )
+    font = _load_font(
+        size,
+        italic=bool(line.italic),
+        bold=bold,
+        family=family,
+    )
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return text, font, bbox[2] - bbox[0], bbox[3] - bbox[1]
 
 
 def _draw_band(panel: Image.Image, band: BandSpec) -> Image.Image:
@@ -176,7 +218,9 @@ def _draw_band(panel: Image.Image, band: BandSpec) -> Image.Image:
     text = band.text.strip()
     if text:
         size_px = max(8, int(round(band_h * band.text_size_pct / 100.0)))
-        font = _load_font(size_px)
+        font = _load_font(
+            size_px, family=str(getattr(band, "font", "sans") or "sans")
+        )
         tr, tg, tb, _ = _hex_to_rgba(band.text_color, fallback=(255, 255, 255))
         draw = ImageDraw.Draw(out)
         # Anker mm = Mitte der Glyphenbox → immer zentriert im Band.
@@ -199,7 +243,9 @@ def _draw_titles(panel: Image.Image, titles: TitlesSpec) -> Image.Image:
     shared = titles.lines_size_pct
     align = str(getattr(titles, "align", "center") or "center")
     offset_x_pct = float(getattr(titles, "offset_x_pct", 0.0) or 0.0)
-    for line in (titles.series, titles.main):
+    gap_pct = float(getattr(titles, "lines_gap_pct", 1.2) or 0.0)
+    title_lines = (titles.series, titles.main)
+    for idx, line in enumerate(title_lines):
         y = _draw_title_line(
             draw,
             w,
@@ -208,10 +254,22 @@ def _draw_titles(panel: Image.Image, titles: TitlesSpec) -> Image.Image:
             line,
             size_pct_override=shared,
             bold_override=titles.lines_bold,
+            font_override=str(getattr(titles, "lines_font", "sans") or "sans"),
             align=align,
             offset_x_pct=offset_x_pct,
         )
-        y += max(4, int(round(h * 0.012)))
+        if idx < len(title_lines) - 1:
+            # Signed gap: 0 = bbox-an-bbox, negativ = Zeilen enger / fließend.
+            y += int(round(h * gap_pct / 100.0))
+    subtitle = getattr(titles, "subtitle", None)
+    if subtitle is not None and getattr(subtitle, "enabled", False):
+        panel = _draw_subtitle_block(
+            panel,
+            subtitle,
+            align=align,
+            offset_x_pct=offset_x_pct,
+        )
+        draw = ImageDraw.Draw(panel)
     accent_y = int(round(h * titles.accent_top_pct / 100.0))
     _draw_title_line(
         draw,
@@ -223,6 +281,61 @@ def _draw_titles(panel: Image.Image, titles: TitlesSpec) -> Image.Image:
         align=align,
         offset_x_pct=offset_x_pct,
     )
+    return panel
+
+
+def _draw_subtitle_block(
+    panel: Image.Image,
+    subtitle: object,
+    *,
+    align: str,
+    offset_x_pct: float,
+) -> Image.Image:
+    """Subtitel inkl. optionalem Vollbreiten-Band."""
+    from tools.kdp_cover.compose_front.model import SubtitleSpec
+
+    if not isinstance(subtitle, SubtitleSpec):
+        return panel
+    w, h = panel.size
+    draw = ImageDraw.Draw(panel)
+    sub_y = int(round(h * float(subtitle.top_pct) / 100.0))
+    sub_gap = float(getattr(subtitle, "gap_pct", 0.8) or 0.0)
+    lines = (subtitle.line1, subtitle.line2)
+    measured: list[tuple[TitleLineSpec, str, object, int, int]] = []
+    cursor = sub_y
+    for idx, line in enumerate(lines):
+        metrics = _title_line_metrics(draw, h, line)
+        if metrics is None:
+            continue
+        text, font, tw, th = metrics
+        measured.append((line, text, font, tw, th))
+        cursor += th
+        if idx == 0 and sub_gap > 0 and any(
+            (ln.text or "").strip() for ln in lines[1:]
+        ):
+            cursor += max(2, int(round(h * sub_gap / 100.0)))
+    if not measured:
+        return panel
+    text_top = sub_y
+    text_bottom = cursor
+    band = getattr(subtitle, "band", None)
+    if isinstance(band, TextBandSpec) and band.enabled:
+        pad = max(0, int(round(h * float(band.padding_pct) / 100.0)))
+        panel = _draw_full_width_text_band(
+            panel,
+            y0=text_top - pad,
+            y1=text_bottom + pad,
+            color=band.color,
+        )
+        draw = ImageDraw.Draw(panel)
+    y = sub_y
+    for idx, (line, text, font, tw, th) in enumerate(measured):
+        r, g, b, _ = _hex_to_rgba(line.color, fallback=(255, 255, 255))
+        x = _title_x(w, tw, align, offset_x_pct=offset_x_pct)
+        draw.text((x, y), text, font=font, fill=(r, g, b, 255))
+        y += th
+        if idx == 0 and len(measured) > 1 and sub_gap > 0:
+            y += max(2, int(round(h * sub_gap / 100.0)))
     return panel
 
 
@@ -251,23 +364,22 @@ def _draw_title_line(
     *,
     size_pct_override: float | None = None,
     bold_override: bool | None = None,
+    font_override: str | None = None,
     align: str = "center",
     offset_x_pct: float = 0.0,
 ) -> int:
-    text = line.text.strip()
-    if not text:
+    metrics = _title_line_metrics(
+        draw,
+        h,
+        line,
+        size_pct_override=size_pct_override,
+        bold_override=bold_override,
+        font_override=font_override,
+    )
+    if metrics is None:
         return y
-    size_pct = size_pct_override if size_pct_override is not None else line.size_pct
-    size = max(10, int(round(h * size_pct / 100.0)))
-    if bold_override is not None:
-        bold = bool(bold_override)
-    else:
-        bold = bool(line.bold)
-    font = _load_font(size, italic=bool(line.italic), bold=bold)
+    text, font, tw, th = metrics
     r, g, b, _ = _hex_to_rgba(line.color, fallback=(30, 58, 95))
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
     x = _title_x(w, tw, align, offset_x_pct=offset_x_pct)
     draw.text((x, y), text, font=font, fill=(r, g, b, 255))
     return y + th
@@ -286,7 +398,9 @@ def _draw_footer(panel: Image.Image, footer: FooterSpec) -> Image.Image:
     out = Image.alpha_composite(panel, overlay)
     draw = ImageDraw.Draw(out)
     size = max(10, int(round(h * footer.size_pct / 100.0)))
-    font = _load_font(size)
+    font = _load_font(
+        size, family=str(getattr(footer, "font", "sans") or "sans")
+    )
     r, g, b, _ = _hex_to_rgba(footer.color, fallback=(255, 255, 255))
     lines = footer.lines()[:2]
     if not lines:
@@ -299,6 +413,18 @@ def _draw_footer(panel: Image.Image, footer: FooterSpec) -> Image.Image:
         sizes.append((ln, tw, th))
         total_h += th + 4
     y = h - int(round(h * footer.bottom_pct / 100.0)) - total_h
+    band = getattr(footer, "band", None)
+    if isinstance(band, TextBandSpec) and band.enabled:
+        pad = max(0, int(round(h * float(band.padding_pct) / 100.0)))
+        # total_h enthält den letzten Zeilenabstand (+4); Band bis Textende.
+        content_bottom = y + total_h - 4
+        out = _draw_full_width_text_band(
+            out,
+            y0=y - pad,
+            y1=content_bottom + pad,
+            color=band.color,
+        )
+        draw = ImageDraw.Draw(out)
     align = str(getattr(footer, "align", "center") or "center")
     offset_x_pct = float(getattr(footer, "offset_x_pct", 0.0) or 0.0)
     for ln, tw, th in sizes:
@@ -335,7 +461,11 @@ def _draw_badge(panel: Image.Image, badge: BadgeSpec, resolve_base: Path) -> Ima
     text = badge.text.strip()
     if text:
         size = max(10, int(round(h * badge.text_size_pct / 100.0)))
-        font = _load_font(size, bold=bool(badge.bold))
+        font = _load_font(
+            size,
+            bold=bool(badge.bold),
+            family=str(getattr(badge, "font", "sans") or "sans"),
+        )
         r, g, b, _ = _hex_to_rgba(badge.text_color, fallback=(30, 58, 95))
         # Text auf transparentem Patch, dann rotieren.
         tmp_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
@@ -576,7 +706,8 @@ def _draw_corner_ribbon(
     text = (ribbon.text or "").strip()
     target_font = max(8, int(round(usable_h * 0.48 * font_scale)))
     font_size = target_font
-    font = _load_font(font_size, bold=True)
+    ribbon_font = str(getattr(ribbon, "font", "sans") or "sans")
+    font = _load_font(font_size, bold=True, family=ribbon_font)
     gap = max(2, int(round(max(font_size / 5.0, pad * 0.85))))
     text_budget = max(12, max_strip - gap * 2)
     lines = _wrap_ribbon_lines(text, font, text_budget) if text else []
@@ -590,7 +721,7 @@ def _draw_corner_ribbon(
         if widest <= text_budget or font_size <= floor_font:
             break
         font_size -= 1
-        font = _load_font(font_size, bold=True)
+        font = _load_font(font_size, bold=True, family=ribbon_font)
         lines = _wrap_ribbon_lines(text, font, text_budget)
 
     if not lines:
