@@ -33,7 +33,6 @@ from services.work_path import assess_work_path, gate_action
 from ui_qt.work_path_guidance import (
     go_label_for_action,
     prompt_need_book,
-    prompt_redirect_stage,
 )
 
 if TYPE_CHECKING:
@@ -145,7 +144,7 @@ class MainWindow(QMainWindow):
         book_row.addWidget(copy_btn)
         pdfs_btn = QPushButton("🗺️")
         pdfs_btn.setFixedWidth(36)
-        pdfs_btn.setToolTip("Ablegen — Render-Archiv für dieses Buch")
+        pdfs_btn.setToolTip("Ablegen (PDF-Manager) — Render-Archiv für dieses Buch")
         pdfs_btn.clicked.connect(self._open_finished_pdfs)
         book_row.addWidget(pdfs_btn)
         refresh_btn = QPushButton("Aktualisieren")
@@ -870,6 +869,32 @@ class MainWindow(QMainWindow):
             f"Lieferung übernommen: {chosen.path.name} -> {result.book_path.name}",
             "success",
         )
+        if result.cover_bind_status == "needs_choice":
+            try:
+                from ui_qt.dialogs.cover_bind_dialog import prompt_bind_cover_to_book
+
+                bind = prompt_bind_cover_to_book(self, result.book_path)
+                if bind.message:
+                    level = (
+                        "success"
+                        if bind.status in ("auto", "chosen", "already_bound")
+                        else "warning"
+                        if bind.status in ("conflict", "error")
+                        else "info"
+                    )
+                    self._facade.log(f"Cover↔Buch: {bind.message}", level)
+            except (OSError, TypeError, ValueError, ImportError) as exc:
+                self._facade.log(f"Cover↔Buch: {exc}", "warning")
+        elif result.cover_bind_message:
+            level = (
+                "success"
+                if result.cover_bind_status in ("auto", "chosen", "already_bound")
+                else "warning"
+                if result.cover_bind_status in ("conflict", "error")
+                else "info"
+            )
+            self._facade.log(f"Cover↔Buch: {result.cover_bind_message}", level)
+
         self._refresh_book_list()
         self._try_select_book(result.book_path)
         self._refresh_work_path()

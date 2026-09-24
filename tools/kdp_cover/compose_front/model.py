@@ -120,21 +120,35 @@ class BandSpec:
 class TextBandSpec:
     """Vollbreites Band hinter einem Textblock (Subtitel / Fußzeile).
 
-    Immer von links nach rechts über die gesamte Front; Höhe = Textblock
-    plus vertikalem Padding (oben und unten je ``padding_pct`` der Front-Höhe).
+    Immer von links nach rechts über die gesamte Front. Höhe = Textblock
+    (echte Glyphen-BBox) plus Abstand oben/unten (% der Front-Höhe).
     """
 
     enabled: bool = False
     color: str = "#1E3A5F"
-    padding_pct: float = 1.2
+    padding_top_pct: float = 1.2
+    padding_bottom_pct: float = 1.2
+
+    @property
+    def padding_pct(self) -> float:
+        """Legacy: Mittelwert — für ältere Aufrufer/Tests."""
+        return (self.padding_top_pct + self.padding_bottom_pct) / 2.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> TextBandSpec:
         d = data if isinstance(data, dict) else {}
+        if "padding_top_pct" in d or "padding_bottom_pct" in d:
+            top = _clamp(_float(d.get("padding_top_pct"), 1.2), 0.0, 12.0)
+            bottom = _clamp(_float(d.get("padding_bottom_pct"), 1.2), 0.0, 12.0)
+        else:
+            # Legacy: ein gemeinsames padding_pct → beide Seiten gleich
+            both = _clamp(_float(d.get("padding_pct"), 1.2), 0.0, 12.0)
+            top = bottom = both
         return cls(
             enabled=bool(d.get("enabled", False)),
             color=str(d.get("color") or "#1E3A5F"),
-            padding_pct=_clamp(_float(d.get("padding_pct"), 1.2), 0.0, 12.0),
+            padding_top_pct=top,
+            padding_bottom_pct=bottom,
         )
 
 
@@ -173,7 +187,8 @@ class SubtitleSpec:
         default_factory=lambda: TitleLineSpec(size_pct=3.2, color="#FFFFFF")
     )
     top_pct: float = 28.0
-    gap_pct: float = 0.8  # Abstand zwischen den beiden Subtitel-Zeilen (%H)
+    gap_pct: float = 0.8  # Abstand zwischen den beiden Subtitel-Zeilen (%H);
+    # 0 = bbox-an-bbox, negativ = enger / fließend.
     band: TextBandSpec = field(default_factory=TextBandSpec)
 
     @classmethod
@@ -190,7 +205,7 @@ class SubtitleSpec:
                 default_color="#FFFFFF",
             ),
             top_pct=_clamp(_float(d.get("top_pct"), 28.0), 0.0, 100.0),
-            gap_pct=_clamp(_float(d.get("gap_pct"), 0.8), 0.0, 8.0),
+            gap_pct=_clamp(_float(d.get("gap_pct"), 0.8), -4.0, 8.0),
             band=TextBandSpec.from_dict(
                 d.get("band") if isinstance(d.get("band"), dict) else {}
             ),
@@ -208,6 +223,9 @@ class TitlesSpec:
     accent: TitleLineSpec = field(
         default_factory=lambda: TitleLineSpec(size_pct=5.5, color="#9B2C3E")
     )
+    author: TitleLineSpec = field(
+        default_factory=lambda: TitleLineSpec(size_pct=3.5, color="#FFFFFF")
+    )
     subtitle: SubtitleSpec = field(default_factory=SubtitleSpec)
     # Gemeinsame Schriftgröße für Titelzeile 1+2 (% Front-Höhe)
     lines_size_pct: float = 4.5
@@ -218,7 +236,8 @@ class TitlesSpec:
     lines_gap_pct: float = 1.2
     top_pct: float = 6.0  # Start Titelzeile 1+2 von oben
     accent_top_pct: float = 18.0  # eigene Startposition Claim von oben
-    # Horizontal: left | center | right (gilt für Zeile 1+2, Subtitel und Claim)
+    author_top_pct: float = 26.0  # eigene Startposition Autor von oben
+    # Horizontal: left | center | right (gilt für Zeile 1+2, Subtitel, Claim, Autor)
     align: str = "center"
     # Zusätzlicher Horizontal-Versatz nach Ausrichtung (% der Frontbreite;
     # negativ = nach links, positiv = nach rechts).
@@ -232,6 +251,10 @@ class TitlesSpec:
         # Claim: neuer Key „claim“, Legacy „accent“
         accent_raw = d.get("claim") if "claim" in d else d.get("accent")
         accent = TitleLineSpec.from_dict(accent_raw, default_color="#9B2C3E")
+        author = TitleLineSpec.from_dict(
+            d.get("author") if isinstance(d.get("author"), dict) else {},
+            default_color="#FFFFFF",
+        )
         if "lines_size_pct" in d:
             lines_size = _clamp(_float(d.get("lines_size_pct"), 4.5), 1.0, 12.0)
         else:
@@ -245,6 +268,10 @@ class TitlesSpec:
         else:
             # Legacy: Claim etwas unter den Titelzeilen
             accent_top = _clamp(top + 12.0, 0.0, 100.0)
+        if "author_top_pct" in d:
+            author_top = _clamp(_float(d.get("author_top_pct"), 26.0), 0.0, 100.0)
+        else:
+            author_top = _clamp(accent_top + 8.0, 0.0, 100.0)
         align = str(d.get("align") or "center").strip().lower()
         if align not in ("left", "center", "right"):
             align = "center"
@@ -258,6 +285,7 @@ class TitlesSpec:
             series=series,
             main=main,
             accent=accent,
+            author=author,
             subtitle=subtitle,
             lines_size_pct=lines_size,
             lines_bold=bool(d.get("lines_bold", False)),
@@ -265,6 +293,7 @@ class TitlesSpec:
             lines_gap_pct=lines_gap,
             top_pct=top,
             accent_top_pct=accent_top,
+            author_top_pct=author_top,
             align=align,
             offset_x_pct=offset_x,
         )

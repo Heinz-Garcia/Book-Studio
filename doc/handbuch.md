@@ -47,7 +47,8 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 23. Layout-Editor (Word/Writer-Vorlagen)
 24. Neuerungen 2026-09: Autonome Plugins (Audit & Polish)
 
-In Kapitel 16: optionaler Abschnitt **Marktvarianten** (AT/CH u. Ä.) — siehe [§ Marktvarianten](#sec-marktvarianten).
+In Kapitel 16: optionaler Abschnitt **Marktvarianten** (AT/CH u. Ä.) — siehe [§ Marktvarianten](#sec-marktvarianten).  
+In Kapitel 22: [Geplante UUID (Cover zuerst)](#sec-kdp-planned-uuid) · [Cover aus Vorlage](#sec-kdp-clone-cover).
 
 ---
 
@@ -291,6 +292,8 @@ Jedes erfolgreiche **Innenwerk-PDF** (Typst/PDF-Render) erhält ein **benutzerde
 **Übersicht über Lieferungen:** **Tools → 🧬 UUID-Manager…** listet Production-UUIDs, optional die Spalte **Variante** (`market_variant`) und Abgleichshinweise.
 
 Die UUID wird in GrammarGraph bei **jeder Buchlieferung** erzeugt und über `publish_meta.json` / Provenance an Book Studio weitergereicht (Kapitel 16). Bei **Marktvarianten** gilt: jede produzierte Variante hat eine **eigene** Production-UUID und damit ein eigenes PDF (siehe [Marktvarianten](#sec-marktvarianten)).
+
+**Cover zuerst:** Du kannst eine Production-UUID auch **in Book Studio** anlegen, bevor es ein Buchprojekt gibt — z. B. wenn du nur Covers einer Serie fertigstellst. Später wählt GrammarGraph dieselbe UUID beim Anlegen des Projekts. Details: [Kapitel 22 — Geplante UUID](#sec-kdp-planned-uuid).
 
 ### Typst: Deckblatt und Inhaltsverzeichnis
 
@@ -1446,6 +1449,92 @@ Einschalten:
 
 Ohne Flag und ohne aktive Layer bleibt der Export unverändert. Details für Entwickler: `.doc/kdp-compose-front-konzept.md`.
 
+### Geplante UUID — Cover zuerst {#sec-kdp-planned-uuid}
+
+Wenn du **heute nur Covers** einer Reihe fertigstellst und das Buchprojekt erst
+später anlegst: zuerst eine Production-UUID in Book Studio erzeugen, Cover darunter
+ablegen, Arbeitstitel mitspeichern. GrammarGraph soll dieselbe UUID beim
+Projekt-Anlegen **zur Auswahl** anbieten (nicht still eine neue erzeugen).
+
+#### Bedienung
+
+1. **Plugins → KDP Cover-Designer…**
+2. **UUID ändern…** (oder UUID-Dialog beim Speichern/Export)
+3. **Neue UUID für Cover…**
+4. **Arbeitstitel** eingeben (Pflicht) — optional Serien-ID (z. B. `ABC`)
+5. Cover wie gewohnt gestalten und speichern/exportieren
+
+Die neue UUID erscheint in der UUID-Liste als **Geplantes Cover (Book Studio)**.
+
+#### Wo liegt was?
+
+| Was | Pfad |
+|-----|------|
+| Cover-Dateien | `production/covers/<uuid>/primary/` (Layout-JSON, Wrap-PDF) |
+| Registry (Metadaten) | `tools/kdp_cover/cover_uuid_registry.json` |
+
+In der Registry u. a.: `production_uuid`, `title_hint` (Arbeitstitel), optional `series_id`, `source_kinds` mit `planned_cover`, `book_path` leer bis ein Buch gebunden ist.
+
+#### Regeln
+
+- **Ein** Buchprojekt / **eine** Lieferung = **eine** Production-UUID.
+- Mehrere UUIDs zum gleichen Stoff = mehrere Produktionen (Anläufe, Marktvarianten, Cover-Entwürfe) — welche die Projekt-UUID wird, entscheidet die **Auswahl** beim Anlegen, nicht „automatisch die neueste“.
+- Primary + Alternative unter derselben UUID = Cover-Varianten **eines** Bands, keine zweiten Projekt-UUIDs.
+
+Technik / API für GrammarGraph: `.doc/cover-planned-uuid.md`. Session-Notiz: `.doc/Mittwoch_23.md`.
+
+#### Wenn das Buch da ist (Bindung)
+
+GrammarGraph hat dieselbe UUID beim Projekt-Anlegen gewählt; die Lieferung
+kommt mit dieser UUID an. Beim **Lieferung übernehmen**:
+
+- **Genau eine** passende geplante UUID → automatisch: Registry `book_path`,
+  Layout nach `export/kdp_cover/…` spiegeln → Ampel **H** kann das Cover sehen
+- **Mehrere** passende → Dialog zur Auswahl (nicht blind)
+- **Keine** → nichts zu binden (Cover später im Designer zuordnen)
+
+### Cover aus Vorlage (Serien-Workflow) {#sec-kdp-clone-cover}
+
+Für Reihen mit gleichem Look: ein fertiges Cover als **Vorlage** nehmen, Texte
+tauschen, unter einer **neuen** Production-UUID speichern — ohne Maße, Farben und
+Bilder neu zu setzen.
+
+#### Wann sinnvoll?
+
+- Mehrere Bände derselben Serie (nur Titel/Claim/Autor/Subtitel ändern)
+- Cover ist schon fertig, Buchprojekt kommt später ([Geplante UUID](#sec-kdp-planned-uuid))
+
+#### Bedienung
+
+1. **Plugins → KDP Cover-Designer…**
+2. Optional: Vorlagen-Cover laden (sonst Datei im Dialog wählen)
+3. **Cover aus Vorlage…**
+4. Im Dialog:
+   - **Vorlage** — `*_kdp_cover.json` (aktuelles Layout ist vorausgefüllt)
+   - **Neuer Arbeitstitel** — Pflicht; wird UUID-Stem und Registry-`title_hint`
+   - **Serie** — optional (z. B. `ABC`)
+   - Textfelder: Titelzeilen, Claim, Autor, Subtitel, PDF-Meta, Rücken
+5. **Klonen & öffnen** — Designer zeigt die Kopie
+
+Neben dem Button **Cover aus Vorlage…** und im Dialog öffnet das **ℹ**-Icon
+dieses Handbuchkapitel (Direktsprung).
+
+#### Was wird kopiert / was neu?
+
+| Bleibt von der Vorlage | Neu |
+|------------------------|-----|
+| Maße, Papier, Seitenzahl | Production-UUID (geplant) |
+| Farben, Bilder, Layer-Layout | Alle eingegebenen Texte |
+| Badge-/Band-Gestaltung | Ablage unter `production/covers/<uuid>/primary/` |
+
+Registry: `source_kinds` enthält `planned_cover` und `cloned_cover` (plus `cloned_from:<uuid>` der Vorlage).
+
+#### Danach
+
+- Wrap-PDF wie gewohnt exportieren
+- Später in GrammarGraph dieselbe UUID beim Projekt-Anlegen wählen
+- Nach Lieferung: Bindung Buch↔Cover (Auto oder Dialog, siehe oben)
+
 ### CLI (ohne GUI)
 
 Für Tests oder Automatisierung:
@@ -2084,6 +2173,43 @@ Layout-Profil für den Regelkreis kommt aus dem **letzten Render** in `publish_m
 
 **Plugins → Cover-Schlagwortwolke…** — Formen inkl. Freie Form/Hub (ehemals eigener Breathcloud-Menüpunkt), Presets, Muss-Wort. CLI für den Hub-Packer unverändert: `python -m tools.breathcloud …`.
 
+### Pfad-Manager (Werkbank) {#sec-path-favorites}
+
+**Plugins → Pfad-Manager…** — Baum für wichtige **Ordner** und **Anwendungen** (Book Studio & El Pitugrafo). Auswahl öffnet rechts die **Werkbank**: Status, passende Aktion, bei Ordnern Ablage per Drag & Drop.
+
+Typisches Muster: Gruppe **Applikationen** mit GIMP/Affinity/…; Gruppe mit Buchpfaden (`export/kdp_cover`, `img`, …).
+
+#### Bedienung (kurz)
+
+1. **Öffnen** — Plugins → Pfad-Manager…
+2. **Baum (links)** — Blatt wählen; Doppelklick = Explorer (Ordner) bzw. App starten; Rechtsklick = Werkbank-Aktionen; Aufklappen bleibt gespeichert
+3. **Werkbank (rechts)** — aufgelöster Pfad + Badge; 1–3 Aktionsbuttons
+4. **Ablegen** — Dateien auf Ordner-Blatt oder Panel ziehen = kopieren (nicht auf Apps); Konflikt: Überschreiben / Umbenennen (`_1`) / Abbrechen
+5. **Unten** — Pfad hinzufügen (**Ordner…** / **App…**), Gruppe, Entfernen; Explorer-Favoriten (Junctions, nur Ordner); **ℹ** → dieses Kapitel
+
+#### Badges
+
+| Badge | Bedeutung |
+|-------|-----------|
+| fehlt | Pfad unaufgelöst oder Ziel existiert nicht |
+| leer | Ordner ohne Inhalt |
+| ok | Ordner vorhanden und nicht leer |
+| App | startbare Datei (.exe, .lnk, …) |
+| Layout / kein Layout | nur bei `export/kdp_cover` |
+
+#### Aktions-Beispiele
+
+| Ziel | Primäraktion |
+|------|--------------|
+| `…/export/kdp_cover` | Cover-Designer |
+| Buch-`img/` | Stylecloud |
+| `.exe` / `.lnk` | Anwendung starten |
+| aktives Buch selbst | Buch im Studio zeigen |
+| `export` / `publish_renders` | Ablegen / Render-Archiv |
+| sonst Ordner | Explorer |
+
+JSON-Quelle: `tools/path_favorites/favorites.json` (Benutzerkopie). Konzept: `.doc/path_favorites_werkbank.md`.
+
 ### Asset Manager & Buchnotizen
 
 - **Asset Manager:** Bilder unter `img/` auch in Unterordnern sichtbar (Orphans/Referenzen) — Kapitel 19.
@@ -2137,6 +2263,8 @@ Details auch in [.doc/gg-content-swap.md](../.doc/gg-content-swap.md). Ohne Buch
 ### UUID-Manager {#sec-uuid-manager}
 
 **Plugins → UUID-Manager…** — Production-UUIDs aus Lieferungen und Büchern. GrammarGraph-Repo wird erkannt über Sibling-Ordner, Umgebungsvariable `GRAMMARGRAPH_ROOT` oder den Inbox-Pfad aus der Studio-Konfiguration.
+
+**Geplante Cover-UUIDs** (noch ohne Buch) legst du im [KDP Cover-Designer](#sec-kdp-planned-uuid) an (**Neue UUID für Cover…**); sie stehen in `tools/kdp_cover/cover_uuid_registry.json` und sollen in GrammarGraph beim Projekt-Anlegen auswählbar sein.
 
 ### Provenance beim Re-Import
 

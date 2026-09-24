@@ -178,19 +178,19 @@ def guided_bar_enablement(state: WorkPathState) -> GuidedBarEnablement:
     „Teilkette“ gehört ins Menü, nicht als zweite CTA auf die Leiste.
     """
     labels = {
-        "delivery_intake": "Lieferung übernehmen",
-        "book_projects": "Bücher wählen",
-        "open_quarto_config_editor": "Struktur prüfen",
-        "open_rahmen_editor": "Rahmen prüfen",
-        "open_kapitel_editor": "Kapitel prüfen",
-        "skeleton_populate": "Rahmen anlegen",
-        "gg_content_swap": "Inhalt prüfen / Skip…",
-        "accept_kapitel_as_is": "Inhalt prüfen / Skip…",
-        "markup_inventory": "Formate zuordnen",
-        "kdp_cover": "Cover",
-        "render": "PDF erzeugen",
-        "publisher_compliance": "Freigabe prüfen",
-        "mapping_manager": "Ablegen",
+        "delivery_intake": "Lieferung übernehmen (Inbox)",
+        "book_projects": "Bücher wählen (Buchprojekte)",
+        "open_quarto_config_editor": "Struktur prüfen (_quarto.yml)",
+        "open_rahmen_editor": "Rahmen prüfen (Rahmenseiten)",
+        "open_kapitel_editor": "Kapitel prüfen (Kapitelstruktur)",
+        "skeleton_populate": "Übernehmen (Skeleton)",
+        "gg_content_swap": "Inhalt aktualisieren (GG-Inhaltstausch)",
+        "accept_kapitel_as_is": "Inhalt belassen (Buchstruktur)",
+        "markup_inventory": "Formate zuordnen (Textauszeichnungs-Inventar)",
+        "kdp_cover": "Cover gestalten (KDP Cover-Designer)",
+        "render": "PDF erzeugen (Export)",
+        "publisher_compliance": "Freigabe prüfen (Druck-Freigabe)",
+        "mapping_manager": "Ablegen (PDF-Manager)",
     }
     next_id = state.next_action_id
     next_enabled = bool(next_id)
@@ -1793,22 +1793,22 @@ def next_action(state: WorkPathState) -> Optional[str]:
 def _summary(book: Path, stages: tuple[StageSnapshot, ...], action: Optional[str]) -> str:
     open_stage = next((s for s in stages if s.kind == StageKind.OPEN), None)
     labels = {
-        "delivery_intake": "Lieferung übernehmen",
-        "book_projects": "Bücher wählen",
-        "open_quarto_config_editor": "Struktur prüfen",
-        "open_rahmen_editor": "Rahmen prüfen",
-        "open_kapitel_editor": "Kapitel prüfen",
-        "skeleton_populate": "Rahmen anlegen",
-        "gg_content_swap": "Inhalt prüfen / Skip…",
-        "accept_kapitel_as_is": "Inhalt prüfen / Skip…",
-        "markup_inventory": "Formate zuordnen",
-        "kdp_cover": "Cover",
-        "render": "PDF erzeugen",
-        "publisher_compliance": "Freigabe prüfen",
-        "mapping_manager": "Ablegen",
+        "delivery_intake": "Lieferung übernehmen (Inbox)",
+        "book_projects": "Bücher wählen (Buchprojekte)",
+        "open_quarto_config_editor": "Struktur prüfen (_quarto.yml)",
+        "open_rahmen_editor": "Rahmen prüfen (Rahmenseiten)",
+        "open_kapitel_editor": "Kapitel prüfen (Kapitelstruktur)",
+        "skeleton_populate": "Übernehmen (Skeleton)",
+        "gg_content_swap": "Inhalt aktualisieren (GG-Inhaltstausch)",
+        "accept_kapitel_as_is": "Inhalt belassen (Buchstruktur)",
+        "markup_inventory": "Formate zuordnen (Textauszeichnungs-Inventar)",
+        "kdp_cover": "Cover gestalten (KDP Cover-Designer)",
+        "render": "PDF erzeugen (Export)",
+        "publisher_compliance": "Freigabe prüfen (Druck-Freigabe)",
+        "mapping_manager": "Ablegen (PDF-Manager)",
     }
     if open_stage is None:
-        return f"{book.name}: Arbeitsweg F–J erfüllt — Ablegen bei Bedarf"
+        return f"{book.name}: Arbeitsweg F–J erfüllt — Ablegen (PDF-Manager) bei Bedarf"
     return f"{book.name}: als Nächstes {labels.get(action or '', open_stage.label)}"
 
 

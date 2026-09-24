@@ -117,6 +117,41 @@ def test_load_snapshots_production_folder_empty_without_provenance(tmp_path):
     assert snapshots[0].production_folder == ""
 
 
+def test_load_renders_sets_book_path_and_name(tmp_path):
+    book = tmp_path / "Band_Demo"
+    book.mkdir()
+    pdf = book / "out.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    snap = create_import_snapshot(book, import_path="/import")
+    append_render(book, {"format": "typst", "artifact_path": str(pdf)}, snapshot_id=snap["id"])
+
+    renders = load_renders(book, snap["id"])
+    assert renders[0].book_path == book
+    assert renders[0].book_name == "Band_Demo"
+
+
+def test_load_all_renders_aggregates_across_books(tmp_path):
+    from tools.mapping_manager.loader import load_all_renders
+
+    books = []
+    for name in ("Alpha", "Beta"):
+        book = tmp_path / name
+        book.mkdir()
+        pdf = book / "out.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        snap = create_import_snapshot(book, import_path="/import")
+        append_render(
+            book,
+            {"format": "typst", "artifact_path": str(pdf)},
+            snapshot_id=snap["id"],
+        )
+        books.append(book)
+
+    views = load_all_renders(books)
+    assert len(views) == 2
+    assert {v.book_name for v in views} == {"Alpha", "Beta"}
+
+
 def test_load_renders_propagates_source_archive_path(tmp_path):
     book = tmp_path / "Band"
     book.mkdir()

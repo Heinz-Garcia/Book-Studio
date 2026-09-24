@@ -46,6 +46,9 @@ class RenderView:
     # `None` bei Renders von vor Einführung dieses Felds (nachträglich nicht
     # rekonstruierbar) oder wenn die Archivierung fehlschlug.
     source_archive_path: Optional[Path] = None
+    # Buchprojekt dieses Renders — gesetzt beim Laden; nötig für „Alle Bücher“.
+    book_path: Optional[Path] = None
+    book_name: str = ""
 
 
 def format_snapshot_label(snap: dict[str, Any]) -> str:

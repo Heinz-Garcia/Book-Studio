@@ -1,6 +1,6 @@
 {
   "name": "satz_werkzeuge",
-  "label": "🔍 Satzprüfung und Regelkreis…",
+  "label": "🔍 Prüfen (Satzprüfung und Regelkreis)…",
   "description": "Gerendertes PDF auf Satzfehler prüfen und die Formatvorlage automatisch nachziehen.",
   "entrypoint": "plugins.satz_werkzeuge:run",
   "version": "1.0.0",

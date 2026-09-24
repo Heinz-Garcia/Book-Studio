@@ -1,6 +1,6 @@
 {
   "name": "mapping_manager",
-  "label": "🗺️ Ablegen…",
+  "label": "🗺️ Ablegen (PDF-Manager)…",
   "description": "Generierte PDFs des aktiven Buchs ablegen — Anzeigename, Datum, Layout (PDF Manager).",
   "entrypoint": "plugins.mapping_manager:run",
   "version": "1.2.0",

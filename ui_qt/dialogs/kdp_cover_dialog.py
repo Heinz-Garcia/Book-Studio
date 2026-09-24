@@ -91,6 +91,7 @@ from tools.kdp_cover.settings import (
 )
 from tools.kdp_cover.validate import ValidationIssue, ValidationReport, validate_layout
 from tools.kdp_specs import format_bleed_note, studio_paperback_preset
+from tools.path_favorites.pin import RECENT_EXPORT_GROUP_LABEL, pin_path
 from tools.production_uuid import normalize_uuid, read_book_uuid
 from ui_qt.autonomous_window import (
     prepare_autonomous_window,
@@ -376,6 +377,411 @@ class _DeployFolderDialog(QDialog):
 
     def folder_path(self) -> str:
         return self.folder_edit.text().strip()
+
+
+class _CloneFromTemplateDialog(QDialog):
+    """Vorlage wählen → Arbeitstitel + Texte → neue geplante UUID + Layout."""
+
+    def __init__(
+        self,
+        parent: QWidget | None,
+        *,
+        initial_source: Path | None = None,
+        initial_texts: Any = None,
+        start_dir: str = "",
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Cover aus Vorlage…")
+        self.setMinimumWidth(520)
+        self.setObjectName("kdpCoverCloneDialog")
+        self._result: Any = None
+        self._start_dir = start_dir or str(Path.home())
+
+        from tools.kdp_cover.clone_cover import CoverTextOverrides
+
+        texts = initial_texts if isinstance(initial_texts, CoverTextOverrides) else CoverTextOverrides()
+
+        lay = QVBoxLayout(self)
+        intro = QLabel(
+            "Kopiert Gestaltung und Maße einer Vorlage, vergibt eine "
+            "<b>neue Production-UUID</b> und setzt die Texte für den neuen Band."
+        )
+        intro.setWordWrap(True)
+        intro.setTextFormat(Qt.TextFormat.RichText)
+        lay.addWidget(intro)
+
+        form = QFormLayout()
+        src_row = QWidget()
+        src_lay = QHBoxLayout(src_row)
+        src_lay.setContentsMargins(0, 0, 0, 0)
+        self.source_edit = QLineEdit(
+            str(initial_source) if initial_source else ""
+        )
+        self.source_edit.setPlaceholderText("…_kdp_cover.json")
+        browse = QPushButton("…")
+        browse.setFixedWidth(32)
+        browse.clicked.connect(self._browse_source)
+        src_lay.addWidget(self.source_edit, 1)
+        src_lay.addWidget(browse)
+        form.addRow("Vorlage:", src_row)
+
+        self.title_hint_edit = QLineEdit()
+        self.title_hint_edit.setPlaceholderText("Arbeitstitel / Stem für UUID")
+        form.addRow("Neuer Arbeitstitel:", self.title_hint_edit)
+
+        self.series_edit = QLineEdit()
+        self.series_edit.setPlaceholderText("optional, z. B. ABC")
+        form.addRow("Serie:", self.series_edit)
+        lay.addLayout(form)
+
+        texts_box = QFrame()
+        texts_box.setFrameShape(QFrame.Shape.StyledPanel)
+        tf = QFormLayout(texts_box)
+        self.compose_series = QLineEdit(texts.compose_series)
+        self.compose_main = QLineEdit(texts.compose_main)
+        self.compose_claim = QLineEdit(texts.compose_claim)
+        self.compose_author = QLineEdit(texts.compose_author)
+        self.compose_sub1 = QLineEdit(texts.compose_sub1)
+        self.compose_sub2 = QLineEdit(texts.compose_sub2)
+        self.meta_title = QLineEdit(texts.title)
+        self.meta_author = QLineEdit(texts.author)
+        self.spine1 = QLineEdit(texts.spine_text)
+        self.spine2 = QLineEdit(texts.spine_text_down)
+        tf.addRow("Titelzeile 1 (Serie):", self.compose_series)
+        tf.addRow("Titelzeile 2 (Haupt):", self.compose_main)
+        tf.addRow("Claim:", self.compose_claim)
+        tf.addRow("Autor (Cover):", self.compose_author)
+        tf.addRow("Subtitel 1:", self.compose_sub1)
+        tf.addRow("Subtitel 2:", self.compose_sub2)
+        tf.addRow("Meta-Titel (PDF):", self.meta_title)
+        tf.addRow("Meta-Autor (PDF):", self.meta_author)
+        tf.addRow("Rücken-Text 1:", self.spine1)
+        tf.addRow("Rücken-Text 2:", self.spine2)
+        lay.addWidget(texts_box)
+
+        # Arbeitstitel aus Hauptzeile vorbelegen, wenn leer
+        if not self.title_hint_edit.text().strip() and texts.compose_main.strip():
+            self.title_hint_edit.setText(texts.compose_main.strip())
+        elif not self.title_hint_edit.text().strip() and texts.title.strip():
+            self.title_hint_edit.setText(texts.title.strip())
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok is not None:
+            ok.setText("Klonen & öffnen")
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        btn_row = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(
+            btn_row, tool_key="kdp_cover_clone", host=self
+        )
+        btn_row.addStretch(1)
+        btn_row.addWidget(buttons)
+        lay.addLayout(btn_row)
+
+    def _browse_source(self) -> None:
+        start = self.source_edit.text().strip() or self._start_dir
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Cover-Vorlage wählen",
+            start,
+            "Cover-Layout (*_kdp_cover.json *_kdp_wrap_project.json);;Alle (*.*)",
+        )
+        if path:
+            self.source_edit.setText(path)
+            self._prefill_from_source(Path(path))
+
+    def _prefill_from_source(self, path: Path) -> None:
+        from tools.kdp_cover.clone_cover import extract_text_snapshot
+        from tools.kdp_cover.model import load_layout
+
+        try:
+            layout = load_layout(path)
+            snap = extract_text_snapshot(layout)
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            return
+        self.compose_series.setText(snap.compose_series)
+        self.compose_main.setText(snap.compose_main)
+        self.compose_claim.setText(snap.compose_claim)
+        self.compose_author.setText(snap.compose_author)
+        self.compose_sub1.setText(snap.compose_sub1)
+        self.compose_sub2.setText(snap.compose_sub2)
+        self.meta_title.setText(snap.title)
+        self.meta_author.setText(snap.author)
+        self.spine1.setText(snap.spine_text)
+        self.spine2.setText(snap.spine_text_down)
+        if not self.title_hint_edit.text().strip():
+            hint = snap.compose_main.strip() or snap.title.strip()
+            if hint:
+                self.title_hint_edit.setText(hint)
+
+    def _accept(self) -> None:
+        from tools.kdp_cover.clone_cover import (
+            CoverTextOverrides,
+            clone_cover_from_template,
+        )
+
+        src = self.source_edit.text().strip()
+        hint = self.title_hint_edit.text().strip()
+        if not src:
+            QMessageBox.warning(self, "Cover aus Vorlage", "Bitte eine Vorlage wählen.")
+            return
+        if not hint:
+            QMessageBox.warning(
+                self, "Cover aus Vorlage", "Bitte einen neuen Arbeitstitel eingeben."
+            )
+            return
+        texts = CoverTextOverrides(
+            title=self.meta_title.text(),
+            author=self.meta_author.text(),
+            spine_text=self.spine1.text(),
+            spine_text_down=self.spine2.text(),
+            compose_series=self.compose_series.text(),
+            compose_main=self.compose_main.text(),
+            compose_claim=self.compose_claim.text(),
+            compose_author=self.compose_author.text(),
+            compose_sub1=self.compose_sub1.text(),
+            compose_sub2=self.compose_sub2.text(),
+        )
+        try:
+            from tools.kdp_cover.uuid_choices import resolve_studio_repo
+
+            studio = getattr(self.parent(), "_studio", None) if self.parent() else None
+            self._result = clone_cover_from_template(
+                src,
+                title_hint=hint,
+                texts=texts,
+                series_id=self.series_edit.text().strip(),
+                repo=resolve_studio_repo(studio),
+            )
+        except (OSError, ValueError, FileNotFoundError, TypeError, KeyError) as exc:
+            QMessageBox.critical(self, "Cover aus Vorlage", str(exc))
+            return
+        self.accept()
+
+    def result_clone(self) -> Any:
+        return self._result
+
+
+class _ExportSuccessDialog(QDialog):
+    """Nach PDF-Export: Rollen erklären und Pfade per Aktion greifbar machen."""
+
+    ACTION_OK = "ok"
+    ACTION_LOAD = "load"
+    ACTION_DEPLOY = "deploy"
+
+    def __init__(
+        self,
+        parent: QWidget | None,
+        *,
+        out_pdf: Path,
+        layout_path: Path,
+        validation_name: str,
+        attached_note: str,
+        book_stem: str = "",
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Cover exportiert")
+        self.setMinimumWidth(560)
+        self.setObjectName("kdpCoverExportSuccess")
+        self.result_action = self.ACTION_OK
+        self._out_pdf = Path(out_pdf)
+        self._layout_path = Path(layout_path)
+        self._cover_dir = self._out_pdf.parent
+        stem = (book_stem or self._out_pdf.stem or "Cover").strip()
+        if stem.lower().endswith("_kdp_wrap"):
+            stem = stem[: -len("_kdp_wrap")]
+        self._book_stem = stem or "Cover"
+
+        lay = QVBoxLayout(self)
+        lay.setSpacing(10)
+
+        intro = QLabel(
+            "<p style='margin:0;'><b>Fertig.</b></p>"
+            "<p style='margin:4px 0 0 0;'>"
+            "<b>Druckdatei</b> = Upload bei Amazon KDP.<br>"
+            "<b>Quelle</b> = hier im Designer Titles, Farben und Bild ändern."
+            "</p>"
+        )
+        intro.setWordWrap(True)
+        intro.setTextFormat(Qt.TextFormat.RichText)
+        intro.setObjectName("kdpExportSuccessIntro")
+        lay.addWidget(intro)
+
+        lay.addWidget(
+            self._path_row(
+                role="Druckdatei",
+                hint="für Amazon KDP",
+                path=self._out_pdf,
+                pin_label=f"KDP Druck · {self._book_stem}",
+            )
+        )
+        lay.addWidget(
+            self._path_row(
+                role="Quelle",
+                hint="Titles, Farben, Bild",
+                path=self._layout_path,
+                pin_label=f"KDP Quelle · {self._book_stem}",
+            )
+        )
+        lay.addWidget(
+            self._path_row(
+                role="Cover-Ordner",
+                hint="beide Dateien liegen hier",
+                path=self._cover_dir,
+                pin_label=f"KDP Cover-Ordner · {self._book_stem}",
+                is_folder=True,
+            )
+        )
+
+        info_bits: list[str] = []
+        if validation_name:
+            info_bits.append(f"Validierung: <code>{validation_name}</code>")
+        note = (attached_note or "").strip()
+        if note:
+            # Angehängte Hinweise oft mit führendem Zeilenumbruch.
+            info_bits.append(note.replace("\n", "<br>").lstrip("<br>"))
+        if info_bits:
+            info = QLabel("<br>".join(info_bits))
+            info.setWordWrap(True)
+            info.setTextFormat(Qt.TextFormat.RichText)
+            info.setStyleSheet("color:#64748b; font-size:11px;")
+            info.setObjectName("kdpExportSuccessInfo")
+            lay.addWidget(info)
+
+        later = QLabel(
+            "Später erneut bearbeiten: <b>Bearbeiten aus Wrap-PDF…</b> — "
+            "die Quelle wird automatisch gefunden."
+        )
+        later.setWordWrap(True)
+        later.setTextFormat(Qt.TextFormat.RichText)
+        later.setStyleSheet("color:#475569; font-size:12px;")
+        lay.addWidget(later)
+
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet("color:#166534; font-size:11px;")
+        self.status_label.setObjectName("kdpExportSuccessStatus")
+        lay.addWidget(self.status_label)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("kdpExportSuccessOk")
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(self._on_ok)
+        buttons.addWidget(ok_btn)
+
+        load_btn = QPushButton("Quelle jetzt laden")
+        load_btn.setObjectName("kdpExportSuccessLoad")
+        load_btn.setToolTip(
+            "Lädt die bearbeitbare Cover-Layout-Datei in diesen Designer "
+            "(nicht die PDF)."
+        )
+        load_btn.clicked.connect(self._on_load)
+        buttons.addWidget(load_btn)
+
+        deploy_btn = QPushButton("Druckdatei in Deploy-Ordner…")
+        deploy_btn.setObjectName("kdpExportSuccessDeploy")
+        deploy_btn.setToolTip(
+            "Kopie der Druckdatei in einen Upload-/Sammelordner "
+            "(Ordner hier wählbar und speicherbar). "
+            "Legt auch eine Hinweisdatei an, damit du später von der PDF "
+            "zurück zur Quelle findest."
+        )
+        deploy_btn.clicked.connect(self._on_deploy)
+        buttons.addWidget(deploy_btn)
+        lay.addLayout(buttons)
+
+    def _path_row(
+        self,
+        *,
+        role: str,
+        hint: str,
+        path: Path,
+        pin_label: str,
+        is_folder: bool = False,
+    ) -> QWidget:
+        host = QFrame()
+        host.setFrameShape(QFrame.Shape.StyledPanel)
+        host.setStyleSheet(
+            "QFrame { background:#f8fafc; border:1px solid #e2e8f0; "
+            "border-radius:6px; }"
+        )
+        row = QVBoxLayout(host)
+        row.setContentsMargins(10, 8, 10, 8)
+        row.setSpacing(4)
+
+        title = QLabel(f"<b>{role}</b> — {hint}")
+        title.setTextFormat(Qt.TextFormat.RichText)
+        row.addWidget(title)
+
+        path_line = QHBoxLayout()
+        path_line.setContentsMargins(0, 0, 0, 0)
+        display = path.name if not is_folder else str(path)
+        name_lbl = QLabel(f"<code>{display}</code>")
+        name_lbl.setTextFormat(Qt.TextFormat.RichText)
+        name_lbl.setToolTip(str(path))
+        name_lbl.setWordWrap(True)
+        name_lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        path_line.addWidget(name_lbl, 1)
+
+        folder_btn = QPushButton("Ordner")
+        folder_btn.setToolTip("Im Explorer öffnen")
+        folder_btn.clicked.connect(
+            lambda _checked=False, p=path: self._open_folder(p)
+        )
+        path_line.addWidget(folder_btn)
+
+        pin_btn = QPushButton("Pfad-Manager")
+        pin_btn.setToolTip(
+            "In den Pfad-Manager aufnehmen "
+            f"(Gruppe „{RECENT_EXPORT_GROUP_LABEL}“)."
+        )
+        pin_btn.clicked.connect(
+            lambda _checked=False, lab=pin_label, p=path: self._pin(lab, p)
+        )
+        path_line.addWidget(pin_btn)
+        row.addLayout(path_line)
+        return host
+
+    def _open_folder(self, path: Path) -> None:
+        from tools.path_favorites.open_path import open_in_file_manager
+
+        try:
+            open_in_file_manager(path)
+        except (OSError, FileNotFoundError) as exc:
+            QMessageBox.warning(self, "Ordner öffnen", str(exc))
+
+    def _pin(self, label: str, path: Path) -> None:
+        try:
+            result = pin_path(label=label, path=path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Pfad-Manager", str(exc))
+            return
+        verb = "aufgenommen" if result.created else "aktualisiert"
+        self.status_label.setText(
+            f"„{result.node.label}“ {verb} — Pfad-Manager, "
+            f"Gruppe „{RECENT_EXPORT_GROUP_LABEL}“."
+        )
+
+    def _on_ok(self) -> None:
+        self.result_action = self.ACTION_OK
+        self.accept()
+
+    def _on_load(self) -> None:
+        self.result_action = self.ACTION_LOAD
+        self.accept()
+
+    def _on_deploy(self) -> None:
+        self.result_action = self.ACTION_DEPLOY
+        self.accept()
 
 
 class KdpCoverQtDialog(QDialog):
@@ -790,8 +1196,9 @@ class KdpCoverQtDialog(QDialog):
             self._pair(self.front_ox_spin, self.front_oy_spin),
         )
         self._editor_tabs.addTab(tab_front, "Vorderseite · Bild")
+        self._front_tab_index = self._editor_tabs.count() - 1
         self._editor_tabs.setTabToolTip(
-            self._editor_tabs.count() - 1,
+            self._front_tab_index,
             "3 · Vorderseite · Bild (Farbe, Bildmodus, Bild oder Stylecloud)",
         )
 
@@ -806,6 +1213,26 @@ class KdpCoverQtDialog(QDialog):
             "4 · Vorderseite · Layout (Fade, Band, Titel, Fuß, Banner, Badge).",
         )
         self._sync_compose_front_tab_visibility()
+
+        # --- Tab: Zonenkarte (Layout-Hilfe, flächenfüllend) ---
+        from ui_qt.widgets.cover_zone_map import CoverZoneMap
+
+        tab_zones, zones_body = self._make_editor_tab(scrollable=False)
+        zones_hint = QLabel(
+            "Miniatur-Vorderseite als Orientierung — Klick springt zum Dialogteil "
+            "(nicht die Live-Vorschau rechts)."
+        )
+        zones_hint.setWordWrap(True)
+        zones_hint.setStyleSheet("color:#5b6573; font-size:12px;")
+        zones_body.addWidget(zones_hint)
+        self._zone_map = CoverZoneMap()
+        self._zone_map.zone_clicked.connect(self._jump_to_cover_zone)
+        zones_body.addWidget(self._zone_map, stretch=1)
+        self._zone_tab_index = self._editor_tabs.addTab(tab_zones, "Zonenkarte")
+        self._editor_tabs.setTabToolTip(
+            self._zone_tab_index,
+            "Visuelle Layout-Hilfe: Zonen anklicken → Sprung zu Bild/Layout-Feldern.",
+        )
 
         # --- Tab: Rücken ---
         tab_spine, spine_body = self._make_editor_tab()
@@ -1071,6 +1498,15 @@ class KdpCoverQtDialog(QDialog):
             "(keine Cover-Layouts; Maße/Bilder bleiben erhalten)."
         )
         self.btn_load_elementset.clicked.connect(self._load_elementset)
+        self.btn_clone_from_template = QPushButton("Cover aus Vorlage…")
+        self.btn_clone_from_template.setObjectName("kdpCoverCloneFromTemplate")
+        self.btn_clone_from_template.setToolTip(
+            "Fertiges Cover als Vorlage nehmen: neue Production-UUID "
+            "(Arbeitstitel), Texte tauschen, Layout unter "
+            "production/covers/<uuid>/… speichern und hier öffnen.\n"
+            "Gestaltung/Maße/Bilder bleiben — ideal für Serien-Covers."
+        )
+        self.btn_clone_from_template.clicked.connect(self._clone_from_template)
         io_rows = (
             (
                 self.btn_quick_save,
@@ -1082,10 +1518,21 @@ class KdpCoverQtDialog(QDialog):
                 self.btn_save_elementset,
                 self.btn_load_elementset,
             ),
+            (self.btn_clone_from_template,),
         )
         for row_btns in io_rows:
             row = QHBoxLayout()
             row.setSpacing(6)
+            if row_btns and row_btns[0] is self.btn_clone_from_template:
+                from ui_qt.widgets.handbook_info_button import (
+                    make_handbook_info_button,
+                )
+
+                info = make_handbook_info_button(
+                    self, anchor="sec-kdp-clone-cover", host=self
+                )
+                info.setToolTip("Handbuch: Cover aus Vorlage…")
+                row.addWidget(info, stretch=0)
             for btn in row_btns:
                 btn.setMinimumHeight(28)
                 btn.setSizePolicy(
@@ -1234,6 +1681,8 @@ class KdpCoverQtDialog(QDialog):
                 self.title_edit.setText(title)
             if author:
                 self.author_edit.setText(author)
+                if not self.compose_author.text().strip():
+                    self.compose_author.setText(author)
             img_dir = self._book / "img"
             if img_dir.is_dir():
                 candidates = sorted(img_dir.glob("Deckblatt*.png")) + sorted(
@@ -1965,6 +2414,7 @@ class KdpCoverQtDialog(QDialog):
         fade_links_layout.addWidget(self.btn_fade_invert)
         fade_form.addRow(fade_links_row)
         root.addWidget(fade_sec)
+        self._compose_sec_fade = fade_sec
 
         band_sec = CollapsibleSection("Band", expanded=False)
         band_form = self._nested_form(band_sec)
@@ -2014,6 +2464,7 @@ class KdpCoverQtDialog(QDialog):
             ),
         )
         root.addWidget(band_sec)
+        self._compose_sec_band = band_sec
 
         titles_sec = CollapsibleSection("Titelzeilen", expanded=False)
         titles_form = self._nested_form(titles_sec)
@@ -2088,7 +2539,7 @@ class KdpCoverQtDialog(QDialog):
         self.compose_titles_align.addItem("Rechts", "right")
         self.compose_titles_align.setCurrentIndex(1)
         self.compose_titles_align.setToolTip(
-            "Horizontale Ausrichtung für Titelzeile 1+2, Subtitel und Claim "
+            "Horizontale Ausrichtung für Titelzeile 1+2, Subtitel, Claim und Autor "
             "(Seitenrand ≈ 5 % der Vorderseitenbreite)."
         )
         self.compose_titles_offset_x = QDoubleSpinBox()
@@ -2137,13 +2588,14 @@ class KdpCoverQtDialog(QDialog):
             "Startposition Subtitel von oben (% der Front-Höhe)."
         )
         self.compose_subtitle_gap = QDoubleSpinBox()
-        self.compose_subtitle_gap.setRange(0.0, 8.0)
+        self.compose_subtitle_gap.setRange(-4.0, 8.0)
         self.compose_subtitle_gap.setDecimals(1)
         self.compose_subtitle_gap.setSingleStep(0.2)
         self.compose_subtitle_gap.setValue(0.8)
         self.compose_subtitle_gap.setSuffix(" %H")
         self.compose_subtitle_gap.setToolTip(
-            "Abstand zwischen den beiden Subtitel-Zeilen (% der Front-Höhe)."
+            "Abstand zwischen Subtitel Zeile 1 und 2 (% der Front-Höhe).\n"
+            "0 = direkt aneinander; negativ = noch enger (Zeilen fließen zusammen)."
         )
         self.compose_sub1 = QLineEdit()
         self.compose_sub1.setPlaceholderText("Subtitel Zeile 1")
@@ -2170,34 +2622,50 @@ class KdpCoverQtDialog(QDialog):
         self.compose_sub2_bold = QCheckBox("Fett")
         self.compose_sub2_italic = QCheckBox("Kursiv")
         titles_form.addRow(self.compose_subtitle_enabled)
-        titles_form.addRow(
-            "Subtitel Pos/Abstand:",
-            self._pair(self.compose_subtitle_top, self.compose_subtitle_gap),
-        )
+        titles_form.addRow("Subtitel Position:", self.compose_subtitle_top)
+        titles_form.addRow("Subtitel Abstand 1↔2:", self.compose_subtitle_gap)
         self.compose_subtitle_band_enabled = QCheckBox("Band hinterlegen")
         self.compose_subtitle_band_enabled.setToolTip(
             "Vollbreites Band hinter dem Subtitel "
-            "(immer von links nach rechts über die ganze Vorderseite)."
+            "(immer von links nach rechts über die ganze Vorderseite).\n"
+            "Das Band zentriert sich an den Glyphen; Abstände oben/unten getrennt."
         )
         sub_band_color_host, self.compose_subtitle_band_color = self._color_field(
             "#1E3A5F",
             tooltip="Bandfarbe hinter dem Subtitel",
         )
-        self.compose_subtitle_band_pad = QDoubleSpinBox()
-        self.compose_subtitle_band_pad.setRange(0.0, 12.0)
-        self.compose_subtitle_band_pad.setDecimals(1)
-        self.compose_subtitle_band_pad.setSingleStep(0.2)
-        self.compose_subtitle_band_pad.setValue(1.2)
-        self.compose_subtitle_band_pad.setSuffix(" %H")
-        self.compose_subtitle_band_pad.setToolTip(
-            "Vertikales Padding des Bands oberhalb und unterhalb des Subtitels "
-            "(% der Front-Höhe)."
+        self.compose_subtitle_band_pad_top = QDoubleSpinBox()
+        self.compose_subtitle_band_pad_top.setRange(0.0, 12.0)
+        self.compose_subtitle_band_pad_top.setDecimals(1)
+        self.compose_subtitle_band_pad_top.setSingleStep(0.2)
+        self.compose_subtitle_band_pad_top.setValue(1.2)
+        self.compose_subtitle_band_pad_top.setSuffix(" %H")
+        self.compose_subtitle_band_pad_top.setToolTip(
+            "Abstand Band-Oberkante → Subtitel-Text (% der Front-Höhe)."
         )
+        self.compose_subtitle_band_pad_bottom = QDoubleSpinBox()
+        self.compose_subtitle_band_pad_bottom.setRange(0.0, 12.0)
+        self.compose_subtitle_band_pad_bottom.setDecimals(1)
+        self.compose_subtitle_band_pad_bottom.setSingleStep(0.2)
+        self.compose_subtitle_band_pad_bottom.setValue(1.2)
+        self.compose_subtitle_band_pad_bottom.setSuffix(" %H")
+        self.compose_subtitle_band_pad_bottom.setToolTip(
+            "Abstand Subtitel-Text → Band-Unterkante (% der Front-Höhe)."
+        )
+        # Alias für ältere Tests / Aufrufer (oben = „das“ Padding)
+        self.compose_subtitle_band_pad = self.compose_subtitle_band_pad_top
         titles_form.addRow(
             "Subtitel-Band:",
             self._pair(
                 self.compose_subtitle_band_enabled,
-                self._pair(sub_band_color_host, self.compose_subtitle_band_pad),
+                sub_band_color_host,
+            ),
+        )
+        titles_form.addRow(
+            "Band Abstand oben/unten:",
+            self._pair(
+                self.compose_subtitle_band_pad_top,
+                self.compose_subtitle_band_pad_bottom,
             ),
         )
         titles_form.addRow(
@@ -2250,7 +2718,50 @@ class KdpCoverQtDialog(QDialog):
                 ),
             ),
         )
+
+        self.compose_author = QLineEdit()
+        self.compose_author.setPlaceholderText("Autor")
+        author_color_host, self.compose_author_color = self._color_field("#FFFFFF")
+        self.compose_author_size = QDoubleSpinBox()
+        self.compose_author_size.setRange(1.0, 12.0)
+        self.compose_author_size.setDecimals(1)
+        self.compose_author_size.setSingleStep(0.5)
+        self.compose_author_size.setValue(3.5)
+        self.compose_author_size.setSuffix(" %H")
+        self.compose_author_size.setToolTip("Schriftgröße Autor (% der Front-Höhe).")
+        self.compose_author_top = QDoubleSpinBox()
+        self.compose_author_top.setRange(0.0, 100.0)
+        self.compose_author_top.setDecimals(1)
+        self.compose_author_top.setSingleStep(1.0)
+        self.compose_author_top.setValue(26.0)
+        self.compose_author_top.setSuffix(" %Y")
+        self.compose_author_top.setToolTip(
+            "Startposition Autor von oben (% der Front-Höhe)."
+        )
+        self.compose_author_bold = QCheckBox("Fett")
+        self.compose_author_bold.setToolTip("Autor fett darstellen")
+        self.compose_author_italic = QCheckBox("Kursiv")
+        self.compose_author_italic.setToolTip("Autor kursiv darstellen")
+        self.compose_author_font = self._font_family_combo()
+        titles_form.addRow(
+            "Autor:",
+            self._pair(self.compose_author, author_color_host),
+        )
+        titles_form.addRow(
+            "Autor Pos/Größe:",
+            self._pair(
+                self.compose_author_top,
+                self._pair(
+                    self.compose_author_size,
+                    self._pair(
+                        self.compose_author_font,
+                        self._pair(self.compose_author_bold, self.compose_author_italic),
+                    ),
+                ),
+            ),
+        )
         root.addWidget(titles_sec)
+        self._compose_sec_titles = titles_sec
 
         footer_sec = CollapsibleSection("Fußzeile", expanded=False)
         footer_form = self._nested_form(footer_sec)
@@ -2306,30 +2817,48 @@ class KdpCoverQtDialog(QDialog):
         self.compose_footer_band_enabled = QCheckBox("Band hinterlegen")
         self.compose_footer_band_enabled.setToolTip(
             "Vollbreites Band hinter der Fußzeile "
-            "(immer von links nach rechts über die ganze Vorderseite)."
+            "(immer von links nach rechts über die ganze Vorderseite).\n"
+            "Das Band zentriert sich an den Glyphen; Abstände oben/unten getrennt."
         )
         footer_band_color_host, self.compose_footer_band_color = self._color_field(
             "#1E3A5F",
             tooltip="Bandfarbe hinter der Fußzeile",
         )
-        self.compose_footer_band_pad = QDoubleSpinBox()
-        self.compose_footer_band_pad.setRange(0.0, 12.0)
-        self.compose_footer_band_pad.setDecimals(1)
-        self.compose_footer_band_pad.setSingleStep(0.2)
-        self.compose_footer_band_pad.setValue(1.2)
-        self.compose_footer_band_pad.setSuffix(" %H")
-        self.compose_footer_band_pad.setToolTip(
-            "Vertikales Padding des Bands oberhalb und unterhalb der Fußzeile "
-            "(% der Front-Höhe)."
+        self.compose_footer_band_pad_top = QDoubleSpinBox()
+        self.compose_footer_band_pad_top.setRange(0.0, 12.0)
+        self.compose_footer_band_pad_top.setDecimals(1)
+        self.compose_footer_band_pad_top.setSingleStep(0.2)
+        self.compose_footer_band_pad_top.setValue(1.2)
+        self.compose_footer_band_pad_top.setSuffix(" %H")
+        self.compose_footer_band_pad_top.setToolTip(
+            "Abstand Band-Oberkante → Fußzeilen-Text (% der Front-Höhe)."
         )
+        self.compose_footer_band_pad_bottom = QDoubleSpinBox()
+        self.compose_footer_band_pad_bottom.setRange(0.0, 12.0)
+        self.compose_footer_band_pad_bottom.setDecimals(1)
+        self.compose_footer_band_pad_bottom.setSingleStep(0.2)
+        self.compose_footer_band_pad_bottom.setValue(1.2)
+        self.compose_footer_band_pad_bottom.setSuffix(" %H")
+        self.compose_footer_band_pad_bottom.setToolTip(
+            "Abstand Fußzeilen-Text → Band-Unterkante (% der Front-Höhe)."
+        )
+        self.compose_footer_band_pad = self.compose_footer_band_pad_top
         footer_form.addRow(
             "Fußzeilen-Band:",
             self._pair(
                 self.compose_footer_band_enabled,
-                self._pair(footer_band_color_host, self.compose_footer_band_pad),
+                footer_band_color_host,
+            ),
+        )
+        footer_form.addRow(
+            "Band Abstand oben/unten:",
+            self._pair(
+                self.compose_footer_band_pad_top,
+                self.compose_footer_band_pad_bottom,
             ),
         )
         root.addWidget(footer_sec)
+        self._compose_sec_footer = footer_sec
 
         corner_sec = CollapsibleSection("Ecken-Banner", expanded=False)
         corner_form = self._nested_form(corner_sec)
@@ -2430,6 +2959,7 @@ class KdpCoverQtDialog(QDialog):
         )
         corner_form.addRow("", self.compose_corner_icon)
         root.addWidget(corner_sec)
+        self._compose_sec_corner = corner_sec
 
         badge_sec = CollapsibleSection("Badge / Stempel", expanded=False)
         badge_form = self._nested_form(badge_sec)
@@ -2467,6 +2997,7 @@ class KdpCoverQtDialog(QDialog):
             default_y=75.0,
         )
         root.addWidget(badge_sec)
+        self._compose_sec_badge = badge_sec
 
         return box
 
@@ -2573,6 +3104,8 @@ class KdpCoverQtDialog(QDialog):
             self.compose_badge2_bold,
             self.compose_accent_italic,
             self.compose_accent_bold,
+            self.compose_author_italic,
+            self.compose_author_bold,
             self.compose_lines_bold,
             self.compose_subtitle_enabled,
             self.compose_subtitle_band_enabled,
@@ -2599,13 +3132,17 @@ class KdpCoverQtDialog(QDialog):
             self.compose_titles_top,
             self.compose_accent_size,
             self.compose_accent_top,
+            self.compose_author_size,
+            self.compose_author_top,
             self.compose_subtitle_top,
             self.compose_subtitle_gap,
-            self.compose_subtitle_band_pad,
+            self.compose_subtitle_band_pad_top,
+            self.compose_subtitle_band_pad_bottom,
             self.compose_sub1_size,
             self.compose_sub2_size,
             self.compose_footer_bottom,
-            self.compose_footer_band_pad,
+            self.compose_footer_band_pad_top,
+            self.compose_footer_band_pad_bottom,
             self.compose_corner_size,
             self.compose_corner_font,
             self.compose_corner_offset_x,
@@ -2628,6 +3165,7 @@ class KdpCoverQtDialog(QDialog):
         self.compose_sub2_font.currentIndexChanged.connect(self._on_params_changed)
         self.compose_lines_font.currentIndexChanged.connect(self._on_params_changed)
         self.compose_accent_font.currentIndexChanged.connect(self._on_params_changed)
+        self.compose_author_font.currentIndexChanged.connect(self._on_params_changed)
         self.compose_band_font.currentIndexChanged.connect(self._on_params_changed)
         self.compose_footer_font.currentIndexChanged.connect(self._on_params_changed)
         self.compose_corner_font_family.currentIndexChanged.connect(
@@ -2642,6 +3180,7 @@ class KdpCoverQtDialog(QDialog):
             self.compose_series,
             self.compose_main,
             self.compose_accent,
+            self.compose_author,
             self.compose_sub1,
             self.compose_sub2,
             self.compose_footer_line1,
@@ -2779,7 +3318,12 @@ class KdpCoverQtDialog(QDialog):
                         "enabled": self.compose_subtitle_band_enabled.isChecked(),
                         "color": self.compose_subtitle_band_color.text().strip()
                         or "#1E3A5F",
-                        "padding_pct": float(self.compose_subtitle_band_pad.value()),
+                        "padding_top_pct": float(
+                            self.compose_subtitle_band_pad_top.value()
+                        ),
+                        "padding_bottom_pct": float(
+                            self.compose_subtitle_band_pad_bottom.value()
+                        ),
                     },
                     "line1": {
                         "text": self.compose_sub1.text().strip(),
@@ -2806,8 +3350,17 @@ class KdpCoverQtDialog(QDialog):
                     "bold": self.compose_accent_bold.isChecked(),
                     "font": str(self.compose_accent_font.currentData() or "sans"),
                 },
+                "author": {
+                    "text": self.compose_author.text().strip(),
+                    "color": self.compose_author_color.text().strip() or "#FFFFFF",
+                    "size_pct": float(self.compose_author_size.value()),
+                    "italic": self.compose_author_italic.isChecked(),
+                    "bold": self.compose_author_bold.isChecked(),
+                    "font": str(self.compose_author_font.currentData() or "sans"),
+                },
                 "top_pct": float(self.compose_titles_top.value()),
                 "accent_top_pct": float(self.compose_accent_top.value()),
+                "author_top_pct": float(self.compose_author_top.value()),
             },
             "footer": {
                 "enabled": self.compose_footer_enabled.isChecked(),
@@ -2822,7 +3375,10 @@ class KdpCoverQtDialog(QDialog):
                     "enabled": self.compose_footer_band_enabled.isChecked(),
                     "color": self.compose_footer_band_color.text().strip()
                     or "#1E3A5F",
-                    "padding_pct": float(self.compose_footer_band_pad.value()),
+                    "padding_top_pct": float(self.compose_footer_band_pad_top.value()),
+                    "padding_bottom_pct": float(
+                        self.compose_footer_band_pad_bottom.value()
+                    ),
                 },
             },
             "corner_ribbon": {
@@ -2922,6 +3478,27 @@ class KdpCoverQtDialog(QDialog):
             self._set_font_combo(
                 self.compose_accent_font, getattr(spec.titles.accent, "font", "sans")
             )
+            author = getattr(spec.titles, "author", None)
+            if author is None:
+                self.compose_author.clear()
+                self.compose_author_color.setText("#FFFFFF")
+                self.compose_author_size.setValue(3.5)
+                self.compose_author_top.setValue(26.0)
+                self.compose_author_bold.setChecked(False)
+                self.compose_author_italic.setChecked(False)
+                self._set_font_combo(self.compose_author_font, "sans")
+            else:
+                self.compose_author.setText(author.text)
+                self.compose_author_color.setText(author.color)
+                self.compose_author_size.setValue(author.size_pct)
+                self.compose_author_top.setValue(
+                    float(getattr(spec.titles, "author_top_pct", 26.0) or 26.0)
+                )
+                self.compose_author_bold.setChecked(bool(author.bold))
+                self.compose_author_italic.setChecked(bool(author.italic))
+                self._set_font_combo(
+                    self.compose_author_font, getattr(author, "font", "sans")
+                )
             sub = getattr(spec.titles, "subtitle", None)
             if sub is None:
                 self.compose_subtitle_enabled.setChecked(False)
@@ -2936,8 +3513,23 @@ class KdpCoverQtDialog(QDialog):
                 else:
                     self.compose_subtitle_band_enabled.setChecked(bool(sub_band.enabled))
                     self.compose_subtitle_band_color.setText(sub_band.color)
-                    self.compose_subtitle_band_pad.setValue(
-                        float(sub_band.padding_pct)
+                    self.compose_subtitle_band_pad_top.setValue(
+                        float(
+                            getattr(
+                                sub_band,
+                                "padding_top_pct",
+                                getattr(sub_band, "padding_pct", 1.2),
+                            )
+                        )
+                    )
+                    self.compose_subtitle_band_pad_bottom.setValue(
+                        float(
+                            getattr(
+                                sub_band,
+                                "padding_bottom_pct",
+                                getattr(sub_band, "padding_pct", 1.2),
+                            )
+                        )
                     )
                 self.compose_sub1.setText(sub.line1.text)
                 self.compose_sub1_color.setText(sub.line1.color)
@@ -2975,7 +3567,24 @@ class KdpCoverQtDialog(QDialog):
             else:
                 self.compose_footer_band_enabled.setChecked(bool(foot_band.enabled))
                 self.compose_footer_band_color.setText(foot_band.color)
-                self.compose_footer_band_pad.setValue(float(foot_band.padding_pct))
+                self.compose_footer_band_pad_top.setValue(
+                    float(
+                        getattr(
+                            foot_band,
+                            "padding_top_pct",
+                            getattr(foot_band, "padding_pct", 1.2),
+                        )
+                    )
+                )
+                self.compose_footer_band_pad_bottom.setValue(
+                    float(
+                        getattr(
+                            foot_band,
+                            "padding_bottom_pct",
+                            getattr(foot_band, "padding_pct", 1.2),
+                        )
+                    )
+                )
             self.compose_corner_enabled.setChecked(spec.corner_ribbon.enabled)
             self.compose_corner_text.setText(spec.corner_ribbon.text)
             self.compose_corner_color.setText(spec.corner_ribbon.color)
@@ -3119,6 +3728,80 @@ class KdpCoverQtDialog(QDialog):
         tabs.setCurrentIndex(idx)
         self.raise_()
         self.activateWindow()
+
+    def _jump_to_cover_zone(self, zone_id: str) -> None:
+        """Zonenkarte → Tab + Abschnitt + Fokus (Layout-Hilfe)."""
+        tabs = getattr(self, "_editor_tabs", None)
+        if tabs is None:
+            return
+
+        def _expand(sec: Any) -> None:
+            if sec is not None and hasattr(sec, "set_expanded"):
+                sec.set_expanded(True)
+
+        def _focus(widget: Any) -> None:
+            if widget is None:
+                return
+            widget.setFocus(Qt.FocusReason.OtherFocusReason)
+            QTimer.singleShot(0, lambda w=widget: self._scroll_editor_to_widget(w))
+
+        front_idx = getattr(self, "_front_tab_index", -1)
+
+        if zone_id == "image":
+            if front_idx >= 0:
+                tabs.setCurrentIndex(front_idx)
+            self.front_mode_top_third.setChecked(True)
+            self._sync_front_image_mode_controls()
+            _focus(self.front_mode_top_third)
+            return
+
+        if zone_id == "ground":
+            if front_idx >= 0:
+                tabs.setCurrentIndex(front_idx)
+            _focus(self.front_color_edit)
+            return
+
+        self._open_gestaltung_tab()
+        if zone_id == "header":
+            _expand(getattr(self, "_compose_sec_band", None))
+            _focus(self.compose_band_text)
+        elif zone_id == "title":
+            _expand(getattr(self, "_compose_sec_titles", None))
+            _focus(self.compose_main)
+        elif zone_id == "subtitle":
+            _expand(getattr(self, "_compose_sec_titles", None))
+            self.compose_subtitle_enabled.setChecked(True)
+            self.compose_subtitle_band_enabled.setChecked(True)
+            _focus(self.compose_sub1)
+        elif zone_id == "claim":
+            _expand(getattr(self, "_compose_sec_titles", None))
+            _focus(self.compose_accent)
+        elif zone_id == "author":
+            _expand(getattr(self, "_compose_sec_titles", None))
+            _focus(self.compose_author)
+        elif zone_id == "footer":
+            _expand(getattr(self, "_compose_sec_footer", None))
+            _focus(self.compose_footer_line1)
+        elif zone_id == "corner":
+            _expand(getattr(self, "_compose_sec_corner", None))
+            _focus(self.compose_corner_text)
+        elif zone_id == "badge":
+            _expand(getattr(self, "_compose_sec_badge", None))
+            _focus(self.compose_badge_text)
+        else:
+            _expand(getattr(self, "_compose_sec_fade", None))
+            _focus(self.compose_fade_enabled)
+
+    def _scroll_editor_to_widget(self, widget: QWidget) -> None:
+        """Scroll the active editor tab so ``widget`` is visible."""
+        if widget is None:
+            return
+        parent: QWidget | None = widget
+        while parent is not None:
+            if isinstance(parent, QScrollArea):
+                parent.ensureWidgetVisible(widget, 24, 24)
+                return
+            parent = parent.parentWidget()
 
     def _open_color_pipette(self) -> None:
         """Always-on-top: Farbe aus Referenzbild → Hex in Zwischenablage."""
@@ -4758,6 +5441,45 @@ class KdpCoverQtDialog(QDialog):
                 f"● Quelle geladen: {layout_path.name} (aus Wrap-PDF)"
             )
 
+    def _clone_from_template(self) -> None:
+        """Cover-Vorlage klonen: neue UUID, Texte tauschen, Layout öffnen."""
+        from tools.kdp_cover.clone_cover import extract_text_snapshot
+        from tools.kdp_cover.model import load_layout
+
+        start_dir, _ = self._suggested_save_path()
+        initial_source: Path | None = None
+        initial_texts = None
+        if self._project_path and Path(self._project_path).is_file():
+            initial_source = Path(self._project_path)
+            try:
+                initial_texts = extract_text_snapshot(load_layout(initial_source))
+            except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+                initial_texts = None
+        dlg = _CloneFromTemplateDialog(
+            self,
+            initial_source=initial_source,
+            initial_texts=initial_texts,
+            start_dir=start_dir,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        result = dlg.result_clone()
+        if result is None:
+            return
+        if self._load_layout_path(result.layout_path):
+            self.status_label.setText(
+                f"● Aus Vorlage geklont: {result.planned.title_hint} "
+                f"({result.planned.production_uuid[:8]}…)"
+            )
+            self.status_label.setStyleSheet(_qlabel_color_ss("#166534", weight="600"))
+            log = getattr(self._studio, "log", None) if self._studio else None
+            if callable(log):
+                log(
+                    f"KDP-Cover geklont → {result.layout_path} "
+                    f"(UUID {result.planned.production_uuid})",
+                    "success",
+                )
+
     def _show_export_success(
         self,
         *,
@@ -4768,46 +5490,21 @@ class KdpCoverQtDialog(QDialog):
         deploy_source: Path,
         production_uuid: str = "",
     ) -> None:
-        box = QMessageBox(self)
-        box.setWindowTitle("Cover exportiert")
-        box.setIcon(QMessageBox.Icon.Information)
-        box.setText(
-            "<p><b>Zwei Dateien — bitte den Unterschied merken:</b></p>"
-            "<p><b>1. Druckdatei</b> (Wrap-PDF für Amazon KDP)<br>"
-            f"<code>{out_pdf}</code></p>"
-            "<p><b>2. Bearbeitbare Quelle</b> (Cover-Layout — hier änderst du später Titles, Farben, Bild)<br>"
-            f"<code>{layout_path}</code></p>"
-            f"<p>Validierung: <code>{validation_name}</code>"
-            f"{attached_note.replace(chr(10), '<br>') if attached_note else ''}</p>"
-            "<p>Später erneut bearbeiten: Button "
-            "<b>Bearbeiten aus Wrap-PDF…</b> und die Druckdatei wählen — "
-            "die Quelle wird automatisch gefunden.</p>"
+        book_stem = ""
+        if self._book is not None:
+            book_stem = str(self._book.name or "").strip()
+        dlg = _ExportSuccessDialog(
+            self,
+            out_pdf=out_pdf,
+            layout_path=layout_path,
+            validation_name=validation_name,
+            attached_note=attached_note,
+            book_stem=book_stem,
         )
-        box.setTextFormat(Qt.TextFormat.RichText)
-        box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
-        edit_btn = box.addButton(
-            "Quelle jetzt laden",
-            QMessageBox.ButtonRole.ActionRole,
-        )
-        edit_btn.setToolTip(
-            "Lädt die bearbeitbare Cover-Layout-Datei in diesen Designer "
-            "(nicht die PDF)."
-        )
-        deploy_btn = box.addButton(
-            "Druckdatei in Deploy-Ordner…",
-            QMessageBox.ButtonRole.ActionRole,
-        )
-        deploy_btn.setToolTip(
-            "Kopie der Druckdatei in einen Upload-/Sammelordner "
-            "(Ordner hier wählbar und speicherbar). "
-            "Legt auch eine Hinweisdatei an, damit du später von der PDF "
-            "zurück zur Quelle findest."
-        )
-        box.exec()
-        clicked = box.clickedButton()
-        if clicked is edit_btn:
+        dlg.exec()
+        if dlg.result_action == _ExportSuccessDialog.ACTION_LOAD:
             self._load_layout_path(layout_path)
-        elif clicked is deploy_btn:
+        elif dlg.result_action == _ExportSuccessDialog.ACTION_DEPLOY:
             self._copy_wrap_to_configured_folder(
                 deploy_source,
                 layout_path=layout_path,

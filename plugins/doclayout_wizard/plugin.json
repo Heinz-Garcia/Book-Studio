@@ -1,6 +1,6 @@
 {
   "name": "doclayout_wizard",
-  "label": "🧭 Layout-Assistent (Schritt für Schritt)…",
+  "label": "🧭 Führen (Layout-Assistent)…",
   "description": "Führt durch alle Formatierungsobjekte, die im Buch tatsächlich vorkommen.",
   "entrypoint": "plugins.doclayout_wizard:run",
   "version": "1.0.0",

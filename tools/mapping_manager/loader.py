@@ -48,6 +48,7 @@ def load_renders(book_path: Path, snapshot_id: str) -> list[RenderView]:
     if snap is None:
         return []
 
+    book = Path(book_path)
     views: list[RenderView] = []
     for render in snap.get("renders") or []:
         if not isinstance(render, dict):
@@ -70,7 +71,21 @@ def load_renders(book_path: Path, snapshot_id: str) -> list[RenderView]:
                 exists=pdf_path.is_file() if artifact else False,
                 notes=str(render.get("notes") or ""),
                 source_archive_path=Path(source_archive) if source_archive else None,
+                book_path=book,
+                book_name=book.name,
             )
         )
     views.sort(key=lambda r: r.at, reverse=True)
     return views
+
+
+def load_all_renders(book_paths: list[Path]) -> list[RenderView]:
+    """Alle Renders aller Snapshots der genannten Bücher (neueste zuerst)."""
+    out: list[RenderView] = []
+    for book in book_paths:
+        for snap in load_snapshots(book):
+            if not snap.id:
+                continue
+            out.extend(load_renders(book, snap.id))
+    out.sort(key=lambda r: r.at, reverse=True)
+    return out

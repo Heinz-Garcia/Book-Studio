@@ -301,6 +301,7 @@ def test_suggested_elementset_path_uses_book_title(monkeypatch, tmp_path):
     assert start_name == "Diagnose_Brustkrebs_elementset.json"
     assert dlg.btn_save_elementset.text().startswith("Elementset speichern")
     assert dlg.btn_load_elementset.text().startswith("Elementset laden")
+    assert dlg.btn_clone_from_template.text().startswith("Cover aus Vorlage")
     # Zwei IO-Zeilen à 3 Buttons (nicht sechs in einer Zeile gequetscht).
     assert dlg.btn_quick_save.minimumHeight() >= 28
     assert dlg.btn_save_elementset.minimumHeight() >= 28
@@ -358,13 +359,14 @@ def test_kdp_dialog_keeps_preview_column(monkeypatch, tmp_path):
     assert panels
     assert panels[0].minimumWidth() >= 360
     assert isinstance(dlg._editor_tabs, QTabWidget)
-    assert dlg._editor_tabs.count() == 7
-    labels = [dlg._editor_tabs.tabText(i) for i in range(7)]
+    assert dlg._editor_tabs.count() == 8
+    labels = [dlg._editor_tabs.tabText(i) for i in range(8)]
     assert labels == [
         "Maße",
         "Allgemein",
         "Vorderseite · Bild",
         "Vorderseite · Layout",
+        "Zonenkarte",
         "Rücken",
         "Rückseite",
         "Experte",
@@ -769,9 +771,12 @@ def test_compose_titles_claim_subtitle_gap_ui(monkeypatch, tmp_path):
     """Abstand 1↔2, Claim-Label, Subtitel mit getrenntem Font."""
     _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
     assert dlg.compose_accent.placeholderText() == "Claim"
+    assert dlg.compose_author.placeholderText() == "Autor"
     assert hasattr(dlg, "compose_lines_gap")
     assert hasattr(dlg, "compose_subtitle_enabled")
     assert hasattr(dlg, "compose_subtitle_band_enabled")
+    assert dlg.compose_subtitle_gap.minimum() == pytest.approx(-4.0)
+    assert dlg.compose_subtitle_gap.maximum() == pytest.approx(8.0)
     assert hasattr(dlg, "compose_footer_band_enabled")
     assert hasattr(dlg, "compose_lines_font")
     assert hasattr(dlg, "compose_footer_font")
@@ -786,7 +791,8 @@ def test_compose_titles_claim_subtitle_gap_ui(monkeypatch, tmp_path):
     dlg.compose_subtitle_enabled.setChecked(True)
     dlg.compose_subtitle_band_enabled.setChecked(True)
     dlg.compose_subtitle_band_color.setText("#102030")
-    dlg.compose_subtitle_band_pad.setValue(2.5)
+    dlg.compose_subtitle_band_pad_top.setValue(2.5)
+    dlg.compose_subtitle_band_pad_bottom.setValue(1.0)
     dlg.compose_sub1.setText("Sub A")
     dlg.compose_sub1_color.setText("#FFEEDD")
     dlg.compose_sub1_size.setValue(3.5)
@@ -798,6 +804,9 @@ def test_compose_titles_claim_subtitle_gap_ui(monkeypatch, tmp_path):
     dlg.compose_sub2_font.setCurrentIndex(dlg.compose_sub2_font.findData("mono"))
     dlg.compose_accent.setText("Claim Text")
     dlg._set_font_combo(dlg.compose_accent_font, "mono")
+    dlg.compose_author.setText("A. Autorin")
+    dlg.compose_author_top.setValue(28.0)
+    dlg._set_font_combo(dlg.compose_author_font, "serif")
     dlg._set_font_combo(dlg.compose_footer_font, "serif")
     dlg._set_font_combo(dlg.compose_band_font, "mono")
     dlg._set_font_combo(dlg.compose_corner_font_family, "serif")
@@ -806,21 +815,29 @@ def test_compose_titles_claim_subtitle_gap_ui(monkeypatch, tmp_path):
     dlg.compose_footer_line1.setText("Fuss")
     dlg.compose_footer_band_enabled.setChecked(True)
     dlg.compose_footer_band_color.setText("#334455")
-    dlg.compose_footer_band_pad.setValue(1.8)
+    dlg.compose_footer_band_pad_top.setValue(1.8)
+    dlg.compose_footer_band_pad_bottom.setValue(0.6)
     raw = dlg._collect_front_compose()
     assert raw["titles"]["lines_gap_pct"] == pytest.approx(3.0)
     assert raw["titles"]["lines_font"] == "serif"
     assert raw["titles"]["accent"]["text"] == "Claim Text"
     assert raw["titles"]["accent"]["font"] == "mono"
+    assert raw["titles"]["author"]["text"] == "A. Autorin"
+    assert raw["titles"]["author"]["font"] == "serif"
+    assert raw["titles"]["author_top_pct"] == pytest.approx(28.0)
     assert raw["titles"]["subtitle"]["enabled"] is True
     assert raw["titles"]["subtitle"]["band"]["enabled"] is True
     assert raw["titles"]["subtitle"]["band"]["color"] == "#102030"
-    assert raw["titles"]["subtitle"]["band"]["padding_pct"] == pytest.approx(2.5)
+    assert raw["titles"]["subtitle"]["band"]["padding_top_pct"] == pytest.approx(2.5)
+    assert raw["titles"]["subtitle"]["band"]["padding_bottom_pct"] == pytest.approx(
+        1.0
+    )
     assert raw["titles"]["subtitle"]["line1"]["font"] == "serif"
     assert raw["titles"]["subtitle"]["line1"]["bold"] is True
     assert raw["footer"]["band"]["enabled"] is True
     assert raw["footer"]["band"]["color"] == "#334455"
-    assert raw["footer"]["band"]["padding_pct"] == pytest.approx(1.8)
+    assert raw["footer"]["band"]["padding_top_pct"] == pytest.approx(1.8)
+    assert raw["footer"]["band"]["padding_bottom_pct"] == pytest.approx(0.6)
     assert raw["titles"]["subtitle"]["line2"]["font"] == "mono"
     assert raw["footer"]["font"] == "serif"
     assert raw["band"]["font"] == "mono"
@@ -833,7 +850,13 @@ def test_compose_titles_claim_subtitle_gap_ui(monkeypatch, tmp_path):
     assert dlg.compose_sub2_font.currentData() == "mono"
     assert dlg.compose_accent.text() == "Claim Text"
     assert dlg.compose_accent_font.currentData() == "mono"
+    assert dlg.compose_author.text() == "A. Autorin"
+    assert dlg.compose_author_font.currentData() == "serif"
     assert dlg.compose_footer_font.currentData() == "serif"
+    assert dlg.compose_subtitle_band_pad_top.value() == pytest.approx(2.5)
+    assert dlg.compose_subtitle_band_pad_bottom.value() == pytest.approx(1.0)
+    assert dlg.compose_footer_band_pad_top.value() == pytest.approx(1.8)
+    assert dlg.compose_footer_band_pad_bottom.value() == pytest.approx(0.6)
     dlg.close()
 
 
@@ -1707,4 +1730,70 @@ def test_save_uses_book_uuid_without_picker(monkeypatch, tmp_path):
     assert dlg._project_path is not None
     loaded = load_layout(Path(dlg._project_path))
     assert loaded.production_uuid == uid
+    dlg.close()
+
+
+def test_export_success_dialog_roles_and_pin_buttons(monkeypatch, tmp_path):
+    """Export-Erfolg: Rollen statt Lerntext, Pfad-Manager-Buttons je Zeile."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+
+    from tools.path_favorites.model import FavoritesTree, load_favorites, save_favorites
+    from tools.path_favorites.pin import (
+        RECENT_EXPORT_GROUP_ID,
+        RECENT_EXPORT_GROUP_LABEL,
+        pin_path as real_pin_path,
+    )
+    from ui_qt.dialogs.kdp_cover_dialog import _ExportSuccessDialog
+    from ui_qt.theme import apply_theme
+
+    fav = tmp_path / "favorites.json"
+    save_favorites(FavoritesTree(), path=fav)
+
+    def _pin(**kwargs):
+        kwargs["favorites_path"] = fav
+        return real_pin_path(**kwargs)
+
+    monkeypatch.setattr("ui_qt.dialogs.kdp_cover_dialog.pin_path", _pin)
+
+    app = QApplication.instance() or QApplication([])
+    apply_theme(app)
+    cover_dir = tmp_path / "covers" / "uid" / "primary"
+    cover_dir.mkdir(parents=True)
+    pdf = cover_dir / "Band_kdp_wrap.pdf"
+    layout = cover_dir / "Band_kdp_cover.json"
+    pdf.write_bytes(b"%PDF")
+    layout.write_text("{}", encoding="utf-8")
+
+    dlg = _ExportSuccessDialog(
+        None,
+        out_pdf=pdf,
+        layout_path=layout,
+        validation_name="Band_kdp_wrap_validation.json",
+        attached_note="\nAm Buch hinterlegt: export/kdp_cover/…",
+        book_stem="Band",
+    )
+    html = " ".join(lab.text() for lab in dlg.findChildren(QLabel))
+    assert "Unterschied merken" not in html
+    assert "bitte den Unterschied" not in html.lower()
+    assert "Fertig" in html
+    assert "Druckdatei" in html
+    assert "Quelle" in html
+    assert "Cover-Ordner" in html
+    assert "merken" not in html.lower()
+
+    pin_buttons = [
+        b for b in dlg.findChildren(QPushButton) if b.text() == "Pfad-Manager"
+    ]
+    assert len(pin_buttons) == 3
+    pin_buttons[0].click()
+    assert RECENT_EXPORT_GROUP_LABEL in dlg.status_label.text()
+    tree = load_favorites(fav)
+    group = tree.find_by_id(RECENT_EXPORT_GROUP_ID)
+    assert group is not None
+    assert len(group.children) >= 1
+
+    assert dlg.findChild(QPushButton, "kdpExportSuccessLoad") is not None
+    assert dlg.findChild(QPushButton, "kdpExportSuccessDeploy") is not None
     dlg.close()

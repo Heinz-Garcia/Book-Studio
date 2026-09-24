@@ -38,8 +38,9 @@ def reveal_in_explorer(path: Path) -> None:
 
 
 def delete_pdf(path: Path) -> None:
-    """Löscht eine PDF des PDF Managers -- auch aus dem Render-Archiv.
+    """Löscht eine Ausgabe des PDF Managers -- auch aus dem Render-Archiv.
 
+    PDF, DOCX und andere Quarto-Formate unter ``export/publish_renders/``.
     ``allow_registered=True`` ist hier richtig und nur hier: Der Aufrufer
     (``mapping_manager_dialog._delete_selected``) entfernt unmittelbar danach
     den zugehoerigen Eintrag mit ``publish_map.store.remove_render``. Ohne

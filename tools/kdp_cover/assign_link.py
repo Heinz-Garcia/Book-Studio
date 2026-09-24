@@ -16,10 +16,12 @@ def assign_cover_to_uuid(
     cover_label: str = "",
     cover_role: CoverRole = "primary",
     title_hint: str = "",
+    series_id: str = "",
     source_kinds: Sequence[str] | None = None,
     book_path: Path | str | None = None,
     cover_path: Path | str | None = None,
     repo: Path | None = None,
+    registry_file: Path | None = None,
 ) -> CoverRegistryEntry:
     """Persist Cover↔UUID in the registry immediately (visible on next picker open).
 
@@ -64,7 +66,9 @@ def assign_cover_to_uuid(
         cover_label=str(cover_label or "").strip(),
         cover_role=role,
         title_hint=str(title_hint or "").strip(),
+        series_id=str(series_id or "").strip(),
         source_kinds=list(source_kinds or []),
+        path=registry_file,
     )
 
 

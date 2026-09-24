@@ -1,11 +1,11 @@
 {
   "name": "book_projects",
-  "label": "📚 Bücher wählen…",
+  "label": "📚 Bücher wählen (Buchprojekte)…",
   "description": "Buchprojekte suchen, öffnen, anlegen und Anzeigenamen vergeben.",
   "entrypoint": "plugins.book_projects:run",
   "version": "1.1.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
   "order": 1,
-  "help_text": "Projektliste (Anzeigename · Ordner · Pfad). Buchordner ≠ PDF. Fertige Ausgaben: Ablegen (PDF Manager) über Plugins → Ablegen…"
+  "help_text": "Projektliste (Anzeigename · Ordner · Pfad). Buchordner ≠ PDF. Fertige Ausgaben: Ablegen (PDF-Manager) über Buch-Werkzeuge → Ablegen (PDF-Manager)…"
 }

@@ -17,6 +17,7 @@ from tools.uuid_manager.service import collect_uuid_records
 ORIGIN_GG = "grammargraph_delivery"
 ORIGIN_BS = "book_studio"
 ORIGIN_GG_OUTPUT = "grammargraph_output"
+ORIGIN_PLANNED = "planned_cover"
 
 
 @dataclass(frozen=True)
@@ -297,7 +298,7 @@ def list_production_uuid_choices(
     grammargraph_repo: Path | None = None,
     registry_path: Path | None = None,
 ) -> list[UuidChoice]:
-    """Union of GG deliveries and BS books with production UUID."""
+    """Union of GG deliveries, BS books, and planned Cover-first UUIDs."""
     records = collect_uuid_records(
         book_studio_repo=Path(book_studio_repo),
         grammargraph_repo=Path(grammargraph_repo).resolve()
@@ -315,7 +316,50 @@ def list_production_uuid_choices(
             continue
         seen.add(key)
         choices.append(choice)
+    for planned in _planned_cover_choices(registry_path=registry_path):
+        key = planned.uuid.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        choices.append(planned)
     return attach_cover_links(choices, registry_path=registry_path)
+
+
+def _planned_cover_choices(
+    *,
+    registry_path: Path | None = None,
+) -> list[UuidChoice]:
+    """Cover-first UUIDs from the registry (no GG/BS scan hit yet)."""
+    from tools.kdp_cover.planned_uuid import list_planned_cover_uuids
+
+    out: list[UuidChoice] = []
+    for row in list_planned_cover_uuids(registry_file=registry_path):
+        uid = normalize_uuid(row.get("production_uuid")) or ""
+        if not uid:
+            continue
+        title = str(row.get("title_hint") or "").strip()
+        series = str(row.get("series_id") or "").strip()
+        if series and title:
+            title_disp = f"{title} [{series}]"
+        else:
+            title_disp = title or "(geplantes Cover)"
+        out.append(
+            UuidChoice(
+                uuid=uid,
+                title=title_disp,
+                market_variant="",
+                status=UuidStatus.delivery_only,
+                origins=(ORIGIN_PLANNED,),
+                origin_label="Geplantes Cover (Book Studio)",
+                status_label="Geplant",
+                content_label="Cover-first, noch kein Buch",
+                book_path="",
+                publish_dir="",
+                production_created_at=str(row.get("saved_at") or "").strip(),
+                source_kind=ORIGIN_PLANNED,
+            )
+        )
+    return out
 
 
 def resolve_studio_repo(studio: Any = None) -> Path:
@@ -390,6 +434,7 @@ __all__ = [
     "ORIGIN_BS",
     "ORIGIN_GG",
     "ORIGIN_GG_OUTPUT",
+    "ORIGIN_PLANNED",
     "UuidChoice",
     "attach_cover_links",
     "choice_from_record",

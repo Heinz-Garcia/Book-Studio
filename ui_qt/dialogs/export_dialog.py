@@ -36,6 +36,7 @@ from tools.layout_profiles.catalog import (
     profile_labels,
 )
 from ui_qt.autonomous_window import apply_persisted_size, persist_window_size
+from ui_qt.widgets.help_bar import HelpBar
 
 _SIZE_KEY = "export_dialog_size"
 _DEFAULT_SIZE = (560, 360)
@@ -374,22 +375,8 @@ class ExportDialog(QDialog):
 
         layout.addLayout(form)
 
-        # Ein kompakter Hinweisblock statt mehrerer gestreckter Labels.
-        self.hint = QLabel()
-        self.hint.setObjectName("exportFooterHelp")
-        self.hint.setWordWrap(True)
-        self.hint.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
-        )
-        self.hint.setStyleSheet(
-            "QLabel#exportFooterHelp {"
-            "  color: #475569;"
-            "  background: #f1f5f9;"
-            "  border: 1px solid #e2e8f0;"
-            "  border-radius: 4px;"
-            "  padding: 4px 6px;"
-            "}"
-        )
+        # Profil-Erläuterung: gleiche HelpBar wie überall (hellblau + 🛈).
+        self.hint = HelpBar(self, "")
         self._set_footer_help(initial_profile.description)
         layout.addWidget(self.hint)
 
@@ -523,7 +510,7 @@ class ExportDialog(QDialog):
                 "Layout nur in die Temp-Kopie — _quarto.yml bleibt unverändert.",
             ]
         )
-        self.hint.setText("\n".join(lines))
+        self.hint.set_text("\n".join(lines))
 
     def _on_profile_changed(self, _text: str = "") -> None:
         profile = get_profile(profile_id_from_label(self.profile_combo.currentText()))

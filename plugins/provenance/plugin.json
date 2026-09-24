@@ -1,6 +1,6 @@
 {
   "name": "provenance",
-  "label": "🧾 Provenance (Herkunftsnachweis)…",
+  "label": "🧾 Anzeigen (Provenance)…",
   "description": "GrammarGraph-Export-Metadaten anzeigen und beim Import übernehmen.",
   "entrypoint": "plugins.provenance:run",
   "version": "1.1.0",

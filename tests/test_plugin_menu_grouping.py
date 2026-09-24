@@ -119,7 +119,7 @@ class TestMenueaufbau:
         """Nicht die order-Zahl entscheidet, sondern der Arbeitsweg."""
         texte = [a.text() for a in menu.actions() if not a.isSeparator()]
         buecher = next(i for i, t in enumerate(texte) if "Bücher wählen" in t)
-        skeleton = next(i for i, t in enumerate(texte) if "Skeleton ins Buch" in t)
+        skeleton = next(i for i, t in enumerate(texte) if "Übernehmen (Skeleton)" in t or "Skeleton ins Buch" in t)
         assert buecher < skeleton
 
     def test_satzpruefung_steht_bei_layout(self, menu) -> None:

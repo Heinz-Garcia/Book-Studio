@@ -45,6 +45,7 @@ def test_uuid_pick_dialog_uses_sortable_table(monkeypatch) -> None:
     assert isinstance(dlg.table, QTableWidget)
     assert dlg.table.columnCount() == 10
     assert dlg.table.rowCount() == 2
+    assert dlg.btn_new_planned.text().startswith("Neue UUID")
     headers = [
         dlg.table.horizontalHeaderItem(i).text() for i in range(dlg.table.columnCount())
     ]

@@ -262,7 +262,7 @@ class TestPluginManifest:
                 Path(__file__).resolve().parents[1] / "plugins" / "file_indexer" / "plugin.json"
             ).read_text(encoding="utf-8")
         )
-        assert daten["label"] == "📤 Kapitelliste exportieren (CSV)…"
+        assert daten["label"] == "📤 Exportieren (Kapitelliste)…"
         assert "Kapitel" in daten["description"]
         assert "python -m tools.chapter_list" in daten["help_text"]
 

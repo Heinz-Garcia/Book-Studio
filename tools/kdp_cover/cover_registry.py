@@ -29,12 +29,13 @@ class CoverRegistryEntry:
     cover_label: str = ""
     cover_role: CoverRole = "primary"
     title_hint: str = ""
+    series_id: str = ""
     source_kinds: list[str] = field(default_factory=list)
     saved_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         role = "alternative" if self.cover_role == "alternative" else "primary"
-        return {
+        data = {
             "production_uuid": self.production_uuid,
             "cover_path": self.cover_path,
             "book_path": self.book_path or "",
@@ -44,6 +45,10 @@ class CoverRegistryEntry:
             "source_kinds": list(self.source_kinds or []),
             "saved_at": self.saved_at or "",
         }
+        series = str(self.series_id or "").strip()
+        if series:
+            data["series_id"] = series
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CoverRegistryEntry:
@@ -59,6 +64,7 @@ class CoverRegistryEntry:
             cover_label=str(data.get("cover_label") or "").strip(),
             cover_role=role,
             title_hint=str(data.get("title_hint") or "").strip(),
+            series_id=str(data.get("series_id") or "").strip(),
             source_kinds=[str(k) for k in kinds if str(k).strip()],
             saved_at=str(data.get("saved_at") or "").strip(),
         )
@@ -156,6 +162,22 @@ def resolve_primary_cover(
     return covers[0] if covers else None
 
 
+def _merge_entry(old: CoverRegistryEntry, new: CoverRegistryEntry) -> CoverRegistryEntry:
+    """``new`` gewinnt; leere Felder und Herkunfts-Kennungen kommen aus ``old``."""
+    kinds = list(old.source_kinds or [])
+    seen = {k.casefold() for k in kinds}
+    for kind in new.source_kinds or []:
+        if kind.casefold() not in seen:
+            kinds.append(kind)
+            seen.add(kind.casefold())
+    new.book_path = new.book_path or old.book_path
+    new.series_id = new.series_id or old.series_id
+    new.title_hint = new.title_hint or old.title_hint
+    new.cover_label = new.cover_label or old.cover_label
+    new.source_kinds = kinds
+    return new
+
+
 def upsert_cover_link(
     *,
     production_uuid: str,
@@ -164,6 +186,7 @@ def upsert_cover_link(
     cover_label: str = "",
     cover_role: CoverRole = "primary",
     title_hint: str = "",
+    series_id: str = "",
     source_kinds: list[str] | None = None,
     path: Path | None = None,
 ) -> CoverRegistryEntry:
@@ -187,6 +210,7 @@ def upsert_cover_link(
         cover_label=str(cover_label or "").strip(),
         cover_role=role,
         title_hint=str(title_hint or "").strip(),
+        series_id=str(series_id or "").strip(),
         source_kinds=kinds,
         saved_at=_now_iso(),
     )
@@ -204,6 +228,12 @@ def upsert_cover_link(
         same_path = _normalize_path_key(existing.cover_path) == cover_key
         if same_path:
             # Replace this path entry (may also reassign UUID).
+            if same_uuid:
+                # Gleiches Cover, gleiche UUID: Metadaten zusammenführen statt
+                # ersetzen. Sonst kostete jedes Speichern im Designer die
+                # Buchbindung (ohne aktives Buch), die Serie und die Herkunft
+                # (planned_cover / bound_book / cloned_from:…).
+                entry = _merge_entry(existing, entry)
             entries.append(entry.to_dict())
             replaced = True
             continue

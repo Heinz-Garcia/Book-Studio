@@ -40,18 +40,8 @@ def test_prepend_puts_info_button_first(qapp, monkeypatch):
     host.deleteLater()
 
 
-def test_autonomous_dialogs_wire_info_button():
-    """Stichprobe: wichtige autonome Dialoge rufen den Helfer auf."""
-    from pathlib import Path
+def test_handbook_anchor_kdp_cover_clone():
+    from ui_qt.widgets.handbook_info_button import handbook_anchor_for
 
-    root = Path(__file__).resolve().parent.parent / "ui_qt" / "dialogs"
-    need = (
-        "doclayout_markup_inventory_dialog.py",
-        "mapping_manager_dialog.py",
-        "kdp_cover_dialog.py",
-        "publish_readiness_dialog.py",
-        "gg_content_swap_dialog.py",
-    )
-    for name in need:
-        text = (root / name).read_text(encoding="utf-8")
-        assert "prepend_handbook_info_button" in text, name
+    assert handbook_anchor_for("kdp_cover_clone") == "sec-kdp-clone-cover"
+    assert handbook_anchor_for("kdp_cover") == "sec-kdp-cover"

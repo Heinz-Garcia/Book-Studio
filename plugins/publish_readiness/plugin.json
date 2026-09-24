@@ -1,6 +1,6 @@
 {
   "name": "publish_readiness",
-  "label": "✅ Freigabe — Qualitätsbefunde (Erweitert)…",
+  "label": "✅ Qualitätsbefunde prüfen (Publish Readiness)…",
   "description": "Qualitätsbefunde mit Owner und Fix-Spur (Quality Contract) — Expertenansicht zur Freigabe-Stufe.",
   "entrypoint": "plugins.publish_readiness:run",
   "version": "1.0.0",

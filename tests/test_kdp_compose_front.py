@@ -573,10 +573,15 @@ def test_subtitle_and_footer_text_band_full_width() -> None:
     assert spec.titles.subtitle.band.enabled is True
     assert spec.titles.subtitle.band.color == "#112233"
     assert spec.titles.subtitle.band.padding_pct == 2.0
+    assert spec.titles.subtitle.band.padding_top_pct == 2.0
+    assert spec.titles.subtitle.band.padding_bottom_pct == 2.0
     assert spec.footer.band.enabled is True
     assert spec.footer.band.color == "#AA2244"
     again = FrontComposeSpec.from_dict(spec.to_dict())
     assert again.footer.band.padding_pct == 1.5
+    assert again.footer.band.padding_top_pct == 1.5
+    assert "padding_pct" not in again.to_dict()["footer"]["band"]
+    assert again.to_dict()["footer"]["band"]["padding_top_pct"] == pytest.approx(1.5)
     out = apply_to_front_panel(base, again)
     assert out is not None
     # Band muss am linken und rechten Rand Pixel der Bandfarbe tragen.
@@ -596,6 +601,74 @@ def test_subtitle_and_footer_text_band_full_width() -> None:
     fr = out.getpixel((197, foot_y))
     assert fl[:3] == (0xAA, 0x22, 0x44)
     assert fr[:3] == (0xAA, 0x22, 0x44)
+
+
+def test_subtitle_band_asymmetric_padding_and_ink_center() -> None:
+    """Band folgt Glyphen-BBox; oben/unten getrennt steuerbar."""
+    base = Image.new("RGB", (200, 400), (240, 240, 240))
+    pad_top_pct = 3.0
+    pad_bot_pct = 1.0
+    spec = FrontComposeSpec.from_dict(
+        {
+            "enabled": True,
+            "fade": {"enabled": False},
+            "titles": {
+                "enabled": True,
+                "series": {"text": ""},
+                "main": {"text": ""},
+                "accent": {"text": ""},
+                "subtitle": {
+                    "enabled": True,
+                    "top_pct": 30.0,
+                    "gap_pct": 1.0,
+                    "band": {
+                        "enabled": True,
+                        "color": "#003366",
+                        "padding_top_pct": pad_top_pct,
+                        "padding_bottom_pct": pad_bot_pct,
+                    },
+                    "line1": {
+                        "text": "AAAA",
+                        "color": "#FFFFFF",
+                        "size_pct": 5.0,
+                    },
+                    "line2": {
+                        "text": "BBBB",
+                        "color": "#FFFFFF",
+                        "size_pct": 5.0,
+                    },
+                },
+            },
+            "footer": {"enabled": False},
+        }
+    )
+    assert spec.titles.subtitle.band.padding_top_pct == pad_top_pct
+    assert spec.titles.subtitle.band.padding_bottom_pct == pad_bot_pct
+    out = apply_to_front_panel(base, spec)
+    assert out is not None
+    band = (0x00, 0x33, 0x66)
+    band_rows = [
+        y for y in range(out.size[1]) if out.getpixel((2, y))[:3] == band
+    ]
+    assert band_rows, "Subtitel-Band nicht gefunden"
+    band_top, band_bot = band_rows[0], band_rows[-1]
+    h = out.size[1]
+    expected_pad_top = int(round(h * pad_top_pct / 100.0))
+    expected_pad_bot = int(round(h * pad_bot_pct / 100.0))
+    # Bandhöhe = Glyphen + pads; pads ungleich → Band länger oben als unten.
+    assert expected_pad_top > expected_pad_bot
+    assert (band_bot - band_top + 1) > expected_pad_top + expected_pad_bot
+    # Oberer Abstand größer als unterer (asymmetrisch).
+    # Weiße Textpixel innerhalb des Bands finden.
+    white_ys = [
+        y
+        for y in range(band_top, band_bot + 1)
+        if any(out.getpixel((x, y))[:3] == (255, 255, 255) for x in range(40, 160))
+    ]
+    assert white_ys, "Subtitel-Text nicht im Band gefunden"
+    ink_top, ink_bot = white_ys[0], white_ys[-1]
+    assert abs((ink_top - band_top) - expected_pad_top) <= 2
+    assert abs((band_bot - ink_bot) - expected_pad_bot) <= 2
 
 
 def test_badge_text_color_renders(tmp_path: Path) -> None:
@@ -1035,6 +1108,21 @@ def test_titles_offset_x_shifts_pixels() -> None:
         return sum(xs) / len(xs)
 
     assert _cx(-20.0) < _cx(0.0) < _cx(20.0)
+
+
+def test_titles_author_roundtrip() -> None:
+    from tools.kdp_cover.compose_front.model import TitlesSpec
+
+    t = TitlesSpec.from_dict(
+        {
+            "author": {"text": "Eva Müller", "color": "#EEEEEE", "size_pct": 3.0},
+            "author_top_pct": 70.0,
+        }
+    )
+    assert t.author.text == "Eva Müller"
+    assert t.author_top_pct == 70.0
+    legacy = TitlesSpec.from_dict({"accent_top_pct": 20.0, "main": {"text": "X"}})
+    assert legacy.author_top_pct == pytest.approx(28.0)
 
 
 def test_titles_align_legacy_defaults_center() -> None:

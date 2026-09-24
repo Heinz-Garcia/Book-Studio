@@ -1,6 +1,6 @@
 {
   "name": "kdp_cover",
-  "label": "📕 KDP Cover-Designer…",
+  "label": "📕 Cover gestalten (KDP Cover-Designer)…",
   "description": "Maße berechnen und KDP-konformes Wrap-Cover-PDF erzeugen (Rückseite + Rücken + Vorderseite inkl. Bleed).",
   "entrypoint": "plugins.kdp_cover:run",
   "version": "1.2.0",

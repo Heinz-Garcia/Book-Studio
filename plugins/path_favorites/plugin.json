@@ -1,11 +1,11 @@
 {
   "name": "path_favorites",
-  "label": "📁 Pfad-Favoriten…",
-  "description": "Ein Klick zu den wichtigen Ordnern (El Pitugrafo & Book Studio). Optional: dieselben Favoriten als Verknüpfungsordner für den Explorer.",
+  "label": "📁 Öffnen (Pfad-Manager)…",
+  "description": "Ordner- und App-Shortcuts (Book Studio & El Pitugrafo). Werkbank-Aktionen, Ablegen, optional Explorer-Verknüpfungen.",
   "entrypoint": "plugins.path_favorites:run",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "author": "Book Studio Team",
   "menu_section": "Plugins",
-  "order": 22,
-  "help_text": "Favoritenbaum aus tools/path_favorites/favorites.json. Doppelklick/Öffnen startet den Explorer. Rechtsklick: Pfad kopieren, JSON-Pfad kopieren, unter Gruppe hinzufügen, entfernen. Explorer-Favoriten = Verknüpfungsordner unter %USERPROFILE%\\\\StudioFavoriten."
+  "order": 23,
+  "help_text": "<b>Pfad-Manager → Werkbank</b> — Ordner- und App-Shortcuts plus Kontextaktionen.<br><br><b>Baum (links)</b><ul><li>Blatt wählen → rechts Werkbank</li><li>Doppelklick: Ordner → Explorer, App → starten</li><li>Rechtsklick → dieselben Aktionen wie die Buttons</li><li>Gruppe z. B. <b>Applikationen</b> für Bildbearbeitung o. Ä.</li></ul><b>Werkbank (rechts)</b><ul><li>Pfad + Badge (fehlt / leer / ok / Layout / App)</li><li>Buttons je Ziel: Cover-Designer, Stylecloud, Ablegen, <b>Anwendung starten</b>, …</li></ul><b>Ablegen</b><ul><li>Dateien auf Ordner-Blatt oder Panel ziehen = kopieren</li><li>nicht auf Apps</li></ul><b>Unten</b><ul><li>Pfad hinzufügen: <b>Ordner…</b> oder <b>App…</b></li><li>Explorer-Favoriten = Junctions unter <code>%USERPROFILE%\\StudioFavoriten</code> (nur Ordner)</li><li><b>ℹ</b> ganz links → Handbuchkapitel</li></ul>"
 }

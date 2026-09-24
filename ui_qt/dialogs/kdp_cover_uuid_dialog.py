@@ -19,10 +19,12 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
     QProgressDialog,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -109,6 +111,7 @@ class CoverUuidPickDialog(QDialog):
         self._result: dict[str, Any] | None = None
         self._row_choices: list[UuidChoice] = []
         self._choices_provided = choices is not None
+        self._studio = studio
         self._geometry_applied = False
         self._geometry_restore_scheduled = False
         self._suppress_geometry_persist = True
@@ -143,9 +146,11 @@ class CoverUuidPickDialog(QDialog):
         root.setSizeConstraint(QVBoxLayout.SizeConstraint.SetDefaultConstraint)
 
         hint = QLabel(
-            "Wähle die GrammarGraph-/Buch-UUID, zu der dieses Cover gehört.\n"
-            "Alternativen: später erneut speichern unter derselben UUID "
-            "mit Rolle „Alternative“ und anderem Label."
+            "Wähle die Production-UUID für dieses Cover "
+            "(GrammarGraph-Lieferung, Buch — oder geplantes Cover).\n"
+            "Ohne passende UUID: „Neue UUID für Cover…“ "
+            "(Arbeitstitel → Ordner unter production/covers/…).\n"
+            "Alternativen: später unter derselben UUID mit Rolle „Alternative“ speichern."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#1c2740; font-size:13px;")
@@ -237,7 +242,20 @@ class CoverUuidPickDialog(QDialog):
             ok_btn.setText("Cover zuordnen")
         buttons.accepted.connect(self._accept_if_valid)
         buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
+
+        btn_row = QHBoxLayout()
+        self.btn_new_planned = QPushButton("Neue UUID für Cover…")
+        self.btn_new_planned.setObjectName("kdpCoverUuidNewPlanned")
+        self.btn_new_planned.setToolTip(
+            "Erzeugt eine neue Production-UUID mit Arbeitstitel, "
+            "legt production/covers/<uuid>/primary/ an und trägt sie "
+            "in die Registry ein (für GrammarGraph später sichtbar)."
+        )
+        self.btn_new_planned.clicked.connect(self._create_planned_uuid)
+        btn_row.addWidget(self.btn_new_planned)
+        btn_row.addStretch(1)
+        btn_row.addWidget(buttons)
+        root.addLayout(btn_row)
 
         # Back-compat alias for older tests that looked at ``self.list``.
         self.list = self.table
@@ -404,6 +422,88 @@ class CoverUuidPickDialog(QDialog):
         choice = item.data(Qt.ItemDataRole.UserRole)
         return choice if isinstance(choice, UuidChoice) else None
 
+    def _create_planned_uuid(self) -> None:
+        """Neue Production-UUID mit Arbeitstitel (Cover-first, noch kein Buch)."""
+        from tools.kdp_cover.planned_uuid import create_planned_cover_uuid
+        from tools.kdp_cover.uuid_choices import ORIGIN_PLANNED, resolve_studio_repo
+
+        title, ok = QInputDialog.getText(
+            self,
+            "Neue UUID für Cover",
+            "Arbeitstitel des Covers / künftigen Buchs:",
+        )
+        if not ok:
+            return
+        title = str(title or "").strip()
+        if not title:
+            QMessageBox.warning(
+                self,
+                "Neue UUID für Cover",
+                "Bitte einen Arbeitstitel eingeben.",
+            )
+            return
+        series, ok_s = QInputDialog.getText(
+            self,
+            "Serie (optional)",
+            "Serien-ID (optional, z. B. ABC) — leer lassen wenn keine Serie:",
+        )
+        if not ok_s:
+            return
+        series = str(series or "").strip()
+        try:
+            planned = create_planned_cover_uuid(
+                title_hint=title,
+                series_id=series,
+                repo=resolve_studio_repo(self._studio),
+            )
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Neue UUID für Cover", str(exc))
+            return
+
+        # Liste neu laden und neue UUID vorwählen
+        self._preferred_uuid = planned.production_uuid
+        self.label_edit.setText(planned.entry.cover_label or "Hauptcover")
+        try:
+            self._choices = load_uuid_choices(studio=self._studio)
+        except (OSError, TypeError, ValueError) as exc:
+            QMessageBox.warning(
+                self,
+                "Neue UUID für Cover",
+                f"UUID angelegt, Liste konnte nicht neu geladen werden:\n{exc}",
+            )
+            # Mindestens die neue Choice lokal einfügen
+            from tools.kdp_cover.uuid_choices import UuidChoice
+            from tools.uuid_manager.model import UuidStatus
+
+            title_disp = (
+                f"{planned.title_hint} [{planned.series_id}]"
+                if planned.series_id
+                else planned.title_hint
+            )
+            self._choices = list(self._choices) + [
+                UuidChoice(
+                    uuid=planned.production_uuid,
+                    title=title_disp,
+                    market_variant="",
+                    status=UuidStatus.delivery_only,
+                    origins=(ORIGIN_PLANNED,),
+                    origin_label="Geplantes Cover (Book Studio)",
+                    status_label="Geplant",
+                    content_label="Cover-first, noch kein Buch",
+                    source_kind=ORIGIN_PLANNED,
+                )
+            ]
+        self._fill_table(self._choices)
+        self._apply_filter(self.filter_edit.text())
+        self._select_preferred()
+        QMessageBox.information(
+            self,
+            "Neue UUID für Cover",
+            f"UUID angelegt:\n{planned.production_uuid}\n\n"
+            f"Titel: {planned.title_hint}\n"
+            f"Ordner: {planned.cover_dir}",
+        )
+
     def _accept_if_valid(self) -> None:
         choice = self._current_choice()
         if choice is None:
@@ -417,11 +517,18 @@ class CoverUuidPickDialog(QDialog):
         role: CoverRole = (
             "alternative" if role_data == "alternative" else "primary"
         )
+        title_hint = choice.title
+        from tools.kdp_cover.uuid_choices import ORIGIN_PLANNED
+
+        if ORIGIN_PLANNED in choice.origins and " [" in title_hint and title_hint.endswith(
+            "]"
+        ):
+            title_hint = title_hint.rsplit(" [", 1)[0]
         self._result = {
             "uuid": choice.uuid,
             "cover_label": self.label_edit.text().strip(),
             "cover_role": role,
-            "title_hint": choice.title,
+            "title_hint": title_hint,
             "source_kinds": list(choice.origins),
             "origin_label": choice.origin_label,
             "content_label": choice.content_label,
@@ -602,7 +709,7 @@ def load_uuid_choices_with_progress(
     """Show a blocking progress dialog while scanning GG/BS for UUIDs."""
     progress = QProgressDialog(
         "Production-UUIDs werden geladen\n"
-        "(GrammarGraph-Lieferungen und Book-Studio-Bücher)…",
+        "(GrammarGraph, Book-Studio-Bücher, geplante Covers)…",
         None,
         0,
         0,

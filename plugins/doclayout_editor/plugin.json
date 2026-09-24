@@ -1,6 +1,6 @@
 {
   "name": "doclayout_editor",
-  "label": "🖋️ Layout-Editor (Word/Writer-Vorlagen)…",
+  "label": "🖋️ Bearbeiten (Layout-Editor)…",
   "description": "Formatvorlagen für die Word-/DOCX-Fassung pflegen: eine Definition erzeugt reference.docx und die Klassen-Abbildung.",
   "entrypoint": "plugins.doclayout_editor:run",
   "version": "1.0.0",

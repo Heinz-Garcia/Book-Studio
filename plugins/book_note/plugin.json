@@ -1,6 +1,6 @@
 {
   "name": "book_note",
-  "label": "📝 Buchnotizen…",
+  "label": "📝 Öffnen (Buchnotizen)…",
   "description": "Eine Textnotiz je Buchprojekt — dieselbe Datei, die auch GrammarGraph öffnet.",
   "entrypoint": "plugins.book_note:run",
   "version": "1.0.0",

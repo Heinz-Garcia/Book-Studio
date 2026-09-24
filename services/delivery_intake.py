@@ -49,6 +49,9 @@ class AcceptResult:
     created_or_synced: bool = True
     bundle_applied: bool = False
     bundle_message: str = ""
+    cover_bind_status: str = ""
+    cover_bind_message: str = ""
+    cover_bind_uuid: str = ""
 
 
 def _load_cfg(repo: Path) -> dict[str, Any]:
@@ -379,9 +382,27 @@ def accept_delivery(
     except OSError:
         pass
 
+    cover_bind_status = ""
+    cover_bind_message = ""
+    cover_bind_uuid = ""
+    try:
+        from tools.kdp_cover.bind_book import resolve_cover_book_binding
+
+        # Nur Auto (genau eine passende UUID). Dialog übernimmt die GUI.
+        bind = resolve_cover_book_binding(book)
+        cover_bind_status = bind.status
+        cover_bind_message = bind.message
+        cover_bind_uuid = bind.production_uuid or ""
+    except (OSError, TypeError, ValueError, ImportError) as exc:
+        cover_bind_status = "error"
+        cover_bind_message = f"Cover-Bindung: {exc}"
+
     return AcceptResult(
         book_path=book,
         delivery_path=delivery,
         bundle_applied=bundle_applied,
         bundle_message=bundle_message,
+        cover_bind_status=cover_bind_status,
+        cover_bind_message=cover_bind_message,
+        cover_bind_uuid=cover_bind_uuid,
     )

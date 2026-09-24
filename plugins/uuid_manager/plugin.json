@@ -1,6 +1,6 @@
 {
   "name": "uuid_manager",
-  "label": "🧬 UUID-Manager…",
+  "label": "🧬 Prüfen (UUID-Manager)…",
   "description": "GrammarGraph-Lieferung, Buch und PDF über dieselbe UUID korrelieren.",
   "entrypoint": "plugins.uuid_manager:run",
   "version": "1.0.0",

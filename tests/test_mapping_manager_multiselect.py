@@ -9,8 +9,10 @@ from unittest.mock import patch
 import pytest
 
 
-def _make_book_with_renders(tmp_path: Path, count: int = 3) -> Path:
-    book = tmp_path / "Band"
+def _make_book_with_renders(
+    tmp_path: Path, count: int = 3, *, name: str = "Band"
+) -> Path:
+    book = tmp_path / name
     cfg = book / "bookconfig"
     cfg.mkdir(parents=True)
     (book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
@@ -736,4 +738,120 @@ def test_geloeschte_pdf_verschwindet_auch_aus_der_karte(monkeypatch, tmp_path):
     assert entfernt, "der Karteneintrag muss trotz Archivfehler entfernt werden"
     assert gemeldet.called, "der Archivfehler muss gemeldet werden"
     assert "Quellstand" in gemeldet.call_args[0][2]
+    dlg.close()
+
+
+def test_all_books_entry_in_combo(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from ui_qt.dialogs.mapping_manager_dialog import _ALL_BOOKS
+
+    _app, dlg, _book = _make_dialog(monkeypatch, tmp_path, count=1)
+    assert dlg.book_combo.count() >= 2
+    assert dlg.book_combo.itemData(0) == _ALL_BOOKS
+    assert "Alle Bücher" in dlg.book_combo.itemText(0)
+    dlg.close()
+
+
+def test_all_books_shows_renders_from_multiple_projects(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.mapping_manager_dialog import (
+        MappingManagerQtDialog,
+        _ALL_BOOKS,
+        _COL_BOOK,
+    )
+
+    root_a = tmp_path / "proj_a"
+    root_b = tmp_path / "proj_b"
+    root_a.mkdir()
+    root_b.mkdir()
+    book_a = _make_book_with_renders(root_a, count=1, name="Band_A")
+    book_b = _make_book_with_renders(root_b, count=2, name="Band_B")
+
+    class Studio:
+        current_book = book_a
+
+        def log(self, *a, **k):
+            pass
+
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setattr(
+        "ui_qt.book_workspace.discover_books", lambda base=None: [book_a, book_b]
+    )
+    monkeypatch.setattr("ui_qt.qt_session.is_ephemeral_book_path", lambda _p: False)
+
+    app = QApplication.instance() or QApplication([])
+    dlg = MappingManagerQtDialog(None, Studio())
+    dlg.book_combo.setCurrentIndex(0)
+    assert dlg.book_combo.currentData() == _ALL_BOOKS
+    assert dlg._is_all_books() is True
+    assert dlg.table.rowCount() == 3
+    books_shown = {
+        dlg.table.item(r, _COL_BOOK).text() for r in range(dlg.table.rowCount())
+    }
+    assert "Band_A" in books_shown
+    assert "Band_B" in books_shown
+    assert not dlg.snapshot_combo.isEnabled()
+    assert "Alle Quellen" in dlg.snapshot_combo.currentText()
+    dlg.close()
+
+
+def test_all_books_delete_uses_render_book(monkeypatch, tmp_path):
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs import mapping_manager_dialog as mod
+    from ui_qt.dialogs.mapping_manager_dialog import MappingManagerQtDialog
+
+    root_a = tmp_path / "proj_a"
+    root_b = tmp_path / "proj_b"
+    root_a.mkdir()
+    root_b.mkdir()
+    book_a = _make_book_with_renders(root_a, count=1, name="Band_A")
+    book_b = _make_book_with_renders(root_b, count=1, name="Band_B")
+
+    class Studio:
+        current_book = book_a
+
+        def log(self, *a, **k):
+            pass
+
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setattr(
+        "ui_qt.book_workspace.discover_books", lambda base=None: [book_a, book_b]
+    )
+    monkeypatch.setattr("ui_qt.qt_session.is_ephemeral_book_path", lambda _p: False)
+
+    app = QApplication.instance() or QApplication([])
+    dlg = MappingManagerQtDialog(None, Studio())
+    dlg.book_combo.setCurrentIndex(0)
+    assert dlg.table.rowCount() == 2
+
+    # Zeile mit Band_B markieren
+    target_row = None
+    for r in range(dlg.table.rowCount()):
+        if dlg.table.item(r, mod._COL_BOOK).text() == "Band_B":
+            target_row = r
+            break
+    assert target_row is not None
+    dlg.table.selectRow(target_row)
+    render = dlg._selected_renders()[0]
+    assert render.book_name == "Band_B"
+    pdf = render.pdf_path
+    assert pdf.is_file()
+
+    removed_books: list = []
+    real_remove = mod.remove_render
+
+    def _track_remove(book, *a, **k):
+        removed_books.append(Path(book).name)
+        return real_remove(book, *a, **k)
+
+    monkeypatch.setattr(mod, "remove_render", _track_remove)
+    with patch.object(mod.QMessageBox, "question", return_value=mod.QMessageBox.StandardButton.Yes):
+        dlg._delete_selected()
+
+    assert removed_books == ["Band_B"]
+    assert not pdf.is_file()
     dlg.close()

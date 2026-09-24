@@ -1,4 +1,4 @@
-"""Pfad-Favoriten — autonomes Fenster mit Baum und Ein-Klick-Explorer."""
+"""Pfad-Manager — autonomes Fenster mit Baum und Ein-Klick-Explorer."""
 
 from __future__ import annotations
 
@@ -6,15 +6,17 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -23,12 +25,19 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from tools.path_favorites.actions import ActionId, ActionPlan, resolve_favorite_actions
+from tools.path_favorites.badges import resolve_favorite_badge
+from tools.path_favorites.drop_copy import (
+    DropConflictPolicy,
+    copy_paths_into_folder,
+)
 from tools.path_favorites.junction_sync import mirror_path_for_node, sync_junction_mirror
 from tools.path_favorites.model import (
     DEFAULTS_PATH,
@@ -51,7 +60,11 @@ from tools.path_favorites.model import (
     save_session,
     suggest_group_root_path,
 )
-from tools.path_favorites.open_path import open_in_file_manager
+from tools.path_favorites.open_path import (
+    is_launchable_application,
+    launch_application,
+    open_in_file_manager,
+)
 from tools.path_favorites.placeholders import (
     PlaceholderContext,
     build_placeholder_context,
@@ -71,11 +84,55 @@ _ROLE_NODE_ID = Qt.ItemDataRole.UserRole
 _ROLE_RESOLVED = Qt.ItemDataRole.UserRole + 1
 _ROLE_IS_LEAF = Qt.ItemDataRole.UserRole + 2
 _ROLE_PATH_TEMPLATE = Qt.ItemDataRole.UserRole + 3
+_ROLE_BASE_LABEL = Qt.ItemDataRole.UserRole + 4
 
-DEFAULT_WIDTH = 560
+DEFAULT_WIDTH = 780
 DEFAULT_HEIGHT = 520
-MIN_WIDTH = 400
+MIN_WIDTH = 560
 MIN_HEIGHT = 300
+_WERKBANK_PANEL_MIN_WIDTH = 220
+
+
+class _FavoritesTree(QTreeWidget):
+    """Tree that accepts file drops onto leaf folders."""
+
+    paths_dropped = Signal(object, list)  # QTreeWidgetItem | None, list[Path]
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
+        self.setDefaultDropAction(Qt.DropAction.CopyAction)
+
+    def dragEnterEvent(self, event: Any) -> None:  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event: Any) -> None:  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: Any) -> None:  # noqa: N802
+        if not event.mimeData().hasUrls():
+            event.ignore()
+            return
+        pos = event.position().toPoint()
+        item = self.itemAt(pos)
+        paths: list[Path] = []
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                local = url.toLocalFile()
+                if local:
+                    paths.append(Path(local))
+        if paths:
+            self.paths_dropped.emit(item, paths)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
 
 class _AddEntryDialog(QDialog):
@@ -136,12 +193,16 @@ class _AddEntryDialog(QDialog):
         path_lay = QHBoxLayout(self.path_row)
         path_lay.setContentsMargins(0, 0, 0, 0)
         path_lay.addWidget(self.path_edit, 1)
-        browse = QPushButton("…")
-        browse.setFixedWidth(32)
+        browse = QPushButton("Ordner…")
+        browse.setToolTip("Ordner wählen")
         browse.clicked.connect(self._browse)
         path_lay.addWidget(browse)
+        browse_app = QPushButton("App…")
+        browse_app.setToolTip("Anwendung (.exe, .lnk, …) wählen")
+        browse_app.clicked.connect(self._browse_app)
+        path_lay.addWidget(browse_app)
         if mode == "path":
-            form.addRow("Ordner:", self.path_row)
+            form.addRow("Pfad:", self.path_row)
             self._apply_suggested_path()
             self.parent_combo.currentIndexChanged.connect(self._apply_suggested_path)
 
@@ -165,6 +226,19 @@ class _AddEntryDialog(QDialog):
             self.path_edit.setText(chosen)
             if not self.label_edit.text().strip():
                 self.label_edit.setText(Path(chosen).name)
+
+    def _browse_app(self) -> None:
+        start = self.path_edit.text().strip() or str(Path.home())
+        chosen, _ = QFileDialog.getOpenFileName(
+            self,
+            "Anwendung wählen",
+            start,
+            "Anwendungen (*.exe *.lnk *.bat *.cmd *.ps1);;Alle Dateien (*.*)",
+        )
+        if chosen:
+            self.path_edit.setText(chosen)
+            if not self.label_edit.text().strip():
+                self.label_edit.setText(Path(chosen).stem)
 
     def parent_id(self) -> str | None:
         raw = str(self.parent_combo.currentData() or "").strip()
@@ -190,18 +264,24 @@ class PathFavoritesDialog(QDialog):
         super().__init__(None)
         self._studio = studio
         self._ctx = placeholder_context or build_placeholder_context(studio=studio)
-        self.setWindowTitle("Pfad-Favoriten")
+        self.setWindowTitle("Pfad-Manager")
         self.setMinimumSize(MIN_WIDTH, MIN_HEIGHT)
 
         layout = QVBoxLayout(self)
-        HelpBar.create_and_prepend_for_plugin(layout, "path_favorites")
+        HelpBar.create_and_prepend_for_plugin(
+            layout, "path_favorites", rich_text=True, max_height=200
+        )
 
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("color:#5b6785; font-size:12px;")
         layout.addWidget(self.status_label)
 
-        self.tree = QTreeWidget()
+        body = QSplitter(Qt.Orientation.Horizontal)
+        body.setChildrenCollapsible(False)
+        body.setHandleWidth(6)
+
+        self.tree = _FavoritesTree()
         self.tree.setHeaderHidden(True)
         self.tree.setUniformRowHeights(True)
         self.tree.setExpandsOnDoubleClick(False)
@@ -209,12 +289,72 @@ class PathFavoritesDialog(QDialog):
         self.tree.customContextMenuRequested.connect(self._on_tree_context_menu)
         self.tree.itemDoubleClicked.connect(self._on_double_click)
         self.tree.itemSelectionChanged.connect(self._on_selection_changed)
-        layout.addWidget(self.tree, 1)
+        self.tree.itemExpanded.connect(self._on_expand_changed)
+        self.tree.itemCollapsed.connect(self._on_expand_changed)
+        self.tree.paths_dropped.connect(self._on_paths_dropped)
+        body.addWidget(self.tree)
+
+        self.werkbank_panel = QFrame()
+        self.werkbank_panel.setObjectName("pathFavoritesWerkbank")
+        self.werkbank_panel.setMinimumWidth(_WERKBANK_PANEL_MIN_WIDTH)
+        self.werkbank_panel.setAcceptDrops(True)
+        self.werkbank_panel.setStyleSheet(
+            """
+            QFrame#pathFavoritesWerkbank {
+                background: #f7f9fd;
+                border: 1px solid #c8d3ec;
+                border-radius: 8px;
+            }
+            """
+        )
+        self.werkbank_panel.setAcceptDrops(True)
+        self.werkbank_panel.installEventFilter(self)
+        panel_lay = QVBoxLayout(self.werkbank_panel)
+        panel_lay.setContentsMargins(10, 10, 10, 10)
+        panel_lay.setSpacing(8)
+        self.werkbank_title = QLabel("Werkbank")
+        self.werkbank_title.setStyleSheet("font-weight:600; color:#1c2740;")
+        panel_lay.addWidget(self.werkbank_title)
+        self.werkbank_badge = QLabel("")
+        self.werkbank_badge.setObjectName("pathFavoritesBadge")
+        self.werkbank_badge.setStyleSheet("font-weight:600; font-size:12px;")
+        panel_lay.addWidget(self.werkbank_badge)
+        self.werkbank_path = QLabel("Kein Eintrag gewählt.")
+        self.werkbank_path.setWordWrap(True)
+        self.werkbank_path.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.werkbank_path.setStyleSheet("color:#5b6785; font-size:12px;")
+        panel_lay.addWidget(self.werkbank_path)
+        self.werkbank_hint = QLabel("")
+        self.werkbank_hint.setWordWrap(True)
+        self.werkbank_hint.setStyleSheet("color:#64748b; font-size:11px;")
+        panel_lay.addWidget(self.werkbank_hint)
+        drop_hint = QLabel(
+            "Dateien hierher oder auf einen Ordner-Eintrag ziehen = kopieren."
+        )
+        drop_hint.setWordWrap(True)
+        drop_hint.setStyleSheet("color:#94a3b8; font-size:11px;")
+        panel_lay.addWidget(drop_hint)
+        self.werkbank_actions_host = QWidget()
+        self.werkbank_actions_lay = QVBoxLayout(self.werkbank_actions_host)
+        self.werkbank_actions_lay.setContentsMargins(0, 4, 0, 0)
+        self.werkbank_actions_lay.setSpacing(6)
+        panel_lay.addWidget(self.werkbank_actions_host)
+        panel_lay.addStretch(1)
+        body.addWidget(self.werkbank_panel)
+        body.setStretchFactor(0, 3)
+        body.setStretchFactor(1, 2)
+        body.setSizes([480, 280])
+        layout.addWidget(body, 1)
+
+        self._action_plan: ActionPlan | None = None
+        self._action_buttons: list[QPushButton] = []
 
         edit_row = QHBoxLayout()
         self.btn_add_path = QPushButton("Pfad hinzufügen…")
         self.btn_add_path.setToolTip(
-            "Ordner wählen und unter einer Gruppe (oder oben) speichern."
+            "Ordner oder Anwendung unter einer Gruppe (oder oben) speichern."
         )
         self.btn_add_path.clicked.connect(self._add_path_entry)
         edit_row.addWidget(self.btn_add_path)
@@ -243,6 +383,10 @@ class PathFavoritesDialog(QDialog):
         layout.addLayout(edit_row)
 
         row = QHBoxLayout()
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(row, tool_key="path_favorites", host=self)
+
         self.btn_open = QPushButton("Öffnen")
         self.btn_open.setToolTip("Gewählten Pfad im Explorer öffnen.")
         self.btn_open.clicked.connect(self._open_selected)
@@ -282,6 +426,7 @@ class PathFavoritesDialog(QDialog):
         layout.addLayout(row)
 
         self._tree_data: FavoritesTree | None = None
+        self._suppress_expand_persist = False
         self._reload_tree()
         session = load_session()
         try:
@@ -295,17 +440,93 @@ class PathFavoritesDialog(QDialog):
     def _set_status(self, text: str) -> None:
         self.status_label.setText(text)
 
+    def _merge_session(self, **updates: Any) -> None:
+        """Session mergen (Größe + Aufklapp-Stand), nie andere Keys löschen."""
+        data = load_session()
+        data.update(updates)
+        save_session(data)
+
+    def _collect_expanded_ids(self) -> list[str]:
+        """IDs aller aufgeklappten Gruppen (Reihenfolge: DFS)."""
+        ids: list[str] = []
+
+        def walk(item: QTreeWidgetItem) -> None:
+            is_leaf = bool(item.data(0, _ROLE_IS_LEAF))
+            if not is_leaf and item.isExpanded():
+                nid = str(item.data(0, _ROLE_NODE_ID) or "").strip()
+                if nid:
+                    ids.append(nid)
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child is not None:
+                    walk(child)
+
+        for i in range(self.tree.topLevelItemCount()):
+            top = self.tree.topLevelItem(i)
+            if top is not None:
+                walk(top)
+        return ids
+
+    def _restore_expand_state(self, live_ids: list[str] | None) -> None:
+        """Live-Stand vor Rebuild, sonst Session; ohne Session → Depth 1."""
+        was = self._suppress_expand_persist
+        self._suppress_expand_persist = True
+        try:
+            if live_ids is not None:
+                self._apply_expanded_ids(live_ids)
+                return
+            session = load_session()
+            if "expanded_ids" in session:
+                raw = session.get("expanded_ids") or []
+                if isinstance(raw, list):
+                    self._apply_expanded_ids([str(x) for x in raw])
+                else:
+                    self.tree.expandToDepth(1)
+                return
+            self.tree.expandToDepth(1)
+        finally:
+            self._suppress_expand_persist = was
+
+    def _apply_expanded_ids(self, expanded_ids: list[str] | set[str]) -> None:
+        wanted = {str(x).strip() for x in expanded_ids if str(x).strip()}
+
+        def walk(item: QTreeWidgetItem) -> None:
+            is_leaf = bool(item.data(0, _ROLE_IS_LEAF))
+            if not is_leaf:
+                nid = str(item.data(0, _ROLE_NODE_ID) or "").strip()
+                item.setExpanded(nid in wanted)
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child is not None:
+                    walk(child)
+
+        for i in range(self.tree.topLevelItemCount()):
+            top = self.tree.topLevelItem(i)
+            if top is not None:
+                walk(top)
+
+    def _on_expand_changed(self, _item: QTreeWidgetItem) -> None:
+        if self._suppress_expand_persist:
+            return
+        try:
+            self._merge_session(expanded_ids=self._collect_expanded_ids())
+        except OSError:
+            _LOG.debug("path favorites expand persist failed", exc_info=True)
+
     def _persist(self) -> bool:
         if self._tree_data is None:
             return False
         try:
             save_favorites(self._tree_data)
         except OSError as exc:
-            QMessageBox.warning(self, "Pfad-Favoriten", f"Speichern fehlgeschlagen: {exc}")
+            QMessageBox.warning(self, "Pfad-Manager", f"Speichern fehlgeschlagen: {exc}")
             return False
         return True
 
     def _reload_tree(self) -> None:
+        live_expand: list[str] | None = None
+        if self.tree.topLevelItemCount() > 0:
+            live_expand = self._collect_expanded_ids()
         try:
             ensure_user_favorites()
             self._tree_data = load_favorites()
@@ -319,7 +540,7 @@ class PathFavoritesDialog(QDialog):
         missing = 0
         for node in self._tree_data.nodes:
             missing += self._add_node(None, node)
-        self.tree.expandToDepth(1)
+        self._restore_expand_state(live_expand)
         fav = USER_FAVORITES_PATH
         self._set_status(
             f"{fav} — {missing} Ziel(e) fehlen oder sind leer."
@@ -333,6 +554,7 @@ class PathFavoritesDialog(QDialog):
     ) -> int:
         item = QTreeWidgetItem([node.label])
         item.setData(0, _ROLE_NODE_ID, node.id)
+        item.setData(0, _ROLE_BASE_LABEL, node.label)
         missing = 0
         if node.is_leaf:
             resolved = resolve_node_path(node, self._ctx)
@@ -347,6 +569,7 @@ class PathFavoritesDialog(QDialog):
                 hint = node.path or "(kein Pfad)"
                 item.setToolTip(0, f"Pfad fehlt: {hint}")
                 item.setForeground(0, QBrush(QColor("#8899bb")))
+            self._apply_leaf_badge(item)
         else:
             item.setData(0, _ROLE_IS_LEAF, False)
             item.setData(0, _ROLE_PATH_TEMPLATE, "")
@@ -358,6 +581,49 @@ class PathFavoritesDialog(QDialog):
         for child in node.children:
             missing += self._add_node(item, child)
         return missing
+
+    def _apply_leaf_badge(self, item: QTreeWidgetItem) -> None:
+        """Prefix leaf label with colored status dot (tooltip keeps path)."""
+        if not bool(item.data(0, _ROLE_IS_LEAF)):
+            return
+        base = str(item.data(0, _ROLE_BASE_LABEL) or item.text(0) or "").strip()
+        raw = str(item.data(0, _ROLE_RESOLVED) or "").strip()
+        resolved = Path(raw) if raw else None
+        exists = False
+        if resolved is not None:
+            try:
+                exists = resolved.is_dir() or resolved.is_file()
+            except OSError:
+                exists = False
+        badge = resolve_favorite_badge(
+            resolved, self._ctx, is_group=False, path_exists=exists if resolved else False
+        )
+        item.setText(0, f"● {base}" if badge.label else base)
+        item.setForeground(0, QBrush(QColor(badge.color)))
+        tip = item.toolTip(0) or ""
+        if badge.label and f"[{badge.label}]" not in tip:
+            item.setToolTip(0, f"[{badge.label}] {tip}".strip())
+
+    def _badge_for_selection(self):
+        item = self._selected_item()
+        if item is None:
+            return resolve_favorite_badge(None, self._ctx, is_group=False)
+        is_group = not bool(item.data(0, _ROLE_IS_LEAF))
+        if is_group:
+            return resolve_favorite_badge(None, self._ctx, is_group=True)
+        raw = str(item.data(0, _ROLE_RESOLVED) or "").strip()
+        resolved = Path(raw) if raw else None
+        exists = False
+        if resolved is not None:
+            try:
+                exists = resolved.is_dir() or resolved.is_file()
+            except OSError:
+                exists = False
+        if resolved is None and str(item.data(0, _ROLE_PATH_TEMPLATE) or "").strip():
+            exists = False
+        return resolve_favorite_badge(
+            resolved, self._ctx, is_group=False, path_exists=exists if resolved else False
+        )
 
     def _selected_item(self) -> QTreeWidgetItem | None:
         items = self.tree.selectedItems()
@@ -466,12 +732,354 @@ class PathFavoritesDialog(QDialog):
         can_down = self._can_move_selected_group(1)
         self.btn_group_up.setEnabled(can_up)
         self.btn_group_down.setEnabled(can_down)
+        self._refresh_werkbank_panel()
+
+    def _current_action_plan(self) -> ActionPlan:
+        item = self._selected_item()
+        if item is None:
+            return resolve_favorite_actions(None, self._ctx, is_group=False)
+        is_group = not bool(item.data(0, _ROLE_IS_LEAF))
+        if is_group:
+            return resolve_favorite_actions(None, self._ctx, is_group=True)
+        raw = str(item.data(0, _ROLE_RESOLVED) or "").strip()
+        resolved = Path(raw) if raw else None
+        exists: bool | None = None
+        if resolved is not None:
+            exists = resolved.exists()
+        elif str(item.data(0, _ROLE_PATH_TEMPLATE) or "").strip():
+            # Template present but unresolved → treat as missing
+            exists = False
+            resolved = None
+        return resolve_favorite_actions(
+            resolved, self._ctx, is_group=False, path_exists=exists
+        )
+
+    def _refresh_werkbank_panel(self) -> None:
+        item = self._selected_item()
+        plan = self._current_action_plan()
+        self._action_plan = plan
+
+        while self.werkbank_actions_lay.count():
+            child = self.werkbank_actions_lay.takeAt(0)
+            w = child.widget()
+            if w is not None:
+                w.deleteLater()
+        self._action_buttons.clear()
+
+        if item is None:
+            self.werkbank_title.setText("Werkbank")
+            self.werkbank_badge.setText("")
+            self.werkbank_path.setText("Kein Eintrag gewählt.")
+            self.werkbank_hint.setText(
+                "Wähle einen Favoriten — Aktionen erscheinen hier."
+            )
+            return
+
+        label = str(item.data(0, _ROLE_BASE_LABEL) or item.text(0))
+        is_group = not bool(item.data(0, _ROLE_IS_LEAF))
+        self.werkbank_title.setText(label)
+        badge = self._badge_for_selection()
+        if badge.label:
+            self.werkbank_badge.setText(f"● {badge.label}")
+            self.werkbank_badge.setStyleSheet(
+                f"font-weight:600; font-size:12px; color:{badge.color};"
+            )
+        else:
+            self.werkbank_badge.setText("")
+        if is_group:
+            n = item.childCount()
+            self.werkbank_path.setText(f"Gruppe · {n} Eintrag/Einträge")
+            self.werkbank_hint.setText("Studio-Sprünge nur an Blättern (Ordner oder Apps).")
+        else:
+            raw = str(item.data(0, _ROLE_RESOLVED) or "").strip()
+            tpl = str(item.data(0, _ROLE_PATH_TEMPLATE) or "").strip()
+            if raw:
+                self.werkbank_path.setText(raw)
+            elif tpl:
+                self.werkbank_path.setText(f"(unaufgelöst) {tpl}")
+            else:
+                self.werkbank_path.setText("(kein Pfad)")
+            if plan.rule == "missing_path" or plan.rule == "missing_unresolved":
+                self.werkbank_hint.setText(
+                    "Ziel fehlt — Platzhalter prüfen oder Ordner/App anlegen."
+                )
+            elif plan.rule == "application":
+                self.werkbank_hint.setText(
+                    "Anwendung · Doppelklick / Primärbutton = starten · "
+                    "Drop gilt nur für Ordner."
+                )
+            else:
+                self.werkbank_hint.setText(
+                    f"Regel: {plan.rule} · Drop kopiert Dateien hierher · "
+                    "Doppelklick = Explorer."
+                )
+
+        for action in plan.actions:
+            if action.id == ActionId.GROUP_INFO:
+                continue
+            btn = QPushButton(action.label)
+            btn.setProperty("action_id", action.id.value)
+            if action.primary:
+                btn.setStyleSheet("font-weight:600;")
+            if action.id == ActionId.MISSING_TARGET:
+                btn.setEnabled(False)
+            else:
+                btn.clicked.connect(
+                    lambda _checked=False, aid=action.id: self._execute_action(aid)
+                )
+            self.werkbank_actions_lay.addWidget(btn)
+            self._action_buttons.append(btn)
+
+    def _execute_action(self, action_id: ActionId) -> None:
+        path = self._selected_resolved()
+        if action_id == ActionId.OPEN_EXPLORER:
+            self._open_selected()
+            return
+        if action_id == ActionId.OPEN_APPLICATION:
+            self._launch_selected_application()
+            return
+        if action_id == ActionId.COPY_PATH:
+            if path is not None:
+                self._copy_text(str(path), "Pfad kopiert")
+            return
+        if action_id == ActionId.MISSING_TARGET:
+            return
+        if action_id == ActionId.HINT_PITUGRAFO:
+            QMessageBox.information(
+                self,
+                "El Pitugrafo",
+                "Dieses Ziel gehört zum GrammarGraph-/Pitugrafo-Projekt.\n"
+                "Öffne den Ordner im Explorer — die App selbst startet hier nicht.",
+            )
+            if path is not None and path.exists():
+                self._open_selected()
+            return
+        if action_id == ActionId.FOCUS_ACTIVE_BOOK:
+            self._focus_book_in_studio(path)
+            return
+        if action_id == ActionId.OPEN_KDP_COVER:
+            self._open_kdp_cover_tool()
+            return
+        if action_id == ActionId.OPEN_STYLECLOUD:
+            self._open_stylecloud_tool()
+            return
+        if action_id == ActionId.OPEN_RENDER_ARCHIVE:
+            self._open_mapping_manager_tool()
+            return
+
+    def _studio_host(self) -> Any:
+        """Shell/Host mit ``_try_select_book``, falls über studio erreichbar."""
+        studio = self._studio
+        if studio is None:
+            return None
+        for attr in ("root", "shell", "host", "_shell"):
+            host = getattr(studio, attr, None)
+            if host is not None and hasattr(host, "_try_select_book"):
+                return host
+        if hasattr(studio, "_try_select_book"):
+            return studio
+        return None
+
+    def _focus_book_in_studio(self, book: Path | None) -> None:
+        if book is None or not book.is_dir():
+            QMessageBox.information(self, "Buch zeigen", "Kein gültiger Buchordner.")
+            return
+        host = self._studio_host()
+        if host is not None:
+            try:
+                ok = host._try_select_book(book)
+            except (TypeError, ValueError, OSError, AttributeError) as exc:
+                QMessageBox.warning(self, "Buch zeigen", str(exc))
+                return
+            if ok:
+                self._set_status(f"Aktives Buch: {book.name}")
+                return
+        studio = self._studio
+        if studio is not None and hasattr(studio, "current_book"):
+            try:
+                studio.current_book = str(book)
+                self._set_status(f"Aktives Buch gesetzt: {book.name}")
+                return
+            except (TypeError, AttributeError):
+                pass
+        QMessageBox.information(
+            self,
+            "Buch zeigen",
+            f"Buchordner:\n{book}\n\n"
+            "(Studio-Host nicht erreichbar — bitte Buch manuell wählen.)",
+        )
+
+    def _open_kdp_cover_tool(self) -> None:
+        try:
+            from ui_qt.dialogs.kdp_cover_dialog import open_kdp_cover_qt
+        except ImportError:
+            QMessageBox.warning(self, "Cover-Designer", "Cover-Designer nicht verfügbar.")
+            return
+        open_kdp_cover_qt(self._studio, self)
+
+    def _open_stylecloud_tool(self) -> None:
+        try:
+            from ui_qt.dialogs.stylecloud_dialog import open_stylecloud_qt
+        except ImportError:
+            QMessageBox.warning(self, "Stylecloud", "Stylecloud nicht verfügbar.")
+            return
+        open_stylecloud_qt(self._studio, self)
+
+    def _open_mapping_manager_tool(self) -> None:
+        try:
+            from ui_qt.dialogs.mapping_manager_dialog import open_mapping_manager_qt
+        except ImportError:
+            QMessageBox.warning(self, "Ablegen", "Mapping Manager nicht verfügbar.")
+            return
+        open_mapping_manager_qt(self._studio, self)
+
+    def eventFilter(self, obj: Any, event: Any) -> bool:  # noqa: N802
+        if obj is self.werkbank_panel:
+            et = event.type()
+            if et in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                    return True
+                event.ignore()
+                return True
+            if et == QEvent.Type.Drop:
+                if not event.mimeData().hasUrls():
+                    event.ignore()
+                    return True
+                paths: list[Path] = []
+                for url in event.mimeData().urls():
+                    if url.isLocalFile():
+                        local = url.toLocalFile()
+                        if local:
+                            paths.append(Path(local))
+                if paths:
+                    self._on_paths_dropped(self._selected_item(), paths)
+                    event.acceptProposedAction()
+                else:
+                    event.ignore()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _drop_target_dir(self, item: QTreeWidgetItem | None) -> Path | None:
+        """Resolved leaf folder for drops (item or current selection)."""
+        target = item
+        if target is None or not bool(target.data(0, _ROLE_IS_LEAF)):
+            target = self._selected_item()
+        if target is None or not bool(target.data(0, _ROLE_IS_LEAF)):
+            return None
+        raw = str(target.data(0, _ROLE_RESOLVED) or "").strip()
+        if not raw:
+            return None
+        path = Path(raw)
+        return path if path.is_dir() else None
+
+    def _ask_drop_conflict_policy(self, names: list[str]) -> DropConflictPolicy | None:
+        if not names:
+            return DropConflictPolicy.RENAME
+        shown = ", ".join(names[:3])
+        if len(names) > 3:
+            shown += f" … (+{len(names) - 3})"
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Datei existiert bereits")
+        box.setText(
+            f"Bereits vorhanden:\n{shown}\n\n"
+            "Überschreiben, umbenennen (…_1) oder abbrechen?"
+        )
+        overwrite = box.addButton("Überschreiben", QMessageBox.ButtonRole.AcceptRole)
+        rename = box.addButton("Umbenennen", QMessageBox.ButtonRole.ActionRole)
+        box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(rename)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is overwrite:
+            return DropConflictPolicy.OVERWRITE
+        if clicked is rename:
+            return DropConflictPolicy.RENAME
+        return None
+
+    def _on_paths_dropped(
+        self, item: QTreeWidgetItem | None, paths: list[Path]
+    ) -> None:
+        if item is not None and bool(item.data(0, _ROLE_IS_LEAF)):
+            self.tree.setCurrentItem(item)
+        dest = self._drop_target_dir(item)
+        if dest is None:
+            QMessageBox.information(
+                self,
+                "Ablegen",
+                "Bitte einen bestehenden Ordner-Eintrag wählen "
+                "oder Dateien direkt darauf ziehen.",
+            )
+            return
+        conflicts = [p.name for p in paths if (dest / p.name).exists()]
+        policy = DropConflictPolicy.RENAME
+        if conflicts:
+            chosen = self._ask_drop_conflict_policy(conflicts)
+            if chosen is None:
+                return
+            policy = chosen
+        result = copy_paths_into_folder(paths, dest, on_conflict=policy)
+        if result.errors:
+            QMessageBox.warning(
+                self,
+                "Ablegen",
+                "Teilweise fehlgeschlagen:\n" + "\n".join(result.errors[:8]),
+            )
+        n = len(result.copied)
+        if n:
+            self._set_status(f"{n} Datei(en) nach {dest.name} kopiert.")
+            # Refresh badge (folder may no longer be empty / layout may appear).
+            cur = self._selected_item()
+            if cur is not None and bool(cur.data(0, _ROLE_IS_LEAF)):
+                self._apply_leaf_badge(cur)
+            self._refresh_werkbank_panel()
+            plan = self._action_plan
+            if plan is not None and plan.rule in ("kdp_cover", "book_img"):
+                label = (
+                    "Cover-Designer"
+                    if plan.rule == "kdp_cover"
+                    else "Stylecloud"
+                )
+                reply = QMessageBox.question(
+                    self,
+                    "Ablage ok",
+                    f"{n} Datei(en) abgelegt.\n\n{label} jetzt öffnen?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    if plan.rule == "kdp_cover":
+                        self._open_kdp_cover_tool()
+                    else:
+                        self._open_stylecloud_tool()
+        elif not result.errors:
+            self._set_status("Nichts kopiert.")
 
     def _on_double_click(self, item: QTreeWidgetItem, _column: int) -> None:
         if not bool(item.data(0, _ROLE_IS_LEAF)):
             item.setExpanded(not item.isExpanded())
             return
+        plan = self._current_action_plan()
+        if plan.primary is not None and plan.primary.id == ActionId.OPEN_APPLICATION:
+            self._launch_selected_application()
+            return
         self._open_selected()
+
+    def _launch_selected_application(self) -> None:
+        path = self._selected_resolved()
+        if path is None or not path.is_file():
+            QMessageBox.information(
+                self,
+                "Pfad-Manager",
+                "Kein gültiges Programm gewählt.",
+            )
+            return
+        try:
+            launch_application(path)
+            self._set_status(f"Gestartet: {path.name}")
+        except OSError as exc:
+            QMessageBox.warning(self, "Pfad-Manager", str(exc))
 
     def _on_tree_context_menu(self, pos) -> None:
         item = self.tree.itemAt(pos)
@@ -519,6 +1127,26 @@ class PathFavoritesDialog(QDialog):
             lambda: self._copy_text(mirror_path, "Explorer-Favoritenpfad kopiert")
         )
 
+        plan = self._current_action_plan()
+        werkbank_acts = [
+            a
+            for a in plan.actions
+            if a.id
+            not in (
+                ActionId.GROUP_INFO,
+                ActionId.MISSING_TARGET,
+                ActionId.OPEN_EXPLORER,
+                ActionId.COPY_PATH,
+            )
+        ]
+        if werkbank_acts:
+            menu.addSeparator()
+            for action in werkbank_acts:
+                act = menu.addAction(action.label)
+                act.triggered.connect(
+                    lambda _checked=False, aid=action.id: self._execute_action(aid)
+                )
+
         menu.addSeparator()
         act_rename = menu.addAction("Namen umbenennen…")
         act_rename.triggered.connect(self._rename_selected)
@@ -544,13 +1172,13 @@ class PathFavoritesDialog(QDialog):
         raw = str(text or "").strip()
         if not raw:
             QMessageBox.information(
-                self, "Pfad-Favoriten", "Kein Pfad zum Kopieren."
+                self, "Pfad-Manager", "Kein Pfad zum Kopieren."
             )
             return
         try:
             QApplication.clipboard().setText(raw)
         except RuntimeError as exc:
-            QMessageBox.warning(self, "Pfad-Favoriten", str(exc))
+            QMessageBox.warning(self, "Pfad-Manager", str(exc))
             return
         self._set_status(f"{ok_status}: {raw}")
 
@@ -586,14 +1214,14 @@ class PathFavoritesDialog(QDialog):
         if path is None or not path.exists():
             QMessageBox.information(
                 self,
-                "Pfad-Favoriten",
+                "Pfad-Manager",
                 "Kein gültiges Ziel gewählt (Pfad fehlt oder leer).",
             )
             return
         try:
             open_in_file_manager(path)
         except OSError as exc:
-            QMessageBox.warning(self, "Pfad-Favoriten", str(exc))
+            QMessageBox.warning(self, "Pfad-Manager", str(exc))
 
     def _add_path_entry(self) -> None:
         if self._tree_data is None:
@@ -611,13 +1239,15 @@ class PathFavoritesDialog(QDialog):
         folder = dlg.entry_path()
         if not label or not folder:
             QMessageBox.information(
-                self, "Pfad hinzufügen", "Name und Ordner sind Pflicht."
+                self, "Pfad hinzufügen", "Name und Pfad sind Pflicht."
             )
             return
         folder_path = Path(folder).expanduser()
-        if not folder_path.is_dir():
+        if not (folder_path.is_dir() or is_launchable_application(folder_path)):
             QMessageBox.warning(
-                self, "Pfad hinzufügen", f"Kein Ordner: {folder_path}"
+                self,
+                "Pfad hinzufügen",
+                f"Weder Ordner noch startbare App: {folder_path}",
             )
             return
         template = path_as_template(folder_path, self._ctx)
@@ -740,7 +1370,11 @@ class PathFavoritesDialog(QDialog):
     def closeEvent(self, event: Any) -> None:  # noqa: N802
         try:
             size = self.size()
-            save_session({"width": size.width(), "height": size.height()})
+            self._merge_session(
+                width=size.width(),
+                height=size.height(),
+                expanded_ids=self._collect_expanded_ids(),
+            )
         except OSError:
             _LOG.debug("path favorites session save failed", exc_info=True)
         super().closeEvent(event)

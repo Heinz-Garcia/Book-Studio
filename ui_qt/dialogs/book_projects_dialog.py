@@ -227,7 +227,7 @@ class BookProjectsQtDialog(QDialog):
 
         hint = QLabel(
             "Hier verwaltest du Buchprojekte (Ordner). "
-            "Fertige Ausgaben: Button „PDF Manager…“ oder Plugins → PDF Manager…"
+            "Fertige Ausgaben: Button „PDF Manager…“ oder Buch-Werkzeuge → Ablegen (PDF-Manager)…"
         )
         hint.setObjectName("bookProjectsHint")
         hint.setWordWrap(True)
@@ -612,7 +612,7 @@ class BookProjectsQtDialog(QDialog):
             self,
             "Neues Buch",
             f"Angelegt:\n{book}\n\n"
-            "Optional: Plugins → Skeleton ins Buch übernehmen…",
+            "Optional: Buch-Werkzeuge → Übernehmen (Skeleton)…",
         )
 
     def _import_book(self) -> None:

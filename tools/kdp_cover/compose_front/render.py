@@ -281,6 +281,21 @@ def _draw_titles(panel: Image.Image, titles: TitlesSpec) -> Image.Image:
         align=align,
         offset_x_pct=offset_x_pct,
     )
+    author = getattr(titles, "author", None)
+    if author is not None and str(getattr(author, "text", "") or "").strip():
+        author_y = int(
+            round(h * float(getattr(titles, "author_top_pct", 26.0) or 26.0) / 100.0)
+        )
+        _draw_title_line(
+            draw,
+            w,
+            h,
+            author_y,
+            author,
+            bold_override=author.bold,
+            align=align,
+            offset_x_pct=offset_x_pct,
+        )
     return panel
 
 
@@ -291,7 +306,7 @@ def _draw_subtitle_block(
     align: str,
     offset_x_pct: float,
 ) -> Image.Image:
-    """Subtitel inkl. optionalem Vollbreiten-Band."""
+    """Subtitel inkl. optionalem Vollbreiten-Band (zentriert um die Glyphen)."""
     from tools.kdp_cover.compose_front.model import SubtitleSpec
 
     if not isinstance(subtitle, SubtitleSpec):
@@ -301,41 +316,62 @@ def _draw_subtitle_block(
     sub_y = int(round(h * float(subtitle.top_pct) / 100.0))
     sub_gap = float(getattr(subtitle, "gap_pct", 0.8) or 0.0)
     lines = (subtitle.line1, subtitle.line2)
-    measured: list[tuple[TitleLineSpec, str, object, int, int]] = []
-    cursor = sub_y
-    for idx, line in enumerate(lines):
-        metrics = _title_line_metrics(draw, h, line)
-        if metrics is None:
+    # (line, text, font, tw, th, bbox_top, bbox_bottom) — BBox relativ zum Draw-Punkt
+    measured: list[tuple[TitleLineSpec, str, object, int, int, int, int]] = []
+    for line in lines:
+        text = line.text.strip()
+        if not text:
             continue
-        text, font, tw, th = metrics
-        measured.append((line, text, font, tw, th))
-        cursor += th
-        if idx == 0 and sub_gap > 0 and any(
-            (ln.text or "").strip() for ln in lines[1:]
-        ):
-            cursor += max(2, int(round(h * sub_gap / 100.0)))
+        size = max(10, int(round(h * float(line.size_pct) / 100.0)))
+        font = _load_font(
+            size,
+            italic=bool(line.italic),
+            bold=bool(line.bold),
+            family=str(getattr(line, "font", "sans") or "sans"),
+        )
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+        measured.append((line, text, font, tw, th, int(bbox[1]), int(bbox[3])))
     if not measured:
         return panel
-    text_top = sub_y
-    text_bottom = cursor
+    gap_px = int(round(h * sub_gap / 100.0)) if len(measured) > 1 else 0
+
+    # Draw-Y-Positionen und echte Glyphen-Kante (kann von draw-Y abweichen).
+    draw_ys: list[int] = []
+    y = sub_y
+    for idx, _row in enumerate(measured):
+        draw_ys.append(y)
+        _line, _t, _f, _tw, th, _bt, _bb = _row
+        y += th
+        if idx == 0 and len(measured) > 1:
+            y += gap_px
+    ink_top = draw_ys[0] + measured[0][5]
+    ink_bottom = draw_ys[-1] + measured[-1][6]
+
     band = getattr(subtitle, "band", None)
     if isinstance(band, TextBandSpec) and band.enabled:
-        pad = max(0, int(round(h * float(band.padding_pct) / 100.0)))
+        pad_top = max(
+            0, int(round(h * float(getattr(band, "padding_top_pct", 1.2) or 0.0) / 100.0))
+        )
+        pad_bot = max(
+            0,
+            int(
+                round(h * float(getattr(band, "padding_bottom_pct", 1.2) or 0.0) / 100.0)
+            ),
+        )
         panel = _draw_full_width_text_band(
             panel,
-            y0=text_top - pad,
-            y1=text_bottom + pad,
+            y0=ink_top - pad_top,
+            y1=ink_bottom + pad_bot,
             color=band.color,
         )
         draw = ImageDraw.Draw(panel)
-    y = sub_y
-    for idx, (line, text, font, tw, th) in enumerate(measured):
+
+    for (line, text, font, tw, _th, _bt, _bb), dy in zip(measured, draw_ys, strict=True):
         r, g, b, _ = _hex_to_rgba(line.color, fallback=(255, 255, 255))
         x = _title_x(w, tw, align, offset_x_pct=offset_x_pct)
-        draw.text((x, y), text, font=font, fill=(r, g, b, 255))
-        y += th
-        if idx == 0 and len(measured) > 1 and sub_gap > 0:
-            y += max(2, int(round(h * sub_gap / 100.0)))
+        draw.text((x, dy), text, font=font, fill=(r, g, b, 255))
     return panel
 
 
@@ -405,32 +441,49 @@ def _draw_footer(panel: Image.Image, footer: FooterSpec) -> Image.Image:
     lines = footer.lines()[:2]
     if not lines:
         return out
-    total_h = 0
-    sizes: list[tuple[str, int, int]] = []
+    # (text, tw, th, bbox_top, bbox_bottom)
+    measured: list[tuple[str, int, int, int, int]] = []
     for ln in lines:
         bbox = draw.textbbox((0, 0), ln, font=font)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        sizes.append((ln, tw, th))
-        total_h += th + 4
-    y = h - int(round(h * footer.bottom_pct / 100.0)) - total_h
+        measured.append((ln, tw, th, int(bbox[1]), int(bbox[3])))
+    line_gap = 4
+    total_h = sum(th for _ln, _tw, th, _bt, _bb in measured) + line_gap * (
+        len(measured) - 1
+    )
+    y0 = h - int(round(h * footer.bottom_pct / 100.0)) - total_h
+    draw_ys: list[int] = []
+    y = y0
+    for idx, (_ln, _tw, th, _bt, _bb) in enumerate(measured):
+        draw_ys.append(y)
+        y += th
+        if idx < len(measured) - 1:
+            y += line_gap
+    ink_top = draw_ys[0] + measured[0][3]
+    ink_bottom = draw_ys[-1] + measured[-1][4]
     band = getattr(footer, "band", None)
     if isinstance(band, TextBandSpec) and band.enabled:
-        pad = max(0, int(round(h * float(band.padding_pct) / 100.0)))
-        # total_h enthält den letzten Zeilenabstand (+4); Band bis Textende.
-        content_bottom = y + total_h - 4
+        pad_top = max(
+            0, int(round(h * float(getattr(band, "padding_top_pct", 1.2) or 0.0) / 100.0))
+        )
+        pad_bot = max(
+            0,
+            int(
+                round(h * float(getattr(band, "padding_bottom_pct", 1.2) or 0.0) / 100.0)
+            ),
+        )
         out = _draw_full_width_text_band(
             out,
-            y0=y - pad,
-            y1=content_bottom + pad,
+            y0=ink_top - pad_top,
+            y1=ink_bottom + pad_bot,
             color=band.color,
         )
         draw = ImageDraw.Draw(out)
     align = str(getattr(footer, "align", "center") or "center")
     offset_x_pct = float(getattr(footer, "offset_x_pct", 0.0) or 0.0)
-    for ln, tw, th in sizes:
+    for (ln, tw, _th, _bt, _bb), dy in zip(measured, draw_ys, strict=True):
         x = _title_x(w, tw, align, offset_x_pct=offset_x_pct)
-        draw.text((x, y), ln, font=font, fill=(r, g, b, 255))
-        y += th + 4
+        draw.text((x, dy), ln, font=font, fill=(r, g, b, 255))
     return out
 
 

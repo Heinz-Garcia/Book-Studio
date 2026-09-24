@@ -1,6 +1,6 @@
 {
   "name": "stylecloud",
-  "label": "🎨 Cover-Schlagwortwolke…",
+  "label": "🎨 Erzeugen (Cover-Schlagwortwolke)…",
   "description": "Konfigurierbare Schlagwortwolken für Buchcover (stylecloud: Icon-Formen, Paletten, Verläufe).",
   "entrypoint": "plugins.stylecloud:run",
   "version": "1.0.0",

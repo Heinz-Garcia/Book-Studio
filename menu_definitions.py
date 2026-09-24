@@ -110,24 +110,39 @@ MENU_VIEW = [
                 accelerator="Ctrl+Shift+N",
             ),
             MenuItem(
-                label="📥 Lieferung übernehmen…",
+                label="📥 Lieferung übernehmen (Inbox)…",
                 command="work_path_delivery_intake",
             ),
             MenuItem(
-                label="⛓ Teilkette starten…",
+                label="⛓ Teilkette starten (Studio-Pipeline)…",
                 command="work_path_pipeline",
                 accelerator="Ctrl+Shift+P",
             ),
             MenuItem(
-                label="⛓ Teilkette ab Lieferung…",
+                label="⛓ Teilkette ab Lieferung (Studio-Pipeline)…",
                 command="work_path_pipeline_from_delivery",
             ),
             MenuSeparator(),
-            MenuItem(label="F · Lieferung übernehmen…", command="work_path_stage_f"),
-            MenuItem(label="G · Bücher wählen…", command="work_path_stage_g"),
-            MenuItem(label="H · PDF erzeugen…", command="work_path_stage_h"),
-            MenuItem(label="I · Freigabe prüfen…", command="work_path_stage_i"),
-            MenuItem(label="J · Ablegen…", command="work_path_stage_j"),
+            MenuItem(
+                label="F · Lieferung übernehmen (Inbox)…",
+                command="work_path_stage_f",
+            ),
+            MenuItem(
+                label="G · Bücher wählen (Buchprojekte)…",
+                command="work_path_stage_g",
+            ),
+            MenuItem(
+                label="H · PDF erzeugen (Export)…",
+                command="work_path_stage_h",
+            ),
+            MenuItem(
+                label="I · Freigabe prüfen (Druck-Freigabe)…",
+                command="work_path_stage_i",
+            ),
+            MenuItem(
+                label="J · Ablegen (PDF-Manager)…",
+                command="work_path_stage_j",
+            ),
         ],
     ),
     MenuSeparator(),

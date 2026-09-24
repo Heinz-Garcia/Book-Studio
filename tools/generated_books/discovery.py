@@ -72,8 +72,20 @@ def is_registered_render(path: Path) -> bool:
     return RENDER_ARCHIVE_DIR_NAME in teile
 
 
+# Quarto-/Studio-Ausgaben, die der PDF Manager als Render-Archiv führen und
+# mit ``allow_registered=True`` löschen darf (nicht nur PDF).
+_REGISTERED_RENDER_SUFFIXES = frozenset({
+    ".pdf",
+    ".docx",
+    ".html",
+    ".htm",
+    ".epub",
+    ".odt",
+})
+
+
 def delete_generated_pdf(path: Path, *, allow_registered: bool = False) -> None:
-    """Löscht eine generierte PDF-Datei von der Platte.
+    """Löscht eine generierte Ausgabe-Datei von der Platte.
 
     Dateien aus ``export/publish_renders/`` sind in ``publish_map.json``
     verzeichnet. Sie zu löschen, ohne den Eintrag mitzuentfernen, hinterlässt
@@ -87,18 +99,30 @@ def delete_generated_pdf(path: Path, *, allow_registered: bool = False) -> None:
     „Generierte Bücher“, das die Archiv-PDFs ebenfalls auflistet — bleibt es
     verboten; der Hilfetext dieses Plugins beschrieb den Schaden bisher nur,
     statt ihn zu verhindern.
+
+    Bei ``allow_registered=True`` (PDF Manager) sind neben ``.pdf`` auch andere
+    Quarto-Ausgaben erlaubt (``.docx``, ``.html``, ``.epub``, …) — der Manager
+    listet jeden archivierten Render, nicht nur PDFs.
     """
     target = Path(path)
     if not target.is_file():
         raise FileNotFoundError(f"Datei nicht gefunden: {target}")
-    if target.suffix.lower() != ".pdf":
+    suffix = target.suffix.lower()
+    if allow_registered:
+        if suffix not in _REGISTERED_RENDER_SUFFIXES:
+            allowed = ", ".join(sorted(_REGISTERED_RENDER_SUFFIXES))
+            raise ValueError(
+                f"Diese Dateiart darf im PDF Manager nicht gelöscht werden "
+                f"({target.name}). Erlaubt: {allowed}"
+            )
+    elif suffix != ".pdf":
         raise ValueError(f"Nur PDF-Dateien dürfen gelöscht werden: {target}")
     if not allow_registered and is_registered_render(target):
         raise ValueError(
             "Diese PDF gehört zum dauerhaften Render-Archiv "
             f"(export/{RENDER_ARCHIVE_DIR_NAME}/) und ist in publish_map.json "
-            "verzeichnet.\n\nBitte über „PDF Manager…“ löschen — dort wird der "
-            "Eintrag in der Karte mitentfernt."
+            "verzeichnet.\n\nBitte über „Ablegen (PDF-Manager)…“ löschen — "
+            "dort wird der Eintrag in der Karte mitentfernt."
         )
     target.unlink()
 

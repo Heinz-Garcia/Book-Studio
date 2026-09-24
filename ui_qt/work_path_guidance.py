@@ -22,19 +22,19 @@ __all__ = [
 ]
 
 _GO_LABELS = {
-    "delivery_intake": "Lieferung übernehmen…",
-    "book_projects": "Bücher wählen…",
-    "open_quarto_config_editor": "Struktur öffnen…",
-    "open_rahmen_editor": "Rahmen öffnen…",
-    "open_kapitel_editor": "Kapitel öffnen…",
-    "skeleton_populate": "Rahmen anlegen…",
-    "gg_content_swap": "Inhalt prüfen / Skip…",
-    "accept_kapitel_as_is": "Inhalt prüfen / Skip…",
-    "markup_inventory": "Formate zuordnen…",
-    "kdp_cover": "Cover…",
-    "render": "PDF erzeugen…",
-    "publisher_compliance": "Freigabe prüfen…",
-    "mapping_manager": "Ablegen…",
+    "delivery_intake": "Lieferung übernehmen (Inbox)…",
+    "book_projects": "Bücher wählen (Buchprojekte)…",
+    "open_quarto_config_editor": "Struktur öffnen (_quarto.yml)…",
+    "open_rahmen_editor": "Rahmen öffnen (Rahmenseiten)…",
+    "open_kapitel_editor": "Kapitel öffnen (Kapitelstruktur)…",
+    "skeleton_populate": "Übernehmen (Skeleton)…",
+    "gg_content_swap": "Inhalt aktualisieren (GG-Inhaltstausch)…",
+    "accept_kapitel_as_is": "Inhalt belassen (Buchstruktur)…",
+    "markup_inventory": "Formate zuordnen (Textauszeichnungs-Inventar)…",
+    "kdp_cover": "Cover gestalten (KDP Cover-Designer)…",
+    "render": "PDF erzeugen (Export)…",
+    "publisher_compliance": "Freigabe prüfen (Druck-Freigabe)…",
+    "mapping_manager": "Ablegen (PDF-Manager)…",
 }
 
 
@@ -57,7 +57,7 @@ def prompt_need_book(
     box.setWindowTitle(title)
     box.setText(message)
     open_btn = box.addButton(
-        "Bücher wählen…", QMessageBox.ButtonRole.AcceptRole
+        "Bücher wählen (Buchprojekte)…", QMessageBox.ButtonRole.AcceptRole
     )
     box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
     box.setDefaultButton(open_btn)

@@ -1,6 +1,6 @@
 {
   "name": "cover_size",
-  "label": "📐 Cover-Größe berechnen…",
+  "label": "📐 Berechnen (Cover-Größe)…",
   "description": "Berechnet Buchrücken-Breite und Gesamt-Covermaße für ein KDP-Taschenbuch.",
   "entrypoint": "plugins.cover_size:run",
   "version": "1.1.0",
@@ -8,5 +8,5 @@
   "menu_section": "Plugins",
   "order": 10,
   "show_in_menu": false,
-  "help_text": "Maße-Rechnung ist in Plugins → KDP Cover-Designer… eingebettet (Schritt „1. Maße festlegen“ inkl. Maße kopieren). tools/cover_size bleibt der SSOT-Rechenkern; dieses Plugin öffnet den Designer."
+  "help_text": "Maße-Rechnung ist in Buch-Werkzeuge → Cover gestalten (KDP Cover-Designer)… eingebettet (Schritt „1. Maße festlegen“ inkl. Maße kopieren). tools/cover_size bleibt der SSOT-Rechenkern; dieses Plugin öffnet den Designer."
 }

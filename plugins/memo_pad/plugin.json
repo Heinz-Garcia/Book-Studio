@@ -1,6 +1,6 @@
 {
   "name": "memo_pad",
-  "label": "🗒️ Memo-Block…",
+  "label": "🗒️ Öffnen (Memo-Block)…",
   "description": "Eine einzelne Notiz speichern und wiederfinden — unabhängig vom aktiven Buch.",
   "entrypoint": "plugins.memo_pad:run",
   "version": "1.0.0",

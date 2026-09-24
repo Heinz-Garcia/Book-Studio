@@ -75,6 +75,31 @@ def test_export_dialog_size_persists(tmp_path, monkeypatch):
     _ = app
 
 
+def test_export_dialog_footer_is_help_bar(monkeypatch):
+    """Profil-Erläuterung nutzt die gemeinsame HelpBar (hellblau + 🛈)."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from ui_qt.dialogs.export_dialog import ExportDialog
+    from ui_qt.widgets.help_bar import HelpBar
+    from ui_qt.theme import apply_theme
+
+    app = QApplication.instance() or QApplication([])
+    apply_theme(app)
+    dlg = ExportDialog(None, ["Standard"])
+    assert isinstance(dlg.hint, HelpBar)
+    assert dlg.hint.objectName() == "HelpBar"
+    assert "export/_book" in dlg.hint._label.text()
+    icons = [
+        lab
+        for lab in dlg.hint.findChildren(QLabel)
+        if lab.objectName() == "HelpBarIcon"
+    ]
+    assert icons and "\U0001f6c8" in icons[0].text()
+    dlg.close()
+
+
 def test_export_dialog_prefills_from_book_folder(tmp_path, monkeypatch):
     """Ohne project_label: Anzeigename = Ordnername, Dateiname daraus abgeleitet."""
     pytest.importorskip("PySide6")

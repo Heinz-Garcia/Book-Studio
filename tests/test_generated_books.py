@@ -124,6 +124,26 @@ def test_delete_generated_pdf_rejects_non_pdf(tmp_path: Path):
         pass
 
 
+def test_delete_generated_pdf_allows_docx_when_registered(tmp_path: Path):
+    """PDF Manager darf archivierte DOCX-Renders mitlöschen."""
+    docx = tmp_path / "band.docx"
+    docx.write_bytes(b"PK")
+    delete_generated_pdf(docx, allow_registered=True)
+    assert not docx.exists()
+
+
+def test_delete_generated_pdf_rejects_unknown_suffix_even_registered(
+    tmp_path: Path,
+) -> None:
+    junk = tmp_path / "notes.txt"
+    junk.write_text("x", encoding="utf-8")
+    try:
+        delete_generated_pdf(junk, allow_registered=True)
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "docx" in str(exc).casefold() or "pdf" in str(exc).casefold()
+
+
 def test_sort_generated_pdfs_by_book(tmp_path: Path):
     """Die Spalte „Buch“ sortiert nach dem Buch, nicht heimlich nach Datum.
 

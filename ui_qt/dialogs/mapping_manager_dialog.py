@@ -35,7 +35,7 @@ from tools.mapping_manager.actions import (
     reveal_in_explorer,
 )
 from tools.mapping_manager.deploy import deploy_pdf, resolve_pdf_deploy_folder
-from tools.mapping_manager.loader import load_renders, load_snapshots
+from tools.mapping_manager.loader import load_all_renders, load_renders, load_snapshots
 from tools.mapping_manager.models import RenderView, SnapshotView, layout_profile_label
 from tools.publish_map.store import read_map, remove_render, update_render_fields
 from ui_qt.autonomous_window import (
@@ -48,13 +48,22 @@ from ui_qt.autonomous_window import (
 from ui_qt.widgets.help_bar import HelpBar
 from ui_qt.widgets.resize_grip import attach_resize_grip
 
-_COL_DATE = 0
-_COL_LAYOUT = 1
-_COL_FILE = 2
-_COL_NAME = 3
-_COL_FORMAT = 4
-_COL_STATUS = 5
-_COL_SOURCE = 6
+#: Combo-Sentinel: alle Buchprojekte gleichzeitig anzeigen.
+_ALL_BOOKS = "__all__"
+#: Snapshot-Sentinel in „Alle Bücher“-Ansicht (keine Einzelquelle).
+_ALL_SOURCES = "__all_sources__"
+
+_COL_BOOK = 0
+_COL_DATE = 1
+_COL_LAYOUT = 2
+_COL_FILE = 3
+_COL_NAME = 4
+_COL_FORMAT = 5
+_COL_STATUS = 6
+_COL_SOURCE = 7
+
+#: Item-Data: Buchpfad neben Render-ID (Kollisionsschutz bei „Alle Bücher“).
+_ROLE_BOOK = int(Qt.ItemDataRole.UserRole) + 1
 
 _SOURCE_DOT_AVAILABLE = "#16a34a"
 _SOURCE_DOT_MISSING = "#dc2626"
@@ -94,6 +103,7 @@ class MappingManagerQtDialog(QDialog):
         self._snapshots: list[SnapshotView] = []
         self._renders: list[RenderView] = []
         self._all_renders: list[RenderView] = []
+        self._books: list[Path] = []
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -143,16 +153,27 @@ class MappingManagerQtDialog(QDialog):
         filter_row.addWidget(self.empty_label)
         filter_row.addStretch(1)
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("Filtern: Datum, Layout, Dateiname, Anzeigename…")
+        self.filter_edit.setPlaceholderText(
+            "Filtern: Buch, Datum, Layout, Dateiname, Anzeigename…"
+        )
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.setMinimumWidth(300)
         self.filter_edit.textChanged.connect(self._apply_filter)
         filter_row.addWidget(self.filter_edit)
         layout.addLayout(filter_row)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
-            ["Datum", "Layout", "Datei", "Anzeigename (optional)", "Format", "Status", "Quelle"]
+            [
+                "Buch",
+                "Datum",
+                "Layout",
+                "Datei",
+                "Anzeigename (optional)",
+                "Format",
+                "Status",
+                "Quelle",
+            ]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
@@ -177,7 +198,14 @@ class MappingManagerQtDialog(QDialog):
         # Platz insgesamt nicht, zeigt die Tabelle stattdessen einen
         # horizontalen Scrollbalken — nie eine gequetschte Spalte.
         for _col in (
-            _COL_DATE, _COL_LAYOUT, _COL_FILE, _COL_NAME, _COL_FORMAT, _COL_STATUS, _COL_SOURCE,
+            _COL_BOOK,
+            _COL_DATE,
+            _COL_LAYOUT,
+            _COL_FILE,
+            _COL_NAME,
+            _COL_FORMAT,
+            _COL_STATUS,
+            _COL_SOURCE,
         ):
             header.setSectionResizeMode(_col, QHeaderView.ResizeMode.ResizeToContents)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -270,7 +298,7 @@ class MappingManagerQtDialog(QDialog):
         layout.addLayout(actions)
 
         tip = QLabel(
-            "Buch oben wählen (PDFs gehören immer zu einem Buch). "
+            "Buch oben wählen — oder „Alle Bücher“ für die Übersicht über alle Projekte. "
             "Anzeigename = optionaler Merknamen — nicht Layout/BoD."
         )
         tip.setStyleSheet("color:#5b6573; font-size:12px;")
@@ -280,14 +308,26 @@ class MappingManagerQtDialog(QDialog):
         self._reload_snapshots()
         prepare_autonomous_window(self, parent)
 
+    def _is_all_books(self) -> bool:
+        data = self.book_combo.currentData() if hasattr(self, "book_combo") else None
+        return data == _ALL_BOOKS
+
     def _book(self) -> Path:
         data = self.book_combo.currentData() if hasattr(self, "book_combo") else None
+        if data == _ALL_BOOKS:
+            raise RuntimeError("Kein Einzelbuch gewählt (Alle Bücher)")
         if data is not None:
             return Path(data)
         cur = getattr(self.studio, "current_book", None)
         if cur is not None:
             return Path(cur)
         raise RuntimeError("Kein Buch gewählt")
+
+    def _book_of(self, render: RenderView) -> Path:
+        """Buchprojekt eines Renders — auch in der „Alle Bücher“-Ansicht."""
+        if render.book_path is not None:
+            return Path(render.book_path)
+        return self._book()
 
     def _fill_book_combo(self) -> None:
         from ui_qt.book_workspace import discover_books
@@ -306,6 +346,7 @@ class MappingManagerQtDialog(QDialog):
             return (has, b.name.casefold())
 
         books.sort(key=sort_key)
+        self._books = list(books)
         current = None
         try:
             if getattr(self.studio, "current_book", None):
@@ -318,7 +359,16 @@ class MappingManagerQtDialog(QDialog):
         self.book_combo.blockSignals(True)
         self.book_combo.clear()
         select = 0
+        if books:
+            self.book_combo.addItem("📄 Alle Bücher", _ALL_BOOKS)
+            self.book_combo.setItemData(
+                0,
+                "Renders aller Buchprojekte gleichzeitig anzeigen",
+                Qt.ItemDataRole.ToolTipRole,
+            )
+            select = 1  # Standard: erstes Einzelbuch, nicht „Alle“
         for idx, book in enumerate(books):
+            combo_idx = idx + (1 if books else 0)
             label = read_display_name(book)
             text = f"{label}  ·  {book.name}" if label else book.name
             # Bücher mit PDFs markieren
@@ -327,15 +377,15 @@ class MappingManagerQtDialog(QDialog):
             ).is_dir():
                 text = f"📄 {text}"
             self.book_combo.addItem(text, book)
-            self.book_combo.setItemData(idx, str(book), Qt.ItemDataRole.ToolTipRole)
+            self.book_combo.setItemData(combo_idx, str(book), Qt.ItemDataRole.ToolTipRole)
             try:
                 if current is not None and book.resolve() == current:
-                    select = idx
+                    select = combo_idx
             except OSError:
                 pass
         self.book_combo.setCurrentIndex(select if books else -1)
         self.book_combo.blockSignals(False)
-        if books:
+        if books and not self._is_all_books():
             chosen = Path(self.book_combo.currentData())
             self.studio.current_book = chosen
             self._sync_host_book(chosen)
@@ -352,6 +402,9 @@ class MappingManagerQtDialog(QDialog):
         data = self.book_combo.currentData()
         if data is None:
             return
+        if data == _ALL_BOOKS:
+            self._reload_snapshots()
+            return
         book = Path(data)
         self.studio.current_book = book
         self._sync_host_book(book)
@@ -363,7 +416,7 @@ class MappingManagerQtDialog(QDialog):
         try:
             data = read_map(self._book()) or {}
             active = str(data.get("active_snapshot_id") or "")
-        except (OSError, TypeError, ValueError):
+        except (OSError, TypeError, ValueError, RuntimeError):
             active = ""
         if active:
             for idx, snap in enumerate(self._snapshots):
@@ -372,6 +425,27 @@ class MappingManagerQtDialog(QDialog):
         return len(self._snapshots) - 1
 
     def _reload_snapshots(self) -> None:
+        if self._is_all_books():
+            self._snapshots = []
+            self.snapshot_combo.blockSignals(True)
+            self.snapshot_combo.clear()
+            total = 0
+            for book in self._books:
+                for snap in load_snapshots(book):
+                    total += snap.render_count
+            self.snapshot_combo.addItem(
+                f"— Alle Quellen — ({total})" if total else "— Alle Quellen —",
+                _ALL_SOURCES,
+            )
+            self.snapshot_combo.setEnabled(False)
+            self.btn_production_folder.setEnabled(False)
+            self.snapshot_combo.blockSignals(False)
+            self._all_renders = load_all_renders(self._books)
+            self._apply_filter()
+            return
+
+        self.snapshot_combo.setEnabled(True)
+        self.btn_production_folder.setEnabled(True)
         try:
             book = self._book()
         except RuntimeError:
@@ -408,7 +482,7 @@ class MappingManagerQtDialog(QDialog):
             self.empty_label.setText("Keine El Pitugrafo Quelle — zuerst rendern (F5).")
             return
         target = 0
-        if previous_id:
+        if previous_id and previous_id != _ALL_SOURCES:
             for i, snap in enumerate(self._snapshots):
                 if snap.id == previous_id:
                     target = i
@@ -421,8 +495,12 @@ class MappingManagerQtDialog(QDialog):
         self._on_snapshot_changed(target)
 
     def _on_snapshot_changed(self, _index: int = -1) -> None:
+        if self._is_all_books():
+            self._all_renders = load_all_renders(self._books)
+            self._apply_filter()
+            return
         snap_id = self.snapshot_combo.currentData()
-        if not snap_id:
+        if not snap_id or snap_id == _ALL_SOURCES:
             self._all_renders = []
             self._renders = []
             self.table.setRowCount(0)
@@ -484,6 +562,7 @@ class MappingManagerQtDialog(QDialog):
             for r in self._all_renders:
                 blob = " ".join(
                     [
+                        r.book_name,
                         r.notes,
                         r.pdf_name,
                         layout_profile_label(r.layout_profile),
@@ -506,16 +585,30 @@ class MappingManagerQtDialog(QDialog):
         total = len(self._all_renders)
         shown = len(self._renders)
         if total == 0:
-            name = self._book().name
-            self.empty_label.setText(
-                f"Keine PDFs für „{name}“. "
-                "Anderes Buch oben wählen — Einträge mit 📄 haben bereits Renders."
-            )
+            if self._is_all_books():
+                self.empty_label.setText(
+                    "Keine PDFs in den Buchprojekten. Zuerst rendern (F5)."
+                )
+            else:
+                try:
+                    name = self._book().name
+                except RuntimeError:
+                    name = "—"
+                self.empty_label.setText(
+                    f"Keine PDFs für „{name}“. "
+                    "Anderes Buch oben wählen — Einträge mit 📄 haben bereits Renders."
+                )
             self.path_label.setText(
                 "Tipp: Publish_IFJN_Brustkrebs_Gemma4_… wählen, wenn dort gerendert wurde."
             )
         elif shown == total:
-            self.empty_label.setText(f"{total} Render — neueste zuerst")
+            if self._is_all_books():
+                books_n = len({str(r.book_path) for r in self._all_renders if r.book_path})
+                self.empty_label.setText(
+                    f"{total} Render aus {books_n} Büchern — neueste zuerst"
+                )
+            else:
+                self.empty_label.setText(f"{total} Render — neueste zuerst")
         else:
             self.empty_label.setText(f"{shown} von {total} Render (Filter)")
 
@@ -527,7 +620,11 @@ class MappingManagerQtDialog(QDialog):
             source_available = (
                 render.source_archive_path is not None and render.source_archive_path.is_dir()
             )
+            book_label = render.book_name or (
+                render.book_path.name if render.book_path else "—"
+            )
             vals = [
+                book_label,
                 render.at_display,
                 layout_txt,
                 render.pdf_name or "—",
@@ -537,6 +634,7 @@ class MappingManagerQtDialog(QDialog):
                 "●",
             ]
             tip_parts = [
+                f"Buch: {book_label}" if book_label and book_label != "—" else "",
                 f"Datei: {render.pdf_name}" if render.pdf_name else "",
                 str(render.pdf_path) if render.pdf_path else "",
             ]
@@ -552,9 +650,16 @@ class MappingManagerQtDialog(QDialog):
                 else "Kein archivierter Quellstand (Render von vor Einführung dieses Felds) "
                 "— nicht wiederherstellbar."
             )
+            book_key = ""
+            if render.book_path is not None:
+                try:
+                    book_key = str(render.book_path.resolve())
+                except OSError:
+                    book_key = str(render.book_path)
             for col, text in enumerate(vals):
                 item = QTableWidgetItem(str(text))
                 item.setData(Qt.ItemDataRole.UserRole, render.id)
+                item.setData(_ROLE_BOOK, book_key)
                 item.setToolTip(source_tip if col == _COL_SOURCE else tip)
                 if col == _COL_NAME and not name:
                     item.setForeground(Qt.GlobalColor.gray)
@@ -586,7 +691,8 @@ class MappingManagerQtDialog(QDialog):
         if len(renders) == 1:
             render = renders[0]
             status = "vorhanden" if render.exists else "Datei fehlt"
-            self.path_label.setText(f"{render.pdf_path}  ({status})")
+            book_bit = f"{render.book_name} · " if self._is_all_books() and render.book_name else ""
+            self.path_label.setText(f"{book_bit}{render.pdf_path}  ({status})")
             return
         existing = sum(1 for r in renders if r.exists)
         self.path_label.setText(f"{len(renders)} PDFs ausgewählt ({existing} vorhanden).")
@@ -597,18 +703,28 @@ class MappingManagerQtDialog(QDialog):
             self._open_selected()
 
     def _selected_renders(self) -> list[RenderView]:
-        """Ausgewaehlte Renders — per ID aus dem Item-Data aufgeloest, NICHT
-        per Zeilenindex in ``self._renders``: seit Spaltensortierung aktiv
+        """Ausgewaehlte Renders — per ID (+ Buch) aus dem Item-Data aufgeloest,
+        NICHT per Zeilenindex in ``self._renders``: seit Spaltensortierung aktiv
         ist, weicht die sichtbare Zeilenreihenfolge von der Erzeugungs-
         reihenfolge ab (Qt sortiert nur die Anzeige, nicht die Liste)."""
-        by_id = {r.id: r for r in self._renders}
+        by_key: dict[tuple[str, str], RenderView] = {}
+        for r in self._renders:
+            book_key = ""
+            if r.book_path is not None:
+                try:
+                    book_key = str(r.book_path.resolve())
+                except OSError:
+                    book_key = str(r.book_path)
+            by_key[(book_key, r.id)] = r
         rows = sorted(idx.row() for idx in self.table.selectionModel().selectedRows())
         result: list[RenderView] = []
         for row in rows:
             item = self.table.item(row, _COL_DATE)
             if item is None:
                 continue
-            render = by_id.get(item.data(Qt.ItemDataRole.UserRole))
+            rid = item.data(Qt.ItemDataRole.UserRole)
+            book_key = item.data(_ROLE_BOOK) or ""
+            render = by_key.get((book_key, rid))
             if render is not None:
                 result.append(render)
         return result
@@ -655,7 +771,7 @@ class MappingManagerQtDialog(QDialog):
         if render is None:
             QMessageBox.information(self, "PDF Manager", "Bitte eine Zeile wählen.")
             return
-        book = self._book()
+        book = self._book_of(render)
         if not self._activate_book_in_main_window(book):
             return
         log = getattr(self.studio, "log", None)
@@ -717,7 +833,7 @@ class MappingManagerQtDialog(QDialog):
                 "nicht rekonstruiert werden).",
             )
             return
-        book = self._book()
+        book = self._book_of(render)
         confirm = QMessageBox.question(
             self,
             "Quelle wiederherstellen",
@@ -810,7 +926,7 @@ class MappingManagerQtDialog(QDialog):
             return
         try:
             update_render_fields(
-                self._book(),
+                self._book_of(render),
                 render.snapshot_id,
                 render.id,
                 {"notes": text.strip()},
@@ -828,15 +944,16 @@ class MappingManagerQtDialog(QDialog):
             )
             return
         render = renders[0] if renders else None
-        book = self._book()
         try:
             if render and render.exists:
                 reveal_in_explorer(render.pdf_path)
             elif render and render.pdf_path:
                 reveal_in_explorer(render.pdf_path.parent)
+            elif render is not None:
+                reveal_in_explorer(self._book_of(render) / "export")
             else:
-                reveal_in_explorer(book / "export")
-        except OSError as exc:
+                reveal_in_explorer(self._book() / "export")
+        except (OSError, RuntimeError) as exc:
             QMessageBox.critical(self, "PDF Manager", str(exc))
 
     def _copy_selected_path(self) -> None:
@@ -885,7 +1002,7 @@ class MappingManagerQtDialog(QDialog):
             return
         try:
             update_render_fields(
-                self._book(),
+                self._book_of(render),
                 render.snapshot_id,
                 render.id,
                 {"artifact_path": str(new_path)},
@@ -1010,10 +1127,12 @@ class MappingManagerQtDialog(QDialog):
             return
         if len(renders) == 1:
             label = renders[0].notes.strip() or renders[0].pdf_name or renders[0].id
-            message = f"PDF und Listeneintrag löschen?\n\n{label}"
+            message = f"Datei und Listeneintrag löschen?\n\n{label}"
         else:
             labels = "\n".join(r.notes.strip() or r.pdf_name or r.id for r in renders)
-            message = f"{len(renders)} PDFs und Listeneinträge löschen?\n\n{labels}"
+            message = (
+                f"{len(renders)} Dateien und Listeneinträge löschen?\n\n{labels}"
+            )
         if (
             QMessageBox.question(self, "Löschen", message)
             != QMessageBox.StandardButton.Yes
@@ -1022,7 +1141,7 @@ class MappingManagerQtDialog(QDialog):
 
         # Zusätzliche, separate Abfrage NUR wenn mindestens einer der
         # markierten Renders einen archivierten Quellstand hat -- Löschen
-        # der PDF und Löschen der (reproduzierbaren!) Quelle sind zwei
+        # der Ausgabe und Löschen der (reproduzierbaren!) Quelle sind zwei
         # unabhängige Entscheidungen, Default ist deshalb "Nein" (sicherer).
         renders_with_source = [
             r for r in renders
@@ -1033,9 +1152,12 @@ class MappingManagerQtDialog(QDialog):
             count = len(renders_with_source)
             prompt = (
                 (
-                    "Auch den archivierten Quellstand dieser PDF löschen?"
+                    "Auch den archivierten Quellstand dieser Ausgabe löschen?"
                     if count == 1
-                    else f"Auch die archivierten Quellstände dieser {count} PDFs löschen?"
+                    else (
+                        f"Auch die archivierten Quellstände dieser {count} "
+                        "Ausgaben löschen?"
+                    )
                 )
                 + "\n\nDanach ist der exakte Quellstand nicht mehr wiederherstellbar."
             )
@@ -1073,7 +1195,7 @@ class MappingManagerQtDialog(QDialog):
                 except (OSError, ValueError) as exc:
                     errors.append(f"{name} (Quellstand): {exc}")
             try:
-                remove_render(self._book(), render.snapshot_id, render.id)
+                remove_render(self._book_of(render), render.snapshot_id, render.id)
             except (OSError, ValueError) as exc:
                 errors.append(f"{name} (Karte): {exc}")
         self._on_snapshot_changed(self.snapshot_combo.currentIndex())

@@ -1,6 +1,6 @@
 {
   "name": "asset_manager",
-  "label": "🖼️ Asset Manager…",
+  "label": "🖼️ Verwalten (Asset Manager)…",
   "description": "Bild-Pool und Buch-img/ — anzeigen, kopieren, Referenzen, Orphans löschen.",
   "entrypoint": "plugins.asset_manager:run",
   "version": "1.1.0",

@@ -1,6 +1,6 @@
 {
   "name": "markup_inventory",
-  "label": "📋 Textauszeichnungs-Inventar…",
+  "label": "📋 Formate zuordnen (Textauszeichnungs-Inventar)…",
   "description": "Alle Fenced-Div-Klassen eines Buches mit Herkunft, Benutzung und Absatzformat.",
   "entrypoint": "plugins.markup_inventory:run",
   "version": "1.0.0",

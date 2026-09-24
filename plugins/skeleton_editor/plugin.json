@@ -1,6 +1,6 @@
 {
   "name": "skeleton_editor",
-  "label": "🦴 Skeleton-Bibliothek bearbeiten…",
+  "label": "🦴 Bearbeiten (Skeleton-Bibliothek)…",
   "description": "Vorlagen und Manifeste unter tools/skeleton/library pflegen.",
   "entrypoint": "plugins.skeleton_editor:run",
   "version": "1.0.0",

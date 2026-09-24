@@ -1,6 +1,6 @@
 {
   "name": "gg_content_swap",
-  "label": "🧬 GrammarGraph-Inhalt aktualisieren…",
+  "label": "🧬 Inhalt aktualisieren (GG-Inhaltstausch)…",
   "description": "Nutzinhalt (Body) aus neuem GG-Export tauschen; Frontmatter und Struktur bleiben.",
   "entrypoint": "plugins.gg_content_swap:run",
   "version": "1.2.1",

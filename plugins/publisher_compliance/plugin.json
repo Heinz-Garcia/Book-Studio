@@ -1,6 +1,6 @@
 {
   "name": "publisher_compliance",
-  "label": "🖨️ Freigabe prüfen…",
+  "label": "🖨️ Freigabe prüfen (Druck-Freigabe)…",
   "description": "Prüft die zuletzt gerenderte PDF gegen Vertriebsplattform-Anforderungen (aktuell Amazon KDP).",
   "entrypoint": "plugins.publisher_compliance:run",
   "version": "1.0.0",

@@ -14,6 +14,8 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 ## GUI & Struktur
 
 - GUI-Architektur und Modulgrenzen: [gui_architektur.md](gui_architektur.md)
+- Geplante Production-UUID / Cover-first (SSOT für GrammarGraph): [cover-planned-uuid.md](cover-planned-uuid.md)
+- Session 23.09.2026 (Cover-first UUID, Stand): [Mittwoch_23.md](Mittwoch_23.md)
 
 ## Bedienung
 
@@ -61,8 +63,10 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 ## Feature Requests / Zurückgestellte Ideen
 
 - **Next Level — Orientierung, Pfadführung, 1-Klick-Orchestrierung** (Plan): [next_Level.md](next_Level.md)
+- **1-Klick über beide Apps** (Warum, Architektur, Aufwand, kein Wegwerfen; Stand 24.09.): [1klick-orchestrierung-beide-apps.md](1klick-orchestrierung-beide-apps.md)
 - **Studio-Maßnahmen: 1-Klick-Fabrik + Einfachheit** (nach Phase 1–3): [einfachheit_und_1klick.md](einfachheit_und_1klick.md)
 - **Prompt — Umsetzung Studio 1-Klick §1** (lebende Checkboxen F′/Teilkette/Leiste/Defaults): [prompt_1klick_studio.md](prompt_1klick_studio.md)
+- **Pfad-Manager → Werkbank** (Kontext-Aktionen, Badges, Drop, Apps; Skizze): [path_favorites_werkbank.md](path_favorites_werkbank.md)
 - Autonomes eBook/EPUB-Export-Tool für Kindle (kein aktueller Bedarf, siehe Doku): [ebook-epub-autonomes-tool.md](ebook-epub-autonomes-tool.md)
 
 ## Vorlagen

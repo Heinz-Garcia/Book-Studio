@@ -1,6 +1,6 @@
 {
   "name": "publish_record",
-  "label": "📒 Publish Record (Veröffentlichungs-Protokoll)…",
+  "label": "📒 Anzeigen (Publish Record)…",
   "description": "Durchgängiges Buchprojekt-Log anzeigen (Import, Qualität, Render).",
   "entrypoint": "plugins.publish_record:run",
   "version": "1.1.0",
