@@ -1030,7 +1030,9 @@ class SkeletonEditorQtDialog(QDialog):
         delete_file = reply == QMessageBox.StandardButton.Yes
         if delete_file and file_path.is_file():
             try:
-                file_path.unlink()
+                from services.papierkorb import in_papierkorb
+
+                in_papierkorb(file_path)
             except OSError as exc:
                 QMessageBox.critical(self, "Skeleton", f"Datei konnte nicht gelöscht werden:\n{exc}")
                 return
@@ -1100,7 +1102,9 @@ class SkeletonEditorQtDialog(QDialog):
             target = self._manifest.root / rel_path
             try:
                 if target.is_file():
-                    target.unlink()
+                    from services.papierkorb import in_papierkorb
+
+                    in_papierkorb(target)
                     deleted.append(rel_path)
             except OSError as exc:
                 QMessageBox.critical(

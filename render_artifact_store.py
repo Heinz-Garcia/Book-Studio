@@ -391,7 +391,10 @@ def rename_render_pdf(path: Path, stem: str, *, overwrite: bool = True) -> Path:
     if dest.exists():
         if not overwrite:
             raise FileExistsError(f"Ziel existiert bereits: {dest.name}")
-        dest.unlink()
+        # Eine gleichnamige frühere Render-PDF nicht endgültig überschreiben.
+        from services.papierkorb import in_papierkorb
+
+        in_papierkorb(dest)
     path.rename(dest)
     return dest
 

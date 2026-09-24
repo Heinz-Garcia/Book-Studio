@@ -333,7 +333,9 @@ def delete_preset(name: str) -> bool:
         # loeschen erzeugte nur eine geaenderte getrackte Datei.
         return False
     try:
-        info.path.unlink()
+        from services.papierkorb import in_papierkorb
+
+        in_papierkorb(info.path)
         return True
     except OSError:
         return False

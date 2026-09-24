@@ -735,9 +735,11 @@ class AssetManagerQtDialog(QDialog):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        from services.papierkorb import in_papierkorb
+
         for path in paths:
             try:
-                path.unlink(missing_ok=True)
+                in_papierkorb(path)
             except OSError as exc:
                 QMessageBox.warning(self, "Asset Manager", f"Löschen fehlgeschlagen:\n{exc}")
         self._selected_path = None
@@ -823,7 +825,9 @@ class AssetManagerQtDialog(QDialog):
         if answer != QMessageBox.StandardButton.Yes:
             return
         try:
-            path.unlink(missing_ok=True)
+            from services.papierkorb import in_papierkorb
+
+            in_papierkorb(path)
         except OSError as exc:
             QMessageBox.warning(self, "Asset Manager", f"Löschen fehlgeschlagen:\n{exc}")
             return

@@ -124,7 +124,9 @@ def delete_generated_pdf(path: Path, *, allow_registered: bool = False) -> None:
             "verzeichnet.\n\nBitte über „Ablegen (PDF-Manager)…“ löschen — "
             "dort wird der Eintrag in der Karte mitentfernt."
         )
-    target.unlink()
+    from services.papierkorb import in_papierkorb
+
+    in_papierkorb(target)
 
 
 def load_settings(config_path: Optional[Path] = None) -> dict:

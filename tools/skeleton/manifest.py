@@ -508,7 +508,9 @@ def delete_profile(
     target = Path(library_root).resolve() / name
     if not target.is_dir():
         raise FileNotFoundError(f"Profil nicht gefunden: {name}")
-    shutil.rmtree(target)
+    from services.papierkorb import in_papierkorb
+
+    in_papierkorb(target)
 
 
 def profile_labels(library_root: Path, profiles: Optional[list[str]] = None) -> dict[str, str]:

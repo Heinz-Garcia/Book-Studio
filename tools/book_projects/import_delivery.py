@@ -89,7 +89,11 @@ def _copy_delivery_file(src: Path, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     if src.is_dir():
         if dest.exists():
-            shutil.rmtree(dest)
+            # Vom Nutzer ergänzte Dateien im alten Ordner (z. B. images/)
+            # nicht endgültig verlieren: der alte Stand geht in den Papierkorb.
+            from services.papierkorb import in_papierkorb
+
+            in_papierkorb(dest)
         shutil.copytree(src, dest)
     else:
         shutil.copy2(src, dest)

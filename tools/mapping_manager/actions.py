@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -51,14 +50,16 @@ def delete_pdf(path: Path) -> None:
 
 
 def delete_source_archive(path: Path) -> None:
-    """Löscht einen archivierten Quellstand (siehe `archive_render_source`)
-    unwiderruflich von der Platte. Danach ist der exakte Quellstand der
-    zugehörigen PDF nicht mehr reproduzierbar -- Aufrufer (UI) muss VORHER
-    explizit bestätigen lassen, siehe `mapping_manager_dialog._delete_selected`."""
+    """Verschiebt einen archivierten Quellstand (siehe `archive_render_source`)
+    in den Papierkorb. Danach fehlt dem Archiv der exakte Quellstand der
+    zugehörigen PDF -- Aufrufer (UI) muss VORHER explizit bestätigen lassen,
+    siehe `mapping_manager_dialog._delete_selected`."""
+    from services.papierkorb import in_papierkorb
+
     target = Path(path)
     if not target.is_dir():
         raise FileNotFoundError(f"Archivierter Quellstand nicht gefunden: {target}")
-    shutil.rmtree(target)
+    in_papierkorb(target)
 
 
 def rename_pdf(path: Path, new_name: str) -> Path:

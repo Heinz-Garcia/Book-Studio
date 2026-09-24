@@ -90,10 +90,10 @@ def copy_paths_into_folder(
                 if on_conflict == DropConflictPolicy.RENAME:
                     target = unique_destination(target)
                 elif on_conflict == DropConflictPolicy.OVERWRITE:
-                    if target.is_dir() and not target.is_symlink():
-                        shutil.rmtree(target)
-                    else:
-                        target.unlink()
+                    # Das Überschriebene landet im Papierkorb, nicht im Nichts.
+                    from services.papierkorb import in_papierkorb
+
+                    in_papierkorb(target)
             if src.is_dir():
                 shutil.copytree(src, target)
             else:

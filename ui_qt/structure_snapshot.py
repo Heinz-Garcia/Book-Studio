@@ -471,7 +471,9 @@ def delete_structure_backup(path: Path) -> None:
         raise ValueError(f"Kein Struktur-Snapshot: {target.name}")
     if target.parent.name != ".backups":
         raise ValueError(f"Snapshot liegt nicht unter .backups/: {target}")
-    target.unlink()
+    from services.papierkorb import in_papierkorb
+
+    in_papierkorb(target)
 
 
 def format_backup_label(path: Path) -> str:

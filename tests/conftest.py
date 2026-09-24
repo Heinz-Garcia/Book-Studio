@@ -61,3 +61,25 @@ def _qt_fenster_abraeumen():
             continue
     app.processEvents()
     app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+@pytest.fixture(autouse=True)
+def _papierkorb_im_tmp(tmp_path_factory, monkeypatch):
+    """Kein Test füllt den echten Windows-Papierkorb (Paket 2).
+
+    ``services.papierkorb`` verschiebt per ``send2trash``. In Tests landet das
+    stattdessen in einem Temp-Ordner, abrufbar als
+    ``services.papierkorb.test_ablage_ordner``.
+    """
+    import shutil
+
+    from services import papierkorb
+
+    korb = tmp_path_factory.mktemp("papierkorb")
+
+    def _ablage(pfad):
+        ziel = korb / f"{len(list(korb.iterdir())):03d}_{pfad.name}"
+        shutil.move(str(pfad), str(ziel))
+
+    monkeypatch.setattr(papierkorb, "ablage", _ablage)
+    monkeypatch.setattr(papierkorb, "test_ablage_ordner", korb, raising=False)

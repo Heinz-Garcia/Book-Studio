@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any, Optional
 
@@ -658,9 +657,10 @@ class BookProjectsQtDialog(QDialog):
         reply = QMessageBox.question(
             self,
             "Buchordner löschen",
-            f"Buchordner unwiderruflich löschen?\n\n{info.path}\n\n"
+            f"Buchordner in den Papierkorb verschieben?\n\n{info.path}\n\n"
             "Das trifft das ganze Projekt: Manuskript, bookconfig/ und alle "
-            "Renderarchive unter export/. Es gibt keinen Papierkorb.",
+            "Renderarchive unter export/. Wiederherstellen geht über den "
+            "Windows-Papierkorb.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -685,15 +685,17 @@ class BookProjectsQtDialog(QDialog):
             )
             return
 
+        from services.papierkorb import in_papierkorb
+
         try:
-            shutil.rmtree(info.path)
+            in_papierkorb(info.path)
         except OSError as exc:
             QMessageBox.critical(self, "Löschen", str(exc))
             return
         self._reload()
         self._notify_host_refresh()
         if self.studio is not None and hasattr(self.studio, "log"):
-            self.studio.log(f"Buchordner gelöscht: {info.path}", "warning")
+            self.studio.log(f"Buchordner in den Papierkorb: {info.path}", "warning")
 
 
 def open_book_projects_qt(studio: Any = None, parent: Optional[QWidget] = None) -> None:
