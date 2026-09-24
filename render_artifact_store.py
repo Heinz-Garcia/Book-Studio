@@ -67,9 +67,53 @@ def read_output_dir(book_path: Path) -> str:
     return str(project.get("output-dir", "export/_book"))
 
 
-def copy_render_artifacts(temp_book: Path, source_book: Path, output_dir: str) -> None:
+RootSnapshot = dict[str, tuple[int, int]]
+
+
+def snapshot_root_files(temp_book: Path) -> RootSnapshot:
+    """Stand der Wurzel-Dateien (``ROOT_OUTPUT_SUFFIXES``) VOR dem Render.
+
+    Die Wurzel des Temp-Klons enthält neben echten Render-Ergebnissen auch
+    Eingaben mit denselben Endungen -- ``page.typ``/``typst-show.typ``
+    (projekteigen oder von ``ensure_typst_template_partials`` ergänzt), ein
+    Cover-PDF usw. Mit diesem Schnappschuss gelten nur Dateien, die der
+    Render neu anlegt oder verändert, als Artefakt.
+    """
+    snap: RootSnapshot = {}
+    for artifact in Path(temp_book).iterdir():
+        if artifact.is_file() and artifact.suffix.lower() in ROOT_OUTPUT_SUFFIXES:
+            st = artifact.stat()
+            snap[artifact.name] = (st.st_size, st.st_mtime_ns)
+    return snap
+
+
+def _root_artifacts(temp_book: Path, baseline: Optional[RootSnapshot]) -> list[Path]:
+    out: list[Path] = []
+    for artifact in Path(temp_book).iterdir():
+        if not artifact.is_file() or artifact.suffix.lower() not in ROOT_OUTPUT_SUFFIXES:
+            continue
+        if baseline is not None:
+            st = artifact.stat()
+            if baseline.get(artifact.name) == (st.st_size, st.st_mtime_ns):
+                continue  # Eingabe, vom Render unverändert
+        out.append(artifact)
+    return out
+
+
+def copy_render_artifacts(
+    temp_book: Path,
+    source_book: Path,
+    output_dir: str,
+    *,
+    baseline: Optional[RootSnapshot] = None,
+) -> None:
     """Kopiert Render-Ergebnisse vom Temp-Klon zurück auf den festen
-    Convenience-Pfad im Original-Buch. Wird bei jedem Render überschrieben."""
+    Convenience-Pfad im Original-Buch. Wird bei jedem Render überschrieben.
+
+    ``baseline`` (siehe ``snapshot_root_files``): Wurzel-Dateien, die der
+    Render nicht verändert hat, werden NICHT ins Original kopiert -- sonst
+    landeten z. B. im Klon ergänzte Typst-Partials im Buchprojekt.
+    """
     temp_book = Path(temp_book)
     source_book = Path(source_book)
 
@@ -79,11 +123,7 @@ def copy_render_artifacts(temp_book: Path, source_book: Path, output_dir: str) -
         destination_output.mkdir(parents=True, exist_ok=True)
         shutil.copytree(temp_output, destination_output, dirs_exist_ok=True)
 
-    for artifact in temp_book.iterdir():
-        if not artifact.is_file():
-            continue
-        if artifact.suffix.lower() not in ROOT_OUTPUT_SUFFIXES:
-            continue
+    for artifact in _root_artifacts(temp_book, baseline):
         shutil.copy2(artifact, source_book / artifact.name)
 
 
@@ -93,6 +133,7 @@ def archive_render_artifacts(
     *,
     output_dir: str = "",
     timestamp: Optional[str] = None,
+    baseline: Optional[RootSnapshot] = None,
 ) -> list[Path]:
     """Kopiert Render-Ergebnisse zusätzlich in einen dauerhaften Ordner.
 
@@ -103,6 +144,11 @@ def archive_render_artifacts(
     angegeben — den `output_dir`-Teilbaum (z. B. HTML-Bücher mit
     mehreren Ausgabedateien).
 
+    Dateien aus Unterordnern von `output_dir` bekommen ihren relativen
+    Ordnerpfad als Namenspräfix (`kap1/index.html` -> `kap1_index_<ts>.html`),
+    damit gleichnamige Dateien einander im flachen Archiv nicht überschreiben.
+    `baseline` wie bei `copy_render_artifacts`.
+
     Gibt die Liste der archivierten Zielpfade zurück (leer, wenn keine
     passenden Artefakte gefunden wurden).
     """
@@ -110,27 +156,33 @@ def archive_render_artifacts(
     archive_dir = Path(archive_dir)
     stamp = timestamp or datetime.now().strftime(ARCHIVE_TIMESTAMP_FMT)
 
-    candidates: list[Path] = [
-        artifact
-        for artifact in temp_book.iterdir()
-        if artifact.is_file() and artifact.suffix.lower() in ROOT_OUTPUT_SUFFIXES
+    # (Quelle, Namens-Stem im Archiv)
+    candidates: list[tuple[Path, str]] = [
+        (artifact, artifact.stem) for artifact in _root_artifacts(temp_book, baseline)
     ]
     if output_dir:
         temp_output = temp_book / output_dir
         if temp_output.is_dir():
-            candidates.extend(
-                artifact
-                for artifact in temp_output.rglob("*")
-                if artifact.is_file() and artifact.suffix.lower() in ROOT_OUTPUT_SUFFIXES
-            )
+            for artifact in sorted(temp_output.rglob("*")):
+                if not artifact.is_file() or artifact.suffix.lower() not in ROOT_OUTPUT_SUFFIXES:
+                    continue
+                parents = artifact.relative_to(temp_output).parent.parts
+                candidates.append((artifact, "_".join((*parents, artifact.stem))))
 
     if not candidates:
         return []
 
     archive_dir.mkdir(parents=True, exist_ok=True)
     archived: list[Path] = []
-    for artifact in candidates:
-        dest = archive_dir / f"{artifact.stem}_{stamp}{artifact.suffix}"
+    used: set[str] = set()
+    for artifact, stem in candidates:
+        name = f"{stem}_{stamp}{artifact.suffix}"
+        n = 2
+        while name.casefold() in used:
+            name = f"{stem}_{stamp}_{n}{artifact.suffix}"
+            n += 1
+        used.add(name.casefold())
+        dest = archive_dir / name
         shutil.copy2(artifact, dest)
         archived.append(dest)
     return archived
@@ -351,6 +403,7 @@ __all__ = [
     "SOURCE_ARCHIVE_DIR_PREFIX",
     "STANDARD_SKELETON_DIR",
     "read_output_dir",
+    "snapshot_root_files",
     "copy_render_artifacts",
     "archive_render_artifacts",
     "archive_render_source",

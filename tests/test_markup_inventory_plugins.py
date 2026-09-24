@@ -69,7 +69,7 @@ class TestDialog:
         (root / "content").mkdir(parents=True)
         (root / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
         (root / "content" / "k.qmd").write_text(
-            "::: {.spanisch}\nUrgencias\n:::\n", encoding="utf-8"
+            "::: {.notruf}\nUrgencias\n:::\n", encoding="utf-8"
         )
         return root
 
@@ -82,8 +82,8 @@ class TestDialog:
                 dialog.tabelle.item(r, 0).text()
                 for r in range(dialog.tabelle.rowCount())
             ]
-            assert ".spanisch" in namen
-            zeile = namen.index(".spanisch")
+            assert ".notruf" in namen
+            zeile = namen.index(".notruf")
             assert dialog.tabelle.item(zeile, 4).text().startswith("ohne Vorlage")
         finally:
             dialog.deleteLater()
@@ -250,10 +250,10 @@ class TestZeilenaktionen:
         buch = tmp_path / "buch"
         (buch / "content").mkdir(parents=True)
         (buch / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
-        # ``spanisch`` ohne Vorlage (dort steht etwas an), ``prompt`` mit
+        # ``notruf`` ohne Vorlage (dort steht etwas an), ``prompt`` mit
         # gestalteter Vorlage aus der echten Bibliothek (dort steht nichts an).
         (buch / "content" / "k.qmd").write_text(
-            "::: {.spanisch}\nUrgencias\n:::\n\n::: {.prompt}\nFrage?\n:::\n",
+            "::: {.notruf}\nUrgencias\n:::\n\n::: {.prompt}\nFrage?\n:::\n",
             encoding="utf-8",
         )
         d = MarkupInventoryDialog(buch)
@@ -267,23 +267,23 @@ class TestZeilenaktionen:
         raise AssertionError(f"{name} nicht in der Tabelle")
 
     def test_zeile_findet_ihren_datensatz(self, dialog) -> None:
-        zeile = self._zeile_von(dialog, "spanisch")
-        assert dialog._row_at(zeile).name == "spanisch"
+        zeile = self._zeile_von(dialog, "notruf")
+        assert dialog._row_at(zeile).name == "notruf"
         assert dialog._row_at(999) is None
 
     def test_doppelklick_folgt_der_handlungsspalte(self, dialog, monkeypatch) -> None:
         """Steht etwas an, fuehrt der Doppelklick dorthin -- nicht in den Text.
 
         Anzeige und Aktion muessen dasselbe sagen: In der Spalte „Zu tun“ steht
-        bei ``.spanisch`` „Format anlegen“, und das passiert im Layout-Editor.
+        bei ``.notruf`` „Format anlegen“, und das passiert im Layout-Editor.
         """
         gerufen = []
         monkeypatch.setattr(dialog, "_fundstelle_oeffnen", lambda row: gerufen.append("DATEI"))
         monkeypatch.setattr(dialog, "_layout_oeffnen", lambda row: gerufen.append(row.name))
-        zeile = self._zeile_von(dialog, "spanisch")
+        zeile = self._zeile_von(dialog, "notruf")
         assert dialog._row_at(zeile).todo == "Format anlegen"
         dialog._auf_doppelklick(zeile, 0)
-        assert gerufen == ["spanisch"]
+        assert gerufen == ["notruf"]
 
     def test_ohne_offene_handlung_fuehrt_er_zur_fundstelle(self, dialog, monkeypatch) -> None:
         gerufen = []
@@ -305,9 +305,9 @@ class TestZeilenaktionen:
         assert gerufen == [karteileichen[0].name]
 
     def test_namen_kopieren_setzt_die_zwischenablage(self, dialog, qapp) -> None:
-        zeile = self._zeile_von(dialog, "spanisch")
+        zeile = self._zeile_von(dialog, "notruf")
         dialog._namen_kopieren(dialog._row_at(zeile))
-        assert qapp.clipboard().text() == ".spanisch"
+        assert qapp.clipboard().text() == ".notruf"
 
     def test_fehlende_datei_meldet_statt_zu_stuerzen(self, dialog, monkeypatch) -> None:
         from ui_qt.dialogs import doclayout_markup_inventory_dialog as modul
@@ -317,7 +317,7 @@ class TestZeilenaktionen:
             modul.QMessageBox, "warning",
             lambda *a, **k: gewarnt.append(a[2] if len(a) > 2 else ""),
         )
-        zeile = dialog._row_at(self._zeile_von(dialog, "spanisch"))
+        zeile = dialog._row_at(self._zeile_von(dialog, "notruf"))
         (dialog._book_path / zeile.files[0]).unlink()
         dialog._fundstelle_oeffnen(zeile)
         assert gewarnt and "nicht gefunden" in gewarnt[0]
@@ -339,9 +339,9 @@ class TestFocusGaps:
         root = tmp_path / "buch"
         (root / "content").mkdir(parents=True)
         (root / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
-        # ``spanisch`` ohne Vorlage; ``prompt`` hat Vorlage in der Bibliothek.
+        # ``notruf`` ohne Vorlage; ``prompt`` hat Vorlage in der Bibliothek.
         (root / "content" / "k.qmd").write_text(
-            "::: {.spanisch}\nUrgencias\n:::\n\n::: {.prompt}\nFrage?\n:::\n",
+            "::: {.notruf}\nUrgencias\n:::\n\n::: {.prompt}\nFrage?\n:::\n",
             encoding="utf-8",
         )
         return root
@@ -354,7 +354,7 @@ class TestFocusGaps:
         try:
             assert dialog._display_rows
             assert dialog._display_rows[0].verdict is Verdict.OHNE_VORLAGE
-            assert dialog._display_rows[0].name == "spanisch"
+            assert dialog._display_rows[0].name == "notruf"
             assert dialog.tabelle.currentRow() == 0
             assert not dialog.btn_fehlende.isHidden()
             assert "anlegen" in dialog.btn_fehlende.text().lower()

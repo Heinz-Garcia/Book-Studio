@@ -111,7 +111,7 @@ class MeldungsAttrappe:
 def test_the_button_exists_and_says_what_it_does(dialog):
     assert dialog.typeset_button.text() == "Buch setzen..."
     hinweis = dialog.typeset_button.toolTip()
-    assert "ganze Buch" in hinweis
+    assert "alle Kapitel" in hinweis
     assert "export/doclayout" in hinweis
 
 

@@ -16,6 +16,7 @@ from render_artifact_store import (
     copy_render_artifacts,
     ensure_typst_template_partials,
     read_output_dir,
+    snapshot_root_files,
 )
 from yaml_engine import QuartoYamlEngine
 
@@ -243,7 +244,7 @@ def run_unmanned_trigger(request: TriggerRequest):
             # da kein Temp-Klon nötig ist und das Original hier bewusst
             # verändert werden soll (prepare-only-Modus).
             yaml_engine = QuartoYamlEngine(request.book_path)
-            processor = PreProcessor(request.book_path)
+            processor = PreProcessor(request.book_path, output_format=target_fmt)
             processed_tree = processor.prepare_render_environment(tree_data)
             yaml_engine.save_chapters(
                 processed_tree,
@@ -270,7 +271,10 @@ def run_unmanned_trigger(request: TriggerRequest):
             temp_book = _copy_book_to_temp(request.book_path, temp_root)
 
             temp_engine = QuartoYamlEngine(temp_book)
-            temp_processor = PreProcessor(temp_book)
+            # output_format wie in quarto_render_safe: ohne ihn nimmt der
+            # PreProcessor immer "typst" an und setzt Typst-Rohbloecke auch in
+            # DOCX/HTML (dort ersatzlos verloren).
+            temp_processor = PreProcessor(temp_book, output_format=target_fmt)
             processed_tree = temp_processor.prepare_render_environment(tree_data)
             temp_engine.save_chapters(
                 processed_tree,
@@ -284,6 +288,7 @@ def run_unmanned_trigger(request: TriggerRequest):
             # schon vom Buchprojekt selbst mitgebracht.
             ensure_typst_template_partials(temp_book, extra_opts, target_fmt)
 
+            root_baseline = snapshot_root_files(temp_book)
             _emit(
                 f"🖨️  Starte Render: {target_fmt}",
                 log_handle=log_handle,
@@ -301,14 +306,31 @@ def run_unmanned_trigger(request: TriggerRequest):
                     _emit(line.rstrip(), log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
 
             if render_code == 0:
-                copy_render_artifacts(temp_book, request.book_path, original_output_dir)
+                # `save_chapters(..., profile_name=...)` schreibt im Klon ein
+                # eigenes `output-dir` (z. B. `export/_book_paperback`) -- der
+                # Ordner des Originals zeigt dann ins Leere und die PDF ginge
+                # mit dem Temp-Klon verloren. Wie in quarto_render_safe den
+                # effektiven Ordner aus dem KLON lesen.
+                effective_output_dir = read_output_dir(temp_book) or original_output_dir
+                if not (temp_book / effective_output_dir).exists():
+                    _emit(
+                        f"⚠️ Kein Render-Ergebnis unter '{effective_output_dir}' im Temp-Klon.",
+                        err=True,
+                        log_handle=log_handle,
+                        run_id=request.run_id,
+                        job_id=request.job_id,
+                    )
+                copy_render_artifacts(
+                    temp_book, request.book_path, effective_output_dir, baseline=root_baseline
+                )
                 if request.archive_dir is not None:
                     stamp = datetime.now().strftime(ARCHIVE_TIMESTAMP_FMT)
                     archive_render_artifacts(
                         temp_book,
                         request.archive_dir,
-                        output_dir=original_output_dir,
+                        output_dir=effective_output_dir,
                         timestamp=stamp,
+                        baseline=root_baseline,
                     )
                     # Bewusst `request.book_path` (unveraendertes Original), nicht
                     # `temp_book` -- siehe quarto_render_safe.run_safe_render fuer

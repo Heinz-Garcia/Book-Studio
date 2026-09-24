@@ -78,3 +78,35 @@ def test_sync_removes_stale_junction(tmp_path: Path):
 def test_open_in_file_manager_missing(tmp_path: Path):
     with pytest.raises(FileNotFoundError):
         open_in_file_manager(tmp_path / "missing")
+
+
+def test_resync_keeps_empty_folders_in_the_real_target(tmp_path: Path):
+    """Regression: das Aufräumen lief durch die Junction ins echte Projekt
+    und löschte dort leere Ordner; der zweite Sync scheiterte an
+    "existiert bereits"."""
+    real = tmp_path / "projekt"
+    (real / "leer").mkdir(parents=True)
+    (real / "a.txt").write_text("x", encoding="utf-8")
+    other = tmp_path / "anderes"
+    other.mkdir()
+    (other / "b.txt").write_text("y", encoding="utf-8")
+
+    node = FavoriteNode(id="p", label="Proj", path=str(real))
+    tree = FavoritesTree(nodes=[node])
+    ctx = PlaceholderContext(book_studio_root=tmp_path / "bs", userprofile=tmp_path)
+    mirror = tmp_path / "mirror"
+
+    first = sync_junction_mirror(tree, ctx, mirror_root=mirror)
+    assert not first.errors
+    assert not first.removed
+    assert (real / "leer").is_dir()
+
+    second = sync_junction_mirror(tree, ctx, mirror_root=mirror)
+    assert not second.errors
+    assert (real / "leer").is_dir()
+
+    node.path = str(other)
+    third = sync_junction_mirror(tree, ctx, mirror_root=mirror)
+    assert not third.errors
+    assert (mirror / "Proj" / "b.txt").is_file()
+    assert (real / "a.txt").is_file() and (real / "leer").is_dir()

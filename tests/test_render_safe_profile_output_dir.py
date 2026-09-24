@@ -86,4 +86,4 @@ def test_run_safe_render_liest_den_klon(tmp_path, monkeypatch):
     # Der Aufruf muss im Quelltext auf temp_book zeigen -- ein reiner
     # Laufzeittest waere hier ohne echten Quarto-Lauf nicht moeglich.
     assert "read_output_dir(temp_book)" in quelltext
-    assert "copy_render_artifacts(temp_book, book_path, effective_output_dir)" in quelltext
+    assert "temp_book, book_path, effective_output_dir, baseline=root_baseline" in quelltext

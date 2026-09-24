@@ -402,3 +402,63 @@ def test_run_safe_render_archives_pristine_original_source(tmp_path):
     assert archived_quarto_yml == original_quarto_yml
     assert "processed/" not in archived_quarto_yml
     assert (source_dir / "content" / "required" / "Titel.md").is_file()
+
+# --- Baseline: Eingaben im Klon sind keine Artefakte ------------------------
+
+
+def test_unchanged_root_inputs_are_not_copied_or_archived(tmp_path: Path) -> None:
+    """Regression: ergänzte ``page.typ``/``typst-show.typ`` (und jede andere
+    .typ/.pdf-Eingabe in der Klon-Wurzel) wurden ins Original zurückkopiert
+    und als Render-Ergebnis archiviert."""
+    from render_artifact_store import snapshot_root_files
+
+    temp_book = tmp_path / "klon"
+    temp_book.mkdir()
+    source_book = tmp_path / "original"
+    source_book.mkdir()
+    (temp_book / "page.typ").write_text("// partial", encoding="utf-8")
+    (temp_book / "cover.pdf").write_bytes(b"%PDF cover")
+    baseline = snapshot_root_files(temp_book)
+
+    # "Render": neue Ausgabe + eine veränderte Eingabe
+    (temp_book / "index.typ").write_text("// generiert", encoding="utf-8")
+    out = temp_book / "export" / "_book"
+    out.mkdir(parents=True)
+    (out / "Buch.pdf").write_bytes(b"%PDF buch")
+
+    copy_render_artifacts(temp_book, source_book, "export/_book", baseline=baseline)
+    assert (source_book / "index.typ").is_file()
+    assert (source_book / "export" / "_book" / "Buch.pdf").is_file()
+    assert not (source_book / "page.typ").exists()
+    assert not (source_book / "cover.pdf").exists()
+
+    archived = archive_render_artifacts(
+        temp_book,
+        tmp_path / "archiv",
+        output_dir="export/_book",
+        timestamp="20260924_120000",
+        baseline=baseline,
+    )
+    assert sorted(p.name for p in archived) == [
+        "Buch_20260924_120000.pdf",
+        "index_20260924_120000.typ",
+    ]
+
+
+def test_same_named_outputs_in_subfolders_do_not_overwrite_each_other(tmp_path: Path) -> None:
+    """Regression: das flache Archiv überschrieb gleichnamige Dateien
+    (HTML-Bücher: ``index.html`` in mehreren Unterordnern)."""
+    temp_book = tmp_path / "klon"
+    out = temp_book / "export" / "_book"
+    (out / "kap1").mkdir(parents=True)
+    (out / "kap2").mkdir(parents=True)
+    (out / "index.html").write_text("root", encoding="utf-8")
+    (out / "kap1" / "index.html").write_text("eins", encoding="utf-8")
+    (out / "kap2" / "index.html").write_text("zwei", encoding="utf-8")
+
+    archived = archive_render_artifacts(
+        temp_book, tmp_path / "archiv", output_dir="export/_book", timestamp="20260924_120000"
+    )
+    inhalte = sorted(p.read_text(encoding="utf-8") for p in archived)
+    assert inhalte == ["eins", "root", "zwei"]
+    assert len({p.name for p in archived}) == 3

@@ -51,9 +51,11 @@ def _zeige(form: _StyleForm, layout: LayoutDefinition, style_id: str) -> None:
 
 def test_the_effective_name_is_shown_as_a_placeholder(form, layout):
     """Leer allein liess offen, wie das Format in Word heisst."""
-    _zeige(form, layout, "BodyText")
+    # FirstParagraph traegt keinen eigenen Namen (BodyText heisst seit dem
+    # Druck-Feinschliff "Fliesstext" und taugt dafuer nicht mehr).
+    _zeige(form, layout, "FirstParagraph")
     assert form.name.text() == ""
-    assert form.name.placeholderText() == "BodyText"
+    assert form.name.placeholderText() == "FirstParagraph"
 
 
 # ---------------------------------------------------------------------------

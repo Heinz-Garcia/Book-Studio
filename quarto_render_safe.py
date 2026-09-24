@@ -21,6 +21,7 @@ from render_artifact_store import (
     copy_render_artifacts,
     ensure_typst_template_partials,
     read_output_dir,
+    snapshot_root_files,
 )
 from tools.distribution.book_store import list_excluded_chapters
 from tools.distribution.render_filter import filter_tree_for_channel
@@ -396,6 +397,9 @@ def run_safe_render(
         if str(output_format).lower().startswith("typst"):
             _ensure_typst_book_author(temp_book)
 
+        # Stand der Wurzel VOR dem Render: nur was Quarto neu schreibt, ist
+        # ein Artefakt (Partials/Cover-PDF des Klons bleiben draussen).
+        root_baseline = snapshot_root_files(temp_book)
         cmd = ["quarto", "render", str(temp_book), "--to", output_format]
         print(f"[safe-render] book={book_path.name} format={output_format}")
         returncode = _run_quarto_render(cmd, cwd=project_root)
@@ -419,14 +423,20 @@ def run_safe_render(
                 f"zurueckkopiert.",
                 flush=True,
             )
-        copy_render_artifacts(temp_book, book_path, effective_output_dir)
+        copy_render_artifacts(
+            temp_book, book_path, effective_output_dir, baseline=root_baseline
+        )
         if archive_dir is not None:
             # Gleicher Zeitstempel fuer PDF- und Quell-Archiv: haelt beide im
             # Archiv-Ordner eindeutig einander zuordenbar (reproduzierbares
             # Quelle-Artefakt-Mapping, siehe archive_render_source-Docstring).
             stamp = datetime.now().strftime(ARCHIVE_TIMESTAMP_FMT)
             archive_render_artifacts(
-                temp_book, archive_dir, output_dir=effective_output_dir, timestamp=stamp
+                temp_book,
+                archive_dir,
+                output_dir=effective_output_dir,
+                timestamp=stamp,
+                baseline=root_baseline,
             )
             # Bewusst `book_path` (das unveraenderte Original), NICHT
             # `temp_book`: `engine.save_chapters(processed_tree, ...)` oben

@@ -32,10 +32,35 @@ class SyncReport:
 
 
 def _is_junction_or_symlink(path: Path) -> bool:
+    # lstat, nicht stat: stat folgt der Junction und liefert die Attribute des
+    # ZIELS -- eine Junction galt dann als echter Ordner (Aufraeumen lief ins
+    # echte Projekt, Re-Sync scheiterte an "existiert bereits").
     try:
-        return path.is_symlink() or bool(path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)  # type: ignore[attr-defined]
-    except (OSError, AttributeError):
+        attrs = os.lstat(path).st_file_attributes  # type: ignore[attr-defined]
+    except AttributeError:
         return path.is_symlink()
+    except OSError:
+        return False
+    return path.is_symlink() or bool(attrs & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def _iter_mirror_entries(root: Path) -> list[Path]:
+    """Alle Eintraege unter ``root``, ohne in Junctions/Symlinks abzusteigen.
+
+    ``Path.rglob`` folgt Junctions (sie sind keine Symlinks im Sinne von
+    ``is_symlink``) und wuerde so die echten Zielordner mit aufzaehlen.
+    Kinder stehen vor ihren Eltern (Aufraeumreihenfolge).
+    """
+    out: list[Path] = []
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return out
+    for child in children:
+        if not _is_junction_or_symlink(child) and child.is_dir():
+            out.extend(_iter_mirror_entries(child))
+        out.append(child)
+    return out
 
 
 def _remove_link_or_empty_dir(path: Path) -> None:
@@ -178,7 +203,7 @@ def sync_junction_mirror(
 
     # Remove stale junctions / empty dirs under root that are not expected.
     if root.is_dir():
-        for path in sorted(root.rglob("*"), reverse=True):
+        for path in _iter_mirror_entries(root):
             if path in expected:
                 continue
             try:
