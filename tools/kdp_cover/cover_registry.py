@@ -8,6 +8,7 @@ Links GrammarGraph/Book-Studio production UUIDs to one or more cover layouts
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,7 +71,15 @@ class CoverRegistryEntry:
         )
 
 
+#: Umlenkung der Registry (Tests, Vertragsprüfung aus GrammarGraph, das
+#: Book Studio als Unterprozess aufruft). Leer = die echte Registry.
+REGISTRY_ENV = "BSU_COVER_REGISTRY"
+
+
 def registry_path() -> Path:
+    override = os.environ.get(REGISTRY_ENV, "").strip()
+    if override:
+        return Path(override)
     return Path(__file__).resolve().parent / _REGISTRY_FILENAME
 
 

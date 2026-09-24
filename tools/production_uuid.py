@@ -4,11 +4,17 @@ SSOT-Reihenfolge:
 1. ``publish_meta.json`` (Top-Level ``uuid``)
 2. ``bookconfig/grammargraph_export.json`` (Top-Level oder ``content.uuid``)
 3. ``_book_studio.toml`` (``book.uuid`` oder ``metadata.uuid``)
+
+Schreiben (:func:`write_book_uuid`) nur nach ``_book_studio.toml``
+``[book] uuid`` und nur, wenn das Buch noch keine UUID hat.
+``publish_meta.json`` bleibt die unveränderte Lieferquittung von
+GrammarGraph (Vertrag: ``tests/kontrakt/bs_gg_kontrakt.json``).
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import tomllib
 from pathlib import Path
@@ -100,4 +106,100 @@ def pdf_uuid_value(book_root: Path | str) -> str:
     return read_book_uuid(book_root) or UUID_MISSING
 
 
-__all__ = ["UUID_MISSING", "normalize_uuid", "read_book_uuid", "pdf_uuid_value"]
+_TOML_NAME = "_book_studio.toml"
+_TABELLE_RE = re.compile(r"^\s*\[")
+_BOOK_KOPF_RE = re.compile(r"^\s*\[\s*book\s*\]\s*(#.*)?$")
+_UUID_SCHLUESSEL_RE = re.compile(r"^\s*uuid\s*=")
+
+
+def _mit_book_uuid(text: str, uid: str) -> str:
+    """``text`` mit ``[book] uuid = "<uid>"`` -- sonst Zeile für Zeile gleich.
+
+    Ein vorhandener, ungültiger ``uuid``-Eintrag in ``[book]`` wird ersetzt
+    (``read_book_uuid`` hat ihn schon nicht als UUID gelten lassen); fehlt
+    ``[book]``, wird die Tabelle angehängt.
+    """
+    nl = "\r\n" if "\r\n" in text else "\n"
+    zeile = f'uuid = "{uid}"{nl}'
+    zeilen = text.splitlines(keepends=True)
+    in_book = False
+    kopf: Optional[int] = None
+    for i, z in enumerate(zeilen):
+        if _TABELLE_RE.match(z):
+            in_book = bool(_BOOK_KOPF_RE.match(z.rstrip("\r\n")))
+            if in_book:
+                kopf = i
+            continue
+        if in_book and _UUID_SCHLUESSEL_RE.match(z):
+            zeilen[i] = zeile
+            return "".join(zeilen)
+    if kopf is not None:
+        zeilen.insert(kopf + 1, zeile)
+        return "".join(zeilen)
+    rest = text if not text or text.endswith(("\n", "\r")) else text + nl
+    return rest + (nl if rest.strip() else "") + f"[book]{nl}" + zeile
+
+
+def _ohne_book_uuid(daten: dict) -> dict:
+    """Der Dateiinhalt ohne ``[book] uuid`` -- für den Vorher/Nachher-Vergleich."""
+    buch = daten.get("book")
+    if not isinstance(buch, dict):
+        return daten
+    rest = {k: v for k, v in daten.items() if k != "book"}
+    ohne = {k: v for k, v in buch.items() if k != "uuid"}
+    return {**rest, "book": ohne} if ohne else rest
+
+
+def write_book_uuid(book_root: Path | str, production_uuid: str) -> bool:
+    """Production-UUID ins Buch schreiben -- nur, wenn es noch keine trägt.
+
+    Ziel ist ``_book_studio.toml`` ``[book] uuid``; alles andere in der Datei
+    bleibt unverändert (geprüft, bevor die Datei ersetzt wird).
+
+    Returns:
+        ``True``, wenn geschrieben; ``False``, wenn das Buch genau diese UUID
+        schon trägt.
+
+    Raises:
+        ValueError: ungültige UUID, das Buch trägt eine *andere* UUID (wird nie
+            überschrieben) oder ``_book_studio.toml`` ist nicht lesbar.
+    """
+    uid = normalize_uuid(production_uuid)
+    if not uid:
+        raise ValueError(f"Keine gültige UUID: {production_uuid!r}")
+    root = Path(book_root)
+    if not root.is_dir():
+        raise ValueError(f"Buchordner fehlt: {root}")
+    vorhanden = read_book_uuid(root)
+    if vorhanden:
+        if vorhanden == uid:
+            return False
+        raise ValueError(
+            f"Buch trägt bereits die UUID {vorhanden} -- nicht überschrieben."
+        )
+    path = root / _TOML_NAME
+    # Bytes statt read_text: Zeilenenden (CRLF) bleiben, wie sie sind.
+    alt = path.read_bytes().decode("utf-8") if path.is_file() else ""
+    neu = _mit_book_uuid(alt, uid)
+    try:
+        vorher = tomllib.loads(alt)
+        nachher = tomllib.loads(neu)
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"{_TOML_NAME} nicht lesbar -- nicht angefasst: {exc}") from exc
+    buch = nachher.get("book") if isinstance(nachher.get("book"), dict) else {}
+    unveraendert = _ohne_book_uuid(nachher) == _ohne_book_uuid(vorher)
+    if normalize_uuid(buch.get("uuid")) != uid or not unveraendert:
+        raise ValueError(f"{_TOML_NAME}: UUID nicht sicher einfügbar -- nicht angefasst.")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(neu, encoding="utf-8", newline="")
+    os.replace(tmp, path)
+    return True
+
+
+__all__ = [
+    "UUID_MISSING",
+    "normalize_uuid",
+    "pdf_uuid_value",
+    "read_book_uuid",
+    "write_book_uuid",
+]

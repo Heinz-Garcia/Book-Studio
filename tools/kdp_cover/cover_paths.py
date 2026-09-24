@@ -6,6 +6,7 @@ unter ``<Buch>/export/kdp_cover/`` wenn ein Book-Studio-Buch existiert.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -40,8 +41,16 @@ def cover_filename_stem(
     return fallback
 
 
+#: Umlenkung der Cover-Ablage -- Gegenstück zu
+#: ``cover_registry.REGISTRY_ENV``. Leer = ``<repo>/production/covers``.
+COVERS_ROOT_ENV = "BSU_COVERS_ROOT"
+
+
 def covers_root(repo: Path | None = None) -> Path:
-    """``<repo>/production/covers``."""
+    """``<repo>/production/covers`` (oder ``$BSU_COVERS_ROOT``)."""
+    override = os.environ.get(COVERS_ROOT_ENV, "").strip()
+    if override:
+        return Path(override)
     return default_production_root(repo) / COVERS_DIR_NAME
 
 

@@ -1,0 +1,103 @@
+{
+  "name": "Kontraktbuch",
+  "book_title": "Das Kontraktbuch",
+  "description": "",
+  "author": "Kontrakt-Autorin",
+  "lang": "de",
+  "keywords": [],
+  "isbn": "",
+  "uuid": "0c0ffee0-5a1e-4b0b-8d1e-000000000005",
+  "run_uuid": "0c0ffee0-5a1e-4b0b-8d1e-00000000abcd",
+  "batch_id": "Kontraktbuch_20260924_16.32",
+  "batch_dir": "C:/kontrakt\\output\\Kontraktbuch_20260924_16.32",
+  "created_at": "2026-09-24T16:32:00",
+  "publish_dir": "C:/kontrakt\\inbox\\Kontraktbuch\\24.09.2026_16.32",
+  "manifest": "C:/kontrakt\\manifest.json",
+  "book_stem": "Kontraktbuch",
+  "book_files": [
+    "Kontraktbuch.md"
+  ],
+  "market_variant": "",
+  "variant_anchor_ids": [],
+  "variant_system_prompt_path": "",
+  "base_batch_id": "",
+  "base_batch_dir": "",
+  "copied_base_prompt_ids": [],
+  "selected_stages": [
+    "bericht"
+  ],
+  "selected_fields": {
+    "bericht": [
+      "bericht"
+    ]
+  },
+  "selected_prompts": [
+    "P_001",
+    "P_002"
+  ],
+  "stage_field_order": {
+    "bericht": [
+      "bericht"
+    ]
+  },
+  "include_prompt_separator": false,
+  "included_infrastructure": [],
+  "dialog_state": {
+    "name": "Kontraktbuch",
+    "book_title": "Das Kontraktbuch",
+    "description": "",
+    "author": "Kontrakt-Autorin",
+    "lang": "de",
+    "keywords": "",
+    "isbn": "",
+    "batch_dir": "C:/kontrakt\\output\\Kontraktbuch_20260924_16.32",
+    "manifest_path": "C:/kontrakt\\manifest.json",
+    "market_variant": "",
+    "variant_anchor_ids": [],
+    "variant_system_prompt_path": "",
+    "selected_prompts": [
+      "P_001",
+      "P_002"
+    ],
+    "selected_stages": [
+      "bericht"
+    ],
+    "selected_fields": {
+      "bericht": [
+        "bericht"
+      ]
+    },
+    "stage_field_order": {
+      "bericht": [
+        "bericht"
+      ]
+    },
+    "global_field_order": [
+      "bericht.bericht"
+    ],
+    "include_prompt_separator": false,
+    "separator_text": "◈",
+    "include_prompt_headings": false,
+    "heading_mode": "off",
+    "include_heading_levels": [],
+    "unnumbered_heading_levels": [],
+    "format_body_headings": false,
+    "include_prompt_body": false,
+    "include_prompt_numbers": false,
+    "included_infrastructure": [],
+    "include_confirmation_texts": true,
+    "run_quality_cop": false,
+    "liefernotiz": ""
+  },
+  "emitted_classes": {
+    "schema_version": 1,
+    "names": [
+      "bericht",
+      "merksatz"
+    ],
+    "counts": {
+      "bericht": 2,
+      "merksatz": 2
+    }
+  }
+}

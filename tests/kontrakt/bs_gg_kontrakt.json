@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "zweck": "Schnittstelle Book Studio (BS) <-> GrammarGraph (GG). Der Ordner tests/kontrakt/ ist in beiden Repos byte-gleich; beide Suiten pruefen das. 'felder' nennt, was die LESENDE Seite braucht (Typ; '?' = darf fehlen). Menschenlesbar: BS .doc/kontrakt_bs_gg.md, GG .docs/kontrakt_bs_gg.md.",
+  "kanaele": {
+    "lieferung": {
+      "richtung": "GG -> BS",
+      "erzeuger": "GG src/book_delivery.py::liefere (einziger Schreibweg: schreibe_lieferung)",
+      "leser": [
+        "BS services/delivery_intake.py",
+        "BS tools/production_uuid.py::read_book_uuid",
+        "BS tools/provenance/ingest.py::synthesize_from_book_studio_toml",
+        "BS tools/gg_content_swap/bundle.py (emitted_classes)",
+        "BS tools/uuid_manager/scan_grammargraph.py",
+        "BS import_helpers.py (Titel, Autor, Sprache, book_files)"
+      ],
+      "ordner": "<inbox>/<Projekt>/<TT.MM.JJJJ_HH.MM>",
+      "ordner_muster": "^\\d{2}\\.\\d{2}\\.\\d{4}_\\d{2}\\.\\d{2}(?:_\\d{2})?$",
+      "erkennung": ["publish_meta.json", "_book_studio.toml"],
+      "felder": {
+        "publish_meta.json": {
+          "uuid": "uuid",
+          "run_uuid": "str?",
+          "name": "str",
+          "book_title": "str",
+          "description": "str",
+          "author": "str",
+          "lang": "str",
+          "keywords": "list",
+          "isbn": "str",
+          "batch_id": "str",
+          "created_at": "str",
+          "book_files": "list",
+          "market_variant": "str",
+          "variant_anchor_ids": "list",
+          "variant_system_prompt_path": "str",
+          "emitted_classes": "dict",
+          "emitted_classes.names": "list",
+          "emitted_classes.counts": "dict",
+          "emitted_classes.malformed": "dict?"
+        },
+        "_book_studio.toml": {
+          "book.title": "str",
+          "book.author": "str",
+          "book.description": "str",
+          "book.lang": "str",
+          "book.keywords": "list",
+          "book.isbn": "str",
+          "book.uuid": "uuid",
+          "book.run_uuid": "str?",
+          "metadata.uuid": "uuid?",
+          "metadata.run_uuid": "str?",
+          "metadata.market_variant": "str",
+          "metadata.variant_anchor_ids": "list",
+          "metadata.variant_system_prompt_path": "str"
+        }
+      }
+    },
+    "geplante_uuids": {
+      "richtung": "BS -> GG",
+      "erzeuger": "BS tools/kdp_cover/planned_uuid.py::list_planned_cover_uuids()",
+      "leser": [
+        "GG tools/book_studio_bridge/production_uuid.py::geplante_uuids",
+        "GG src/gui/production_uuid_dialog.py"
+      ],
+      "aufruf": "GG startet BS-Python im BS-Verzeichnis (python -c ...). Registry umlenkbar: BSU_COVER_REGISTRY, Cover-Ablage: BSU_COVERS_ROOT.",
+      "felder": {
+        "zeile": {
+          "production_uuid": "uuid",
+          "title_hint": "str",
+          "series_id": "str",
+          "cover_path": "str",
+          "cover_label": "str",
+          "book_path": "str",
+          "source_kinds": "list",
+          "saved_at": "str"
+        }
+      }
+    },
+    "uuid_anlegen": {
+      "richtung": "GG -> BS -> GG",
+      "erzeuger": "BS tools/kdp_cover/planned_uuid.py::create_planned_cover_uuid(title_hint=, series_id=)",
+      "leser": ["GG tools/book_studio_bridge/production_uuid.py::lege_geplante_uuid_an"],
+      "felder": {
+        "ergebnis": {
+          "production_uuid": "uuid",
+          "title_hint": "str",
+          "series_id": "str",
+          "cover_path": "str"
+        }
+      }
+    },
+    "uebernahme": {
+      "richtung": "BS -> GG",
+      "erzeuger": "BS services/delivery_intake.py::accept_delivery",
+      "leser": ["GG tools/book_studio_bridge/production_uuid.py::bisherige_uuids"],
+      "datei": "<production>/books/<Buch>/bookconfig/book_run.json",
+      "felder": {
+        "book_run.json": {
+          "artifacts.delivery": "str"
+        }
+      }
+    },
+    "layout_klassen": {
+      "richtung": "BS -> GG",
+      "erzeuger": "BS tools/doclayout/registry.py::build_registry",
+      "leser": ["GG tools/book_studio_bridge/layout_classes.py"],
+      "datei": "tools/doclayout/library/_available_classes.json",
+      "schema_version": 1,
+      "felder": {
+        "_available_classes.json": {
+          "schema_version": "int",
+          "names": "list",
+          "classes": "dict"
+        },
+        "klasse": {
+          "layouts": "list",
+          "styles": "list"
+        }
+      }
+    },
+    "buchnotiz": {
+      "richtung": "GG <-> BS",
+      "datei": "<Buch>/bookconfig/notiz.md",
+      "format": "reiner UTF-8-Text"
+    },
+    "buch_uuid": {
+      "richtung": "BS",
+      "lesen": "publish_meta.json uuid -> bookconfig/grammargraph_export.json -> _book_studio.toml [book]/[metadata] uuid",
+      "schreiben": "nur _book_studio.toml [book] uuid, nur wenn das Buch keine UUID traegt; nie ueberschreiben (tools/production_uuid.py::write_book_uuid, aufgerufen von bind_cover_to_book)",
+      "quittung": "publish_meta.json bleibt die unveraenderte Lieferquittung von GG"
+    }
+  }
+}

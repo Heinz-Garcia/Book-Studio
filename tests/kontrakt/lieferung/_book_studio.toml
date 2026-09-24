@@ -1,0 +1,29 @@
+[book]
+title = "Das Kontraktbuch"
+author = "Kontrakt-Autorin"
+date = "2026-09-24"
+description = ""
+lang = "de"
+keywords = []
+isbn = ""
+source_batch = "Kontraktbuch_20260924_16.32"
+source_manifest = "C:/kontrakt\\manifest.json"
+uuid = "0c0ffee0-5a1e-4b0b-8d1e-000000000005"
+run_uuid = "0c0ffee0-5a1e-4b0b-8d1e-00000000abcd"
+
+[output]
+format = "pdf"
+paper = "a4"
+font_size = 11
+
+[assets]
+search_paths = [".", "../../res"]
+
+[metadata]
+include_stage_order = true
+include_confirmation_texts = true
+market_variant = ""
+variant_anchor_ids = []
+variant_system_prompt_path = ""
+uuid = "0c0ffee0-5a1e-4b0b-8d1e-000000000005"
+run_uuid = "0c0ffee0-5a1e-4b0b-8d1e-00000000abcd"

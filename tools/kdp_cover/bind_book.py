@@ -5,6 +5,10 @@ Wenn das Buch mit gewählter Production-UUID da ist:
 1. Registry ``book_path`` setzen
 2. Layout (+ Wrap-PDF, falls vorhanden) nach ``export/kdp_cover/`` spiegeln
 3. Ampel H kann das Layout finden (``resolve_cover_binding`` → ready)
+4. Hat das Buch noch keine UUID, bekommt es die gewählte
+   (``_book_studio.toml`` ``[book] uuid``, ``write_book_uuid``). Trägt es
+   schon eine *andere*, wird nicht gebunden (``conflict``) -- sonst stünde im
+   PDF eine andere Identität als am Cover.
 
 Auto nur bei **genau einer** passenden geplanten UUID *und* gesetzter
 Buch-UUID; ein Buch ohne UUID bekommt immer ``needs_choice``. Einträge, die
@@ -35,7 +39,7 @@ from tools.kdp_cover.planned_uuid import (
     is_planned_registry_entry,
     list_planned_cover_uuids,
 )
-from tools.production_uuid import normalize_uuid, read_book_uuid
+from tools.production_uuid import normalize_uuid, read_book_uuid, write_book_uuid
 
 __all__ = [
     "BindCandidate",
@@ -82,6 +86,8 @@ class BindResult:
     mirror_wrap: Path | None = None
     mirrored_layout: bool = False
     mirrored_wrap: bool = False
+    uuid_written: bool = False
+    """True, wenn die UUID dabei ins Buch geschrieben wurde."""
     message: str = ""
     candidates: list[BindCandidate] = field(default_factory=list)
 
@@ -246,6 +252,17 @@ def bind_cover_to_book(
     uid = normalize_uuid(production_uuid)
     if not uid:
         return BindResult(status="error", message="production_uuid ungültig.")
+    book_uid = read_book_uuid(book)
+    if book_uid and book_uid != uid:
+        return BindResult(
+            status="conflict",
+            production_uuid=uid,
+            book_path=str(book),
+            message=(
+                f"Buch trägt die UUID {book_uid[:8]}…, das Cover {uid[:8]}… "
+                "— nicht gebunden."
+            ),
+        )
 
     primary = resolve_primary_cover(uid, path=registry_file)
     covers = list_covers_for_uuid(uid, path=registry_file)
@@ -281,6 +298,13 @@ def bind_cover_to_book(
             message=str(exc),
         )
 
+    uuid_written = False
+    uuid_hinweis = ""
+    try:
+        uuid_written = write_book_uuid(book, uid)
+    except (OSError, ValueError) as exc:
+        uuid_hinweis = f" — UUID nicht ins Buch geschrieben: {exc}"
+
     entry = primary if primary is not None and primary in free else free[0]
     prior_book = str(entry.book_path or "").strip()
     already_this_book = bool(prior_book) and _same_dir(prior_book, book)
@@ -295,7 +319,7 @@ def bind_cover_to_book(
             title_hint=entry.title_hint or book.name,
         )
 
-    if already_this_book and not mirrored_layout:
+    if already_this_book and not mirrored_layout and not uuid_written:
         status = "already_bound"
         msg = "Cover bereits an dieses Buch gebunden."
     else:
@@ -303,6 +327,9 @@ def bind_cover_to_book(
         msg = f"Cover an Buch gebunden ({uid[:8]}…)"
         if mirror_l is not None:
             msg += f", Layout → {mirror_l.name}"
+        if uuid_written:
+            msg += ", UUID → _book_studio.toml"
+    msg += uuid_hinweis
 
     return BindResult(
         status=status,
@@ -312,6 +339,7 @@ def bind_cover_to_book(
         mirror_wrap=mirror_w,
         mirrored_layout=mirrored_layout,
         mirrored_wrap=mirrored_wrap,
+        uuid_written=uuid_written,
         message=msg,
     )
 
