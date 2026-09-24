@@ -3,21 +3,12 @@ import json
 import shutil
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from pre_processor import PreProcessor
-from render_artifact_store import (
-    ARCHIVE_TIMESTAMP_FMT,
-    archive_render_artifacts,
-    archive_render_source,
-    copy_render_artifacts,
-    ensure_typst_template_partials,
-    read_output_dir,
-    snapshot_root_files,
-)
+from render_klon import render_im_klon
 from yaml_engine import QuartoYamlEngine
 
 
@@ -188,29 +179,6 @@ def _run_render(book_path: Path, target_fmt: str, quarto_bin: str, timeout_sec: 
     return proc.returncode, lines
 
 
-# Verzeichnisse, die beim Klonen eines Buchs in den Temp-Render ignoriert
-# werden (analog zu quarto_render_safe.IGNORED_DIR_NAMES), damit kein
-# already-generierter Output mitkopiert wird.
-_IGNORED_DIR_NAMES = {
-    ".git",
-    ".venv",
-    ".quarto",
-    "__pycache__",
-    "processed",
-    "export",
-}
-
-
-def _copy_book_to_temp(source_book: Path, temp_root: Path) -> Path:
-    destination = temp_root / source_book.name
-
-    def ignore_filter(_dir: str, names: list[str]) -> set[str]:
-        return {name for name in names if name in _IGNORED_DIR_NAMES}
-
-    shutil.copytree(source_book, destination, ignore=ignore_filter)
-    return destination
-
-
 def run_unmanned_trigger(request: TriggerRequest):
     log_handle = None
     if request.log_file is not None:
@@ -260,105 +228,62 @@ def run_unmanned_trigger(request: TriggerRequest):
             )
             return 0
 
-        # RENDER-PFAD: Niemals das Original inplace mutieren. Wir kopieren
-        # das Buch in einen Temp-Klon, führen PreProcessing + Render dort
-        # aus und kopieren nur die Render-Artefakte zurück (analog zu
-        # quarto_render_safe.run_safe_render). Das Original behält seine
-        # _quarto.yml und sein processed/-Verzeichnis unangetastet.
-        original_output_dir = read_output_dir(request.book_path)
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            temp_book = _copy_book_to_temp(request.book_path, temp_root)
+        # RENDER-PFAD: derselbe Ablauf wie der GUI-Render (SSOT:
+        # render_klon.render_im_klon) -- Temp-Klon, Original bleibt
+        # unverändert, nur Render-Ergebnisse kommen zurück. Hier steht nur,
+        # was headless anders ist: Struktur aus der JSON, Quarto mit
+        # Timeout, Protokoll über _emit.
+        def _log(zeile: str) -> None:
+            _emit(zeile, log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
 
-            temp_engine = QuartoYamlEngine(temp_book)
-            # output_format wie in quarto_render_safe: ohne ihn nimmt der
-            # PreProcessor immer "typst" an und setzt Typst-Rohbloecke auch in
-            # DOCX/HTML (dort ersatzlos verloren).
-            temp_processor = PreProcessor(temp_book, output_format=target_fmt)
-            processed_tree = temp_processor.prepare_render_environment(tree_data)
-            temp_engine.save_chapters(
-                processed_tree,
-                profile_name=profile_name,
-                save_gui_state=False,
-                extra_format_options=extra_opts,
-            )
-            # Custom-Trimm-Layoutprofile deklarieren `template-partials` in
-            # extra_opts - noetige Dateien (page.typ/typst-show.typ) im
-            # Temp-Klon aus der Skeleton-Bibliothek ergaenzen, falls nicht
-            # schon vom Buchprojekt selbst mitgebracht.
-            ensure_typst_template_partials(temp_book, extra_opts, target_fmt)
-
-            root_baseline = snapshot_root_files(temp_book)
+        def _quarto(temp_book: Path, fmt: str) -> int:
             _emit(
-                f"🖨️  Starte Render: {target_fmt}",
+                f"🖨️  Starte Render: {fmt}",
                 log_handle=log_handle,
                 run_id=request.run_id,
                 job_id=request.job_id,
             )
-            render_code, render_lines = _run_render(
-                temp_book,
-                target_fmt,
-                request.quarto_bin,
-                timeout_sec=request.timeout_sec,
+            code, zeilen = _run_render(
+                temp_book, fmt, request.quarto_bin, timeout_sec=request.timeout_sec,
             )
-            for line in render_lines:
+            for line in zeilen:
                 if line.strip():
-                    _emit(line.rstrip(), log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
+                    _log(line.rstrip())
+            return code
 
-            if render_code == 0:
-                # `save_chapters(..., profile_name=...)` schreibt im Klon ein
-                # eigenes `output-dir` (z. B. `export/_book_paperback`) -- der
-                # Ordner des Originals zeigt dann ins Leere und die PDF ginge
-                # mit dem Temp-Klon verloren. Wie in quarto_render_safe den
-                # effektiven Ordner aus dem KLON lesen.
-                effective_output_dir = read_output_dir(temp_book) or original_output_dir
-                if not (temp_book / effective_output_dir).exists():
-                    _emit(
-                        f"⚠️ Kein Render-Ergebnis unter '{effective_output_dir}' im Temp-Klon.",
-                        err=True,
-                        log_handle=log_handle,
-                        run_id=request.run_id,
-                        job_id=request.job_id,
-                    )
-                copy_render_artifacts(
-                    temp_book, request.book_path, effective_output_dir, baseline=root_baseline
-                )
-                if request.archive_dir is not None:
-                    stamp = datetime.now().strftime(ARCHIVE_TIMESTAMP_FMT)
-                    archive_render_artifacts(
-                        temp_book,
-                        request.archive_dir,
-                        output_dir=effective_output_dir,
-                        timestamp=stamp,
-                        baseline=root_baseline,
-                    )
-                    # Bewusst `request.book_path` (unveraendertes Original), nicht
-                    # `temp_book` -- siehe quarto_render_safe.run_safe_render fuer
-                    # die ausfuehrliche Begruendung (temp_book._quarto.yml zeigt
-                    # nach dem Render auf `processed/...`, nicht mehr die
-                    # verschachtelte, editierbare Original-Struktur).
-                    archive_render_source(request.book_path, request.archive_dir, timestamp=stamp)
-                _emit("✅ Render erfolgreich", log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
-                return 0
+        render_code = render_im_klon(
+            request.book_path,
+            target_fmt,
+            render=_quarto,
+            log=_log,
+            tree_data=tree_data,
+            profile_name=profile_name,
+            extra_format_options=extra_opts,
+            archive_dir=request.archive_dir,
+        ).returncode
 
-            if render_code == 124:
-                _emit(
-                    f"⏱️ Render-Timeout nach {request.timeout_sec}s",
-                    err=True,
-                    log_handle=log_handle,
-                    run_id=request.run_id,
-                    job_id=request.job_id,
-                )
-                return 124
+        if render_code == 0:
+            _emit("✅ Render erfolgreich", log_handle=log_handle, run_id=request.run_id, job_id=request.job_id)
+            return 0
 
+        if render_code == 124:
             _emit(
-                f"❌ Render fehlgeschlagen (Exit-Code {render_code})",
+                f"⏱️ Render-Timeout nach {request.timeout_sec}s",
                 err=True,
                 log_handle=log_handle,
                 run_id=request.run_id,
                 job_id=request.job_id,
             )
-            return render_code
+            return 124
+
+        _emit(
+            f"❌ Render fehlgeschlagen (Exit-Code {render_code})",
+            err=True,
+            log_handle=log_handle,
+            run_id=request.run_id,
+            job_id=request.job_id,
+        )
+        return render_code
     finally:
         if log_handle is not None:
             log_handle.close()

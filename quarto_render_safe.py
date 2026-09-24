@@ -1,162 +1,32 @@
+"""Sicherer Quarto-Render über einen Temp-Klon (GUI-Weg, CLI).
+
+Der Ablauf selbst (klonen, vorbereiten, rendern, zurückkopieren, archivieren)
+steht in ``render_klon.render_im_klon`` -- SSOT, den auch ``unmanned_trigger``
+nutzt (Konsolidierungsplan Paket 4). Hier steht nur, was diesen Weg
+ausmacht: Quarto als Kindprozess mit UTF-8-Ausgabe, Protokoll auf stdout.
+"""
+
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
-import yaml
-
-from datetime import datetime
-
-from pre_processor import PreProcessor
-from quarto_block_parser import find_fenced_div_issues as qb_find_fenced_div_issues
-from render_artifact_store import (
-    ARCHIVE_TIMESTAMP_FMT,
-    archive_render_artifacts,
-    archive_render_source,
-    copy_render_artifacts,
-    ensure_typst_template_partials,
-    read_output_dir,
-    snapshot_root_files,
+from render_klon import (
+    IGNORED_DIR_NAMES,  # noqa: F401 -- von render_artifact_store dokumentiert
+    detect_fenced_div_issues as _detect_fenced_div_issues,  # noqa: F401
+    kopiere_in_klon as _copy_book_to_temp,  # noqa: F401
+    render_im_klon,
 )
-from tools.distribution.book_store import list_excluded_chapters
-from tools.distribution.render_filter import filter_tree_for_channel
-from yaml_engine import QuartoYamlEngine
 
 
-IGNORED_DIR_NAMES = {
-    ".git",
-    ".venv",
-    ".quarto",
-    "__pycache__",
-    "processed",
-    "export",
-}
+def _ensure_typst_book_author(book_path: Path) -> None:
+    """Kompatibel: siehe ``render_klon.ensure_typst_book_author``."""
+    from render_klon import ensure_typst_book_author
 
-
-def _iter_tree_paths(tree_data):
-    for item in tree_data:
-        path = item.get("path") if isinstance(item, dict) else None
-        if isinstance(path, str):
-            yield path
-        children = item.get("children") if isinstance(item, dict) else None
-        if isinstance(children, list) and children:
-            yield from _iter_tree_paths(children)
-
-
-def _detect_fenced_div_issues(lines):
-    """SSOT-Wrapper für `quarto_block_parser.find_fenced_div_issues`."""
-    body = "\n".join(line.rstrip("\r") for line in lines)
-    return [
-        (issue.line_number, issue.kind)
-        for issue in qb_find_fenced_div_issues(body)
-    ]
-
-
-def _collect_processed_colon_occurrences(book_path: Path, processed_tree):
-    structural_occurrences = []
-    raw_occurrences = []
-
-    for rel_path in _iter_tree_paths(processed_tree):
-        if not isinstance(rel_path, str) or not rel_path.lower().endswith(".md"):
-            continue
-
-        processed_file = book_path / rel_path
-        if not processed_file.exists() or not processed_file.is_file():
-            continue
-
-        try:
-            lines = processed_file.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-
-        source_rel_path = rel_path[len("processed/") :] if rel_path.startswith("processed/") else rel_path
-        structural_issues = _detect_fenced_div_issues(lines)
-        for line_number, issue_kind in structural_issues:
-            structural_occurrences.append(
-                {
-                    "source_path": source_rel_path,
-                    "line_number": line_number,
-                    "issue_kind": issue_kind,
-                    "is_structural": True,
-                }
-            )
-
-        for line_number, line in enumerate(lines, start=1):
-            if ":::" not in line:
-                continue
-            raw_occurrences.append(
-                {
-                    "source_path": source_rel_path,
-                    "line_number": line_number,
-                    "issue_kind": "raw-match",
-                    "is_structural": False,
-                }
-            )
-
-    return structural_occurrences if structural_occurrences else raw_occurrences
-
-
-def _print_colon_occurrence_hints(occurrences):
-    if not occurrences:
-        return
-
-    has_structural_hits = any(bool(item.get("is_structural")) for item in occurrences if isinstance(item, dict))
-    if has_structural_hits:
-        print("[safe-render] ::: Hinweis: strukturell auffällige Stelle(n) gefunden:")
-        max_hits = 10
-    else:
-        print(
-            "[safe-render] ::: Hinweis: keine strukturellen Defekte — "
-            "nur mögliche Auslöser (kein Abbruchgrund):"
-        )
-        max_hits = 3
-
-    shown = []
-    seen = set()
-    for item in occurrences:
-        if not isinstance(item, dict):
-            continue
-        source_path = item.get("source_path")
-        line_number = item.get("line_number")
-        issue_kind = item.get("issue_kind")
-        is_structural = bool(item.get("is_structural"))
-        if not isinstance(source_path, str) or not isinstance(line_number, int):
-            continue
-        key = (source_path, line_number)
-        if key in seen:
-            continue
-        seen.add(key)
-        shown.append((source_path, line_number, issue_kind, is_structural))
-        if len(shown) >= max_hits:
-            break
-
-    for source_path, line_number, issue_kind, is_structural in shown:
-        prefix = "ERROR" if is_structural else "INFO"
-        print(f"[safe-render] {prefix} [{source_path}] L{line_number} ({issue_kind})")
-
-    all_keys: set[tuple[str, int]] = set()
-    for item in occurrences:
-        if not isinstance(item, dict):
-            continue
-        sp, ln = item.get("source_path"), item.get("line_number")
-        if isinstance(sp, str) and isinstance(ln, int):
-            all_keys.add((sp, ln))
-    remaining = max(0, len(all_keys) - len(shown))
-    if remaining:
-        print(f"[safe-render] ... {remaining} weitere Treffer ausgeblendet.")
-
-    if not shown:
-        return
-    primary_path, primary_line, _primary_kind, _primary_structural = shown[0]
-    print(f"[safe-render] KLICK: [{primary_path}] L{primary_line}")
-    if len(shown) > 1:
-        alt_path, alt_line, _alt_kind, _alt_structural = shown[1]
-        print(f"[safe-render] Alternative: [{alt_path}] L{alt_line}")
+    ensure_typst_book_author(book_path, log=print)
 
 
 #: Unter Windows: Kindprozess ohne eigenes Konsolenfenster. Auf anderen
@@ -213,102 +83,6 @@ def _run_quarto_render(cmd: list[str], *, cwd: Path) -> int:
     return int(proc.returncode or 0)
 
 
-def _copy_book_to_temp(source_book: Path, temp_root: Path) -> Path:
-    destination = temp_root / source_book.name
-
-    def ignore_filter(_dir: str, names: list[str]) -> set[str]:
-        ignored = set()
-        for name in names:
-            if name in IGNORED_DIR_NAMES:
-                ignored.add(name)
-        return ignored
-
-    shutil.copytree(source_book, destination, ignore=ignore_filter)
-    return destination
-
-
-def _ensure_missing_image_placeholders(temp_book: Path) -> None:
-    """Fehlende Bilder im Temp-Klon durch Platzhalter ersetzen (kein Render-Abbruch)."""
-    try:
-        from services.missing_image_placeholders import ensure_missing_image_placeholders
-    except ImportError:
-        return
-    try:
-        ensure_missing_image_placeholders(
-            temp_book,
-            log=lambda msg: print(f"[safe-render] {msg}", flush=True),
-        )
-    except (OSError, TypeError, ValueError, RuntimeError) as exc:
-        print(
-            f"[safe-render] WARNUNG: Platzhalter für fehlende Bilder "
-            f"konnten nicht gesetzt werden: {exc}",
-            flush=True,
-        )
-
-
-def _ensure_typst_book_author(book_path: Path) -> None:
-    """orange-book erwartet `author` als String; ohne Wert knallt Typst (Array-Default).
-
-    Nur im temporären Render-Klon: fehlenden/leeren/Listen-Autor zu einem
-    nicht-leeren String normalisieren. Original-Buch bleibt unverändert.
-    """
-    yaml_path = book_path / "_quarto.yml"
-    if not yaml_path.exists():
-        return
-    try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError, TypeError, ValueError):
-        return
-    if not isinstance(data, dict):
-        return
-    book = data.get("book")
-    if not isinstance(book, dict):
-        book = {}
-        data["book"] = book
-
-    author = book.get("author")
-    if isinstance(author, list):
-        parts = []
-        for item in author:
-            if isinstance(item, dict):
-                name = item.get("name") or item.get("family") or ""
-                if name:
-                    parts.append(str(name))
-            elif item is not None and str(item).strip():
-                parts.append(str(item).strip())
-        author = ", ".join(parts)
-    elif author is None:
-        author = ""
-    else:
-        author = str(author).strip()
-
-    if not author:
-        title = book.get("title")
-        author = str(title).strip() if title else "Autor"
-        if not author:
-            author = "Autor"
-        book["author"] = author
-        try:
-            yaml_path.write_text(
-                yaml.dump(data, sort_keys=False, allow_unicode=True, indent=2),
-                encoding="utf-8",
-            )
-        except OSError:
-            return
-        print(f"[safe-render] Hinweis: book.author fehlte – Platzhalter gesetzt: {author!r}")
-        return
-
-    if book.get("author") != author:
-        book["author"] = author
-        try:
-            yaml_path.write_text(
-                yaml.dump(data, sort_keys=False, allow_unicode=True, indent=2),
-                encoding="utf-8",
-            )
-        except OSError:
-            return
-
-
 def run_safe_render(
     book_path: Path,
     output_format: str,
@@ -319,136 +93,31 @@ def run_safe_render(
 ) -> int:
     """Rendert ein Quarto-Buch in einer temporären Spiegelung.
 
-    B4: Footnote-Parameter (`footnote_mode`, `enable_footnote_backlinks`)
-    wurden entfernt — das Fußnoten-System ist abgeschaltet. Pandoc-
-    konforme `[^1]`-Marker werden unverändert weitergereicht.
-
-    `archive_dir`: optionaler, dauerhafter Pfad (pro Publish-Input), in
-    den das Render-Ergebnis zusätzlich mit zeitstempel-eindeutigem
-    Dateinamen kopiert wird — siehe `render_artifact_store.
-    archive_render_artifacts`. Der feste Convenience-Pfad
-    (`copy_render_artifacts`) bleibt davon unberührt und wird weiterhin
-    bei jedem Render überschrieben.
-
-    `render_channel`: optionale Vertriebskanal-ID (z. B. `"kdp_paperback"`),
-    gegen die in `bookconfig/distribution.json` (SSOT, siehe
-    `tools.distribution.book_store`) markierte Kapitel-Ausschlüsse
-    aufgelöst werden — die Ausschlussliste wird vom **Original**
-    `book_path` gelesen (nicht vom Temp-Klon) und nur auf den
-    Render-internen `tree_data`-Baum angewandt; `_quarto.yml` im Original
-    bleibt unverändert.
+    Siehe ``render_klon.render_im_klon`` (SSOT) für den Ablauf und die
+    Parameter. Der Original-``book_path`` wird nicht verändert; nur
+    Render-Ergebnisse kommen zurück (``export/…``, optional ``archive_dir``).
     """
     project_root = Path(__file__).resolve().parent
-    original_output_dir = read_output_dir(book_path)
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_root = Path(temp_dir)
-        temp_book = _copy_book_to_temp(book_path, temp_root)
-        _ensure_missing_image_placeholders(temp_book)
-
-        engine = QuartoYamlEngine(temp_book)
-        tree_data = engine.parse_chapters()
-        if render_channel:
-            excluded = list_excluded_chapters(book_path, render_channel)
-            tree_data = filter_tree_for_channel(tree_data, excluded)
-        processor = PreProcessor(
-            temp_book,
-            output_format=output_format,
+    def _quarto(temp_book: Path, fmt: str) -> int:
+        returncode = _run_quarto_render(
+            ["quarto", "render", str(temp_book), "--to", fmt], cwd=project_root
         )
-        processed_tree = processor.prepare_render_environment(tree_data)
-        colon_occurrences = _collect_processed_colon_occurrences(temp_book, processed_tree)
-        _print_colon_occurrence_hints(colon_occurrences)
-        # Standard-"typst" (nicht Extension-Formate wie "typstdoc-typst")
-        # braucht immer typst-show.typ/page.typ als template-partials -
-        # sonst ignoriert Quartos eingebautes Buch-Rendering die Datei und
-        # PreProcessor.maybe_inject_chapter_title's #chapter-titles-visible-
-        # Injektion referenziert eine nirgends definierte Variable (Crash).
-        # export_manager.py deklariert das für den GUI-Export bereits über
-        # build_layout_format_options; hier dieselbe Default-Deklaration für
-        # den bare-CLI-Pfad (per setdefault - ein explizit übergebenes
-        # extra_format_options gewinnt weiterhin).
-        if output_format == "typst":
-            from tools.layout_profiles.catalog import TYPST_STANDARD_PARTIALS
-
-            extra_format_options = dict(extra_format_options or {})
-            fmt_opts = dict(extra_format_options.get("typst") or {})
-            fmt_opts.setdefault("template-partials", list(TYPST_STANDARD_PARTIALS))
-            extra_format_options["typst"] = fmt_opts
-        engine.save_chapters(
-            processed_tree,
-            profile_name=profile_name,
-            save_gui_state=False,
-            extra_format_options=extra_format_options,
-        )
-        # Custom-Trimm-Layoutprofile (z. B. "(Pb) Paperback") deklarieren
-        # `template-partials` in extra_format_options - die referenzierten
-        # Dateien (page.typ/typst-show.typ) muessen im Temp-Klon liegen,
-        # damit Quarto sie findet. Automatisch aus der Skeleton-Bibliothek
-        # ergaenzt, falls das Buchprojekt sie nicht schon selbst mitbringt -
-        # kein manuelles Setup pro Projekt noetig.
-        ensure_typst_template_partials(temp_book, extra_format_options, output_format)
-        # B1/R2: Wir restaurieren _quarto.yml NICHT mehr im temp_book-Klon.
-        # Der Klon wird ohnehin am Ende von `with tempfile.TemporaryDirectory`
-        # gelöscht — die Restauration war toter Code, der zudem den falschen
-        # Pfad traf. Der Original-`book_path` wird von diesem Render nicht
-        # angetastet; der `original_output_dir` wird nur noch in
-        # `_copy_render_artifacts` verwendet.
-
-        if str(output_format).lower().startswith("typst"):
-            _ensure_typst_book_author(temp_book)
-
-        # Stand der Wurzel VOR dem Render: nur was Quarto neu schreibt, ist
-        # ein Artefakt (Partials/Cover-PDF des Klons bleiben draussen).
-        root_baseline = snapshot_root_files(temp_book)
-        cmd = ["quarto", "render", str(temp_book), "--to", output_format]
-        print(f"[safe-render] book={book_path.name} format={output_format}")
-        returncode = _run_quarto_render(cmd, cwd=project_root)
         if returncode != 0:
             print(f"[safe-render] Quarto beendet mit Code {returncode}", flush=True)
-            return returncode
+        return returncode
 
-        # `engine.save_chapters(..., profile_name=...)` schreibt im Klon ein
-        # eigenes `output-dir` (z. B. `export/_book_paperback`). Der oben aus
-        # dem ORIGINAL gelesene `original_output_dir` zeigt dann ins Leere:
-        # Quarto legt die PDF in `<temp>/export/_book_paperback` ab, die
-        # Rueckkopie suchte sie in `<temp>/export/_book` -- fand nichts,
-        # meldete nichts, und der Temp-Klon nahm das fertige Buch beim
-        # Aufraeumen mit. Ergebnis: Exit-Code 0, "Output created", kein PDF.
-        # Deshalb den effektiven Ordner aus dem KLON lesen.
-        effective_output_dir = read_output_dir(temp_book) or original_output_dir
-        if not (temp_book / effective_output_dir).exists():
-            print(
-                f"[safe-render] WARNUNG: kein Render-Ergebnis unter "
-                f"'{effective_output_dir}' im Temp-Klon — es wird nichts "
-                f"zurueckkopiert.",
-                flush=True,
-            )
-        copy_render_artifacts(
-            temp_book, book_path, effective_output_dir, baseline=root_baseline
-        )
-        if archive_dir is not None:
-            # Gleicher Zeitstempel fuer PDF- und Quell-Archiv: haelt beide im
-            # Archiv-Ordner eindeutig einander zuordenbar (reproduzierbares
-            # Quelle-Artefakt-Mapping, siehe archive_render_source-Docstring).
-            stamp = datetime.now().strftime(ARCHIVE_TIMESTAMP_FMT)
-            archive_render_artifacts(
-                temp_book,
-                archive_dir,
-                output_dir=effective_output_dir,
-                timestamp=stamp,
-                baseline=root_baseline,
-            )
-            # Bewusst `book_path` (das unveraenderte Original), NICHT
-            # `temp_book`: `engine.save_chapters(processed_tree, ...)` oben
-            # hat `temp_book`s eigene `_quarto.yml` bereits auf die
-            # PROZESSIERTEN Pfade (`processed/...`) umgeschrieben und dabei
-            # die verschachtelte part/chapter-Struktur verloren -- ein
-            # Restore daraus zeigt in der Buchstruktur nur noch flache,
-            # dateinamen-basierte Titel ohne Einrueckung. `book_path` bleibt
-            # laut Kommentar oben (B1/R2) von diesem Render unangetastet und
-            # ist der tatsaechlich editierbare Quellstand.
-            archive_render_source(book_path, archive_dir, timestamp=stamp)
-        return 0
+    ergebnis = render_im_klon(
+        Path(book_path),
+        output_format,
+        render=_quarto,
+        log=lambda zeile: print(zeile, flush=True),
+        profile_name=profile_name,
+        extra_format_options=extra_format_options,
+        archive_dir=archive_dir,
+        render_channel=render_channel,
+    )
+    return ergebnis.returncode
 
 
 def main() -> int:

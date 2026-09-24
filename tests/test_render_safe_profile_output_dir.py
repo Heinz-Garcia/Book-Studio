@@ -69,21 +69,35 @@ def test_ohne_profil_unveraendert(tmp_path):
     assert (orig / "export" / "_book" / "Buch.pdf").is_file()
 
 
+def _buch(tmp_path: Path) -> Path:
+    book = tmp_path / "Band_T"
+    (book / "content").mkdir(parents=True)
+    (book / "_quarto.yml").write_text(
+        "project:\n  type: book\n  output-dir: export/_book\n"
+        "book:\n  title: T\n  chapters:\n    - index.md\n    - content/k1.md\n",
+        encoding="utf-8",
+    )
+    (book / "index.md").write_text("---\ntitle: Start\n---\n\nText.\n", encoding="utf-8")
+    (book / "content" / "k1.md").write_text(
+        "---\ntitle: Kapitel 1\n---\n\nText.\n", encoding="utf-8"
+    )
+    return book
+
+
 def test_run_safe_render_liest_den_klon(tmp_path, monkeypatch):
-    """Integrationsnah: run_safe_render muss read_output_dir auf dem KLON
-    aufrufen, nicht nur auf dem Original."""
+    """Verhalten statt Quelltext (Paket 4): Mit Profil liegt die PDF im
+    output-dir des KLONS -- sie muss im Original ankommen."""
     import quarto_render_safe as qrs
 
-    gelesen: list[Path] = []
-    echtes_read = qrs.read_output_dir
+    def _fake_quarto(cmd, *, cwd):
+        klon = Path(cmd[2])
+        ziel = klon / read_output_dir(klon)
+        ziel.mkdir(parents=True, exist_ok=True)
+        (ziel / "Buch.pdf").write_bytes(b"%PDF fake")
+        return 0
 
-    def _spion(pfad):
-        gelesen.append(Path(pfad))
-        return echtes_read(pfad)
+    monkeypatch.setattr(qrs, "_run_quarto_render", _fake_quarto)
+    book = _buch(tmp_path)
 
-    monkeypatch.setattr(qrs, "read_output_dir", _spion)
-    quelltext = Path(qrs.__file__).read_text(encoding="utf-8")
-    # Der Aufruf muss im Quelltext auf temp_book zeigen -- ein reiner
-    # Laufzeittest waere hier ohne echten Quarto-Lauf nicht moeglich.
-    assert "read_output_dir(temp_book)" in quelltext
-    assert "temp_book, book_path, effective_output_dir, baseline=root_baseline" in quelltext
+    assert qrs.run_safe_render(book, "typst", profile_name="paperback") == 0
+    assert (book / "export" / "_book_paperback" / "Buch.pdf").is_file()

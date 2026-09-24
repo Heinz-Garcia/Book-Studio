@@ -73,14 +73,17 @@ def test_profile_output_dir_is_read_from_the_clone(tmp_path, fake_quarto):
 
 
 def test_preprocessor_gets_the_target_format(tmp_path, fake_quarto, monkeypatch):
+    import pre_processor
+
     seen: list[str] = []
-    real = unmanned_trigger.PreProcessor
+    real = pre_processor.PreProcessor
 
     def spy(book_path, output_format="typst"):
         seen.append(output_format)
         return real(book_path, output_format=output_format)
 
-    monkeypatch.setattr(unmanned_trigger, "PreProcessor", spy)
+    # Der Render-Pfad baut den PreProcessor in render_klon (SSOT, Paket 4).
+    monkeypatch.setattr(pre_processor, "PreProcessor", spy)
     book = _make_book(tmp_path)
     rc = unmanned_trigger.run_unmanned_trigger(
         _request(tmp_path, book, fmt="docx", profile=None)
