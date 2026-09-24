@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QScrollArea,
     QSizeGrip,
     QSizePolicy,
     QSlider,

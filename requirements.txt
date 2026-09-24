@@ -16,6 +16,9 @@ PySide6>=6.6.0
 
 # Kleine Regression-Suite für Nicht-GUI-Kernlogik
 pytest>=8.3.0
+# Commit-Sperre (tools/dev/test_gate.py): parallele Suite + Hook-Framework
+pytest-xdist>=3.5
+pre-commit>=3.5
 
 # orchestrator.py's live multi-agent console output (from GrammarGraph)
 rich>=13.0

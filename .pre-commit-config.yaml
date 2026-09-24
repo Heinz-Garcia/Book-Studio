@@ -1,10 +1,19 @@
+# Commit-Sperre (Konsolidierungsplan, Paket 1). Einmal pro Klon installieren:
+#
+#   pip install -r requirements.txt
+#   python -m pre_commit install
+#
+# ruff-format ist bewusst NICHT dabei: Es würde 100 bisher unformatierte Dateien
+# bei der ersten Berührung komplett umschreiben und jede kleine Änderung mit
+# fachfremden Diffs mischen. Einheitliche Formatierung ist ein eigener Schritt
+# (Paket 7, Aufräumen).
+# Überspringen nur bewusst: git commit --no-verify
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
-      - id: ruff-format
 
   - repo: https://github.com/pycqa/flake8
     rev: 7.1.1
@@ -24,3 +33,9 @@ repos:
         types: [python]
         pass_filenames: false
         args: ["."]
+      - id: test-gate
+        name: Test-Sperre (schnelle Suite, parallel)
+        entry: python tools/dev/test_gate.py
+        language: system
+        pass_filenames: false
+        exclude: "^(\\.doc/|doc/)"

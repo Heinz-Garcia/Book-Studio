@@ -77,7 +77,6 @@ from tools.kdp_cover.model import (
     load_layout,
     normalize_front_image_mode,
     resolve_existing_project_path,
-    sanitize_book_filename_stem,
     save_layout,
 )
 from tools.kdp_cover.settings import (

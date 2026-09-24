@@ -104,7 +104,6 @@ def backup_then_copy(source: Path, dest: Path, *, backup_root: Path) -> Path | N
     backup_path: Path | None = None
     if dest.is_file():
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        rel_name = dest.name
         backup_dir = backup_root / "file-fetch"
         backup_dir.mkdir(parents=True, exist_ok=True)
         backup_path = backup_dir / f"{dest.stem}.bak-{stamp}{dest.suffix}"

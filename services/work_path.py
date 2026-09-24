@@ -57,7 +57,7 @@ class StageId(str, Enum):
     F = "F"
     G = "G"
     H = "H"
-    I = "I"
+    I = "I"  # noqa: E741 -- Stufe I des Arbeitswegs (F–J), kein Zeichen-Rätsel
     J = "J"
 
 

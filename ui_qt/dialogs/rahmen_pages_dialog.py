@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
 
 from services.rahmen_pages import (
     RahmenPageKind,
-    RahmenPageStatus,
     assess_rahmen_pages,
 )
 from ui_qt.autonomous_window import (
