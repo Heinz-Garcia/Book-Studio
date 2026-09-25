@@ -431,7 +431,10 @@ class AssetManagerQtDialog(QDialog):
         self._refs_list.itemDoubleClicked.connect(self._open_ref_hit)
         layout.addWidget(self._refs_list, stretch=1)
 
-        tip = QLabel("Doppelklick auf Bild → System-Bildeditor · auf Referenz → Quelldatei.")
+        tip = QLabel(
+            "Doppelklick auf Bild → System-Bildeditor"
+            + ("" if self._pick_mode else " · auf Referenz → Quelldatei.")
+        )
         tip.setObjectName("assetManagerHint")
         layout.addWidget(tip)
         return frame
@@ -875,6 +878,17 @@ class AssetManagerQtDialog(QDialog):
         if not data:
             return
         rel, line = data
+        if self._pick_mode:
+            # Der Picker läuft modal (exec); ein daraus geöffneter, nicht-modaler
+            # Editor bekäme keine Eingaben. Bearbeiten nur im freien Asset Manager.
+            QMessageBox.information(
+                self,
+                "Asset Manager",
+                f"Fundstelle: {rel}, Zeile {line}\n\n"
+                "In der Bildauswahl lässt sich die Datei nicht bearbeiten. "
+                "Dafür den Asset Manager über das Plugins-Menü öffnen.",
+            )
+            return
         target = self._book / str(rel)
         if not target.is_file():
             QMessageBox.warning(self, "Asset Manager", f"Datei nicht gefunden:\n{target}")
