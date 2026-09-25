@@ -60,7 +60,7 @@ ERLAUBT: dict[str, str] = {
         "alte Preset-Datei, nachdem der Inhalt unter neuem Namen gespeichert ist",
     "ui_qt/command_host.py::CommandHost.reset_quarto_yml": CACHE,
     "ui_qt/dialogs/doclayout_preview_runner.py::_entferne_werkstatt": TEMP,
-    "ui_qt/dialogs/text_dialogs.py::TextEditorDialog._on_pdf_render_ok": TEMP,
+    "ui_qt/dialogs/text_editor/preview.py::PreviewMixin._on_pdf_render_ok": TEMP,
     "ui_qt/dialogs/text_dialogs.py::TextEditorDialog.closeEvent": TEMP,
 }
 
