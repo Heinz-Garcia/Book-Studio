@@ -1,114 +1,211 @@
-"""Tests für R2: Re-Entrancy-Sperre in `run_sanitizer_pipeline()`.
+"""R2: Re-Entrancy-Sperre für Sanitizer-Lauf und Handbuch-PDF (Verhalten).
 
-Quelle: implementation_plan.md, Abschnitt 3.2 (R2).
+Ein zweiter Klick während eines laufenden Sanitizer-Laufs (bzw. Handbuch-PDF-
+Renders) darf keinen zweiten Lauf starten; nach dem Ende (``on_done`` auf dem
+GUI-Thread) muss die Sperre wieder offen sein — auch nach einem Fehler.
 
-Diese Tests prüfen, dass CommandHost ein `_sanitizer_running`-Flag implementiert,
-analog zum `_handbook_pdf_rendering`-Flag. Nach dem Tk-UI-Purge lebt die
-Sanitizer-Logik in `ui_qt.command_host.CommandHost`.
+Bis 2026-09-25 prüften diese Tests nur, ob der Flag-Name im Quelltext vorkommt.
+Jetzt laufen die Methoden wirklich: Worker-Thread und GUI-Scheduling werden
+angehalten und von Hand weitergeschaltet.
 """
 
 from __future__ import annotations
 
-import inspect
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+pytest.importorskip("PySide6")
 
-class TestSanitizerRunningFlagImplementation:
-    """Tests zur Verifikation der _sanitizer_running-Flag-Implementierung."""
+from PySide6.QtWidgets import QMessageBox  # noqa: E402
 
-    def test_bookstudio_has_handbook_pdf_rendering_flag(self) -> None:
-        """Referenztest: CommandHost hat ein `_handbook_pdf_rendering`-Flag.
-
-        Dies ist das Vorbild für R2 (Sanitizer-Re-Entrancy-Guard).
-        """
-        from ui_qt.command_host import CommandHost
-
-        source = inspect.getsource(CommandHost.render_help_manual_pdf)
-        assert "_handbook_pdf_rendering" in source, (
-            "CommandHost.render_help_manual_pdf sollte _handbook_pdf_rendering-Flag "
-            "verwenden (das ist das Vorbild für _sanitizer_running)"
-        )
-
-    def test_bookstudio_should_have_sanitizer_running_flag(self) -> None:
-        """R2-Test: run_sanitizer_pipeline prüft `_sanitizer_running`.
-
-        Nach dem Tk-UI-Purge lebt das Guard in CommandHost.run_sanitizer_pipeline.
-        """
-        from ui_qt.command_host import CommandHost
-
-        source = inspect.getsource(CommandHost.run_sanitizer_pipeline)
-        assert "_sanitizer_running" in source, (
-            "CommandHost.run_sanitizer_pipeline sollte '_sanitizer_running' prüfen "
-            "(R2-Implementierung). Dies ist das Äquivalent zu _handbook_pdf_rendering."
-        )
-
-    def test_run_sanitizer_pipeline_checks_reentrancy_guard(self) -> None:
-        """R2-Test: run_sanitizer_pipeline prüft den Re-Entrancy-Guard."""
-        from ui_qt.command_host import CommandHost
-
-        source = inspect.getsource(CommandHost.run_sanitizer_pipeline)
-        assert "_sanitizer_running" in source, (
-            "run_sanitizer_pipeline sollte _sanitizer_running prüfen (R2-Guard)."
-        )
-
-    def test_sanitizer_thread_resets_flag_in_finally(self) -> None:
-        """R2-Test: Der Worker-Thread setzt das Flag zurück (on_done-Callback).
-
-        Die Qt-Implementierung verwendet einen `on_done`-Callback statt
-        eines finally-Blocks. Beide Ansätze sichern den Flag-Reset.
-        """
-        from ui_qt.command_host import CommandHost
-
-        source = inspect.getsource(CommandHost.run_sanitizer_pipeline)
-        # The flag must be set to False somewhere after the work completes.
-        # Qt uses an on_done callback instead of try/finally — both are valid.
-        assert source.count("_sanitizer_running") >= 2, (
-            "run_sanitizer_pipeline muss _sanitizer_running sowohl setzen als "
-            "auch zurücksetzen (R2-Reset). Mindestens 2 Vorkommen erwartet."
-        )
+import ui_qt.command_host as ch  # noqa: E402
 
 
-class TestSanitizerReentryComparison:
-    """Tests zum Vergleich mit dem bereits implementierten _handbook_pdf_rendering-Pattern."""
+class _Facade:
+    def __init__(self, book: Path) -> None:
+        self.current_book = str(book)
+        self.logs: list[tuple[str, str]] = []
 
-    def test_handbook_pdf_rendering_flag_pattern(self) -> None:
-        """Referenztest: Das _handbook_pdf_rendering-Muster in CommandHost."""
-        from ui_qt.command_host import CommandHost
-
-        source = inspect.getsource(CommandHost.render_help_manual_pdf)
-
-        # Guard-Check
-        assert "_handbook_pdf_rendering" in source
-        # Flag-Setting
-        assert "self.w._handbook_pdf_rendering = True" in source or (
-            "setattr" in source
-        )
-
-    def test_sanitizer_pattern_mirrors_handbook_pattern(self) -> None:
-        """R2-Test: _sanitizer_running soll analog _handbook_pdf_rendering sein.
-
-        Prüft alle 3 Komponenten:
-        1. Guard: `_sanitizer_running` wird in run_sanitizer_pipeline geprüft
-        2. Flag-Setting: `_sanitizer_running = True` gesetzt
-        3. Reset im finally: Flag wird zurückgesetzt
-        """
-        from ui_qt.command_host import CommandHost
-
-        sanitizer_source = inspect.getsource(CommandHost.run_sanitizer_pipeline)
-
-        # Komponente 1 + 2: Guard und Flag-Setting
-        assert "_sanitizer_running" in sanitizer_source, (
-            "Komponente 1 (Guard): run_sanitizer_pipeline sollte _sanitizer_running verwenden"
-        )
-
-        # Komponente 3: Reset (on_done callback in Qt; try/finally in Tk-Vorgänger)
-        assert sanitizer_source.count("_sanitizer_running") >= 2, (
-            "Komponente 3 (Reset): _sanitizer_running muss mindestens 2x vorkommen "
-            "(Guard-Check + Reset). Qt nutzt on_done-Callback statt finally."
-        )
+    def log(self, msg: str, level: str = "info") -> None:
+        self.logs.append((msg, level))
 
 
-if __name__ == "__main__":
+class _Win:
+    def __init__(self, book: Path) -> None:
+        self._facade = _Facade(book)
+        self._session = object()
+        self._status = SimpleNamespace(showMessage=lambda *_a, **_k: None)
 
-    raise SystemExit(pytest.main([__file__, "-v"]))
+    def statusBar(self):  # noqa: N802 — Qt-Name
+        return self._status
+
+
+class _Harness:
+    """Hält Threads und GUI-Callbacks fest, bis der Test sie auslöst."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.threads: list = []
+        self.ui: list = []
+        self.infos: list[str] = []
+
+        harness = self
+
+        class _Thread:
+            def __init__(self, target, daemon=None) -> None:
+                self.target = target
+
+            def start(self) -> None:
+                harness.threads.append(self.target)
+
+        class _MsgBox:
+            StandardButton = QMessageBox.StandardButton
+
+            @staticmethod
+            def information(_parent, _title, text):
+                harness.infos.append(text)
+
+            @staticmethod
+            def question(*_a, **_k):
+                return QMessageBox.StandardButton.Yes
+
+            @staticmethod
+            def warning(*_a, **_k):
+                return None
+
+            @staticmethod
+            def critical(*_a, **_k):
+                return None
+
+        monkeypatch.setattr("threading.Thread", _Thread)
+        monkeypatch.setattr(ch, "QMessageBox", _MsgBox)
+
+    def host(self, win: _Win) -> ch.CommandHost:
+        host = ch.CommandHost(win)  # type: ignore[arg-type]
+        bridge = SimpleNamespace(schedule_ui=self.ui.append)
+        host._bridge = lambda: bridge  # type: ignore[method-assign]
+        host.refresh_ui_titles = lambda: None  # type: ignore[method-assign]
+        return host
+
+    def run_worker(self) -> None:
+        self.threads.pop(0)()
+
+    def flush_ui(self) -> None:
+        while self.ui:
+            self.ui.pop(0)()
+
+
+@pytest.fixture
+def buch(tmp_path: Path) -> Path:
+    book = tmp_path / "Band_X"
+    (book / "content").mkdir(parents=True)
+    return book
+
+
+@pytest.fixture
+def sanitizer(monkeypatch: pytest.MonkeyPatch, buch: Path):
+    from services.backup_service import BackupService
+
+    rcs: list[int] = []
+    monkeypatch.setattr(
+        BackupService,
+        "create_physical_backup_with_fallback",
+        staticmethod(lambda *_a, **_k: (buch.parent / "backup", None, None)),
+    )
+
+    def fake_run(book, on_log_line, cwd=None):
+        return rcs.pop(0)
+
+    monkeypatch.setattr(BackupService, "run_sanitizer_subprocess", staticmethod(fake_run))
+    harness = _Harness(monkeypatch)
+    win = _Win(buch)
+    return harness, win, harness.host(win), rcs
+
+
+@pytest.mark.parametrize("rc", [0, 3])
+def test_sanitizer_zweiter_klick_startet_keinen_zweiten_lauf(sanitizer, rc: int):
+    harness, win, host, rcs = sanitizer
+    rcs.append(rc)
+
+    host.run_sanitizer_pipeline()
+    assert len(harness.threads) == 1
+    assert win._sanitizer_running is True
+
+    host.run_sanitizer_pipeline()
+    assert len(harness.threads) == 1, "zweiter Lauf trotz laufendem Sanitizer gestartet"
+    assert harness.infos and "bereits" in harness.infos[0]
+
+    harness.run_worker()
+    assert win._sanitizer_running is True, "Sperre vor on_done (GUI-Thread) gelöst"
+    harness.flush_ui()
+    assert win._sanitizer_running is False
+
+
+def test_sanitizer_nach_ende_wieder_startbar(sanitizer):
+    harness, win, host, rcs = sanitizer
+    rcs.extend([0, 0])
+    host.run_sanitizer_pipeline()
+    harness.run_worker()
+    harness.flush_ui()
+
+    host.run_sanitizer_pipeline()
+    assert len(harness.threads) == 1
+    assert not harness.infos
+
+
+def test_sanitizer_backup_fehler_gibt_sperre_frei(sanitizer, monkeypatch: pytest.MonkeyPatch):
+    from services.backup_service import BackupService
+
+    harness, win, host, _ = sanitizer
+    monkeypatch.setattr(
+        BackupService,
+        "create_physical_backup_with_fallback",
+        staticmethod(lambda *_a, **_k: (None, "Platte voll", None)),
+    )
+    host.run_sanitizer_pipeline()
+    assert not harness.threads
+    assert win._sanitizer_running is False
+
+
+@pytest.fixture
+def handbuch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    import tools.handbook_pdf as hp
+
+    ergebnisse: list = []
+
+    def fake_render(base, cfg, *, on_log_line=None, **_k):
+        e = ergebnisse.pop(0)
+        if isinstance(e, Exception):
+            raise e
+        return e
+
+    monkeypatch.setattr(hp, "render_from_config", fake_render)
+    monkeypatch.setattr(hp, "reveal_in_file_manager", lambda _p: None)
+    harness = _Harness(monkeypatch)
+    win = _Win(tmp_path)
+    return harness, win, harness.host(win), ergebnisse
+
+
+@pytest.mark.parametrize("fehler", [False, True])
+def test_handbuch_pdf_zweiter_klick_startet_keinen_zweiten_render(handbuch, tmp_path, fehler):
+    from tools.handbook_pdf import HandbookRenderResult
+
+    harness, win, host, ergebnisse = handbuch
+    pdf = tmp_path / "handbuch.pdf"
+    pdf.write_bytes(b"%PDF")
+    ergebnisse.append(
+        OSError("quarto fehlt") if fehler
+        else HandbookRenderResult(returncode=0, manual_path=tmp_path / "h.md", output_path=pdf)
+    )
+
+    host.render_help_manual_pdf()
+    assert len(harness.threads) == 1
+    host.render_help_manual_pdf()
+    assert len(harness.threads) == 1, "zweiter Render trotz laufendem Handbuch-PDF gestartet"
+    assert harness.infos and "bereits" in harness.infos[0]
+
+    harness.run_worker()
+    assert win._handbook_pdf_rendering is True
+    harness.flush_ui()
+    assert win._handbook_pdf_rendering is False

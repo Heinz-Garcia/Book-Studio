@@ -4,14 +4,14 @@ Stellt sicher, dass:
 - `services.constants` importierbar ist und die dokumentierten Enums liefert.
 - `StatusFg` Hex-SSOT in `services.constants` ist (ui_theme wurde entfernt).
 - `EXTRA_HEX_ALIASES` die Legacy-Aliase enthält.
-- `export_manager.py` keine hartkodierten Hex-Farben in status.config hat.
+- `export_manager.py` Statusfarben nur aus `StatusFg` setzt (keine Hex-Literale).
 
 Referenz: .doc/refactoring-master.md, Batch B9.
 """
 
 from __future__ import annotations
 
-import re
+import ast
 from pathlib import Path
 
 import pytest
@@ -67,40 +67,56 @@ def test_extra_hex_aliases_keys_present():
 # --- Magic-String-Reduktion -----------------------------------------------
 
 
-HEX_RE = re.compile(r'self\.status\.config\([^)]*fg="#[0-9a-fA-F]{6}"')
-
-
-def test_no_hardcoded_hex_in_export_manager_status_config():
-    """In export_manager.py dürfen keine hartkodierten Hex-Farben in
-    `self.status.config(...)` vorkommen."""
+def _status_farben_in_export_manager() -> list[ast.expr]:
     path = Path(__file__).resolve().parent.parent / "export_manager.py"
-    src = path.read_text(encoding="utf-8")
-    matches = HEX_RE.findall(src)
-    assert not matches, (
-        f"export_manager.py enthält noch hartkodierte Hex-Farben in status.config: {matches}"
-    )
+    baum = ast.parse(path.read_text(encoding="utf-8"))
+    return [
+        n.args[1]
+        for n in ast.walk(baum)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "_set_status"
+        and len(n.args) >= 2
+    ]
 
 
-def test_export_manager_uses_status_fg():
-    path = Path(__file__).resolve().parent.parent / "export_manager.py"
-    src = path.read_text(encoding="utf-8")
-    assert "from services.constants import StatusFg" in src
-    assert "_StatusFg." in src
+def test_export_manager_status_farben_kommen_aus_status_fg():
+    """Jede Statusfarbe im Export-Manager kommt aus ``StatusFg`` (Hex-SSOT).
+
+    Bis 2026-09-25 suchte dieser Test per Regex nach dem Tk-Aufruf
+    ``self.status.config(fg="#…")`` — den gab es längst nicht mehr, und
+    ``_set_status("Export abgebrochen", "#95a5a6")`` rutschte durch.
+    """
+    farben = _status_farben_in_export_manager()
+    assert len(farben) > 10, "Aufrufe von _set_status nicht gefunden — Test prüft nichts"
+    literale = [
+        f"Zeile {f.lineno}: {f.value!r}"
+        for f in farben
+        if isinstance(f, ast.Constant) and isinstance(f.value, str)
+    ]
+    assert not literale, f"Hartkodierte Farben statt StatusFg: {literale}"
 
 
-def test_book_studio_is_qt_launcher():
-    """book_studio.py ist jetzt ein schlanker Qt-Launcher ohne BookStudio-Klasse."""
-    path = Path(__file__).resolve().parent.parent / "book_studio.py"
-    src = path.read_text(encoding="utf-8")
-    # Qt-Einstieg muss vorhanden sein
-    assert "run_qt_app" in src or "ui_qt" in src, (
-        "book_studio.py sollte den Qt-Launcher referenzieren"
-    )
-    # Keine hartkodierten Hex-Farben in status.config mehr möglich (keine BookStudio-Klasse)
-    matches = HEX_RE.findall(src)
-    assert not matches, (
-        f"book_studio.py enthält hartkodierte Hex-Farben in status.config: {matches}"
-    )
+def test_book_studio_startet_die_qt_oberflaeche(monkeypatch):
+    """``book_studio.main`` ist nur Einstieg: es reicht an ``run_qt_app`` weiter."""
+    pytest.importorskip("PySide6")
+    import book_studio
+    import ui_qt
+
+    aufrufe: list[dict] = []
+    monkeypatch.setattr(ui_qt, "run_qt_app", lambda **kw: aufrufe.append(kw) or 0)
+    assert book_studio.main([]) == 0
+    assert aufrufe == [{"import_path": None, "activate_book": None}]
+    assert not hasattr(book_studio, "BookStudio")
+
+
+def test_book_studio_lehnt_tk_ab(monkeypatch):
+    pytest.importorskip("PySide6")
+    import book_studio
+    import ui_qt
+
+    monkeypatch.setattr(ui_qt, "run_qt_app", lambda **_kw: pytest.fail("Qt trotz --ui tk"))
+    assert book_studio.main(["--ui", "tk"]) == 2
 
 
 if __name__ == "__main__":

@@ -2,26 +2,80 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
 
 import pytest
 
 
-def test_plugin_dispatch_known_names():
+_QT_PLUGINS = (
+    "book_projects",
+    "mapping_manager",
+    "generated_books",
+    "publish_readiness",
+    "skeleton_populate",
+    "skeleton_editor",
+    "publish_record",
+    "provenance",
+    "gg_content_swap",
+)
+
+
+class _FakeWin:
+    def __init__(self) -> None:
+        self.logs: list[tuple[str, str]] = []
+        self._facade = type("F", (), {"log": lambda _s, m, lvl="info": self.logs.append((m, lvl))})()
+        self._bridge = type("B", (), {"run_doctor_preflight": lambda _s: None})()
+
+    def as_export_studio(self):
+        return self._bridge
+
+
+@pytest.mark.parametrize("name", _QT_PLUGINS)
+def test_plugin_dispatch_ruft_den_manifest_entrypoint(name: str, monkeypatch):
+    """Menüklick → ``plugins.<name>.run(studio=…, parent=…)``, dann eine Logzeile."""
+    pytest.importorskip("PySide6")
     from ui_qt import plugin_dispatch as pd
 
-    # Nur prüfen, dass Runner-Tabelle die Haupt-Plugins kennt
-    import inspect
+    assert (Path(__file__).resolve().parents[1] / "plugins" / name / "plugin.json").is_file()
+    aufrufe: list[tuple[str, object, object]] = []
 
-    src = inspect.getsource(pd.run_plugin_qt)
-    for name in (
-        "mapping_manager",
-        "generated_books",
-        "publish_readiness",
-        "skeleton_populate",
-        "skeleton_editor",
-    ):
-        assert name in src
+    modname = f"plugins.{name}"
+    fake = types.ModuleType(modname)
+    fake.run = lambda studio, parent: aufrufe.append((modname, studio, parent)) or 0
+    monkeypatch.setitem(sys.modules, modname, fake)
+    win = _FakeWin()
+    assert pd.run_plugin_qt(name, win) is True
+    assert aufrufe == [(f"plugins.{name}", win._bridge, win)]
+    assert len(win.logs) == 1 and win.logs[0][1] == "info"
+
+
+def test_plugin_dispatch_unbekannt_faellt_durch(monkeypatch):
+    """Unbekannte Namen gehen an den generischen PluginExecutor (False)."""
+    pytest.importorskip("PySide6")
+    from ui_qt import plugin_dispatch as pd
+
+    assert pd.run_plugin_qt("gibt_es_nicht", _FakeWin()) is False
+    assert "plugins.gibt_es_nicht" not in sys.modules
+
+
+def test_plugin_dispatch_fehler_wird_gemeldet_nicht_geworfen(monkeypatch):
+    pytest.importorskip("PySide6")
+    from ui_qt import plugin_dispatch as pd
+
+    def kaputt(studio, parent):
+        raise RuntimeError("Plugin kaputt")
+
+    fake = types.ModuleType("plugins.mapping_manager")
+    fake.run = kaputt
+    monkeypatch.setitem(sys.modules, "plugins.mapping_manager", fake)
+    gemeldet: list[str] = []
+    monkeypatch.setattr(pd.QMessageBox, "critical", lambda _p, _t, text: gemeldet.append(text))
+    win = _FakeWin()
+    assert pd.run_plugin_qt("mapping_manager", win) is True
+    assert gemeldet == ["Plugin kaputt"]
+    assert win.logs[-1][1] == "error"
 
 
 def test_mapping_manager_qt_constructs(tmp_path: Path, monkeypatch):

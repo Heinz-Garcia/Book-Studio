@@ -946,7 +946,7 @@ class ExportManager:
                 book_path=Path(self._current_book()) if self._current_book() else None,
             )
             if not selected:
-                self._set_status("Export abgebrochen", "#95a5a6")
+                self._set_status("Export abgebrochen", _StatusFg.NEUTRAL_MUTED)
                 return
 
             self._set_last_export_options(selected)
