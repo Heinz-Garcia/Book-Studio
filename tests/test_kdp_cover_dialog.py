@@ -713,7 +713,7 @@ def test_ask_cover_finished_marks_gate(monkeypatch, tmp_path):
             return self._yes
 
     monkeypatch.setattr(
-        "ui_qt.dialogs.kdp_cover_dialog.QMessageBox",
+        "ui_qt.dialogs.kdp_cover.layout_io.QMessageBox",
         _FakeBox,
     )
     # Icon/ButtonRole still needed on the patched name for the method body
@@ -783,7 +783,7 @@ def test_ask_cover_finished_export_fail_keeps_open(monkeypatch, tmp_path):
     _FakeBox.Icon = QMessageBox.Icon
     _FakeBox.ButtonRole = QMessageBox.ButtonRole
     monkeypatch.setattr(
-        "ui_qt.dialogs.kdp_cover_dialog.QMessageBox",
+        "ui_qt.dialogs.kdp_cover.layout_io.QMessageBox",
         _FakeBox,
     )
     close_mock = MagicMock(wraps=dlg.close)
@@ -850,7 +850,7 @@ def test_ask_cover_finished_no_keeps_designer_open(monkeypatch, tmp_path):
     _FakeBox.Icon = QMessageBox.Icon
     _FakeBox.ButtonRole = QMessageBox.ButtonRole
     monkeypatch.setattr(
-        "ui_qt.dialogs.kdp_cover_dialog.QMessageBox",
+        "ui_qt.dialogs.kdp_cover.layout_io.QMessageBox",
         _FakeBox,
     )
     close_mock = MagicMock(wraps=dlg.close)

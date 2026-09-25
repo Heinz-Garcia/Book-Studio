@@ -8,6 +8,8 @@ from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap
 from tools.kdp_cover.geometry import WrapGeometry
 
 _STUDIO_PAPERBACK_ID = "studio_paperback"
+# Bildschirm-Vorschau (Export bleibt DEFAULT_EXPORT_DPI / clamp_print_dpi ≥ 300).
+# 300 DPI hier → mehrfaches Smooth-Skalieren bei jedem resizeEvent = sichtbares Gezucke.
 _PREVIEW_DPI = 120.0
 _PREVIEW_ZOOM_MIN = 0.25
 _PREVIEW_ZOOM_MAX = 4.0

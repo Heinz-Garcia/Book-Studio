@@ -78,7 +78,7 @@ def test_persist_block_opens_vorderseite_tab(monkeypatch, tmp_path: Path) -> Non
             return clicked["btn"] or (self._buttons[0] if self._buttons else None)
 
     monkeypatch.setattr(
-        "ui_qt.dialogs.kdp_cover_dialog.QMessageBox",
+        "ui_qt.dialogs.kdp_cover.layout_io.QMessageBox",
         _FakeBox,
     )
 
@@ -100,7 +100,7 @@ def test_persist_block_opens_vorderseite_tab(monkeypatch, tmp_path: Path) -> Non
         ]
     )
     monkeypatch.setattr(
-        "ui_qt.dialogs.kdp_cover_dialog.validate_layout",
+        "ui_qt.dialogs.kdp_cover.layout_io.validate_layout",
         lambda *a, **k: report,
     )
     focused: list[str] = []
