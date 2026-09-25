@@ -1921,7 +1921,7 @@ def test_export_success_dialog_roles_and_pin_buttons(monkeypatch, tmp_path):
         kwargs["favorites_path"] = fav
         return real_pin_path(**kwargs)
 
-    monkeypatch.setattr("ui_qt.dialogs.kdp_cover_dialog.pin_path", _pin)
+    monkeypatch.setattr("ui_qt.dialogs.kdp_cover.dialogs.pin_path", _pin)
 
     app = QApplication.instance() or QApplication([])
     apply_theme(app)
