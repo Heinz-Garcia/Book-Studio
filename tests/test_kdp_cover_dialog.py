@@ -32,7 +32,6 @@ def _skip_cover_fertig_dialog(monkeypatch) -> None:
 def _app_and_dialog(monkeypatch, tmp_path: Path | None = None, *, auto_yes_mode: bool = True):
     pytest.importorskip("PySide6")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication, QMessageBox
 
     from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
@@ -1324,7 +1323,7 @@ def test_autoload_cover_project_json(monkeypatch, tmp_path):
 
     from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     dlg = KdpCoverQtDialog(_Studio(), None)
     assert dlg.pages_spin.value() == 222
     assert dlg.title_edit.text() == "Aus Projekt"
@@ -1397,7 +1396,7 @@ def test_dialog_binding_ready_status(monkeypatch, tmp_path):
 
     from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     dlg = KdpCoverQtDialog(_Studio(), None)
     assert dlg.kdp_channel_check.isChecked()
     assert "Cover-Layout:" in dlg.binding_status_label.text()
@@ -1442,7 +1441,7 @@ def test_copy_wrap_to_configured_folder(monkeypatch, tmp_path):
         lambda *a, **k: QMessageBox.StandardButton.Yes,
     )
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     dlg = KdpCoverQtDialog(None, None)
     dlg._copy_wrap_to_configured_folder(
         src,
@@ -1478,7 +1477,7 @@ def test_deploy_folder_dialog_and_save(monkeypatch, tmp_path):
         lambda: tmp_path,
     )
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     pick = _DeployFolderDialog(
         None, initial_folder=str(dest), pdf_name="Band_kdp_wrap.pdf"
     )
@@ -1507,7 +1506,7 @@ def test_free_export_confirm_requires_checkbox(monkeypatch):
     from ui_qt.dialogs.kdp_cover_export_issues_dialog import KdpExportIssuesDialog
     from ui_qt.dialogs.kdp_cover_dialog import _FreeExportConfirmDialog
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     dlg = _FreeExportConfirmDialog(None, "- [warning] Rand knapp")
     assert not dlg._yes.isEnabled()
     assert dlg.ack is not None
@@ -1702,7 +1701,7 @@ def test_open_kdp_cover_qt_forwards_front_image(monkeypatch, tmp_path):
 
     from ui_qt.dialogs import kdp_cover_dialog as mod
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     png = tmp_path / "front.png"
     Image.new("RGB", (40, 60), (1, 2, 3)).save(png)
     seen: dict[str, object] = {}

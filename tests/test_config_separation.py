@@ -144,5 +144,4 @@ def test_session_state_handles_missing_or_invalid(tmp_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

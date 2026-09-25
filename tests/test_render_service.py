@@ -200,6 +200,5 @@ def test_get_render_log_dir_returns_none_when_missing():
 
 
 if __name__ == "__main__":
-    import pytest
 
     raise SystemExit(pytest.main([__file__, "-v"]))

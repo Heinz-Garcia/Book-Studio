@@ -16,7 +16,7 @@ def test_uuid_pick_dialog_uses_sortable_table(monkeypatch) -> None:
     from tools.uuid_manager.model import UuidStatus
     from ui_qt.dialogs.kdp_cover_uuid_dialog import CoverUuidPickDialog
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     uid_a = str(uuid4())
     uid_b = str(uuid4())
     choices = [
@@ -145,7 +145,7 @@ def test_pick_cover_uuid_shows_progress_before_dialog(monkeypatch) -> None:
     from tools.uuid_manager.model import UuidStatus
     from ui_qt.dialogs import kdp_cover_uuid_dialog as mod
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     calls: list[str] = []
 
     def _fake_progress(parent, *, studio=None):

@@ -9,8 +9,6 @@ from pathlib import Path
 from datetime import datetime
 
 from frontmatter_parser import (
-    FrontmatterParts,
-    is_yaml_delimiter,
     parse as fm_parse,
     validate_and_repair as fm_validate_and_repair,
 )

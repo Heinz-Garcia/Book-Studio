@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from tools.provenance.ingest import find_manifest_in_dir, ingest_from_import_dir
 from tools.provenance.io import provenance_path, read_provenance

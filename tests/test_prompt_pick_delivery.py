@@ -10,9 +10,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402 - nach importorskip (ohne PySide6 überspringen)
 
-from ui_qt.work_path_guidance import prompt_pick_delivery
+from ui_qt.work_path_guidance import prompt_pick_delivery  # noqa: E402 - nach importorskip (ohne PySide6 überspringen)
 
 
 def _cand(name: str, *, mtime: float, slug: str = "Prosa_A") -> SimpleNamespace:

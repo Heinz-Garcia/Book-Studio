@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication, QDialog, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QWidget  # noqa: E402 - nach importorskip (ohne PySide6 überspringen)
 
 
 def _app() -> QApplication:

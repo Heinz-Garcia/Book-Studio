@@ -43,16 +43,12 @@ jobs:
           # Regeln anwendet, sind die wichtigsten Excludes hier
           # inline als CLI-Args dupliziert. Bei Aenderung der lokalen
           # Configs muss dieser Block mitgezogen werden.
-          # tools/ steht seit 2026-09-25 unter Lint (vorher ausgenommen).
-          ruff check . \
-            --exclude export_manager.py --exclude book_doctor.py \
-            --exclude yaml_engine.py --exclude pre_processor.py \
-            --exclude quarto_render_safe.py --exclude tests
+          # Seit 2026-09-25 alles unter Lint (Altmodule, tools/, tests/) —
+          # ausgenommen sind nur Build-/Cache-Ordner.
+          ruff check .
           flake8 . \
             --extend-ignore=E,W,D \
-            --exclude=.venv,build,dist,.git,__pycache__,htmlcov,\
-export_manager.py,book_doctor.py,yaml_engine.py,pre_processor.py,\
-quarto_render_safe.py,sanitizer.py,Sanitizer.py,tests
+            --exclude=.venv,build,dist,.git,__pycache__,htmlcov
 
       - name: Compile-Check (alle Module)
         env:

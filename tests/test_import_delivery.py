@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from tools.book_projects.import_delivery import (
     materialize_delivery_as_working_book,

@@ -6,13 +6,11 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 from services.workspace_service import WorkspaceService
 from tools.book_projects.catalog import (
     default_new_book_parent,
     ensure_book_discoverable,
-    list_books,
 )
 from tools.production_paths.config import (
     ensure_books_workspace_dir,
@@ -21,7 +19,6 @@ from tools.production_paths.config import (
 )
 from tools.production_paths.paths import (
     ProductionPathKind,
-    classify_path,
     is_book_discovery_candidate,
 )
 

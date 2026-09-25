@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication  # noqa: E402 - nach importorskip (ohne PySide6 überspringen)
 
 
 def test_resolve_ui_mode_defaults_to_guided(tmp_path: Path, monkeypatch) -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from markdown_asset_scanner import (
     _is_local_asset_target,

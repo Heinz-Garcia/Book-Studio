@@ -562,6 +562,5 @@ def test_build_left_list_entries_path_match():
 
 
 if __name__ == "__main__":
-    import pytest
 
     raise SystemExit(pytest.main([__file__, "-v"]))

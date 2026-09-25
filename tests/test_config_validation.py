@@ -13,9 +13,7 @@ Referenz: .doc/refactoring-master.md, Batch B7.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -139,5 +137,4 @@ def test_load_validated_cleans_invalid_values(tmp_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

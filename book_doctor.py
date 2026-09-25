@@ -2,7 +2,6 @@ from pathlib import Path
 import re
 import zipfile
 from datetime import datetime
-import json
 import yaml
 
 from yaml_engine import MISSING_TITLE_LABEL

@@ -13,13 +13,11 @@ Diese Tests validieren, dass:
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
 from tools.skeleton.manifest import (
     resolve_profile_dir,
-    validate_profile_name,
 )
 
 
@@ -167,6 +165,5 @@ class TestResolveProfileDirValidation:
 
 
 if __name__ == "__main__":
-    import pytest
 
     raise SystemExit(pytest.main([__file__, "-v"]))

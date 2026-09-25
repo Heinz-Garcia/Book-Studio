@@ -11,7 +11,6 @@ from frontmatter_requirements import (
 )
 from frontmatter_parser import (
     extract_field as fm_extract_field,
-    parse_file as fm_parse_file,
     repair_hidden_yaml_dividers as fm_repair_hidden_yaml_dividers,
 )
 from quarto_block_parser import (

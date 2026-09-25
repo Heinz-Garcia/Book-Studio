@@ -185,7 +185,7 @@ def test_structure_load_dialog_peek_is_modal_dialog(tmp_path: Path):
     )
     from ui_qt.structure_snapshot import write_snapshot_file
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
 
     book = tmp_path / "Book"
     book.mkdir()
@@ -234,7 +234,7 @@ def test_structure_load_dialog_delete_snapshot(tmp_path: Path, monkeypatch):
     from ui_qt.dialogs import structure_load_dialog as sld
     from ui_qt.structure_snapshot import write_snapshot_file
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
 
     book = tmp_path / "Book"
     book.mkdir()

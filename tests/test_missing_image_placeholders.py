@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 
 def test_ensure_placeholder_template_creates_png(tmp_path, monkeypatch):

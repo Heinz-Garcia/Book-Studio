@@ -104,5 +104,4 @@ def test_book_studio_is_qt_launcher():
 
 
 if __name__ == "__main__":
-    import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

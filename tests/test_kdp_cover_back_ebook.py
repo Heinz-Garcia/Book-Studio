@@ -379,7 +379,7 @@ def test_back_zone_map_paints(monkeypatch):
 
     from ui_qt.widgets.back_cover_zone_map import BackCoverZoneMap, back_zones_for_layout
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     layout = _layout()
     zones, barcode = back_zones_for_layout(layout, _geo(layout))
     widget = BackCoverZoneMap()
@@ -480,7 +480,7 @@ def test_export_success_dialog_lists_ebook(monkeypatch, tmp_path):
 
     from ui_qt.dialogs.kdp_cover_dialog import _ExportSuccessDialog
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     pdf = tmp_path / "Band_kdp_wrap.pdf"
     pdf.write_bytes(b"%PDF")
     jpg = tmp_path / "Band_kdp_ebook.jpg"
@@ -607,7 +607,7 @@ def test_page_count_estimate_dialog_updates_spine(monkeypatch):
 
     from ui_qt.dialogs.kdp_page_count_dialog import PageCountEstimateDialog
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     dlg = PageCountEstimateDialog(
         None, pages=200, paper_type_id="premium_color", min_pages=24, max_pages=828
     )

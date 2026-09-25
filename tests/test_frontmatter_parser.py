@@ -484,5 +484,4 @@ def test_repair_hidden_yaml_dividers_without_frontmatter_is_noop():
 
 
 if __name__ == "__main__":
-    import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

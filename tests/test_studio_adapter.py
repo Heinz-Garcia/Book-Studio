@@ -529,5 +529,4 @@ def test_ui_state_service_invalidate_cache_missing_method_is_silent():
 
 
 if __name__ == "__main__":
-    import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

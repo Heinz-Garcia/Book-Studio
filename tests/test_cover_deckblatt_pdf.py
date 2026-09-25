@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
 
 def test_build_interior_with_cover_deckblatt(tmp_path, monkeypatch):
     pytest.importorskip("fitz")
-    from PIL import Image
 
     import fitz
 

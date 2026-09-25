@@ -91,7 +91,9 @@ class TestLaesstInRuhe:
     def test_kein_wort_wird_veraendert(self) -> None:
         """Die harte Zusage: nur Bindestriche bewegen sich."""
         aus = fix(TAB)
-        woerter = lambda t: re.findall(r"[\w\u00c0-\u024f]+", t)
+        def woerter(t: str) -> list[str]:
+            return re.findall(r"[\w\u00c0-\u024f]+", t)
+
         assert woerter(aus) == woerter(TAB)
 
     def test_zeilenanzahl_bleibt(self) -> None:

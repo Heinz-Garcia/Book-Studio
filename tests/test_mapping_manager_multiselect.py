@@ -781,7 +781,7 @@ def test_all_books_shows_renders_from_multiple_projects(monkeypatch, tmp_path):
     )
     monkeypatch.setattr("ui_qt.qt_session.is_ephemeral_book_path", lambda _p: False)
 
-    app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     dlg = MappingManagerQtDialog(None, Studio())
     dlg.book_combo.setCurrentIndex(0)
     assert dlg.book_combo.currentData() == _ALL_BOOKS
@@ -823,7 +823,7 @@ def test_all_books_delete_uses_render_book(monkeypatch, tmp_path):
     )
     monkeypatch.setattr("ui_qt.qt_session.is_ephemeral_book_path", lambda _p: False)
 
-    app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     dlg = MappingManagerQtDialog(None, Studio())
     dlg.book_combo.setCurrentIndex(0)
     assert dlg.table.rowCount() == 2

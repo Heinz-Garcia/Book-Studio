@@ -262,6 +262,5 @@ def test_render_flag_reset_on_dialog_cancel(monkeypatch) -> None:
 
 
 if __name__ == "__main__":
-    import pytest
 
     raise SystemExit(pytest.main([__file__, "-v"]))

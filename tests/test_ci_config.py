@@ -14,7 +14,6 @@ Referenz: .doc/refactoring-master.md, Batch B10.
 from __future__ import annotations
 
 import configparser
-import re
 import subprocess
 import sys
 from pathlib import Path

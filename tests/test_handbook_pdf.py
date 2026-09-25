@@ -261,7 +261,7 @@ def test_run_quarto_render_handles_stdout_exception(tmp_path: Path, monkeypatch)
     # run_quarto_render sollte nicht mit unbehandelter Exception crashen
     # (Exception könnte durchgereicht werden, aber wait() muss garantiert sein)
     try:
-        result = run_quarto_render(manual, base_path=tmp_path)
+        run_quarto_render(manual, base_path=tmp_path)
         # Wenn nicht crashed, war Exception vielleicht abgefangen/handelt
     except (UnicodeDecodeError, Exception):
         # Exception kann durchgereicht werden, aber wait() muss aufgerufen sein

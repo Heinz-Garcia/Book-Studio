@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication  # noqa: E402 - nach importorskip (ohne PySide6 überspringen)
 
 
 def test_icon_legend_starts_expanded_and_collapses():

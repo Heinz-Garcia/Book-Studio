@@ -368,7 +368,9 @@ def test_books_getter_returns_copy_not_reference():
         return list(src)
 
     svc = BookSessionService(studio, books_getter=_get)
-    # Service manipuliert `src` nicht
+    # Service nutzt den Getter (Buch aktivieren) und manipuliert `src` nicht
+    assert svc.set_active_book(Path("/b")) is True
+    assert studio.current_book == Path("/b")
     assert src == [Path("/a"), Path("/b")]
 
 

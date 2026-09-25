@@ -383,6 +383,7 @@ class TestCreateMarkdownTemplate:
 
         # Auf allen Plattformen sollte es mit Forward-Slashes arbeiten
         assert (profile_dir / "sub" / "dir" / "file.md").exists()
+        assert result.resolve() == (profile_dir / "sub" / "dir" / "file.md").resolve()
 
 
 

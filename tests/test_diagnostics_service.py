@@ -566,6 +566,5 @@ def test_analyze_single_file_does_not_touch_other_paths(tmp_path):
 
 
 if __name__ == "__main__":
-    import pytest
 
     raise SystemExit(pytest.main([__file__, "-v"]))

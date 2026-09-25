@@ -251,7 +251,7 @@ def test_iter_body_lines_outside_code_fences_tripledash_inside_fence_ignored():
     lines = list(iter_body_lines_outside_code_fences(body))
 
     # Finde die `---`-Zeile (sollte Zeile 3 sein)
-    dash_line = [l for l in lines if l[1].strip() == "---"][0]
+    dash_line = [zeile for zeile in lines if zeile[1].strip() == "---"][0]
     line_num, text, in_fence = dash_line
     assert in_fence is True, "--- innerhalb eines Code-Blocks sollte als in_fence=True markiert sein"
 
@@ -487,5 +487,4 @@ def test_repair_orphan_fenced_div_closes_reports_file_line_numbers():
 
 
 if __name__ == "__main__":
-    import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

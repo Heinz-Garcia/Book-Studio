@@ -111,7 +111,9 @@ def test_explicit_bind_from_choice(tmp_path: Path, registry: Path) -> None:
 
     # A bleibt ungebunden
     cands = planned_candidates_for_book(book, registry_file=registry)
-    # book has no uuid → all planned; after bind B has book_path so not planned
+    # Nach dem Binden trägt das Buch B, und B ist nicht mehr „geplant“ —
+    # für dieses Buch gibt es nichts mehr zu wählen (auch A nicht).
+    assert [c.production_uuid for c in cands] == []
     from tools.kdp_cover.planned_uuid import list_planned_cover_uuids
 
     listed = list_planned_cover_uuids(registry_file=registry)

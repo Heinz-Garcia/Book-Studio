@@ -6,7 +6,7 @@ from pathlib import Path
 
 from tools.skeleton.config import read_skeleton_settings, set_default_profile, write_skeleton_settings
 from tools.skeleton.diff import build_diff_map, compute_file_diff
-from tools.skeleton.manifest import delete_profile, duplicate_profile
+from tools.skeleton.manifest import delete_profile
 from tools.skeleton.populate import build_populate_plan, populate_book, resolve_populate_plan
 from tools.skeleton.manifest import load_manifest
 

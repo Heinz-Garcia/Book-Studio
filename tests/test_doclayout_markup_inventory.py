@@ -217,7 +217,6 @@ class TestGestaltungUndHandlung:
     """
 
     def _bibliothek_mit(self, ordner: Path, classmap: dict, styles: list) -> Path:
-        from tools.doclayout.schema import LayoutDefinition
 
         basis = load_layout("IFJN_layout")
         definition = replace(basis, name="Solo", classmap=classmap)

@@ -74,7 +74,7 @@ def test_zone_map_paints_without_error(monkeypatch):
 
     from ui_qt.widgets.cover_zone_map import CoverZoneMap
 
-    _app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     widget = CoverZoneMap()
     widget.resize(320, 480)
     pixmap = widget.grab()

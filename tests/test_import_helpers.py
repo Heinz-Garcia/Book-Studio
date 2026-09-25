@@ -13,7 +13,6 @@ Deckt die aus `book_studio.py` extrahierten Funktionen ab:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from import_helpers import (
     extract_all_inline_svgs,

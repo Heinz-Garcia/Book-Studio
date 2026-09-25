@@ -14,7 +14,6 @@ Referenz: .doc/refactoring-master.md, Batch B0.
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -132,5 +131,4 @@ def test_known_console_encoding_caveat_documented():
 
 
 if __name__ == "__main__":
-    import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

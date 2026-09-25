@@ -6,9 +6,8 @@ from pathlib import Path
 
 import yaml
 
-from tools.skeleton.manifest import load_manifest, list_profiles, resolve_profile_dir
+from tools.skeleton.manifest import load_manifest, list_profiles
 from tools.skeleton.populate import (
-    build_populate_plan,
     populate_book,
 )
 from yaml_engine import QuartoYamlEngine

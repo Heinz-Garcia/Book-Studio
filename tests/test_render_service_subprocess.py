@@ -17,10 +17,8 @@ Deckt die Subprocess-Kapselung im Service ab:
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 from services.render_service import (
     SAFE_RENDER_RC_MISSING_SCRIPT,

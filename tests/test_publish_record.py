@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from tools.publish_record.record import append_event, ensure_record, read_record
 
