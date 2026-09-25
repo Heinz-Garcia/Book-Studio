@@ -55,6 +55,14 @@ def test_keine_methode_doppelt_definiert():
     assert not doppelt, doppelt
 
 
+def test_einstieg_bleibt_schlank():
+    """Bis 2026-09-25 wuchs kdp_cover_dialog.py auf 5978 Zeilen. Neues gehört in
+    das zuständige Mixin unter ui_qt/dialogs/kdp_cover/, nicht in den Einstieg."""
+    zeilen = len((ROOT / "ui_qt" / "dialogs" / "kdp_cover_dialog.py").read_text(
+        encoding="utf-8").splitlines())
+    assert zeilen < 500, f"kdp_cover_dialog.py hat {zeilen} Zeilen — ins Mixin verschieben"
+
+
 def test_einstieg_bietet_alle_importierten_namen():
     import ui_qt.dialogs.kdp_cover_dialog as mod
 

@@ -9,6 +9,16 @@ from typing import Any
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QPixmap, QResizeEvent, QWheelEvent
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from tools.kdp_cover.constants import (
     DEFAULT_EXPORT_DPI,
@@ -18,20 +28,20 @@ from tools.kdp_cover.geometry import build_geometry
 from tools.kdp_cover.settings import (
     MIN_WINDOW_HEIGHT,
     MIN_WINDOW_WIDTH,
+    resolve_active_tab,
     save_settings,
 )
 from tools.kdp_cover.validate import ValidationReport, validate_layout
 from ui_qt.dialogs.kdp_cover.common import (
     _PREVIEW_DPI,
-    _PREVIEW_ZOOM_MIN,
     _PREVIEW_ZOOM_MAX,
+    _PREVIEW_ZOOM_MIN,
     _PREVIEW_ZOOM_STEP,
     _STATUS_EXPORT_TOOLTIP,
-    _qlabel_color_ss,
-    _pil_to_qpixmap,
     _draw_overlays,
+    _pil_to_qpixmap,
+    _qlabel_color_ss,
 )
-
 
 
 class PreviewMixin:
@@ -359,3 +369,147 @@ class PreviewMixin:
         timer = getattr(self, "_geometry_save_timer", None)
         if timer is not None:
             timer.start()
+
+    def _restore_active_tab(self) -> None:
+        """Zuletzt aktiven Tab wiederherstellen, Tab-Wechsel verdrahten."""
+        try:
+            self._editor_tabs.setCurrentIndex(
+                resolve_active_tab(
+                    self._session_settings, tab_count=self._editor_tabs.count()
+                )
+            )
+        except (TypeError, ValueError):
+            self._editor_tabs.setCurrentIndex(0)
+        self._editor_tabs.currentChanged.connect(
+            lambda _i: self._geometry_save_timer.start()
+        )
+        self._editor_tabs.currentChanged.connect(
+            lambda _i: self._sync_editor_scrollbars()
+        )
+        QTimer.singleShot(0, self._sync_editor_scrollbars)
+
+    def _build_preview_panel(self) -> None:
+        """Rechte Spalte: Zoom-Leiste und Vorschau."""
+        right_panel = QWidget()
+        right_panel.setObjectName("kdpCoverRightPanel")
+        right_panel.setMinimumWidth(320)
+        right_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        right = QVBoxLayout(right_panel)
+        right.setContentsMargins(8, 8, 4, 8)
+        right.setSpacing(8)
+        self._body_splitter.addWidget(right_panel)
+
+        zoom_row = QHBoxLayout()
+        zoom_row.setSpacing(6)
+        zoom_hint = QLabel("Vorschau:")
+        zoom_hint.setStyleSheet("color:#64748b;")
+        zoom_row.addWidget(zoom_hint)
+        self.btn_zoom_out = QPushButton("−")
+        self.btn_zoom_out.setFixedWidth(32)
+        self.btn_zoom_out.setToolTip("Verkleinern (Strg + Mausrad)")
+        self.btn_zoom_out.clicked.connect(self._zoom_out)
+        zoom_row.addWidget(self.btn_zoom_out)
+        self.zoom_label = QLabel("100 %")
+        self.zoom_label.setMinimumWidth(48)
+        self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.zoom_label.setToolTip("Zoom relativ zur Einpassen-Größe")
+        zoom_row.addWidget(self.zoom_label)
+        self.btn_zoom_in = QPushButton("+")
+        self.btn_zoom_in.setFixedWidth(32)
+        self.btn_zoom_in.setToolTip("Vergrößern (Strg + Mausrad)")
+        self.btn_zoom_in.clicked.connect(self._zoom_in)
+        zoom_row.addWidget(self.btn_zoom_in)
+        self.btn_zoom_fit = QPushButton("Einpassen")
+        self.btn_zoom_fit.setToolTip("Auf Viewport einpassen (100 %)")
+        self.btn_zoom_fit.clicked.connect(self._zoom_fit)
+        zoom_row.addWidget(self.btn_zoom_fit)
+        self.preview_print_dpi = QCheckBox("300 DPI")
+        self.preview_print_dpi.setChecked(False)
+        self.preview_print_dpi.setToolTip(
+            "Vorschau in KDP-Druckauflösung rendern (langsamer, schärfer — "
+            "z. B. zum Prüfen des Ecken-Banners). Export ist immer ≥ 300 DPI."
+        )
+        zoom_row.addWidget(self.preview_print_dpi)
+        zoom_row.addStretch(1)
+        right.addLayout(zoom_row)
+
+        self.preview_label = QLabel("Vorschau erscheint nach Parameterwahl / Bildwahl.")
+        self.preview_label.setObjectName("kdpCoverPreview")
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_label.setMinimumSize(400, 320)
+        self.preview_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self._preview_scroll = QScrollArea()
+        self._preview_scroll.setWidgetResizable(True)
+        self._preview_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview_scroll.setWidget(self.preview_label)
+        self._preview_scroll.setMinimumWidth(280)
+        self._preview_scroll.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self._preview_scroll.viewport().installEventFilter(self)
+        right.addWidget(self._preview_scroll, stretch=1)
+
+        self._body_splitter.setStretchFactor(0, 0)
+        self._body_splitter.setStretchFactor(1, 1)
+        sizes = list(
+            getattr(self, "_loaded_splitter_sizes", None) or [620, 880]
+        )
+        self._body_splitter.setSizes(sizes)
+        self._body_splitter.splitterMoved.connect(self._on_body_splitter_moved)
+
+    def _wire_param_signals(self) -> None:
+        """Formularänderungen → Live-Validierung und Vorschau."""
+        for w in (
+            self.pages_spin,
+            self.paper_combo,
+            self.trim_combo,
+            self.custom_width_spin,
+            self.custom_height_spin,
+            self.show_overlays,
+            self.preview_print_dpi,
+            self.title_ox,
+            self.title_oy,
+            self.author_ox,
+            self.author_oy,
+            self.spine_oy,
+            self.title_scale,
+        ):
+            if hasattr(w, "valueChanged"):
+                w.valueChanged.connect(self._on_params_changed)
+            if hasattr(w, "currentIndexChanged"):
+                w.currentIndexChanged.connect(self._on_params_changed)
+            if hasattr(w, "toggled"):
+                w.toggled.connect(self._on_params_changed)
+
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self.front_mode_group.idClicked.connect(self._on_front_image_mode_changed)
+        self.front_edit.editingFinished.connect(self._on_params_changed)
+        self.back_edit.editingFinished.connect(self._on_params_changed)
+        self.front_zoom_spin.valueChanged.connect(self._on_params_changed)
+        self.front_ox_spin.valueChanged.connect(self._on_params_changed)
+        self.front_oy_spin.valueChanged.connect(self._on_params_changed)
+        self.back_scale_spin.valueChanged.connect(self._on_params_changed)
+        self.back_placement_combo.currentIndexChanged.connect(self._on_params_changed)
+        self.back_img_x_spin.valueChanged.connect(self._on_params_changed)
+        self.back_img_y_spin.valueChanged.connect(self._on_params_changed)
+        self.back_img_width_spin.valueChanged.connect(self._on_params_changed)
+        self.back_frame_check.toggled.connect(self._on_params_changed)
+        self.back_frame_mm_spin.valueChanged.connect(self._on_params_changed)
+        # back/spine/compose-Farben: editingFinished bereits in _color_field verdrahtet
+        self.title_edit.editingFinished.connect(self._on_params_changed)
+        self.author_edit.editingFinished.connect(self._on_params_changed)
+        self.spine_text_edit.editingFinished.connect(self._on_params_changed)
+        self.spine_text_down_edit.editingFinished.connect(self._on_params_changed)
+        self.spine_font_combo.currentIndexChanged.connect(self._on_params_changed)
+        self.spine_padding_spin.valueChanged.connect(self._on_params_changed)
+        self.spine_badge_enabled.toggled.connect(self._on_params_changed)
+        self.spine_badge_text.editingFinished.connect(self._on_params_changed)
+        self.spine_badge_position.currentIndexChanged.connect(self._on_params_changed)
+        self.spine_badge_scale.currentIndexChanged.connect(self._on_params_changed)
+        self.title_color_edit.editingFinished.connect(self._on_params_changed)
+        self._wire_compose_front_signals()
+        self.trim_combo.currentIndexChanged.connect(self._on_trim_changed)

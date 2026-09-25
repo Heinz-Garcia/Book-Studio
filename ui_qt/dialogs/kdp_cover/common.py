@@ -1,10 +1,13 @@
 """Gemeinsame Konstanten und Hilfen des KDP-Cover-Designers."""
 
 from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap
+
 from tools.kdp_cover.geometry import WrapGeometry
 
 _STUDIO_PAPERBACK_ID = "studio_paperback"

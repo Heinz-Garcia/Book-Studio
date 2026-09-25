@@ -9,15 +9,18 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -25,12 +28,11 @@ from PySide6.QtWidgets import (
 from tools.kdp_cover.model import (
     FrontImageMode,
 )
-from ui_qt.widgets.collapsible_section import CollapsibleSection
 from ui_qt.dialogs.kdp_cover.common import (
     _IMAGE_FILTER,
     _qlabel_color_ss,
 )
-
+from ui_qt.widgets.collapsible_section import CollapsibleSection
 
 
 class FrontMixin:
@@ -1514,3 +1516,139 @@ class FrontMixin:
             )
             return
         open_stylecloud_qt(self._studio, self)
+
+    def _build_tab_front(self) -> None:
+        """Tab 3 · Vorderseite · Bild."""
+        # --- Tab: Vorderseite ---
+        tab_front, front_body = self._make_editor_tab()
+        front_hint = QLabel(
+            "Bildmodus wählbar: nur Farbe, goldener Schnitt oder vollflächig. "
+            "Wortwolke: Stylecloud → Übergabe hierher."
+        )
+        front_hint.setWordWrap(True)
+        front_hint.setStyleSheet("color:#64748b; font-size:12px;")
+        front_body.addWidget(front_hint)
+        design_front = QFormLayout()
+        design_front.setSpacing(8)
+        front_body.addLayout(design_front)
+
+        front_color_host, self.front_color_edit = self._color_field(
+            "#1e3a5f",
+            max_width=100,
+            tooltip=(
+                "Vorderseiten-Farbe: allein bei „Kein Bild“, "
+                "unter dem Bildband bei „goldener Schnitt“, "
+                "Unterlage bei Vollbild/Wortwolke."
+            ),
+        )
+        design_front.addRow("Front-Farbe:", front_color_host)
+
+        self.front_mode_none = QRadioButton("Kein Bild (nur Farbe)")
+        self.front_mode_top_third = QRadioButton("Bild im goldenen Schnitt")
+        self.front_mode_full = QRadioButton("Bild vollflächig")
+        self.front_mode_none.setToolTip(
+            "Nur Front-Farbe — Bildpfad bleibt erhalten, wird aber nicht gezeichnet."
+        )
+        self.front_mode_top_third.setToolTip(
+            "Bild füllt die oberen ~38,2 % (goldener Schnitt; Zoom/Verschieben "
+            "möglich); darunter die Front-Farbe."
+        )
+        self.front_mode_full.setToolTip(
+            "Bild deckt die gesamte Vorderseite ab (Cover-Fit + Zoom/Verschieben)."
+        )
+        self.front_mode_none.setChecked(True)
+        self.front_mode_group = QButtonGroup(self)
+        self.front_mode_group.addButton(self.front_mode_none, 0)
+        self.front_mode_group.addButton(self.front_mode_top_third, 1)
+        self.front_mode_group.addButton(self.front_mode_full, 2)
+        front_mode_row = QHBoxLayout()
+        front_mode_row.setContentsMargins(0, 0, 0, 0)
+        front_mode_row.setSpacing(12)
+        front_mode_row.addWidget(self.front_mode_none)
+        front_mode_row.addWidget(self.front_mode_top_third)
+        front_mode_row.addWidget(self.front_mode_full)
+        front_mode_row.addStretch(1)
+        front_mode_host = QWidget()
+        front_mode_host.setLayout(front_mode_row)
+        design_front.addRow("Bildmodus:", front_mode_host)
+
+        self.front_edit = QLineEdit()
+        self.front_edit.setPlaceholderText(
+            "Optional: Foto oder Stylecloud-Wortwolke…"
+        )
+        front_row = QHBoxLayout()
+        front_row.addWidget(self.front_edit)
+        self._btn_front_asset = QPushButton("Asset…")
+        self._btn_front_asset.setToolTip(
+            "Bild aus dem Asset Manager wählen (Pool oder Buch-img/)."
+        )
+        self._btn_front_asset.clicked.connect(
+            lambda: self._pick_image_via_asset("front")
+        )
+        front_row.addWidget(self._btn_front_asset)
+        self._btn_front_browse = QPushButton("…")
+        self._btn_front_browse.setFixedWidth(32)
+        self._btn_front_browse.setToolTip("Datei im Dateisystem wählen")
+        self._btn_front_browse.clicked.connect(self._browse_front)
+        front_row.addWidget(self._btn_front_browse)
+        design_front.addRow("Bild / Wortwolke:", front_row)
+
+        self._btn_stylecloud = QPushButton("Wortwolke (Stylecloud)…")
+        self._btn_stylecloud.setToolTip(
+            "Öffnet Stylecloud. Nach dem Erzeugen: „An KDP Cover übergeben“."
+        )
+        self._btn_stylecloud.clicked.connect(self._open_stylecloud_for_front)
+        design_front.addRow("", self._btn_stylecloud)
+
+        btn_gestalten = QPushButton("Layout öffnen…")
+        btn_gestalten.setToolTip(
+            "Tab „Vorderseite · Layout“: Titel, Band, Fade, Fußzeile, Banner, Badge "
+            "(je Block ein/aus)."
+        )
+        btn_gestalten.clicked.connect(self._open_gestaltung_tab)
+        design_front.addRow("", btn_gestalten)
+
+        self.front_zoom_spin = QDoubleSpinBox()
+        self.front_zoom_spin.setRange(1.0, 4.0)
+        self.front_zoom_spin.setDecimals(2)
+        self.front_zoom_spin.setSingleStep(0.05)
+        self.front_zoom_spin.setValue(1.0)
+        self.front_zoom_spin.setToolTip(
+            "Vergrößern über Cover-Fit (≥ 1,0). Danach Ausschnitt mit Offset "
+            "verschieben — gilt für goldenen Schnitt und Vollfläche."
+        )
+        design_front.addRow("Front-Zoom:", self.front_zoom_spin)
+        self.front_ox_spin = self._mm_spin()
+        self.front_oy_spin = self._mm_spin()
+        self.front_ox_spin.setToolTip(
+            "Horizontal (X): Bild nach rechts (+) / links (−) verschieben. "
+            "Freie Ränder bleiben Front-Farbe."
+        )
+        self.front_oy_spin.setToolTip(
+            "Vertikal (Y): Bild nach unten (+) / oben (−) verschieben. "
+            "Freie Ränder bleiben Front-Farbe."
+        )
+        design_front.addRow(
+            "Front-Verschiebung (X / Y):",
+            self._pair(self.front_ox_spin, self.front_oy_spin),
+        )
+        self._editor_tabs.addTab(tab_front, "Vorderseite · Bild")
+        self._front_tab_index = self._editor_tabs.count() - 1
+        self._editor_tabs.setTabToolTip(
+            self._front_tab_index,
+            "3 · Vorderseite · Bild (Farbe, Bildmodus, Bild oder Stylecloud)",
+        )
+
+    def _build_tab_front_layout(self) -> None:
+        """Tab 4 · Vorderseite · Layout (Compose-Layer)."""
+        # --- Tab: Vorderseite · Layout (Layer über Farbe/Bild) ---
+        tab_layer, layer_body = self._make_editor_tab()
+        layer_body.addWidget(self._build_compose_front_group())
+        self._layer_tab_index = self._editor_tabs.addTab(
+            tab_layer, "Vorderseite · Layout"
+        )
+        self._editor_tabs.setTabToolTip(
+            self._layer_tab_index,
+            "4 · Vorderseite · Layout (Fade, Band, Titel, Fuß, Banner, Badge).",
+        )
+        self._sync_compose_front_tab_visibility()

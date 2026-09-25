@@ -1,9 +1,11 @@
 """Nebendialoge des KDP-Cover-Designers (Bestätigung, Deploy, Klonen, Erfolg)."""
 
 from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Any, Optional
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -19,29 +21,30 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from tools.kdp_cover.validate import ValidationIssue
 from tools.path_favorites.pin import RECENT_EXPORT_GROUP_LABEL, pin_path
-from ui_qt.dialogs.kdp_cover_export_issues_dialog import KdpExportIssuesDialog
 from ui_qt.dialogs.kdp_cover.common import (  # noqa: F401
-    _STUDIO_PAPERBACK_ID,
-    _PREVIEW_DPI,
-    _PREVIEW_ZOOM_MIN,
-    _PREVIEW_ZOOM_MAX,
-    _PREVIEW_ZOOM_STEP,
-    _PREVIEW_DEBOUNCE_MS,
-    _PREVIEW_FIT_DEBOUNCE_MS,
-    _IMAGE_FILTER,
-    _PROJECT_FILTER,
     _ELEMENT_SET_FILTER,
-    _PROJECT_SAVE_FILTER,
     _ELEMENT_SET_SAVE_FILTER,
+    _IMAGE_FILTER,
+    _PREVIEW_DEBOUNCE_MS,
+    _PREVIEW_DPI,
+    _PREVIEW_FIT_DEBOUNCE_MS,
+    _PREVIEW_ZOOM_MAX,
+    _PREVIEW_ZOOM_MIN,
+    _PREVIEW_ZOOM_STEP,
+    _PROJECT_FILTER,
+    _PROJECT_SAVE_FILTER,
     _STATUS_EXPORT_TOOLTIP,
-    _qlabel_color_ss,
+    _STUDIO_PAPERBACK_ID,
     _book_root,
-    _read_quarto_title_author,
-    _pil_to_qpixmap,
     _draw_overlays,
+    _pil_to_qpixmap,
+    _qlabel_color_ss,
+    _read_quarto_title_author,
 )
+from ui_qt.dialogs.kdp_cover_export_issues_dialog import KdpExportIssuesDialog
 
 
 class _FreeExportConfirmDialog(KdpExportIssuesDialog):

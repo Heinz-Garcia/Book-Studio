@@ -8,9 +8,16 @@ import json
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
     QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
 )
 
 from tools.cover_size.calculator import (
@@ -36,16 +43,17 @@ from tools.kdp_cover.validate import ValidationIssue, ValidationReport, validate
 from tools.kdp_specs import studio_paperback_preset
 from tools.production_uuid import normalize_uuid
 from ui_qt.dialogs.kdp_cover.common import (
-    _STUDIO_PAPERBACK_ID,
-    _PROJECT_FILTER,
     _ELEMENT_SET_FILTER,
     _ELEMENT_SET_SAVE_FILTER,
+    _PROJECT_FILTER,
+    _STATUS_EXPORT_TOOLTIP,
+    _STUDIO_PAPERBACK_ID,
     _qlabel_color_ss,
+    _read_quarto_title_author,
 )
 from ui_qt.dialogs.kdp_cover.dialogs import (
     _CloneFromTemplateDialog,
 )
-
 
 
 class LayoutIOMixin:
@@ -766,3 +774,168 @@ class LayoutIOMixin:
                     f"(UUID {result.planned.production_uuid})",
                     "success",
                 )
+
+    def _build_sticky_actions(self, left: QVBoxLayout) -> None:
+        """Feste Aktionsleiste: Speichern/Laden, Hilfslinien, Status."""
+        sticky = QFrame()
+        sticky.setObjectName("kdpCoverStickyActions")
+        sticky.setStyleSheet(
+            """
+            QFrame#kdpCoverStickyActions {
+                background: #f7f9fd;
+                border: 1px solid #c8d3ec;
+                border-radius: 8px;
+            }
+            """
+        )
+        sticky_lay = QVBoxLayout(sticky)
+        sticky_lay.setContentsMargins(10, 8, 10, 8)
+        sticky_lay.setSpacing(6)
+
+        self.show_overlays = QCheckBox(
+            "Hilfslinien (Bleed / Trim / Safe / Rückenmitte / Barcode-Zone)"
+        )
+        self.show_overlays.setChecked(True)
+        self.show_overlays.setToolTip(
+            "Zeigt u. a. die KDP-Barcode-Reserve unten rechts auf der Rückseite "
+            "(gelber Platzhalter — dort nichts Wichtiges platzieren)."
+        )
+        sticky_lay.addWidget(self.show_overlays)
+
+        # Zwei Zeilen à 3 Buttons — eine Zeile quetscht die Beschriftungen.
+        self.btn_quick_save = QPushButton("Zwischenspeichern")
+        self.btn_quick_save.setToolTip(
+            "Zwischenstand sofort speichern — ohne Pfadbestätigung und ohne "
+            "„Cover fertig?“-Abfrage.\n"
+            "Gleiche Ablage wie „Cover-Layout speichern…“ "
+            "(production/covers/<uuid>/…, optional Spiegel am Buch).\n"
+            "Ampel „Cover“ bleibt offen; Designer bleibt geöffnet.\n"
+            "Für den finalen Stand und die Ampel-Freigabe: "
+            "„Cover-Layout speichern…“."
+        )
+        self.btn_quick_save.clicked.connect(self._quick_save_project)
+        self.btn_save_project = QPushButton("Cover-Layout speichern…")
+        self.btn_save_project.setToolTip(
+            "Ganzes Cover-Projekt speichern: Maße, Papier, Seitenzahl, "
+            "Bilder (Vorder-/Rücken-/Rückseite), Texte und Production-UUID.\n"
+            "Ablage unter production/covers/<uuid>/… (optional Spiegel am Buch).\n"
+            "Fragt Pfade und danach „Cover fertig?“ "
+            "(Ja → Wrap-PDF exportieren, Ampel grün, Designer schließt).\n"
+            "Für schnelle Zwischenstände ohne Dialoge: „Zwischenspeichern“.\n"
+            "Unterschied zu „Elementset“: hier das komplette Cover, nicht nur "
+            "die Vorderseiten-Gestaltung.\n"
+            "Bei aktivem Buch mit bekannter UUID entfällt die UUID-Auswahl."
+        )
+        self.btn_save_project.clicked.connect(self._save_project)
+        self.btn_load_project = QPushButton("Cover-Layout laden…")
+        self.btn_load_project.setToolTip(
+            "Nur Cover-Layouts: *_kdp_cover.json / *_kdp_wrap_project.json "
+            "(keine Elementsets oder Validierungs-JSON)."
+        )
+        self.btn_load_project.clicked.connect(self._load_project)
+        self.btn_open_from_wrap = QPushButton("Bearbeiten aus Wrap-PDF…")
+        self.btn_open_from_wrap.setToolTip(
+            "Du hast nur die Druckdatei (Wrap-PDF)?\n"
+            "Hier wählst du die PDF — Book Studio findet die "
+            "bearbeitbare Quelle (Cover-Layout) und lädt sie hier.\n\n"
+            "Funktioniert für PDFs unter production/covers/…, am Buch "
+            "oder aus dem Deploy-Ordner (mit Hinweisdatei *.cover-link.json)."
+        )
+        self.btn_open_from_wrap.clicked.connect(self._open_from_wrap_pdf)
+        self.btn_save_elementset = QPushButton("Elementset speichern…")
+        self.btn_save_elementset.setToolTip(
+            "Nur die Vorderseiten-Gestaltung speichern: Fade, Band, Titel, "
+            "Fußzeile, Ecken-Banner, Badge — wiederverwendbar in anderen Büchern.\n"
+            "Ohne Maße, Papier, Seitenzahl, Panel-Bilder und UUID.\n"
+            "Unterschied zu „Cover-Layout“: Baustein für die Gestaltung, "
+            "kein vollständiges Cover-Projekt.\n"
+            "Vorschlag: {Buchtitel}_elementset.json."
+        )
+        self.btn_save_elementset.clicked.connect(self._save_elementset)
+        self.btn_load_elementset = QPushButton("Elementset laden…")
+        self.btn_load_elementset.setToolTip(
+            "Nur Elementsets: *_elementset.json "
+            "(keine Cover-Layouts; Maße/Bilder bleiben erhalten)."
+        )
+        self.btn_load_elementset.clicked.connect(self._load_elementset)
+        self.btn_clone_from_template = QPushButton("Cover aus Vorlage…")
+        self.btn_clone_from_template.setObjectName("kdpCoverCloneFromTemplate")
+        self.btn_clone_from_template.setToolTip(
+            "Fertiges Cover als Vorlage nehmen: neue Production-UUID "
+            "(Arbeitstitel), Texte tauschen, Layout unter "
+            "production/covers/<uuid>/… speichern und hier öffnen.\n"
+            "Gestaltung/Maße/Bilder bleiben — ideal für Serien-Covers."
+        )
+        self.btn_clone_from_template.clicked.connect(self._clone_from_template)
+        io_rows = (
+            (
+                self.btn_quick_save,
+                self.btn_save_project,
+                self.btn_load_project,
+            ),
+            (
+                self.btn_open_from_wrap,
+                self.btn_save_elementset,
+                self.btn_load_elementset,
+            ),
+            (self.btn_clone_from_template,),
+        )
+        for row_btns in io_rows:
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            if row_btns and row_btns[0] is self.btn_clone_from_template:
+                from ui_qt.widgets.handbook_info_button import (
+                    make_handbook_info_button,
+                )
+
+                info = make_handbook_info_button(
+                    self, anchor="sec-kdp-clone-cover", host=self
+                )
+                info.setToolTip("Handbuch: Cover aus Vorlage…")
+                row.addWidget(info, stretch=0)
+            for btn in row_btns:
+                btn.setMinimumHeight(28)
+                btn.setSizePolicy(
+                    QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+                )
+                row.addWidget(btn, stretch=1)
+            sticky_lay.addLayout(row)
+
+        self.project_path_label = QLabel("(kein Cover-Layout geladen)")
+        self.project_path_label.setStyleSheet("color:#64748b; font-size:11px;")
+        self.project_path_label.setWordWrap(True)
+        sticky_lay.addWidget(self.project_path_label)
+        self.elementset_path_label = QLabel("")
+        self.elementset_path_label.setStyleSheet("color:#64748b; font-size:11px;")
+        self.elementset_path_label.setWordWrap(True)
+        sticky_lay.addWidget(self.elementset_path_label)
+
+        self.status_label = QLabel("● bereit")
+        self.status_label.setWordWrap(True)
+        self.status_label.setToolTip(_STATUS_EXPORT_TOOLTIP)
+        sticky_lay.addWidget(self.status_label)
+
+        self.issues_label = QLabel("")
+        self.issues_label.setWordWrap(True)
+        self.issues_label.setStyleSheet("font-size: 12px;")
+        sticky_lay.addWidget(self.issues_label)
+        left.addWidget(sticky, stretch=0)
+
+    def _prefill_from_book(self) -> None:
+        """Titel/Autor aus _quarto.yml, Deckblatt-Bild aus img/ vorbelegen."""
+        if self._book:
+            title, author = _read_quarto_title_author(self._book)
+            if title:
+                self.title_edit.setText(title)
+            if author:
+                self.author_edit.setText(author)
+                if not self.compose_author.text().strip():
+                    self.compose_author.setText(author)
+            img_dir = self._book / "img"
+            if img_dir.is_dir():
+                candidates = sorted(img_dir.glob("Deckblatt*.png")) + sorted(
+                    img_dir.glob("Deckblatt*.jpg")
+                )
+                if candidates:
+                    self.front_edit.setText(str(candidates[0]))
+                    self.front_mode_full.setChecked(True)

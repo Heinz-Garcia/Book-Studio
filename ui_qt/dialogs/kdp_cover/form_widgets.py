@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
 from ui_qt.widgets.collapsible_section import CollapsibleSection
 
 
-
 class FormWidgetsMixin:
     """Formular-Bausteine: Tab-Gerüst, Spin-/Farb-/Font-Felder, Pipette, Asset-Auswahl."""
 

@@ -24,11 +24,10 @@ from tools.kdp_cover.model import (
     CoverLayout,
 )
 from tools.production_uuid import normalize_uuid, read_book_uuid
-from ui_qt.widgets.collapsible_section import CollapsibleSection
 from ui_qt.dialogs.kdp_cover.common import (
     _qlabel_color_ss,
 )
-
+from ui_qt.widgets.collapsible_section import CollapsibleSection
 
 
 class BindingMixin:
@@ -349,8 +348,8 @@ class BindingMixin:
         out = self._default_export_dir()
         out.mkdir(parents=True, exist_ok=True)
         try:
-            from PySide6.QtGui import QDesktopServices
             from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
 
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(out)))
         except OSError as exc:

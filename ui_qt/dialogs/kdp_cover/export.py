@@ -9,9 +9,13 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QDialog,
+    QHBoxLayout,
     QMessageBox,
     QProgressDialog,
+    QPushButton,
+    QVBoxLayout,
 )
 
 from tools.kdp_cover.constants import (
@@ -26,12 +30,11 @@ from tools.kdp_cover.model import (
 )
 from tools.kdp_cover.validate import ValidationReport, validate_layout
 from tools.production_uuid import normalize_uuid
-from ui_qt.dialogs.kdp_cover_export_issues_dialog import KdpExportIssuesDialog
 from ui_qt.dialogs.kdp_cover.dialogs import (
     _DeployFolderDialog,
     _ExportSuccessDialog,
 )
-
+from ui_qt.dialogs.kdp_cover_export_issues_dialog import KdpExportIssuesDialog
 
 
 class ExportMixin:
@@ -413,8 +416,8 @@ class ExportMixin:
     def _save_deploy_folder(self, folder: str) -> None:
         """Persist ``pdf_deploy_folder`` in app_config.json."""
         import app_config as _app_config
-        from ui_qt.book_workspace import repo_root
         from tools.mapping_manager.deploy import resolve_pdf_deploy_folder
+        from ui_qt.book_workspace import repo_root
 
         raw = str(folder or "").strip()
         if not raw:
@@ -587,3 +590,36 @@ class ExportMixin:
                 layout_path=layout_path,
                 production_uuid=production_uuid,
             )
+
+    def _build_footer(self, root: QVBoxLayout) -> None:
+        """Fußzeile: Vorschau aktualisieren, Wrap am Buch, Export, Schließen."""
+        footer = QHBoxLayout()
+        # 24px rechts frei für den SizeGrip (sonst liegt er auf PDF/Schließen).
+        footer.setContentsMargins(0, 0, 24, 0)
+        from ui_qt.widgets.handbook_info_button import prepend_handbook_info_button
+
+        prepend_handbook_info_button(footer, tool_key="kdp_cover", host=self)
+        self.btn_refresh = QPushButton("Vorschau aktualisieren")
+        self.btn_refresh.clicked.connect(self._refresh_preview)
+        footer.addWidget(self.btn_refresh)
+        self.attach_wrap_check = QCheckBox("Wrap-PDF am Buch hinterlegen")
+        self.attach_wrap_check.setChecked(bool(self._book))
+        self.attach_wrap_check.setEnabled(bool(self._book))
+        self.attach_wrap_check.setToolTip(
+            "Nach dem Export zusätzlich kanonisch unter "
+            "export/kdp_cover/{Buch}_kdp_wrap.pdf speichern und im Cover-Layout merken.\n"
+            "Nicht als Quarto-Kapitel / Innenwerk-Buchstruktur — nur KDP-Artefakt."
+        )
+        footer.addWidget(self.attach_wrap_check)
+        footer.addStretch(1)
+        self.btn_export = QPushButton("Aktuellen Stand als PDF exportieren")
+        self.btn_export.setToolTip(
+            "Wrap-PDF jetzt erzeugen — ohne „Cover fertig“ / ohne Ampel-Commit.\n"
+            "Für den nächsten Schritt (Render): Speichern → Ja (Cover wird exportiert)."
+        )
+        self.btn_export.clicked.connect(self._export_pdf)
+        footer.addWidget(self.btn_export)
+        close = QPushButton("Schließen")
+        close.clicked.connect(self.accept)
+        footer.addWidget(close)
+        root.addLayout(footer)
