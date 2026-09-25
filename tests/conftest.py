@@ -23,6 +23,32 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _editor_schliessen_ohne_rueckfrage(monkeypatch):
+    """Text-Editor fragt beim Schließen mit ungespeicherten Änderungen nach.
+
+    Viele Tests bearbeiten Text und schließen danach ohne zu speichern; die
+    echte modale Rückfrage bliebe offscreen unbeantwortet stehen und der Lauf
+    hinge. Standard im Test: „Verwerfen“. Tests der Rückfrage selbst rufen
+    die echte Methode über ``_confirm_close_unsaved_real`` auf.
+    """
+    try:
+        from ui_qt.dialogs.text_dialogs import TextEditorDialog
+    except ImportError:
+        yield
+        return
+    monkeypatch.setattr(
+        TextEditorDialog,
+        "_confirm_close_unsaved_real",
+        TextEditorDialog._confirm_close_unsaved,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        TextEditorDialog, "_confirm_close_unsaved", lambda self: True, raising=False
+    )
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _qt_fenster_abraeumen():
     """Löscht nach jedem Test die übrig gebliebenen Qt-Fenster.
 

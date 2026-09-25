@@ -7,9 +7,19 @@ import yaml
 from chapter_title_render import (
     ensure_silent_chapter_frontmatter,
     maybe_inject_chapter_title,
+    parse_frontmatter_yaml,
 )
 from heading_anchor_ascii import ensure_ascii_heading_ids
 from list_markup_fixer import repariere_listen_markup
+from recto_open import (
+    RECTO_MARKER,
+    docx_page_setup_from_reference,
+    docx_reference_for_book,
+    docx_section_break_block,
+    is_docx_format,
+    maybe_ensure_recto_open,
+    should_open_on_recto,
+)
 from table_to_definition_list import wandle_breite_tabellen
 from table_width_fixer import setze_spaltenbreiten
 
@@ -311,6 +321,17 @@ class PreProcessor:
                     f.write('\n\n')
         # -------------------------------
 
+        # DOCX-Recto: jede Einheit schliesst ihren Abschnitt am Ende (siehe
+        # recto_open). Einheiten sammeln, Abschluss erst nach Amalgamierung.
+        docx_units: list[tuple[Path, str]] = []
+        if is_docx_format(self.output_format):
+            reference = docx_reference_for_book(self.book_path)
+            self._docx_section_refs, self._docx_page_setup = (
+                docx_page_setup_from_reference(reference) if reference else ("", "")
+            )
+            if index_path.exists():
+                docx_units.append((index_path, "index.md"))
+
         # === PASS 1: jetzt No-op (B4 — Footnote-Harvesting entfernt) ===
         self._gather_all_definitions(tree_data)
 
@@ -332,7 +353,8 @@ class PreProcessor:
             is_part_node = str(root_node.get("path", "")).startswith("PART:")
 
             if is_part_node:
-                self._process_part_file(root_node)
+                part_dest = self._process_part_file(root_node)
+                docx_units.append((part_dest, str(root_node.get("path") or "")))
 
                 new_part = {
                     "title": root_node["title"],
@@ -352,6 +374,7 @@ class PreProcessor:
 
                     if chapter_node.get("children"):
                         self._amalgamate_children(chapter_node["children"], chapter_dest, offset=1)
+                    docx_units.append((chapter_dest, str(chapter_node.get("path") or "")))
 
                 processed_tree.append(new_part)
             else:
@@ -366,10 +389,38 @@ class PreProcessor:
 
                 if root_node.get("children"):
                     self._amalgamate_children(root_node["children"], chapter_dest, offset=1)
+                docx_units.append((chapter_dest, str(root_node.get("path") or "")))
+
+        self._close_docx_sections(docx_units)
 
         # B4: Endnoten-Generierung entfernt.
 
         return processed_tree
+
+    def _close_docx_sections(self, units):
+        """DOCX: Abschnittsende nach jeder Einheit (``oddPage`` = beginnt rechts).
+
+        Die letzte Einheit wird nur bei Recto abgeschlossen -- sonst schliesst
+        der End-``sectPr`` der Vorlage sie, ohne leere Schlussseite.
+        """
+        existing = [(Path(dest), rel) for dest, rel in units if dest and Path(dest).is_file()]
+        for idx, (dest, rel_path) in enumerate(existing):
+            content = dest.read_text(encoding='utf-8')
+            if RECTO_MARKER in content[-600:]:
+                continue  # schon abgeschlossen (idempotent, z. B. index.md)
+            frontmatter, _body = self._extract_parts(content)
+            recto = rel_path != "index.md" and should_open_on_recto(
+                parse_frontmatter_yaml(frontmatter), rel_path=rel_path
+            )
+            if idx == len(existing) - 1 and not recto:
+                continue
+            block = docx_section_break_block(
+                recto_start=recto,
+                page_setup_xml=getattr(self, "_docx_page_setup", ""),
+                refs_xml=getattr(self, "_docx_section_refs", ""),
+            )
+            with open(dest, 'a', encoding='utf-8') as f:
+                f.write(block)
 
     def _process_part_file(self, node):
         src = self.book_path / node["path"]
@@ -395,6 +446,15 @@ class PreProcessor:
         # 2b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround Typst-PDF-
         # Named-Destination-Bug bei Umlauten, siehe heading_anchor_ascii.py)
         body = self._ensure_heading_ids(body)
+
+        # 2c. Recto (rechte Öffnung) — vor Titel-Injection; strippt manuelle
+        # Typst-to:"odd"-Blöcke, damit nichts doppelt wird.
+        body = maybe_ensure_recto_open(
+            frontmatter,
+            body,
+            output_format=self.output_format,
+            rel_path=rel_path,
+        )
 
         # 3. Sichtbare Kapitelüberschrift nur bei Opt-in (Typst)
         body = maybe_inject_chapter_title(
@@ -440,6 +500,15 @@ class PreProcessor:
         # 2b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround Typst-PDF-
         # Named-Destination-Bug bei Umlauten, siehe heading_anchor_ascii.py)
         body = self._ensure_heading_ids(body)
+
+        # 2c. Recto (rechte Öffnung) — vor Titel-Injection; strippt manuelle
+        # Typst-to:"odd"-Blöcke, damit nichts doppelt wird.
+        body = maybe_ensure_recto_open(
+            frontmatter,
+            body,
+            output_format=self.output_format,
+            rel_path=rel_path,
+        )
 
         # 3. Sichtbare Kapitelüberschrift nur bei Opt-in (Typst)
         body = maybe_inject_chapter_title(

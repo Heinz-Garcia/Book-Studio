@@ -879,17 +879,17 @@ class AssetManagerQtDialog(QDialog):
         if not target.is_file():
             QMessageBox.warning(self, "Asset Manager", f"Datei nicht gefunden:\n{target}")
             return
-        from ui_qt.dialogs.text_dialogs import TextEditorDialog
+        from ui_qt.dialogs.text_dialogs import open_text_editor
 
-        TextEditorDialog(
+        open_text_editor(
             self,
             target,
             title=str(rel),
             book_path=self._book,
             initial_line=int(line) if line else None,
             on_save=self._reload_all,
-        ).exec()
-        self._reload_all()
+            on_finished=self._reload_all,
+        )
 
     def _open_kdp_cover(self) -> None:
         """Dünner Launcher → ``tools.kdp_cover`` / Cover-Designer-Dialog."""

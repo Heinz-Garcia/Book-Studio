@@ -241,8 +241,14 @@ def build_visible_chapter_title_injection(
 
 
 _LEADING_TYPST_PAGEBREAK = re.compile(
-    r"\A\s*(```\{=typst\}\s*\n"
+    r"\A\s*"
+    r"(?:"
+    r"<!--[^>\n]*-->\s*\n+"
+    r")?"
+    r"(```\{=typst\}\s*\n"
+    r"(?:[ \t]*//[^\n]*\n)*"
     r"[ \t]*#pagebreak(?:\([^)]*\))?[ \t]*\n"
+    r"(?:[ \t]*//[^\n]*\n)*"
     r"```\s*\n*)",
     re.MULTILINE,
 )
@@ -255,7 +261,8 @@ def split_leading_typst_pagebreaks(body: str) -> tuple[str, str]:
     sichtbaren Titel bleiben. Ein End-``#pagebreak(to: \"odd\")`` weiter
     unten im Body muss *nach* dem Titel bleiben — sonst öffnet die
     Gliederungsüberschrift unten auf der vorherigen Seite (oder hinter
-    einer Extra-Leerseite).
+    einer Extra-Leerseite). Optionaler HTML-Kommentar davor (Recto-Marker)
+    gehört zum Lead.
     """
     if not body:
         return "", ""

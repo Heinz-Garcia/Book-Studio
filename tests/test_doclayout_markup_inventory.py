@@ -149,12 +149,23 @@ class TestHerkunft:
     def test_layouts_werden_gezaehlt(self, buch: Path, bibliothek: Path) -> None:
         zeile = next(r for r in build_markup_inventory(buch, library_dir=bibliothek).rows
                      if r.name == "fachtext")
-        assert zeile.origin == "Buchtext + 2 Layouts"
+        assert "Vorlage in Layouts:" in zeile.origin
+        assert "IFJN" in zeile.origin or len(zeile.layouts) >= 1
 
     def test_einzelnes_layout_im_singular(self, buch: Path, bibliothek: Path) -> None:
         zeile = next(r for r in build_markup_inventory(buch, library_dir=bibliothek).rows
                      if r.name == "themenblock")
-        assert zeile.origin == "1 Layout"
+        assert zeile.origin.startswith("Vorlage in Layout")
+        assert zeile.layouts
+        assert zeile.layouts[0] in zeile.origin
+
+    def test_unbenutzte_quarto_builtins_fehlen_in_der_buchliste(
+        self, buch: Path, bibliothek: Path
+    ) -> None:
+        """0×-Callouts nur aus Layouts sind kein Buch-Aufräumfall."""
+        namen = {r.name for r in build_markup_inventory(buch, library_dir=bibliothek).rows}
+        assert "callout-important" not in namen
+        assert "callout-note" not in namen
 
     def test_vom_generator_gemeldet_aber_nicht_im_buch(self, buch, bibliothek) -> None:
         """Der Export kann melden, was inzwischen aus dem Buch verschwand."""
@@ -230,6 +241,142 @@ class TestGestaltungUndHandlung:
         assert zeile.styled is False
         assert zeile.todo == "Gestalten"
 
+    def test_verwerfen_remap_auf_vorfahr(self, buch: Path, tmp_path: Path) -> None:
+        """Leeres Format → auf BodyText abbilden: Gestalten weg, Skeleton gelöscht."""
+        from tools.doclayout.library import load_layout
+        from tools.doclayout.markup_inventory import (
+            ancestor_choices_for_class,
+            remap_class_to_style,
+        )
+        from tools.doclayout.schema import ParagraphStyle
+
+        bib = self._bibliothek_mit(
+            tmp_path / "bib_verwerfen",
+            {"spanisch": "Spanisch"},
+            [ParagraphStyle(style_id="Spanisch", name="Spanisch", based_on="BodyText")],
+        )
+        definition = load_layout("Solo", bib)
+        assert ancestor_choices_for_class(definition, "spanisch")[0] == "BodyText"
+
+        ok, message = remap_class_to_style(
+            "spanisch",
+            "BodyText",
+            library_dir=bib,
+            layout_names=("Solo",),
+        )
+        assert ok, message
+        assert "BodyText" in message
+
+        updated = load_layout("Solo", bib)
+        assert updated.classmap["spanisch"] == "BodyText"
+        assert "Spanisch" not in updated.styles
+
+        zeile = next(
+            r
+            for r in build_markup_inventory(buch, library_dir=bib).rows
+            if r.name == "spanisch"
+        )
+        assert zeile.todo == "Eigenes Format"
+        assert zeile.styles == ("BodyText",)
+        assert zeile.maps_to_body_ancestor is True
+
+        from tools.doclayout.markup_inventory import detach_class_to_own_style
+
+        ok2, msg2 = detach_class_to_own_style(
+            "spanisch", library_dir=bib, layout_names=("Solo",)
+        )
+        assert ok2, msg2
+        restored = load_layout("Solo", bib)
+        assert restored.classmap["spanisch"] != "BodyText"
+        assert restored.classmap["spanisch"] in restored.styles
+
+        zeile2 = next(
+            r
+            for r in build_markup_inventory(buch, library_dir=bib).rows
+            if r.name == "spanisch"
+        )
+        assert zeile2.todo == "Gestalten"
+
+    def test_remap_aendert_nichts_wenn_ziel_in_einem_layout_fehlt(
+        self, buch: Path, tmp_path: Path
+    ) -> None:
+        """Kein halber Umbau: fehlt das Ziel in Layout B, bleibt auch A unverändert."""
+        from tools.doclayout.library import load_layout
+        from tools.doclayout.markup_inventory import remap_class_to_style
+        from tools.doclayout.schema import ParagraphStyle
+
+        bib = self._bibliothek_mit(
+            tmp_path / "bib_zwei",
+            {"spanisch": "Spanisch"},
+            [
+                ParagraphStyle(style_id="Spanisch", name="Spanisch", based_on="Zitat"),
+                ParagraphStyle(style_id="Zitat", name="Zitat", based_on="BodyText"),
+            ],
+        )
+        # Layout B ohne „Zitat“
+        a = load_layout("Solo", bib)
+        styles_b = {k: v for k, v in a.styles.items() if k != "Zitat"}
+        styles_b["Spanisch"] = replace(styles_b["Spanisch"], based_on="BodyText")
+        replace(a, name="Zweit", styles=styles_b).save(bib / "Zweit.yaml")
+        vorher = (bib / "Solo.yaml").read_text(encoding="utf-8")
+
+        ok, message = remap_class_to_style(
+            "spanisch", "Zitat", library_dir=bib, layout_names=("Solo", "Zweit")
+        )
+        assert not ok
+        assert "Zweit" in message
+        assert (bib / "Solo.yaml").read_text(encoding="utf-8") == vorher
+
+    def test_remap_only_unstyled_laesst_gestaltete_layouts_in_ruhe(
+        self, buch: Path, tmp_path: Path
+    ) -> None:
+        from tools.doclayout.library import load_layout
+        from tools.doclayout.markup_inventory import remap_class_to_style
+        from tools.doclayout.schema import ParagraphStyle
+
+        bib = self._bibliothek_mit(
+            tmp_path / "bib_gestaltet",
+            {"spanisch": "Spanisch"},
+            [ParagraphStyle(style_id="Spanisch", name="Spanisch", based_on="BodyText")],
+        )
+        a = load_layout("Solo", bib)
+        gestaltet = replace(a.styles["Spanisch"], italic=True)
+        replace(a, name="Gestaltet", styles={**a.styles, "Spanisch": gestaltet}).save(
+            bib / "Gestaltet.yaml"
+        )
+        ok, message = remap_class_to_style(
+            "spanisch",
+            "BodyText",
+            library_dir=bib,
+            layout_names=("Solo", "Gestaltet"),
+            only_unstyled=True,
+        )
+        assert ok, message
+        assert load_layout("Solo", bib).classmap["spanisch"] == "BodyText"
+        assert load_layout("Gestaltet", bib).classmap["spanisch"] == "Spanisch"
+
+    def test_remap_behaelt_format_auf_dem_andere_aufbauen(
+        self, buch: Path, tmp_path: Path
+    ) -> None:
+        from tools.doclayout.library import load_layout
+        from tools.doclayout.markup_inventory import remap_class_to_style
+        from tools.doclayout.schema import ParagraphStyle
+
+        bib = self._bibliothek_mit(
+            tmp_path / "bib_erbe",
+            {"spanisch": "Spanisch"},
+            [
+                ParagraphStyle(style_id="Spanisch", name="Spanisch", based_on="BodyText"),
+                ParagraphStyle(style_id="SpanischKlein", name="SpanischKlein", based_on="Spanisch"),
+            ],
+        )
+        ok, message = remap_class_to_style(
+            "spanisch", "BodyText", library_dir=bib, layout_names=("Solo",)
+        )
+        assert ok, message
+        updated = load_layout("Solo", bib)
+        assert "Spanisch" in updated.styles  # SpanischKlein erbt davon
+
     def test_gestaltetes_format_verlangt_nichts(self, buch: Path, tmp_path: Path) -> None:
         from tools.doclayout.schema import ParagraphStyle
 
@@ -256,7 +403,17 @@ class TestGestaltungUndHandlung:
     def test_karteileiche_heisst_pruefen(self, buch: Path, bibliothek: Path) -> None:
         zeile = next(r for r in build_markup_inventory(buch, library_dir=bibliothek).rows
                      if r.name == "themenblock")
-        assert zeile.todo.startswith("Prüfen")
+        assert zeile.todo.startswith("Nur hier")
+
+    def test_lokales_ausblenden_nimmt_karteileiche_aus_liste(
+        self, buch: Path, bibliothek: Path
+    ) -> None:
+        from tools.doclayout.markup_inventory import ignore_orphan_for_book
+
+        ok, _ = ignore_orphan_for_book(buch, "themenblock")
+        assert ok
+        namen = {r.name for r in build_markup_inventory(buch, library_dir=bibliothek).rows}
+        assert "themenblock" not in namen
 
     def test_ungleiche_fassungen_desselben_formats_sind_kein_fehler(
         self, buch: Path, tmp_path: Path
@@ -408,11 +565,32 @@ class TestErbfolgeUndProbe:
         assert "Zeilenabstand" in zeile.preview.effective_appearance
         assert zeile.preview.size_pt == 11.0
         assert zeile.preview.align == "justify"
-        assert "Lorem ipsum" in zeile.preview.sample_text
+        # Erstes echtes Vorkommen statt Lorem (fachtext steht 2× im Fixture).
+        assert zeile.preview.sample_text == "Erster Text."
+        assert "Lorem ipsum" not in zeile.preview.sample_text
         assert "11 pt" in zeile.preview.layout_comment
         assert "Taschenbuch" in zeile.preview.layout_comment or "KDP" in zeile.preview.layout_comment
         # Fixture nutzt Calibri → Bewertung soll Serifen empfehlen.
         assert "Calibri" in zeile.preview.layout_comment or "Serifen" in zeile.preview.layout_comment
+
+    def test_probe_nimmt_erstes_buchvorkommen(self, buch: Path, bibliothek: Path) -> None:
+        """Bei n Vorkommen: Probe = erstes Snippet; bei 0×: Lorem."""
+        from tools.doclayout.markup_inventory import SAMPLE_LOREM, probe_sample_from_snippets
+
+        inv = build_markup_inventory(buch, library_dir=bibliothek)
+        fach = next(r for r in inv.rows if r.name == "fachtext")
+        assert fach.book_count == 2
+        assert fach.preview is not None
+        assert fach.preview.sample_text == "Erster Text."
+        assert fach.snippets[0].endswith("Erster Text.")
+
+        themen = next(r for r in inv.rows if r.name == "themenblock")
+        assert themen.book_count == 0
+        assert themen.preview is not None
+        assert themen.preview.sample_text == SAMPLE_LOREM
+
+        assert probe_sample_from_snippets(()) == SAMPLE_LOREM
+        assert probe_sample_from_snippets(("a.md: Alpha", "b.md: Beta")) == "Alpha"
 
     def test_eigenstaendiges_format_ohne_based_on(self) -> None:
         """Prompt-Trenner hat kein based_on — Erbfolge muss das sagen, nicht nur den Namen."""
@@ -507,3 +685,44 @@ def test_remove_unused_class_from_library_streicht_karteileiche(tmp_path: Path) 
     assert ok, msg
     nach = build_markup_inventory(buch, library_dir=bib)
     assert not any(r.name == "themenblock" for r in nach.rows)
+
+
+def test_ignore_orphan_for_book_persists_and_clears_todo(tmp_path: Path) -> None:
+    from tools.doclayout.markup_inventory import (
+        build_markup_inventory,
+        ignore_orphan_for_book,
+        load_ignored_orphans,
+    )
+    from tools.doclayout.schema import LayoutDefinition, ParagraphStyle
+
+    bib = tmp_path / "bib"
+    bib.mkdir()
+    LayoutDefinition(
+        name="Solo",
+        label="Solo",
+        styles={
+            "BodyText": ParagraphStyle(style_id="BodyText", name="Body Text"),
+            "Alt": ParagraphStyle(style_id="Alt", name="Alt", bold=True),
+        },
+        classmap={"altklasse": "Alt"},
+    ).save(bib / "Solo.yaml")
+
+    buch = tmp_path / "Buch"
+    buch.mkdir()
+    (buch / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    (buch / "index.md").write_text("# Hi\n", encoding="utf-8")
+
+    vor = build_markup_inventory(buch, library_dir=bib)
+    alt = next(r for r in vor.rows if r.name == "altklasse")
+    assert alt.todo.startswith("Nur hier")
+
+    ok, msg = ignore_orphan_for_book(buch, "altklasse")
+    assert ok, msg
+    assert "altklasse" in load_ignored_orphans(buch)
+
+    nach = build_markup_inventory(buch, library_dir=bib)
+    assert not any(r.name == "altklasse" for r in nach.rows)
+    # Bibliothek unverändert: Klasse steht weiter im Layout.
+    from tools.doclayout.library import load_layout
+
+    assert "altklasse" in load_layout("Solo", bib).classmap

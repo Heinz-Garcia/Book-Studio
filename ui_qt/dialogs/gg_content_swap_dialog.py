@@ -723,7 +723,7 @@ class GgContentSwapQtDialog(QDialog):
         if not path.is_file():
             QMessageBox.warning(self, "GG-Swap", f"Datei nicht gefunden:\n{path}")
             return
-        from ui_qt.dialogs.text_dialogs import TextEditorDialog
+        from ui_qt.dialogs.text_dialogs import open_text_editor
 
         book = self._book_path()
 
@@ -737,13 +737,13 @@ class GgContentSwapQtDialog(QDialog):
                 return
             self._scan()
 
-        TextEditorDialog(
+        open_text_editor(
             self,
             path,
             title=title,
             book_path=book,
             on_save=_after_save if book else None,
-        ).exec()
+        )
 
     def _on_table_double_clicked(self, row: int, _column: int) -> None:
         if row < 0 or row >= len(self._plan):

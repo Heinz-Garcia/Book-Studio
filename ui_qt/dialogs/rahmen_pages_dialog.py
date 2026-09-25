@@ -182,7 +182,7 @@ class RahmenPagesDialog(QDialog):
                 f"Datei fehlt:\n{abs_path}\n\nSkeleton übernehmen oder Datei anlegen.",
             )
             return
-        from ui_qt.dialogs.text_dialogs import TextEditorDialog
+        from ui_qt.dialogs.text_dialogs import open_text_editor
 
         def _after_save() -> None:
             self.reload()
@@ -192,19 +192,22 @@ class RahmenPagesDialog(QDialog):
                 except Exception:  # noqa: BLE001 — UI-Refresh darf Editor nicht stören
                     pass
 
-        TextEditorDialog(
+        def _after_close() -> None:
+            self.reload()
+            if self._on_changed is not None:
+                try:
+                    self._on_changed()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        open_text_editor(
             self,
             abs_path,
             title="Rahmen bearbeiten",
             book_path=self._book,
             on_save=_after_save,
-        ).exec()
-        self.reload()
-        if self._on_changed is not None:
-            try:
-                self._on_changed()
-            except Exception:  # noqa: BLE001
-                pass
+            on_finished=_after_close,
+        )
 
     def _run_populate(self) -> None:
         if self._on_populate is None:

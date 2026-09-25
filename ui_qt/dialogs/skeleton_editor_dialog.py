@@ -40,6 +40,7 @@ from tools.skeleton.manifest import (
     delete_profile,
     duplicate_profile,
     find_orphaned_files,
+    is_content_skeleton_entry,
     list_profiles,
     load_manifest,
     replace_manifest_entries,
@@ -58,7 +59,7 @@ from ui_qt.autonomous_window import (
 )
 from ui_qt.book_workspace import repo_root
 from ui_qt.dialogs.skeleton_orphan_files_dialog import OrphanFilesDialog
-from ui_qt.dialogs.text_dialogs import TextEditorDialog
+from ui_qt.dialogs.text_dialogs import open_text_editor
 from ui_qt.widgets.help_bar import HelpBar
 
 _LOG = logging.getLogger(__name__)
@@ -218,6 +219,27 @@ class SkeletonEditorQtDialog(QDialog):
         left_title = QLabel("🗂️  Vorlagen")
         left_title.setObjectName("skeletonEditorSectionTitle")
         left_l.addWidget(left_title)
+
+        filter_row = QHBoxLayout()
+        self._filter_edit = QLineEdit()
+        self._filter_edit.setPlaceholderText(
+            "Filtern: Titel, Datei, order, Pflicht/Optional…"
+        )
+        self._filter_edit.setClearButtonEnabled(True)
+        self._filter_edit.setMinimumWidth(220)
+        self._filter_edit.textChanged.connect(self._on_filter_changed)
+        filter_row.addWidget(self._filter_edit, stretch=1)
+        self._filter_status = QComboBox()
+        self._filter_status.addItem("Alle", "")
+        self._filter_status.addItem("🔒 Pflicht", "required")
+        self._filter_status.addItem("○ Optional", "optional")
+        self._filter_status.setToolTip("Nach Pflicht-/Optional-Status filtern.")
+        self._filter_status.currentIndexChanged.connect(self._on_filter_changed)
+        filter_row.addWidget(self._filter_status)
+        left_l.addLayout(filter_row)
+        self._filter_count = QLabel("")
+        self._filter_count.setStyleSheet("color:#5b6573;")
+        left_l.addWidget(self._filter_count)
 
         self._file_tree = QTreeWidget()
         self._file_tree.setHeaderLabels(["Titel", "order", "Status", "Datei"])
@@ -566,6 +588,47 @@ class SkeletonEditorQtDialog(QDialog):
             return None
         return frontmatter_parser.parse(content).parse_error
 
+    def _on_filter_changed(self, *_args: object) -> None:
+        selected = self._selected_index
+        self._populate_file_list()
+        self._select_row(selected)
+        if self._selected_index is None:
+            self._clear_editor()
+        elif not self._is_entry_listed(self._selected_index) and not (
+            self._editor_dirty or self._meta_dirty
+        ):
+            # Ausgefiltert und nichts ungespeichert: Editor wie bisher leeren.
+            # Mit ungespeicherten Änderungen bleibt er stehen (kein stiller Verlust).
+            self._selected_index = None  # leeres Formular darf nichts überschreiben
+            self._clear_editor()
+
+    def _entry_matches_filter(self, entry: SkeletonFileEntry) -> bool:
+        # Satz-/Engine-Assets nie in der Vorlagenliste (Konzept: nur Inhalte).
+        if not is_content_skeleton_entry(entry):
+            return False
+        status_want = ""
+        if hasattr(self, "_filter_status"):
+            status_want = str(self._filter_status.currentData() or "")
+        if status_want == "required" and not entry.required:
+            return False
+        if status_want == "optional" and entry.required:
+            return False
+        needle = ""
+        if hasattr(self, "_filter_edit"):
+            needle = self._filter_edit.text().strip().lower()
+        if not needle:
+            return True
+        blob = " ".join(
+            [
+                entry.title or "",
+                entry.path or "",
+                Path(entry.path).name if entry.path else "",
+                entry.order or "",
+                "pflicht" if entry.required else "optional",
+            ]
+        ).lower()
+        return needle in blob
+
     def _populate_file_list(self) -> None:
         # Qt kann beim ersten `addTopLevelItem()` nach `clear()` implizit Zeile 0
         # selektieren und dabei `currentItemChanged` auslösen. Ohne diese Sperre
@@ -581,8 +644,12 @@ class SkeletonEditorQtDialog(QDialog):
                 key=lambda i: self._order_sort_key(self._entries[i].order),
                 reverse=not self._order_sort_ascending,
             )
+        shown = 0
         for idx in indices:
             entry = self._entries[idx]
+            if not self._entry_matches_filter(entry):
+                continue
+            shown += 1
             status = "🔒 Pflicht" if entry.required else "○ Optional"
             filename = Path(entry.path).name
             parse_error = self._frontmatter_parse_error_for(entry.path)
@@ -609,6 +676,14 @@ class SkeletonEditorQtDialog(QDialog):
             for col in range(1, 4):
                 item.setToolTip(col, tip)
             self._file_tree.addTopLevelItem(item)
+        total = sum(1 for e in self._entries if is_content_skeleton_entry(e))
+        if hasattr(self, "_filter_count"):
+            if shown == total:
+                self._filter_count.setText(f"{total} Inhalts-Vorlagen")
+            else:
+                self._filter_count.setText(
+                    f"{shown} von {total} Inhalts-Vorlagen (Filter)"
+                )
         self._loading = was_loading
 
     def _select_row(self, entry_idx: Optional[int]) -> None:
@@ -625,8 +700,19 @@ class SkeletonEditorQtDialog(QDialog):
                     self._loading = False
                     self._selected_index = entry_idx
                     return
+            # Eintrag existiert, ist nur ausgefiltert: Formular gehört weiter
+            # ihm (sonst wären ungespeicherte Änderungen nicht mehr speicherbar).
+            self._file_tree.clearSelection()
+            self._selected_index = entry_idx
+            return
         self._file_tree.clearSelection()
         self._selected_index = None
+
+    def _is_entry_listed(self, entry_idx: int) -> bool:
+        return any(
+            self._file_tree.topLevelItem(row).data(0, _ROLE_INDEX) == entry_idx
+            for row in range(self._file_tree.topLevelItemCount())
+        )
 
     def _clear_editor(self) -> None:
         self._loading = True
@@ -775,11 +861,33 @@ class SkeletonEditorQtDialog(QDialog):
                 != QMessageBox.StandardButton.Yes
             ):
                 return
-        TextEditorDialog(self, path, title="Markdown-Editor").exec()
-        idx = self._selected_index
-        if idx is not None and self._sync_entry_from_file(idx):
-            self._refresh_after_file_sync(idx)
-        self._reload_selected_from_disk()
+
+        # Der Editor ist nicht-modal: bis er schließt, kann hier eine andere
+        # Vorlage gewählt oder das Fenster schon zu sein. Deshalb die beim
+        # Öffnen bearbeitete Vorlage merken und nur diese synchronisieren.
+        edited_idx = self._selected_index
+
+        def _after_editor() -> None:
+            try:
+                still_selected = self._selected_index == edited_idx
+                if edited_idx is not None and self._sync_entry_from_file(edited_idx):
+                    if still_selected:
+                        self._refresh_after_file_sync(edited_idx)
+                    else:
+                        current = self._selected_index
+                        self._populate_file_list()  # nur Liste; Formular gehört current
+                        self._select_row(current)  # hält auch ausgefilterte Auswahl
+                if still_selected and not (self._editor_dirty or self._meta_dirty):
+                    self._reload_selected_from_disk()
+            except RuntimeError:  # Skeleton-Fenster bereits zerstört
+                pass
+
+        open_text_editor(
+            self,
+            path,
+            title="Markdown-Editor",
+            on_finished=_after_editor,
+        )
 
     def _reload_selected_from_disk(self) -> None:
         path = self._selected_skeleton_file()
@@ -996,12 +1104,24 @@ class SkeletonEditorQtDialog(QDialog):
                 description=self._manifest.description,
             )
             self._entries = list(self._manifest.files)
+            # Filter kurz zurücksetzen, damit die neue Vorlage sichtbar ist.
+            if hasattr(self, "_filter_edit"):
+                self._filter_edit.blockSignals(True)
+                self._filter_edit.clear()
+                self._filter_edit.blockSignals(False)
+            if hasattr(self, "_filter_status"):
+                self._filter_status.blockSignals(True)
+                self._filter_status.setCurrentIndex(0)
+                self._filter_status.blockSignals(False)
             self._populate_file_list()
-            # Nach _populate_file_list (ruft clear() auf) ist current=None →
-            # setCurrentItem löst currentItemChanged aus und lädt den Eintrag.
-            last = self._file_tree.topLevelItem(len(self._entries) - 1)
-            if last is not None:
-                self._file_tree.setCurrentItem(last)
+            # Auswahl über Manifest-Index; setCurrentItem lädt den Editor
+            # (nicht _select_row — das sperrt currentItemChanged kurz).
+            new_idx = len(self._entries) - 1
+            for row in range(self._file_tree.topLevelItemCount()):
+                item = self._file_tree.topLevelItem(row)
+                if item is not None and item.data(0, _ROLE_INDEX) == new_idx:
+                    self._file_tree.setCurrentItem(item)
+                    break
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Skeleton", str(exc))
 

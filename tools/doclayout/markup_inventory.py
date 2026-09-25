@@ -24,10 +24,10 @@ GUI-frei (siehe ``.doc/gui_architektur.md``).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from tools.doclayout.registry import build_registry, load_library_definitions
 from tools.doclayout.schema import LayoutDefinition, LayoutError, ParagraphStyle
@@ -98,11 +98,34 @@ _APPLIED_LAYOUT_PREFIX = "-- Layout:"
 #: Steht dort, wenn das Format zwar existiert, aber nichts gestaltet.
 OHNE_GESTALTUNG = "keine eigene Gestaltung"
 
+#: Pandoc-/Word-Basisformate: erlaubte Remap-Ziele und „direkt auf Fließtext“.
+_ALLOWED_EXTERNAL_TARGETS = frozenset({"Normal", "BodyText", "FirstParagraph"})
+
 #: Kurzer Probeabsatz fuer die Inventar-Vorschau.
 SAMPLE_LOREM = (
     "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
     "Sed do eiusmod tempor incididunt ut labore."
 )
+
+
+def snippet_body(snippet: str) -> str:
+    """Textanteil einer Buchprobe ohne ``pfad: ``-Praefix."""
+    text = (snippet or "").strip()
+    if ": " in text:
+        return text.split(": ", 1)[1].strip()
+    return text
+
+
+def probe_sample_from_snippets(snippets: tuple[str, ...]) -> str:
+    """Erstes echtes Vorkommen im Buch; sonst Lorem-Platzhalter.
+
+    Bei genau einem Treffer und bei mehreren: immer das erste. Lorem bleibt
+    nur, wenn die Klasse im Manuskript gar nicht vorkommt (0× / Karteileiche).
+    """
+    if not snippets:
+        return SAMPLE_LOREM
+    text = snippet_body(snippets[0])
+    return text or SAMPLE_LOREM
 
 
 @dataclass(frozen=True)
@@ -419,6 +442,9 @@ class MarkupRow:
     preview: Optional[StylePreview] = None
     #: Kurze Textproben aus dem Buch (Tooltip) -- leer ohne Fundstellen.
     snippets: tuple[str, ...] = ()
+    #: Nutzer hat die Karteileiche nur für **dieses** Buch ausgeblendet
+    #: (Layout-Bibliothek unverändert; andere Bücher behalten die Vorlage).
+    ignored_locally: bool = False
 
     @property
     def has_template(self) -> bool:
@@ -447,9 +473,20 @@ class MarkupRow:
         if self.from_generator:
             teile.append("Import-Meldung")
         if self.layouts:
-            anzahl = len(self.layouts)
-            teile.append("1 Layout" if anzahl == 1 else f"{anzahl} Layouts")
+            # Namen nennen — „2 Layout-Profile“ ohne Namen ist undeutlich.
+            namen = ", ".join(self.layouts)
+            if len(self.layouts) == 1:
+                teile.append(f"Vorlage in Layout „{namen}“")
+            else:
+                teile.append(f"Vorlage in Layouts: {namen}")
         return " + ".join(teile) if teile else "unbekannt"
+
+    @property
+    def maps_to_body_ancestor(self) -> bool:
+        """Klasse zeigt direkt auf Fließtext-/Basisformat (nach Verwerfen typisch)."""
+        if not self.styles:
+            return False
+        return all(s in _ALLOWED_EXTERNAL_TARGETS for s in self.styles)
 
     @property
     def verdict(self) -> Verdict:
@@ -467,18 +504,30 @@ class MarkupRow:
         Vorlage existiert, traegt aber nichts -- so entstehen frisch angelegte
         Formate ("erben von BodyText und sonst nichts"). Im Satz bleibt der
         Abschnitt dann Fliesstext, obwohl die Tabelle "ok" meldet.
+
+        ``Eigenes Format`` ist die Umkehrung von Verwerfen: Klasse zeigt auf
+        BodyText/Normal -- angeboten, nicht erzwungen.
         """
         befund = self.verdict
         if befund is Verdict.OHNE_VORLAGE:
             return "Format anlegen"
         if befund is Verdict.KARTEILEICHE:
-            return "Prüfen: streichen?"
+            if self.ignored_locally:
+                return ""
+            # Anzeige-/Sortiertext; die Spalte zeigt zwei getrennte Knöpfe.
+            return "Nur hier · Überall"
         if self.appearance == UNEINHEITLICH and (
             self.in_book or self.from_generator
         ):
             return "Vorlage vereinheitlichen"
         if befund is Verdict.OK and self.styled is False:
             return "Gestalten"
+        if (
+            befund is Verdict.OK
+            and self.maps_to_body_ancestor
+            and (self.in_book or self.from_generator)
+        ):
+            return "Eigenes Format"
         return ""
 
     @property
@@ -751,12 +800,19 @@ def build_markup_inventory(
     except OSError:
         textproben = {}
 
+    ausgeblendet = load_ignored_orphans(root)
+
     namen = set(gueltig) | set(generator_counts) | set(klassen)
     rows: list[MarkupRow] = []
     for name in namen:
         benutzung: Optional[ClassUsage] = gueltig.get(name)
         eintrag = klassen.get(name, {})
         gestaltet, beschreibung, vorschau = aussehen.get(name, (None, "", None))
+        proben = textproben.get(name, ())
+        if vorschau is not None and proben:
+            vorschau = replace(
+                vorschau, sample_text=probe_sample_from_snippets(proben)
+            )
         rows.append(
             MarkupRow(
                 name=name,
@@ -779,9 +835,20 @@ def build_markup_inventory(
                 styled=gestaltet,
                 appearance=beschreibung,
                 preview=vorschau,
-                snippets=textproben.get(name, ()),
+                snippets=proben,
+                ignored_locally=name in ausgeblendet,
             )
         )
+    # „Nur hier“: Karteileiche aus der Liste dieses Buchs nehmen — sonst bleibt
+    # der Befund stehen und wirkt, als hätte der Knopf nichts getan.
+    # Quarto-Builtins nur in Layouts, 0× im Text: kein Buch-Problem — Anzeige
+    # würde fälschlich nach „Löschen aus dem Buch“ schreien.
+    rows = [
+        r
+        for r in rows
+        if not (r.ignored_locally and r.verdict is Verdict.KARTEILEICHE)
+        and not (r.is_builtin and r.book_count == 0 and not r.from_generator)
+    ]
     rows.sort(key=lambda r: (_VERDICT_ORDER[r.verdict], -r.book_count, r.name))
     return MarkupInventory(
         rows=tuple(rows),
@@ -789,6 +856,65 @@ def build_markup_inventory(
         library=str(registry.get("library", "")),
         generator_source=gemeldet.source if gemeldet else "",
     )
+
+
+_IGNORED_ORPHANS_FILENAME = "ignored_orphans.json"
+
+
+def ignored_orphans_path(book_path: Path | str) -> Path:
+    """Buchlokale Liste ausgeblendeter Karteileichen."""
+    from tools.doclayout.library import BOOK_SUBDIR
+
+    return Path(book_path) / BOOK_SUBDIR / _IGNORED_ORPHANS_FILENAME
+
+
+def load_ignored_orphans(book_path: Path | str) -> frozenset[str]:
+    """Klassen, die der Nutzer nur für dieses Buch ausgeblendet hat."""
+    path = ignored_orphans_path(book_path)
+    if not path.is_file():
+        return frozenset()
+    try:
+        import json
+
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return frozenset()
+    if not isinstance(raw, list):
+        return frozenset()
+    namen = {
+        str(item).lstrip(".").strip()
+        for item in raw
+        if str(item).lstrip(".").strip()
+    }
+    return frozenset(namen)
+
+
+def ignore_orphan_for_book(book_path: Path | str, class_name: str) -> tuple[bool, str]:
+    """Karteileiche nur für dieses Buch aus der Inventar-Liste nehmen.
+
+    Layout-Bibliothek bleibt unverändert (andere Bücher behalten die Vorlage).
+    Die Klasse erscheint in diesem Buch nicht mehr als Karteileiche, bis sie
+    wieder im Text vorkommt.
+    """
+    import json
+
+    name = str(class_name or "").lstrip(".").strip()
+    if not name:
+        return False, "Kein Klassenname."
+    path = ignored_orphans_path(book_path)
+    known = set(load_ignored_orphans(book_path))
+    if name in known:
+        return True, f".{name} war für dieses Buch schon ausgeblendet."
+    known.add(name)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(sorted(known), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        return False, f"Konnte Ausblend-Liste nicht speichern: {exc}"
+    return True, f".{name} aus der Liste dieses Buchs entfernt (Bibliothek unverändert)."
 
 
 def remove_unused_class_from_library(
@@ -864,6 +990,225 @@ def remove_unused_class_from_library(
     return True, f".{name} aus Layout(s) entfernt: {liste}."
 
 
+def ancestor_choices_for_class(
+    definition: LayoutDefinition, class_name: str
+) -> tuple[str, ...]:
+    """Vorfahren des Klassen-Formats — ohne das Format selbst.
+
+    Reihenfolge: naechster ``based_on`` zuerst, dann weiter zur Wurzel.
+    Fehlt die Klasse oder hat sie keinen Vorfahren, bleibt die Liste leer
+    (der Dialog kann dann ``BodyText`` nachreichen, falls vorhanden).
+    """
+    name = str(class_name or "").lstrip(".").strip()
+    style_id = (definition.classmap or {}).get(name)
+    if not style_id:
+        return ()
+    kette = definition.inheritance_chain(str(style_id))
+    if len(kette) < 2:
+        return ()
+    # kette[0] = aktuelles Format; Rest = Vorfahren (naechster zuerst).
+    return tuple(kette[1:])
+
+
+def remap_class_to_style(
+    class_name: str,
+    target_style_id: str,
+    *,
+    library_dir: Optional[Path | str] = None,
+    layout_names: Optional[tuple[str, ...]] = None,
+    only_unstyled: bool = False,
+) -> tuple[bool, str]:
+    """Bildet eine Klasse auf ein anderes Absatzformat ab (Vorfahr-Verwerfen).
+
+    Setzt ``classmap[klasse] = ziel``. Das bisherige Absatzformat wird geloescht,
+    wenn danach keine Klasse mehr darauf zeigt **und** es keine eigene
+    Gestaltung trug (leeres Skeleton nach „Format anlegen“).
+    ``only_unstyled``: Layouts, in denen das bisherige Format gestaltet ist,
+    bleiben unangetastet (Verwerfen darf keine echte Gestaltung abhaengen).
+
+    Rueckgabe: ``(ok, Meldung)``.
+    """
+    from tools.doclayout.library import LIBRARY_DIR, available_layouts, load_layout
+    from tools.doclayout.origins import is_standard
+    from tools.doclayout.registry import write_registry
+    from tools.doclayout.schema import LayoutError
+
+    name = str(class_name or "").lstrip(".").strip()
+    ziel = str(target_style_id or "").strip()
+    if not name:
+        return False, "Kein Klassenname."
+    if not ziel:
+        return False, "Kein Zielformat."
+
+    root = Path(library_dir) if library_dir else LIBRARY_DIR
+    targets = list(layout_names) if layout_names else [
+        path.stem for path in available_layouts(root)
+    ]
+    if not targets:
+        return False, "Keine Layouts in der Bibliothek."
+
+    # Phase 1: alle Layouts pruefen und vorbereiten -- erst wenn das Ziel
+    # ueberall gueltig ist, wird gespeichert (sonst halb umgebaute Bibliothek).
+    vorbereitet: list[tuple[str, Any]] = []
+    for layout_name in targets:
+        try:
+            definition = load_layout(layout_name, root)
+        except (LayoutError, OSError):
+            continue
+        if name not in definition.classmap:
+            continue
+        alt = definition.classmap.get(name)
+        if alt == ziel:
+            continue
+        if (
+            only_unstyled
+            and alt in definition.styles
+            and describe_paragraph_style(definition.styles[alt]) != OHNE_GESTALTUNG
+        ):
+            continue
+        # Ziel muss im Layout stehen oder eine bekannte Pandoc-/Word-Basis sein.
+        if (
+            ziel not in definition.styles
+            and ziel not in _ALLOWED_EXTERNAL_TARGETS
+            and not is_standard(ziel)
+        ):
+            return (
+                False,
+                f"Zielformat „{ziel}“ fehlt in Layout „{layout_name}“ — "
+                "nichts geändert.",
+            )
+        classmap = dict(definition.classmap)
+        classmap[name] = ziel
+        styles = dict(definition.styles)
+        if alt and alt not in classmap.values() and alt in styles:
+            alt_style = styles[alt]
+            # Nur loeschen, wenn kein anderes Format darauf aufbaut/verweist.
+            referenziert = any(
+                other_id != alt and alt in (other.based_on, other.next_style)
+                for other_id, other in styles.items()
+            )
+            if not referenziert and describe_paragraph_style(alt_style) == OHNE_GESTALTUNG:
+                styles.pop(alt, None)
+        vorbereitet.append(
+            (layout_name, replace(definition, classmap=classmap, styles=styles))
+        )
+
+    # Phase 2: speichern.
+    geaendert: list[str] = []
+    for layout_name, updated in vorbereitet:
+        try:
+            for suffix in (".yaml", ".yml"):
+                path = root / f"{layout_name}{suffix}"
+                if path.is_file():
+                    updated.save(path)
+                    break
+            else:
+                updated.save(root / f"{layout_name}.yaml")
+        except (OSError, LayoutError) as exc:
+            if geaendert:
+                try:
+                    write_registry(root)  # Registry passend zu den schon gespeicherten
+                except OSError:
+                    pass
+            return False, f"Layout „{layout_name}“ nicht speicherbar: {exc}"
+        geaendert.append(layout_name)
+
+    if not geaendert:
+        return False, f".{name} steht in keinem der genannten Layouts (oder schon auf „{ziel}“)."
+
+    try:
+        write_registry(root)
+    except OSError:
+        pass
+    liste = ", ".join(geaendert)
+    return True, f".{name} → {ziel} in Layout(s): {liste}."
+
+
+def detach_class_to_own_style(
+    class_name: str,
+    *,
+    library_dir: Optional[Path | str] = None,
+    layout_names: Optional[tuple[str, ...]] = None,
+) -> tuple[bool, str]:
+    """Umkehrung von Verwerfen: eigenes (leeres) Format vom aktuellen Ziel abspalten.
+
+    Typisch nach ``remap`` auf BodyText: neues Absatzformat mit ``based_on`` =
+    bisherigem Ziel, Classmap zeigt darauf. Danach meldet das Inventar wieder
+    ``Gestalten``.
+    """
+    from tools.doclayout.library import LIBRARY_DIR, available_layouts, load_layout
+    from tools.doclayout.registry import write_registry
+    from tools.doclayout.schema import LayoutError, ParagraphStyle
+    from tools.doclayout.usage import suggested_style_id
+
+    name = str(class_name or "").lstrip(".").strip()
+    if not name:
+        return False, "Kein Klassenname."
+
+    root = Path(library_dir) if library_dir else LIBRARY_DIR
+    targets = list(layout_names) if layout_names else [
+        path.stem for path in available_layouts(root)
+    ]
+    if not targets:
+        return False, "Keine Layouts in der Bibliothek."
+
+    geaendert: list[str] = []
+    neues: list[str] = []
+    for layout_name in targets:
+        try:
+            definition = load_layout(layout_name, root)
+        except (LayoutError, OSError):
+            continue
+        if name not in definition.classmap:
+            continue
+        aktuell = str(definition.classmap[name])
+        if aktuell not in _ALLOWED_EXTERNAL_TARGETS:
+            # Schon eigenes Format — nichts zu tun in diesem Layout.
+            continue
+        style_id = suggested_style_id(name, definition.styles)
+        definition = definition.with_style(
+            ParagraphStyle(
+                style_id=style_id,
+                name=style_id,
+                based_on=aktuell if aktuell in definition.styles else "BodyText",
+            )
+        )
+        classmap = dict(definition.classmap)
+        classmap[name] = style_id
+        updated = replace(definition, classmap=classmap)
+        try:
+            for suffix in (".yaml", ".yml"):
+                path = root / f"{layout_name}{suffix}"
+                if path.is_file():
+                    updated.save(path)
+                    break
+            else:
+                updated.save(root / f"{layout_name}.yaml")
+        except (OSError, LayoutError) as exc:
+            return False, f"Layout „{layout_name}“ nicht speicherbar: {exc}"
+        geaendert.append(layout_name)
+        neues.append(style_id)
+
+    if not geaendert:
+        return (
+            False,
+            f".{name} zeigt in keinem Layout auf BodyText/Normal "
+            f"(oder Layout fehlt).",
+        )
+
+    try:
+        write_registry(root)
+    except OSError:
+        pass
+    liste = ", ".join(geaendert)
+    format_hinweis = neues[0] if len(set(neues)) == 1 else "/".join(neues)
+    return (
+        True,
+        f".{name} → neues Format „{format_hinweis}“ in Layout(s): {liste}. "
+        f"Als Nächstes: Gestalten.",
+    )
+
+
 __all__ = [
     "OHNE_GESTALTUNG",
     "SAMPLE_LOREM",
@@ -872,10 +1217,18 @@ __all__ = [
     "MarkupRow",
     "StylePreview",
     "Verdict",
+    "ancestor_choices_for_class",
     "applied_layout_name",
     "assess_layout_comment",
     "build_markup_inventory",
+    "detach_class_to_own_style",
+    "probe_sample_from_snippets",
+    "snippet_body",
     "describe_paragraph_style",
     "format_inheritance_label",
+    "ignore_orphan_for_book",
+    "ignored_orphans_path",
+    "load_ignored_orphans",
+    "remap_class_to_style",
     "remove_unused_class_from_library",
 ]

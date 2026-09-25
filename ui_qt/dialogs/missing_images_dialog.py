@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
 )
 
 from markdown_asset_scanner import find_missing_image_refs
-from ui_qt.dialogs.text_dialogs import TextEditorDialog
 
 
 def reveal_path_in_explorer(path: Path) -> None:
@@ -85,7 +84,18 @@ class MissingImagesDialog(QDialog):
         if not self._abs_path.is_file():
             QMessageBox.warning(self, "Fehlende Bilder", f"Datei nicht gefunden:\n{self._abs_path}")
             return
-        TextEditorDialog(self, self._abs_path, title=f"Editor — {self._abs_path.name}").exec()
+        from ui_qt.dialogs.text_dialogs import open_text_editor
+
+        row = self._list.currentRow()
+        line_no = self._refs[row][0] if 0 <= row < len(self._refs) else None
+        # Host = Aufrufer der Liste, nicht die Liste: Schließt man die Liste,
+        # soll der Editor offen bleiben.
+        open_text_editor(
+            getattr(self, "_host", None),
+            self._abs_path,
+            title=f"Editor — {self._abs_path.name}",
+            initial_line=line_no,
+        )
 
 
 def show_missing_images_for_path(parent: Optional[QWidget], book: Path, rel_path: str) -> None:
@@ -107,9 +117,18 @@ def show_missing_images_for_path(parent: Optional[QWidget], book: Path, rel_path
     if not missing:
         QMessageBox.information(parent, "Fehlende Bilder", "Keine fehlenden Bildreferenzen gefunden.")
         return
-    MissingImagesDialog(
-        parent,
+    # Nicht-modal: der daraus geöffnete Editor ist ebenfalls nicht-modal und
+    # bekäme neben einem .exec()-Dialog keine Eingaben.
+    from ui_qt.autonomous_window import prepare_autonomous_window, show_autonomous_window
+
+    dlg = MissingImagesDialog(
+        None,
         file_path=rel_path,
         abs_path=abs_path,
         missing_refs=missing,
-    ).exec()
+    )
+    prepare_autonomous_window(dlg, parent)
+    show_autonomous_window(dlg, _active_missing_images)
+
+
+_active_missing_images: list[MissingImagesDialog] = []

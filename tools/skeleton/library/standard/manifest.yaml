@@ -15,17 +15,14 @@ files:
   title: Widmung
   order: '4'
   required: false
-  description: Widmung
 - path: content/Impressum.md
   title: Impressum
   order: '6'
   required: true
-  description: Impressum
 - path: content/IVZ.md
   title: Inhaltsverzeichnis
   order: '8'
   required: true
-  description: Inhaltsverzeichnis
 - path: content/Danksagung.md
   title: Danksagung
   order: '60'
@@ -34,7 +31,6 @@ files:
   title: Einleitung
   order: '15'
   required: true
-  description: Einleitung
 - path: content/These.md
   title: These
   order: '70'
@@ -43,12 +39,10 @@ files:
   title: Glossar
   order: END-35
   required: false
-  description: Glossar
 - path: content/UeberAutor.md
   title: Über den Autor
   order: END-25
   required: true
-  description: Über den Autor
 - path: content/Klappentext_hinten.md
   title: Klappentext (hinten)
   order: END-20
@@ -60,8 +54,8 @@ files:
 - path: content/Gliederungspunkt.md
   title: Gliederungspunkt (Beispiel)
   required: false
-  description: Vorlage mit content_role outline (Icon 🧭). Optional zuschalten
-    oder in der GUI unter Bearbeiten → Gliederungspunkt anlegen…
+  description: Vorlage mit content_role outline (Icon 🧭). Optional zuschalten oder
+    in der GUI unter Bearbeiten → Gliederungspunkt anlegen…
 - path: content/Template.md
   title: Vorlagen-Referenz
   required: false
@@ -70,9 +64,9 @@ files:
   title: Typst-Titelblock unterdrücken
   required: true
   include_in_tree: false
-  description: Unterdrueckt Quarto-YAML-Kapitelueberschriften standardmaessig;
-    sichtbare Titel nur per print_title / Editor-Toggle H1. Enthaelt ausserdem
-    den article()-Renderer statt orange-book.
+  description: Unterdrueckt Quarto-YAML-Kapitelueberschriften standardmaessig; sichtbare
+    Titel nur per print_title / Editor-Toggle H1. Enthaelt ausserdem den article()-Renderer
+    statt orange-book.
 - path: page.typ
   title: Typst-Seitenformat (Custom-Trimm)
   required: true
@@ -92,44 +86,19 @@ files:
   title: Haupttitel
   order: '5'
   required: true
-- path: content/Vakanz.md
-  title: IVZ Ende / Vakanz
-  order: '9'
-  required: true
-  description: Vakanz
 - path: content/Vorwort.md
   title: Vorwort
   order: '20'
-  required: true
-- path: content/Vakanz_2.md
-  title: Vakanz_2
-  order: '7'
-  required: false
-- path: content/Vakanz_3.md
-  title: Vakanz_3
-  order: '12'
   required: true
 - path: content/Epilog.md
   title: Epilog
   order: END-90
   required: true
-- path: content/Vakanz_4.md
-  title: Vakanz_4
-  order: END-100
-  required: true
 - path: content/Abkverzeichnis.md
   title: Abkürzungsverzeichnis
   order: END-44
   required: false
-- path: content/Vakanz_5.md
-  title: Vakanz_5
-  order: END-45
+- path: content/UeberAutor_IFJN_Medizin.md
+  title: Über den Autor (IFJN - Medizin)
+  order: END-25
   required: false
-- path: content/Vakanz_6.md
-  title: Vakanz_6
-  order: END-40
-  required: false
-- path: content/Vakanz_7.md
-  title: Vakanz_7
-  order: END-30
-  required: true

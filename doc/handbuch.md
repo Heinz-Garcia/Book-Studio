@@ -232,7 +232,7 @@ Die **Icon-Legende** im mittleren Bereich erklärt die Symbole.
 | 🧬 | GrammarGraph-Nutzinhalt (automatisch: alles außer Required, Root-`index.md`, Outline) |
 | 🧭 | Nur Gliederungspunkt (`content_role: outline`) |
 
-**Gliederungspunkt anlegen:** Mittel-Button **🧭 Gliederungspunkt…** oder **Bearbeiten → Gliederungspunkt anlegen…**. Dialog fragt Titel (und Dateipfad); optional sofort rechts in die Buchstruktur. Alternativ optionaler Skeleton-Snippet `content/Gliederungspunkt.md` (Profile `standard` / `AMAZON_KDP`) beim Populate anhaken. Gliederungspunkte sollen **rechts** öffnen und danach ein Vakat lassen — Typst-Muster: Kapitel 6 (Rechte Seite und Vakat).
+**Gliederungspunkt anlegen:** Mittel-Button **🧭 Gliederungspunkt…** oder **Bearbeiten → Gliederungspunkt anlegen…**. Dialog fragt Titel (und Dateipfad); optional sofort rechts in die Buchstruktur. Alternativ optionaler Skeleton-Snippet `content/Gliederungspunkt.md` (Profile `standard` / `AMAZON_KDP`) beim Populate anhaken. Rechte Öffnung erledigt der PreProcessor automatisch (Kapitel 6).
 
 ### Hinter dem Titel
 
@@ -326,7 +326,31 @@ Technisch: `typst-show.typ` blendet Level-1 standardmäßig aus; der PreProcesso
 
 ### Typst: Rechte Seite und Vakat (`pagebreak`) {#sec-pagebreak-recto}
 
-Gedruckte Bücher öffnen wichtige Seiten oft **rechts** (Recto = ungerade Seitenzahl, solange die arabische Zählung bei 1 rechts beginnt). Statt dafür eigene **technische Vakat-Dateien** in den Buchbaum zu legen, steuerst du das mit Typst-`#pagebreak` in der jeweiligen Markdown-Datei — im Quarto-Raw-Block:
+Gedruckte Bücher öffnen **Hauptkapitel** (sichtbarer Titel) standardmäßig **rechts**
+(Recto = ungerade Seitenzahl, solange die arabische Zählung bei 1 rechts beginnt).
+Das erledigt der **PreProcessor** automatisch beim Rendern — für **Typst** und **DOCX**:
+
+- Typst: `#pagebreak(weak: true, to: "odd")`
+- DOCX: Abschnittswechsel `oddPage`
+
+**Keine** technischen `Vakanz*.md` mehr in die Buchstruktur legen. Manuelle
+`#pagebreak(… to: "odd")` in Kapiteldateien werden beim Render entfernt und durch
+den kanonischen Start ersetzt (sonst Doppel-Vakat).
+
+Opt-out im Frontmatter: `open_recto: false` (z. B. Widmung/Impressum, die **links**
+bleiben sollen). Explizit erzwingen: `open_recto: true`.
+
+Für Sonderfälle (harter Umbruch ohne Recto) bleibt das manuelle Muster möglich:
+
+````markdown
+```{=typst}
+#pagebreak()
+```
+````
+
+#### Historisches Muster (nur noch bei Bedarf von Hand)
+
+Früher steuerte man Recto nur mit Typst in der Markdown-Datei:
 
 ````markdown
 ```{=typst}
@@ -344,9 +368,13 @@ Gedruckte Bücher öffnen wichtige Seiten oft **rechts** (Recto = ungerade Seite
 
 Automatische Pagination (Seite voll) bleibt davon unberührt — die Anweisungen erzwingen nur **manuelle** Öffnungen.
 
-#### Standardmuster für „rechte“ Seiten
+> **Heute:** Für normale Hauptkapitel und Gliederungspunkte reicht der PreProcessor
+> (siehe oben). Die folgenden Muster brauchst du nur noch für Sonderfälle, wenn
+> `open_recto: false` gesetzt ist oder du bewusst abweichst.
 
-**Seite soll rechts öffnen und die nächste ebenfalls rechts** (Vakat dazwischen entsteht von allein):
+#### Standardmuster für „rechte“ Seiten (Sonderfälle)
+
+**Seite soll rechts öffnen und die nächste ebenfalls rechts** (Vakat dazwischen entsteht von allein — wird für Auto-Recto-Kapitel nicht mehr benötigt):
 
 ````markdown
 ```{=typst}
@@ -360,7 +388,7 @@ Automatische Pagination (Seite voll) bleibt davon unberührt — die Anweisungen
 ```
 ````
 
-So bei Gliederungspunkten (`content_role: outline`), Schmutztitel, IVZ, Einleitung, Epilog, Danksagung u. Ä.
+So früher bei Gliederungspunkten (`content_role: outline`), Schmutztitel, IVZ, Einleitung, Epilog, Danksagung u. Ä. — **heute automatisch** über den PreProcessor.
 
 **Seite soll rechts öffnen, die nächste aber links** (z. B. Haupttitel → Impressum, Vorwort → Widmung):
 
@@ -378,11 +406,14 @@ So bei Gliederungspunkten (`content_role: outline`), Schmutztitel, IVZ, Einleitu
 
 Ende bewusst **ohne** `to: "odd"`, sonst würde die linke Folgeseite wieder nach rechts geschoben.
 
-**Bewusst linke Seiten** (Impressum, Widmung): kein Start-`to: "odd"` nötig; am Ende meist hartes `#pagebreak()`.
+**Bewusst linke Seiten** (Impressum, Widmung): `open_recto: false` im Frontmatter
+(oder stille Seite ohne sichtbaren Titel). Am Ende oft hartes `#pagebreak()`.
 
 #### Was du vermeiden solltest
 
-- **Technische Vakat-MD** *und* `to: "odd"` gleichzeitig — oft **zwei** Leerseiten.
+- **Technische Vakat-MD** in der Buchstruktur — der PreProcessor ersetzt sie.
+- Manuelle `#pagebreak(… to: "odd")` **zusätzlich** zu Auto-Recto — werden zwar
+  gestrippt, verwirren aber die Quelle. Hartes `#pagebreak()` ohne `to:` bleibt ok.
 - `#counter(page).update(...)` mitten im Nutzteil — dann gilt „ungerade = rechts“ nicht mehr zuverlässig.
 - Deckblatt mit `#page(margin: 0pt)[…]` pauschal wie eine normale Recto-Seite behandeln — erst im Doppelseiten-PDF prüfen.
 
@@ -819,6 +850,10 @@ Mapping orientiert sich am Buch *Band_Stoffwechselgesundheit*. Details zu `order
 | Profil löschen | `standard` ist geschützt |
 
 Pfad der Bibliothek: `tools/skeleton/library/<profil>/` mit `manifest.yaml` und den Markdown-Dateien.
+
+Die Liste zeigt nur **Inhalts-Vorlagen** (`.md`). Satz-/Engine-Dateien wie `typst-show.typ` / `page.typ` bleiben im Manifest und werden beim Populate mitkopiert, erscheinen aber nicht im Vorlagen-Manager — sie sind Anweisungen für den Renderer, keine Buchseiten.
+
+Im **Markdown-Editor** gibt es zusätzlich **Speichern als und in Skeleton-Pool…**: schreibt eine Kopie (wie „Speichern als…“) und legt denselben Inhalt unter dem Buch-Relativpfad im Standard-Skeleton-Profil ab (inkl. Manifest-Eintrag). Existiert die Pool-Datei schon, fragt das Studio nach Überschreiben.
 
 ### Kommandozeile (optional)
 
@@ -1630,6 +1665,11 @@ dein Text benutzt und welche davon **noch keine Vorlage** haben — samt Knopf,
 der die fehlenden anlegt. Das ist die Antwort auf »warum ist mein Kasten weg?«,
 bevor die Frage entsteht. Als reine Übersichtstabelle: **Plugins → Textauszeichnungs-Inventar…**
 (Herkunft, Häufigkeit, Vorlage, Befund „ohne Vorlage“ / „Karteileiche“).
+Bei Karteileichen stehen zwei Knöpfe: **Nur hier** (aus der Liste dieses Buchs
+nehmen, Bibliothek bleibt) und **Überall** (aus der gemeinsamen Layout-Bibliothek —
+betrifft alle Bücher). Ohne Klick bleibt alles unverändert.
+Filter **Anzeigen**: Standard *Nur im Buch (ohne 0×-Rauschen)*; *Alles* zeigt
+auch Bibliotheksreste mit 0×.
 
 **7. Anwenden und rendern.** `Speichern`, dann
 `Auf Buchprojekt anwenden…` → Buchordner wählen. Danach im Studio `F5` und im

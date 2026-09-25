@@ -180,7 +180,18 @@ def list_profiles(library_root: Path) -> list[str]:
     return profiles
 
 
-_ORPHAN_SCAN_EXTENSIONS = (".md", ".typ")
+_ORPHAN_SCAN_EXTENSIONS = (".md",)
+
+
+def is_content_skeleton_entry(entry: SkeletonFileEntry) -> bool:
+    """Inhalts-Vorlage (``.md``) — sichtbar im Skeleton-Editor.
+
+    Engine-/Satz-Assets (``.typ`` wie ``typst-show.typ`` / ``page.typ``) bleiben
+    im Manifest für Populate/Render, gehören aber nicht in die Vorlagenliste:
+    sie sind Anweisungen, keine Buchseiten.
+    """
+    path = _normalize_rel_path(entry.path or "").lower()
+    return path.endswith(".md")
 
 
 def find_orphaned_files(
@@ -188,12 +199,12 @@ def find_orphaned_files(
 ) -> list[str]:
     """Findet Dateien im Profilordner, die in keinem Manifest-Eintrag referenziert sind.
 
-    Durchsucht `profile_dir` rekursiv nach `.md`/`.typ`-Dateien (dieselben Endungen,
-    die Skeleton-Vorlagen verwenden) und liefert die relativen Pfade (POSIX-Slashes,
-    sortiert) aller Dateien, die nicht in `entries` vorkommen - z. B. weil sie über
-    „Nur aus Profil entfernen“ entfernt oder manuell im Ordner abgelegt wurden.
-    Ohne diese Funktion sind solche Dateien im Skeleton-Editor unauffindbar, sobald
-    sie einmal aus dem Manifest verschwunden sind.
+    Durchsucht `profile_dir` rekursiv nach **Inhalts**-Dateien (``.md``) und
+    liefert die relativen Pfade (POSIX-Slashes, sortiert) aller Dateien, die
+    nicht in `entries` vorkommen - z. B. weil sie über „Nur aus Profil
+    entfernen“ entfernt oder manuell im Ordner abgelegt wurden. Engine-Dateien
+    (``.typ``) werden bewusst nicht angeboten — die gehören nicht in den
+    Vorlagen-Manager.
     """
     profile_dir = Path(profile_dir).resolve()
     known = {_normalize_rel_path(e.path) for e in entries}
@@ -494,6 +505,105 @@ def update_manifest_meta(
 
 
 _PROTECTED_PROFILES = frozenset({"standard"})
+
+
+@dataclass(frozen=True)
+class PoolDepositResult:
+    """Ergebnis von :func:`deposit_markdown_to_pool`."""
+
+    profile: str
+    rel_path: str
+    library_path: Path
+    created_manifest_entry: bool
+    overwritten_file: bool
+
+
+def deposit_markdown_to_pool(
+    content: str,
+    *,
+    rel_path: str,
+    repo_root: Path,
+    profile: Optional[str] = None,
+    overwrite: bool = False,
+) -> PoolDepositResult:
+    """Schreibt Markdown in den Skeleton-Pool und trägt sie ggf. im Manifest nach.
+
+    Persistenz für Vorlagen, die aus dem Buch-Editor kommen: Datei unter
+    ``library/<profil>/<rel_path>`` + Manifest-Eintrag (Titel/order aus
+    Frontmatter, sonst Dateiname; ``required=false``).
+    """
+    from tools.skeleton.config import read_skeleton_settings
+
+    settings = read_skeleton_settings(Path(repo_root))
+    profile_name = (profile or settings["default_profile"]).strip() or "standard"
+    library_root = resolve_library_root(Path(repo_root), settings["library_path"])
+    profile_dir = resolve_profile_dir(library_root, profile_name)
+    safe_rel = sanitize_relative_template_path(rel_path, profile_dir)
+    if not safe_rel.lower().endswith(".md"):
+        safe_rel += ".md"
+
+    target = profile_dir / safe_rel
+    overwritten = target.is_file()
+    if overwritten and not overwrite:
+        raise FileExistsError(f"Skeleton-Datei existiert bereits: {safe_rel}")
+
+    title = frontmatter_parser.extract_field(content, "title") or Path(safe_rel).stem.replace(
+        "_", " "
+    )
+    order = frontmatter_parser.extract_field(content, "order")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content if content.endswith("\n") else content + "\n", encoding="utf-8")
+
+    # load_manifest lehnt leere Dateilisten ab — beim ersten Deposit in ein
+    # frisches Profil lesen wir die Meta-Felder manuell.
+    try:
+        manifest = load_manifest(profile_dir)
+        entries = list(manifest.files)
+        meta_name, meta_label, meta_description = (
+            manifest.name,
+            manifest.label,
+            manifest.description,
+        )
+    except ValueError:
+        raw = yaml.safe_load((profile_dir / "manifest.yaml").read_text(encoding="utf-8")) or {}
+        if not isinstance(raw, dict):
+            raw = {}
+        entries = []
+        meta_name = str(raw.get("name") or profile_dir.name).strip()
+        meta_label = str(raw.get("label") or meta_name).strip()
+        meta_description = str(raw.get("description") or "").strip()
+
+    created = False
+    if not any(e.path == safe_rel for e in entries):
+        entries.append(
+            SkeletonFileEntry(
+                path=safe_rel,
+                title=title,
+                order=order,
+                required=False,
+            )
+        )
+        # Nicht replace_manifest_entries: die ruft load_manifest auf, das leere
+        # Dateilisten ablehnt — beim ersten Deposit in ein frisches Profil.
+        save_manifest(
+            SkeletonManifest(
+                name=meta_name,
+                label=meta_label,
+                description=meta_description,
+                root=profile_dir.resolve(),
+                files=tuple(entries),
+            )
+        )
+        created = True
+
+    return PoolDepositResult(
+        profile=profile_name,
+        rel_path=safe_rel,
+        library_path=target,
+        created_manifest_entry=created,
+        overwritten_file=overwritten,
+    )
 
 
 def delete_profile(

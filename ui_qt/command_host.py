@@ -386,7 +386,7 @@ class CommandHost:
     def edit_help_manual_source(self) -> None:
         import app_config as _app_config
         from tools.handbook_pdf import resolve_handbook_path
-        from ui_qt.dialogs.text_dialogs import TextEditorDialog
+        from ui_qt.dialogs.text_dialogs import open_text_editor
 
         base = repo_root()
         try:
@@ -395,7 +395,7 @@ class CommandHost:
         except (ValueError, FileNotFoundError, OSError, TypeError) as exc:
             QMessageBox.warning(self.w, "Handbuch", str(exc))
             return
-        TextEditorDialog(self.w, manual_path, title="Handbuch-Quelle").exec()
+        open_text_editor(self.w, manual_path, title="Handbuch-Quelle")
 
     def render_help_manual_pdf(self) -> None:
         import threading
@@ -553,17 +553,17 @@ class CommandHost:
         if not path.is_file():
             QMessageBox.information(self.w, "Sanitizer", f"Datei nicht gefunden:\n{path}")
             return
-        from ui_qt.dialogs.text_dialogs import TextEditorDialog
+        from ui_qt.dialogs.text_dialogs import open_text_editor
 
-        TextEditorDialog(self.w, path, title="Sanitizer-Konfiguration").exec()
+        open_text_editor(self.w, path, title="Sanitizer-Konfiguration")
 
     def open_quarto_config_editor(self) -> None:
         if not self._require_book():
             return
         path = Path(self.w._facade.current_book) / "_quarto.yml"
-        from ui_qt.dialogs.text_dialogs import TextEditorDialog
+        from ui_qt.dialogs.text_dialogs import open_text_editor
 
-        TextEditorDialog(self.w, path, title="Quarto.yml").exec()
+        open_text_editor(self.w, path, title="Quarto.yml")
 
     def open_rahmen_editor(self) -> None:
         """Pflichtseiten-Übersicht: Status prüfen und Markdown bearbeiten."""

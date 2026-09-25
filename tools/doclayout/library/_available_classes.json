@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-24T13:22:41",
+  "generated_at": "2026-09-24T21:53:34",
   "library": "C:\\Users\\RDP-Nutzer\\IDE\\Book_Studio_Unleashed\\tools\\doclayout\\library",
   "layouts": [
     "Formate_Backup",
@@ -10,6 +10,7 @@
     "Reisefuehrer_Andalusien"
   ],
   "names": [
+    "bericht",
     "callout",
     "callout-caution",
     "callout-important",
@@ -24,6 +25,14 @@
     "themenblock"
   ],
   "classes": {
+    "bericht": {
+      "layouts": [
+        "Formate_Backup"
+      ],
+      "styles": [
+        "BodyText"
+      ]
+    },
     "callout": {
       "layouts": [
         "Formate_Backup",

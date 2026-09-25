@@ -228,21 +228,24 @@ class KapitelPagesDialog(QDialog):
                 f"Datei fehlt:\n{abs_path}\n\nZuerst anlegen oder Required einfügen.",
             )
             return
-        from ui_qt.dialogs.text_dialogs import TextEditorDialog
+        from ui_qt.dialogs.text_dialogs import open_text_editor
 
         def _after_save() -> None:
             self.reload()
             self._emit_changed()
 
-        TextEditorDialog(
+        def _after_close() -> None:
+            self.reload()
+            self._emit_changed()
+
+        open_text_editor(
             self,
             abs_path,
             title="Kapitel bearbeiten",
             book_path=self._book,
             on_save=_after_save,
-        ).exec()
-        self.reload()
-        self._emit_changed()
+            on_finished=_after_close,
+        )
 
     def _run_add_required(self) -> None:
         if self._on_add_required is None:

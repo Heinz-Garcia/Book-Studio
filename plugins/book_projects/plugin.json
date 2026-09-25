@@ -1,6 +1,6 @@
 {
   "name": "book_projects",
-  "label": "📚 Bücher wählen (Buchprojekte)…",
+  "label": "📚 Bücher wählen (Buchprojekte verwalten)…",
   "description": "Buchprojekte suchen, öffnen, anlegen und Anzeigenamen vergeben.",
   "entrypoint": "plugins.book_projects:run",
   "version": "1.1.0",

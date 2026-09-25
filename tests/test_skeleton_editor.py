@@ -8,8 +8,10 @@ import yaml
 
 from tools.skeleton.manifest import (
     create_markdown_template,
+    deposit_markdown_to_pool,
     duplicate_profile,
     find_orphaned_files,
+    is_content_skeleton_entry,
     load_manifest,
     manifest_to_dict,
     replace_manifest_entries,
@@ -120,6 +122,8 @@ def test_find_orphaned_files_detects_untracked_md(tmp_path: Path) -> None:
     (required_dir / "Orphan.md").write_text(
         '---\ntitle: "Orphan"\n---\n\n# Orphan\n', encoding="utf-8"
     )
+    # .typ bleibt auf der Platte, wird aber vom Vorlagen-Manager bewusst ignoriert
+    # (Engine-Asset, keine Inhalts-Vorlage).
     (profile / "orphan-partial.typ").write_text("// verwaist\n", encoding="utf-8")
     (profile / "manifest.yaml").write_text(
         "\n".join(
@@ -140,8 +144,21 @@ def test_find_orphaned_files_detects_untracked_md(tmp_path: Path) -> None:
 
     orphans = find_orphaned_files(profile, manifest.files)
 
-    assert orphans == ["content/required/Orphan.md", "orphan-partial.typ"]
+    assert orphans == ["content/required/Orphan.md"]
+    assert "orphan-partial.typ" not in orphans
     assert "content/required/Tracked.md" not in orphans
+
+
+def test_is_content_skeleton_entry_only_markdown() -> None:
+    assert is_content_skeleton_entry(
+        SkeletonFileEntry(path="content/Einleitung.md", title="Einleitung")
+    )
+    assert not is_content_skeleton_entry(
+        SkeletonFileEntry(path="typst-show.typ", title="Typst Show")
+    )
+    assert not is_content_skeleton_entry(
+        SkeletonFileEntry(path="page.typ", title="Page")
+    )
 
 
 def test_find_orphaned_files_empty_when_everything_tracked(tmp_path: Path) -> None:
@@ -198,6 +215,54 @@ def test_create_markdown_template(tmp_path: Path) -> None:
 
     parsed = _yaml.safe_load(text.split("---", 2)[1]) if text.count("---") >= 2 else {}
     assert str(parsed.get("order")) == "15"
+
+
+def test_deposit_markdown_to_pool_writes_file_and_manifest(tmp_path: Path, monkeypatch) -> None:
+    library = tmp_path / "library"
+    profile = library / "standard"
+    profile.mkdir(parents=True)
+    (profile / "manifest.yaml").write_text(
+        "name: standard\nlabel: Standard\nfiles: []\n",
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "app_config.json"
+    cfg.write_text(
+        '{"skeleton_library_path": "library", "skeleton_default_profile": "standard"}',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    content = "---\ntitle: Über den Autor\norder: END-25\n---\n\n# Autor\n"
+    result = deposit_markdown_to_pool(
+        content,
+        rel_path="content/UeberAutor.md",
+        repo_root=tmp_path,
+    )
+    assert result.profile == "standard"
+    assert result.rel_path == "content/UeberAutor.md"
+    assert result.created_manifest_entry is True
+    assert result.library_path.is_file()
+    assert "Über den Autor" in result.library_path.read_text(encoding="utf-8")
+    manifest = load_manifest(profile)
+    assert any(e.path == "content/UeberAutor.md" for e in manifest.files)
+
+    try:
+        deposit_markdown_to_pool(
+            content, rel_path="content/UeberAutor.md", repo_root=tmp_path, overwrite=False
+        )
+        assert False, "expected FileExistsError"
+    except FileExistsError:
+        pass
+
+    again = deposit_markdown_to_pool(
+        content + "\nZusatz\n",
+        rel_path="content/UeberAutor.md",
+        repo_root=tmp_path,
+        overwrite=True,
+    )
+    assert again.overwritten_file is True
+    assert again.created_manifest_entry is False
+    assert "Zusatz" in again.library_path.read_text(encoding="utf-8")
 
 
 def test_validate_profile_name_rejects_spaces() -> None:

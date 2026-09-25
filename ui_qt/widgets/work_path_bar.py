@@ -44,7 +44,7 @@ _NODE_SIZE = 26
 
 _ACTION_SHORT = {
     "delivery_intake": "Lieferung übernehmen (Inbox)",
-    "book_projects": "Bücher wählen (Buchprojekte)",
+    "book_projects": "Bücher wählen (Buchprojekte verwalten)",
     "open_quarto_config_editor": "Struktur prüfen (_quarto.yml)",
     "open_rahmen_editor": "Rahmen prüfen (Rahmenseiten)",
     "open_kapitel_editor": "Kapitel prüfen (Kapitelstruktur)",

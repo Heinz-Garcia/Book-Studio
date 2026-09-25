@@ -209,7 +209,10 @@ class TextEditorDialog(QDialog):
         super().__init__(parent)
         self.path = Path(path)
         self.book_path = Path(book_path) if book_path else None
-        self._on_save = on_save
+        # Mehrere Aufrufer können dasselbe Fenster nutzen (open_text_editor).
+        self._on_save_callbacks: list[Callable[[], None]] = [on_save] if on_save else []
+        self._on_finished_callbacks: list[Callable[[], None]] = []
+        self.finished.connect(self._run_finished_callbacks)
         self._pending_skeleton_command: Optional[dict[str, Any]] = None
         self._is_markdown = self.path.suffix.lower() == ".md"
         self._is_quarto_yml = self.path.name.lower() in {"_quarto.yml", "_quarto.yaml"}
@@ -547,17 +550,7 @@ class TextEditorDialog(QDialog):
             self._rebuild_yaml_toggles(force=True)
             self._sync_yaml_toggles()
 
-        if initial_line and initial_line > 0:
-            block = self.editor.document().findBlockByNumber(initial_line - 1)
-            if block.isValid():
-                cursor = self.editor.textCursor()
-                cursor.setPosition(block.position())
-                self.editor.setTextCursor(cursor)
-                self.editor.centerCursor()
-
-        find_seed = str(initial_find_term or "").strip()
-        if find_seed and self._is_markdown:
-            self._apply_initial_find(find_seed)
+        self._apply_initial_position(initial_line, initial_find_term)
 
         status_row = QHBoxLayout()
         self._status = QLabel("Codeansicht aktiv")
@@ -580,6 +573,17 @@ class TextEditorDialog(QDialog):
             "Pfadwechsel würde die Zuordnung im Buchbaum/Skeleton-Sync durcheinanderbringen."
         )
         save_as_btn.clicked.connect(self._save_as)
+        if self._is_markdown:
+            save_pool_btn = buttons.addButton(
+                "Speichern als und in Skeleton-Pool…",
+                QDialogButtonBox.ButtonRole.ActionRole,
+            )
+            save_pool_btn.setToolTip(
+                "Wie „Speichern als…“, und legt dieselbe Markdown-Datei zusätzlich im "
+                "Skeleton-Pool ab (Standard-Profil, Manifest-Eintrag) — damit die Vorlage "
+                "für andere Bücher erhalten bleibt, ohne den Skeleton-Editor zu öffnen."
+            )
+            save_pool_btn.clicked.connect(self._save_as_and_to_skeleton)
         if self._is_quarto_yml:
             restore_btn = buttons.addButton(
                 "Sicherung wiederherstellen…",
@@ -628,7 +632,42 @@ class TextEditorDialog(QDialog):
             replace_shortcut.triggered.connect(self._show_replace_bar)
             self.addAction(replace_shortcut)
 
+    def _has_unsaved_changes(self) -> bool:
+        if not hasattr(self, "editor") or not hasattr(self, "_saved_snapshot"):
+            return False
+        return self.editor.toPlainText() != self._saved_snapshot
+
+    def _confirm_close_unsaved(self) -> bool:
+        """Nicht-modal kann das Fenster auch mit seinem Aufrufer schließen —
+        ungespeicherte Änderungen dürfen dabei nicht still verloren gehen."""
+        if getattr(self, "_close_confirmed", False) or not self._has_unsaved_changes():
+            return True
+        buttons = QMessageBox.StandardButton
+        answer = QMessageBox.question(
+            self,
+            "Ungespeicherte Änderungen",
+            f"„{self.path.name}“ hat ungespeicherte Änderungen.\n\nVor dem Schließen speichern?",
+            buttons.Save | buttons.Discard | buttons.Cancel,
+            buttons.Save,
+        )
+        if answer == buttons.Cancel:
+            return False
+        if answer == buttons.Save:
+            self._save()
+            if self._has_unsaved_changes():  # Speichern gescheitert/abgebrochen
+                return False
+        self._close_confirmed = True
+        return True
+
+    def reject(self) -> None:  # Esc / Schließen-Knopf
+        if not self._confirm_close_unsaved():
+            return
+        super().reject()
+
     def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt-Override
+        if not self._confirm_close_unsaved():
+            event.ignore()
+            return
         worker = getattr(self, "_pdf_worker", None)
         if worker is not None and worker.isRunning():
             # Der Worker blockiert auf einem echten Quarto-Subprozess, den er
@@ -648,6 +687,10 @@ class TextEditorDialog(QDialog):
                 pdf_document.load(str(_blank_pdf_path()))
             shutil.rmtree(cleanup_dir, ignore_errors=True)
             self._pdf_cleanup_dir = None
+        if getattr(self, "_loaded_size", None) is not None:
+            from ui_qt.autonomous_window import persist_window_size
+
+            persist_window_size(self, "text_editor_size")
         super().closeEvent(event)
 
     @staticmethod
@@ -888,6 +931,51 @@ class TextEditorDialog(QDialog):
         self._set_find_replace_status("")
         self._replace_input.setFocus(Qt.FocusReason.ShortcutFocusReason)
         self._replace_input.selectAll()
+
+    def _apply_initial_position(
+        self, initial_line: Optional[int], initial_find_term: Optional[str]
+    ) -> None:
+        if initial_line and initial_line > 0:
+            block = self.editor.document().findBlockByNumber(initial_line - 1)
+            if block.isValid():
+                cursor = self.editor.textCursor()
+                cursor.setPosition(block.position())
+                self.editor.setTextCursor(cursor)
+                self.editor.centerCursor()
+
+        find_seed = str(initial_find_term or "").strip()
+        if find_seed and self._is_markdown:
+            self._apply_initial_find(find_seed)
+
+    def attach_caller(
+        self,
+        *,
+        on_save: Optional[Callable[[], None]] = None,
+        on_finished: Optional[Callable[[], None]] = None,
+        initial_line: Optional[int] = None,
+        initial_find_term: Optional[str] = None,
+        initial_find_whole_word: bool = False,
+        initial_find_case_sensitive: bool = False,
+    ) -> None:
+        """Weiterer Aufrufer für das schon offene Fenster derselben Datei.
+
+        Seine Callbacks laufen zusätzlich (nicht statt) den bisherigen; ein
+        mitgegebenes Sprungziel / Suchwort wird angewendet.
+        """
+        # Gleiche Callbacks (z. B. gebundene Methode desselben Aufrufers)
+        # nur einmal — sonst läuft ein Refresh pro erneutem Öffnen.
+        if on_save is not None and on_save not in self._on_save_callbacks:
+            self._on_save_callbacks.append(on_save)
+        if on_finished is not None and on_finished not in self._on_finished_callbacks:
+            self._on_finished_callbacks.append(on_finished)
+        if initial_find_term:
+            self._find_whole_word = bool(initial_find_whole_word)
+            self._find_case_sensitive = bool(initial_find_case_sensitive)
+        self._apply_initial_position(initial_line, initial_find_term)
+
+    def _run_finished_callbacks(self, *_args: object) -> None:
+        for callback in list(self._on_finished_callbacks):
+            callback()
 
     def _apply_initial_find(self, term: str) -> None:
         """Open find bar with ``term`` and jump to the first match (from structure search)."""
@@ -1570,9 +1658,9 @@ class TextEditorDialog(QDialog):
             QMessageBox.critical(self, "Speichern fehlgeschlagen", str(exc))
             return
         self._offer_skeleton_sync()
-        if self._on_save is not None:
+        for callback in list(self._on_save_callbacks):
             try:
-                self._on_save()
+                callback()
             except Exception:  # noqa: BLE001 — Speichern soll nicht wegen Refresh scheitern
                 pass
         self._mark_content_saved()
@@ -1803,6 +1891,152 @@ class TextEditorDialog(QDialog):
             QMessageBox.critical(self, "Speichern als fehlgeschlagen", str(exc))
             return
         self._set_status(f"Zusätzlich gespeichert unter: {target}", "ok")
+
+    def _skeleton_rel_path_for_deposit(self) -> str:
+        """Relativpfad im Skeleton-Profil = Spiegel der bearbeiteten Buchdatei."""
+        if self.book_path is not None:
+            try:
+                return self.path.resolve().relative_to(self.book_path.resolve()).as_posix()
+            except ValueError:
+                pass
+        name = self.path.name
+        if not name.lower().endswith(".md"):
+            name = f"{name}.md"
+        return f"content/{name}"
+
+    def _save_as_and_to_skeleton(self) -> None:
+        """Kopie unter neuem Pfad + Ablegen im Skeleton-Pool (Manifest)."""
+        content = self.editor.toPlainText()
+        target, _ = QFileDialog.getSaveFileName(
+            self,
+            "Speichern als (und Skeleton-Pool)",
+            str(self.path),
+            "Markdown (*.md);;Alle Dateien (*.*)",
+        )
+        if not target:
+            return
+        try:
+            Path(target).write_text(content, encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.critical(self, "Speichern als fehlgeschlagen", str(exc))
+            return
+
+        from tools.skeleton.manifest import deposit_markdown_to_pool
+        from ui_qt.book_workspace import repo_root
+
+        rel = self._skeleton_rel_path_for_deposit()
+        root = repo_root()
+        try:
+            result = deposit_markdown_to_pool(
+                content, rel_path=rel, repo_root=root, overwrite=False
+            )
+        except FileExistsError:
+            reply = QMessageBox.question(
+                self,
+                "Skeleton-Pool",
+                f"Im Skeleton-Pool existiert bereits:\n{rel}\n\nÜberschreiben?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self._set_status(
+                    f"Kopie unter {target} — Skeleton-Pool unverändert.",
+                    "ok",
+                )
+                return
+            try:
+                result = deposit_markdown_to_pool(
+                    content, rel_path=rel, repo_root=root, overwrite=True
+                )
+            except (OSError, ValueError) as exc:
+                QMessageBox.critical(self, "Skeleton-Pool", str(exc))
+                self._set_status(f"Kopie unter {target}; Pool fehlgeschlagen.", "error")
+                return
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Skeleton-Pool", str(exc))
+            self._set_status(f"Kopie unter {target}; Pool fehlgeschlagen.", "error")
+            return
+
+        entry_note = (
+            "neuer Manifest-Eintrag"
+            if result.created_manifest_entry
+            else "Manifest-Eintrag bestand"
+        )
+        self._set_status(
+            f"Kopie unter {target} · Pool {result.profile}:{result.rel_path} ({entry_note})",
+            "ok",
+        )
+
+
+_active_text_editors: list[TextEditorDialog] = []
+
+
+def open_text_editor(
+    host: Optional[QWidget],
+    path: Path,
+    *,
+    title: str = "Editor",
+    end_commands: Optional[Sequence[dict[str, Any]]] = None,
+    on_save: Optional[Callable[[], None]] = None,
+    on_finished: Optional[Callable[[], None]] = None,
+    initial_line: Optional[int] = None,
+    initial_find_term: Optional[str] = None,
+    initial_find_whole_word: bool = False,
+    initial_find_case_sensitive: bool = False,
+    book_path: Optional[Path] = None,
+) -> TextEditorDialog:
+    """Öffnet den Text-/Markdown-Editor **nicht-modal** (Hauptfenster bleibt bedienbar).
+
+    Pro Dateipfad höchstens ein Fenster — ein zweiter Aufruf bringt das
+    bestehende nach vorne. Verschachteltes ``.exec()`` ist applikationsweit
+    unerwünscht (Windows: Kind-Dialog blockiert und minimiert mit dem Parent).
+    """
+    from ui_qt.autonomous_window import (
+        apply_persisted_size,
+        prepare_autonomous_window,
+        raise_if_open,
+        show_autonomous_window,
+    )
+
+    resolved = Path(path).resolve()
+    found = raise_if_open(
+        _active_text_editors,
+        lambda d: Path(d.path).resolve() == resolved,
+    )
+    if found is not None:
+        # Callbacks/Sprungziel des neuen Aufrufers nicht verwerfen.
+        found.attach_caller(
+            on_save=on_save,
+            on_finished=on_finished,
+            initial_line=initial_line,
+            initial_find_term=initial_find_term,
+            initial_find_whole_word=initial_find_whole_word,
+            initial_find_case_sensitive=initial_find_case_sensitive,
+        )
+        return found
+
+    dlg = TextEditorDialog(
+        None,
+        resolved,
+        title=title,
+        end_commands=end_commands,
+        on_save=on_save,
+        initial_line=initial_line,
+        initial_find_term=initial_find_term,
+        initial_find_whole_word=initial_find_whole_word,
+        initial_find_case_sensitive=initial_find_case_sensitive,
+        book_path=book_path,
+    )
+    prepare_autonomous_window(dlg, host)
+    apply_persisted_size(
+        dlg,
+        "text_editor_size",
+        default=(1600, 720),
+        min_size=(800, 500),
+    )
+    if on_finished is not None:
+        dlg.attach_caller(on_finished=on_finished)
+    return show_autonomous_window(dlg, _active_text_editors)
 
 
 def save_json_file(

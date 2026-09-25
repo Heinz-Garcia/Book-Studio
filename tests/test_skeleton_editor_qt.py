@@ -186,6 +186,73 @@ def _make_two_entry_profile(lib: Path, name: str = "standard") -> Path:
     return profile
 
 
+def test_filter_keeps_dirty_editor_of_hidden_entry(tmp_path: Path, monkeypatch):
+    """Filter blendet die bearbeitete Vorlage aus → Änderungen bleiben erhalten."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    _silence_boxes(monkeypatch)
+
+    lib = tmp_path / "library"
+    _make_two_entry_profile(lib)
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.skeleton_editor_dialog import SkeletonEditorQtDialog
+
+    app = QApplication.instance() or QApplication([])
+    dlg = SkeletonEditorQtDialog(None, library_root=lib, initial_profile="standard")
+    try:
+        idx = next(i for i, e in enumerate(dlg._entries) if e.path.endswith("Impressum.md"))
+        dlg._file_tree.setCurrentItem(dlg._file_tree.topLevelItem(idx))
+        dlg._text.setPlainText(dlg._text.toPlainText() + "\nNeuer Absatz\n")
+        assert dlg._editor_dirty
+
+        dlg._filter_edit.setText("intro")  # Impressum verschwindet aus der Liste
+        assert "Neuer Absatz" in dlg._text.toPlainText()
+        assert dlg._selected_index == idx
+        assert dlg._editor_dirty
+
+        # Ohne ungespeicherte Änderungen darf der Editor wie bisher leeren.
+        dlg._editor_dirty = False
+        dlg._meta_dirty = False
+        dlg._filter_edit.setText("intr")
+        assert dlg._text.toPlainText() == ""
+        assert dlg._selected_index is None
+    finally:
+        dlg.close()
+    _ = app
+
+
+def test_declined_row_switch_keeps_hidden_dirty_entry(tmp_path: Path, monkeypatch):
+    """Ausgefiltert + ungespeichert, Zeilenwechsel abgelehnt → weiter speicherbar."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    _silence_boxes(monkeypatch)
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    lib = tmp_path / "library"
+    _make_two_entry_profile(lib)
+
+    from ui_qt.dialogs.skeleton_editor_dialog import SkeletonEditorQtDialog
+
+    app = QApplication.instance() or QApplication([])
+    dlg = SkeletonEditorQtDialog(None, library_root=lib, initial_profile="standard")
+    try:
+        idx = next(i for i, e in enumerate(dlg._entries) if e.path.endswith("Impressum.md"))
+        dlg._file_tree.setCurrentItem(dlg._file_tree.topLevelItem(idx))
+        dlg._text.setPlainText(dlg._text.toPlainText() + "\nNeu\n")
+        dlg._filter_edit.setText("intro")
+        monkeypatch.setattr(
+            QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
+        )
+        dlg._file_tree.setCurrentItem(dlg._file_tree.topLevelItem(0))  # Intro anklicken
+        assert dlg._selected_index == idx
+        assert "Neu" in dlg._text.toPlainText()
+    finally:
+        dlg.close()
+    _ = app
+
+
 def test_save_markdown_refreshes_list_and_keeps_correct_selection(tmp_path: Path, monkeypatch):
     """Regression: Direktes Bearbeiten von order/required im Vorschau-Editor muss
     (a) sofort in der Vorlagen-Liste sichtbar sein und (b) darf `_selected_index`
@@ -537,5 +604,131 @@ def test_broken_frontmatter_shows_warning(tmp_path: Path, monkeypatch):
     assert bad_entry.required is True
     assert bad_entry.order == "15"
 
+    dlg.close()
+    _ = app
+
+
+def test_skeleton_editor_filters_vorlagen(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    _silence_boxes(monkeypatch)
+
+    lib = tmp_path / "library"
+    profile = lib / "standard"
+    profile.mkdir(parents=True)
+    for name, _required in (("Deckblatt", True), ("Widmung", False), ("Glossar", False)):
+        path = profile / "content" / f"{name}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"---\ntitle: {name}\n---\n\n# {name}\n", encoding="utf-8")
+    (profile / "manifest.yaml").write_text(
+        "\n".join(
+            [
+                "name: standard",
+                "label: Standard",
+                "files:",
+                "- path: content/Deckblatt.md",
+                "  title: Deckblatt",
+                "  order: '1'",
+                "  required: true",
+                "- path: content/Widmung.md",
+                "  title: Widmung",
+                "  order: '4'",
+                "  required: false",
+                "- path: content/Glossar.md",
+                "  title: Glossar",
+                "  order: '70'",
+                "  required: false",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.skeleton_editor_dialog import SkeletonEditorQtDialog
+
+    app = QApplication.instance() or QApplication([])
+    dlg = SkeletonEditorQtDialog(None, library_root=lib, initial_profile="standard")
+    assert dlg._file_tree.topLevelItemCount() == 3
+    assert "3 Inhalts-Vorlagen" in dlg._filter_count.text()
+
+    dlg._filter_edit.setText("widm")
+    assert dlg._file_tree.topLevelItemCount() == 1
+    assert "Widmung" in dlg._file_tree.topLevelItem(0).text(0)
+    assert "1 von 3 Inhalts-Vorlagen" in dlg._filter_count.text()
+
+    dlg._filter_edit.clear()
+    dlg._filter_status.setCurrentIndex(
+        next(
+            i
+            for i in range(dlg._filter_status.count())
+            if dlg._filter_status.itemData(i) == "required"
+        )
+    )
+    assert dlg._file_tree.topLevelItemCount() == 1
+    assert "Deckblatt" in dlg._file_tree.topLevelItem(0).text(0)
+
+    dlg.close()
+    _ = app
+
+
+def test_skeleton_editor_hides_typ_engine_assets(tmp_path: Path, monkeypatch):
+    """``.typ`` bleibt im Manifest (Populate/Render), erscheint aber nicht in der Liste."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    _silence_boxes(monkeypatch)
+
+    lib = tmp_path / "library"
+    profile = lib / "standard"
+    profile.mkdir(parents=True)
+    (profile / "content").mkdir()
+    (profile / "content" / "Einleitung.md").write_text(
+        "---\ntitle: Einleitung\n---\n\n# Einleitung\n", encoding="utf-8"
+    )
+    (profile / "typst-show.typ").write_text("// engine\n", encoding="utf-8")
+    (profile / "page.typ").write_text("// page\n", encoding="utf-8")
+    (profile / "manifest.yaml").write_text(
+        "\n".join(
+            [
+                "name: standard",
+                "label: Standard",
+                "files:",
+                "- path: content/Einleitung.md",
+                "  title: Einleitung",
+                "  order: '10'",
+                "  required: true",
+                "- path: typst-show.typ",
+                "  title: Typst Show",
+                "  required: false",
+                "  include_in_tree: false",
+                "- path: page.typ",
+                "  title: Page",
+                "  required: false",
+                "  include_in_tree: false",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs.skeleton_editor_dialog import SkeletonEditorQtDialog
+
+    app = QApplication.instance() or QApplication([])
+    dlg = SkeletonEditorQtDialog(None, library_root=lib, initial_profile="standard")
+    assert len(dlg._entries) == 3
+    assert dlg._file_tree.topLevelItemCount() == 1
+    assert "Einleitung" in dlg._file_tree.topLevelItem(0).text(0)
+    assert "1 Inhalts-Vorlagen" in dlg._filter_count.text()
+    dlg._filter_status.setCurrentIndex(
+        next(
+            i
+            for i in range(dlg._filter_status.count())
+            if dlg._filter_status.itemData(i) == "optional"
+        )
+    )
+    assert dlg._file_tree.topLevelItemCount() == 0
     dlg.close()
     _ = app

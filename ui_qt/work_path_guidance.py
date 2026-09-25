@@ -23,7 +23,7 @@ __all__ = [
 
 _GO_LABELS = {
     "delivery_intake": "Lieferung übernehmen (Inbox)…",
-    "book_projects": "Bücher wählen (Buchprojekte)…",
+    "book_projects": "Bücher wählen (Buchprojekte verwalten)…",
     "open_quarto_config_editor": "Struktur öffnen (_quarto.yml)…",
     "open_rahmen_editor": "Rahmen öffnen (Rahmenseiten)…",
     "open_kapitel_editor": "Kapitel öffnen (Kapitelstruktur)…",
@@ -57,7 +57,7 @@ def prompt_need_book(
     box.setWindowTitle(title)
     box.setText(message)
     open_btn = box.addButton(
-        "Bücher wählen (Buchprojekte)…", QMessageBox.ButtonRole.AcceptRole
+        "Bücher wählen (Buchprojekte verwalten)…", QMessageBox.ButtonRole.AcceptRole
     )
     box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
     box.setDefaultButton(open_btn)

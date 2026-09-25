@@ -128,7 +128,7 @@ MENU_VIEW = [
                 command="work_path_stage_f",
             ),
             MenuItem(
-                label="G · Bücher wählen (Buchprojekte)…",
+                label="G · Bücher wählen (Buchprojekte verwalten)…",
                 command="work_path_stage_g",
             ),
             MenuItem(

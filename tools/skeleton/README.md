@@ -41,6 +41,11 @@ Funktionen:
 - Neue Datei anlegen, Eintrag entfernen (Datei bleibt auf Platte)
 - Profil duplizieren als Ausgangspunkt für Varianten
 
+Die Editor-Liste zeigt nur **Inhalts-Vorlagen** (`.md`). Engine-/Satz-Assets
+(`.typ`, z. B. `typst-show.typ`, `page.typ`) bleiben im Manifest für Populate/
+Render, erscheinen aber nicht in der Vorlagenliste und nicht als „verwaiste“
+Dateien im Orphan-Dialog (`is_content_skeleton_entry` in `manifest.py`).
+
 ## Phase 3: Diff-Vorschau & Profil-Management
 
 ### Diff vor dem Populate

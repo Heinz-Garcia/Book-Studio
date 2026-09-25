@@ -574,7 +574,7 @@ def test_g_content_gap_opens_gg_dialog_for_chapter_gap(tmp_path: Path, monkeypat
 
 
 def test_cover_not_green_when_kdp_off(tmp_path: Path, monkeypatch):
-    """KDP aus: Cover ist optional — grau (EMPTY), nicht grün wie erledigt."""
+    """KDP aus ohne Fertig-Gate: Cover optional — grau (EMPTY), nicht grün."""
     from services.work_path import assess_checklist
     from tools.distribution.book_store import set_kdp_paperback
 
@@ -594,6 +594,64 @@ def test_cover_not_green_when_kdp_off(tmp_path: Path, monkeypatch):
     items = {c.id: c for c in assess_checklist(book)}
     assert items["cover"].kind == StageKind.EMPTY
     assert "KDP aus" in items["cover"].detail
+
+
+def test_cover_green_when_finished_even_if_kdp_was_off(tmp_path: Path, monkeypatch):
+    """Fertig-Gate schlägt KDP-aus: Ampel muss grün werden (Hansel-Fall)."""
+    from services.work_path import (
+        StageKind,
+        assess_checklist,
+        mark_cover_finished,
+    )
+    from tools.distribution.book_store import is_kdp_paperback, set_kdp_paperback
+
+    book = tmp_path / "Band"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    set_kdp_paperback(book, False)
+    cover_dir = book / "export" / "kdp_cover"
+    cover_dir.mkdir(parents=True)
+    layout = cover_dir / f"{book.name}_kdp_cover.json"
+    layout.write_text('{"schema_version": 1}\n', encoding="utf-8")
+
+    monkeypatch.setattr(
+        "services.work_path._rahmen_status", lambda _b, **_k: (True, "ok")
+    )
+    monkeypatch.setattr(
+        "services.work_path._chapters_status", lambda _b, **_k: (True, "ok")
+    )
+    monkeypatch.setattr(
+        "services.work_path._formats_status", lambda _b: (True, "ok")
+    )
+
+    mark_cover_finished(book, layout, finished=True)
+    assert is_kdp_paperback(book) is True
+    items = {c.id: c for c in assess_checklist(book)}
+    assert items["cover"].kind == StageKind.OK
+    assert "fertig" in items["cover"].detail.lower()
+
+
+def test_cover_not_green_after_confirmed_layout_is_gone(tmp_path: Path, monkeypatch):
+    """Altes Fertig-Token ohne Layout-Datei darf die Ampel nicht grün lassen."""
+    from services.work_path import StageKind, _cover_status, mark_cover_finished
+    from tools.distribution.book_store import set_kdp_paperback
+
+    book = tmp_path / "Band"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    cover_dir = book / "export" / "kdp_cover"
+    cover_dir.mkdir(parents=True)
+    layout = cover_dir / f"{book.name}_kdp_cover.json"
+    layout.write_text('{"schema_version": 1}\n', encoding="utf-8")
+    mark_cover_finished(book, layout, finished=True)
+    assert _cover_status(book)[0] == StageKind.OK
+
+    layout.unlink()
+    set_kdp_paperback(book, False)
+    monkeypatch.setattr(
+        "services.work_path._cover_layout_path_for_gate", lambda _b: None
+    )
+    assert _cover_status(book)[0] != StageKind.OK
 
 
 def test_cover_open_when_kdp_on_without_layout(tmp_path: Path, monkeypatch):
@@ -666,3 +724,41 @@ def test_cover_open_until_finished_confirmed(tmp_path: Path, monkeypatch):
     mark_cover_finished(book, Path(binding.canonical_path), finished=False)
     items3 = {c.id: c for c in assess_checklist(book)}
     assert items3["cover"].kind == StageKind.OPEN
+
+
+def test_cover_token_uses_existing_layout_path(tmp_path: Path, monkeypatch):
+    """Fertig-Token bezieht sich auf die vorhandene Layout-Datei (nicht nur Default)."""
+    from services.work_path import (
+        StageKind,
+        assess_checklist,
+        mark_cover_finished,
+    )
+    from tools.distribution.book_store import set_kdp_paperback
+
+    book = tmp_path / "Band"
+    book.mkdir()
+    (book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    set_kdp_paperback(book, True)
+    cover_dir = book / "export" / "kdp_cover"
+    cover_dir.mkdir(parents=True)
+    layout = cover_dir / f"{book.name}_kdp_cover.json"
+    layout.write_text('{"schema_version": 1}\n', encoding="utf-8")
+
+    monkeypatch.setattr(
+        "services.work_path._rahmen_status", lambda _b, **_k: (True, "ok")
+    )
+    monkeypatch.setattr(
+        "services.work_path._chapters_status", lambda _b, **_k: (True, "ok")
+    )
+    monkeypatch.setattr(
+        "services.work_path._formats_status", lambda _b: (True, "ok")
+    )
+
+    mark_cover_finished(book, layout, finished=True)
+    items = {c.id: c for c in assess_checklist(book)}
+    assert items["cover"].kind == StageKind.OK
+
+    # Layout neu geschrieben ohne Neu-Mark → Token veraltet → OPEN
+    layout.write_text('{"schema_version": 1, "rev": 9}\n', encoding="utf-8")
+    items2 = {c.id: c for c in assess_checklist(book)}
+    assert items2["cover"].kind == StageKind.OPEN

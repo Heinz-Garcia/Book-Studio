@@ -964,7 +964,7 @@ class StructurePanel(QWidget):
         abs_path = self._session.book_path / str(path)
         if abs_path.suffix.lower() != ".md" or not abs_path.is_file():
             return
-        from ui_qt.dialogs.text_dialogs import TextEditorDialog
+        from ui_qt.dialogs.text_dialogs import open_text_editor
 
         def _after_save() -> None:
             if self._session is None:
@@ -974,21 +974,23 @@ class StructurePanel(QWidget):
             self.reload_from_session()
             self.structure_changed.emit()
 
-        TextEditorDialog(
-            self,
+        def _after_close() -> None:
+            if self._session is not None:
+                self._session.refresh_titles_and_markers()
+                self.reload_from_session()
+                self.structure_changed.emit()
+
+        open_text_editor(
+            self.window(),
             abs_path,
             title="Markdown-Editor",
             book_path=self._session.book_path,
             on_save=_after_save,
+            on_finished=_after_close,
             initial_find_term=self.search_edit.text().strip() or None,
             initial_find_whole_word=self.search_whole_word.isChecked(),
             initial_find_case_sensitive=self.search_case_sensitive.isChecked(),
-        ).exec()
-        # Auch nach Schließen: falls gespeichert wurde, Icons/Titel nachziehen
-        if self._session is not None:
-            self._session.refresh_titles_and_markers()
-            self.reload_from_session()
-            self.structure_changed.emit()
+        )
 
     def _avail_context_menu(self, pos) -> None:
         item = self.avail_tree.itemAt(pos)

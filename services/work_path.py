@@ -179,7 +179,7 @@ def guided_bar_enablement(state: WorkPathState) -> GuidedBarEnablement:
     """
     labels = {
         "delivery_intake": "Lieferung übernehmen (Inbox)",
-        "book_projects": "Bücher wählen (Buchprojekte)",
+        "book_projects": "Bücher wählen (Buchprojekte verwalten)",
         "open_quarto_config_editor": "Struktur prüfen (_quarto.yml)",
         "open_rahmen_editor": "Rahmen prüfen (Rahmenseiten)",
         "open_kapitel_editor": "Kapitel prüfen (Kapitelstruktur)",
@@ -473,6 +473,14 @@ def mark_cover_finished(
 ) -> None:
     """Setzt oder löscht die Cover-Fertig-Bestätigung (Ampel Cover nur dann grün)."""
     if finished and cover_path is not None and Path(cover_path).is_file():
+        # Fertiges KDP-Cover → Kanal einschalten, sonst bleibt binding „off“
+        # und die Ampel wirkte früher trotz Gate grau.
+        try:
+            from tools.distribution.book_store import set_kdp_paperback
+
+            set_kdp_paperback(Path(book_path), True)
+        except (OSError, TypeError, ValueError):
+            pass
         mark_gate(
             book_path,
             "cover",
@@ -961,12 +969,32 @@ def _g_content_gap(
     return None
 
 
+def _cover_layout_path_for_gate(book: Path) -> Optional[Path]:
+    """Layout-Datei für Cover-Token: vorhandene Datei, sonst kanonischer Pfad."""
+    try:
+        from tools.kdp_cover.binding import resolve_cover_binding
+        from tools.kdp_cover.model import resolve_existing_project_path
+    except ImportError:
+        return None
+    try:
+        existing = resolve_existing_project_path(book)
+        if existing is not None:
+            return Path(existing)
+        binding = resolve_cover_binding(book)
+    except (OSError, TypeError, ValueError):
+        return None
+    if binding.canonical_path:
+        return Path(binding.canonical_path)
+    return None
+
+
 def _cover_status(book: Path) -> tuple[StageKind, str]:
     """Ampel für Cover vor Render.
 
-    * OK -- KDP an, Layout vorhanden **und** Nutzer hat „fertig“ bestätigt
+    * OK -- Nutzer hat „fertig“ bestätigt (Layout-Token passt), auch wenn
+      der KDP-Kanal noch aus war — sonst bleibt die Ampel grau trotz Export
     * OPEN -- KDP an, Layout fehlt oder noch nicht als fertig bestätigt
-    * EMPTY -- KDP aus: Cover optional, **nicht** als erledigt grün
+    * EMPTY -- KDP aus und kein Fertig-Gate: Cover optional, nicht als erledigt
     """
     try:
         from tools.kdp_cover.binding import resolve_cover_binding
@@ -976,12 +1004,17 @@ def _cover_status(book: Path) -> tuple[StageKind, str]:
         binding = resolve_cover_binding(book)
     except (OSError, TypeError, ValueError):
         return StageKind.EMPTY, "Cover-Prüfung fehlgeschlagen"
+
+    layout = _cover_layout_path_for_gate(book)
+    # Fertig-Gate gewinnt: sonst „Ja (Cover wird exportiert)“ → Ampel bleibt grau,
+    # wenn distribution.json noch kdp_paperback=false hat.
+    # Ohne auflösbares Layout zählt ein altes Fertig-Token nicht
+    # (cover_finished_ok(None) prüft nur „Token vorhanden“).
+    if layout is not None and cover_finished_ok(book, layout):
+        return StageKind.OK, "Cover fertig bestätigt"
     if binding.status == "off":
         return StageKind.EMPTY, "KDP aus — Cover optional (nicht als erledigt)"
     if binding.status == "ready":
-        layout = Path(binding.canonical_path) if binding.canonical_path else None
-        if cover_finished_ok(book, layout):
-            return StageKind.OK, "Cover fertig bestätigt"
         return StageKind.OPEN, "Cover gespeichert — noch nicht als fertig bestätigt"
     return StageKind.OPEN, "KDP-Cover fehlt oder nicht zugeordnet."
 
@@ -1004,7 +1037,7 @@ def _cover_gap(book: Path) -> Optional[tuple[str, str]]:
             "KDP-Cover fehlt oder nicht zugeordnet.",
         )
     if binding.status == "ready":
-        layout = Path(binding.canonical_path) if binding.canonical_path else None
+        layout = _cover_layout_path_for_gate(book)
         if not cover_finished_ok(book, layout):
             return (
                 "kdp_cover",
@@ -1794,7 +1827,7 @@ def _summary(book: Path, stages: tuple[StageSnapshot, ...], action: Optional[str
     open_stage = next((s for s in stages if s.kind == StageKind.OPEN), None)
     labels = {
         "delivery_intake": "Lieferung übernehmen (Inbox)",
-        "book_projects": "Bücher wählen (Buchprojekte)",
+        "book_projects": "Bücher wählen (Buchprojekte verwalten)",
         "open_quarto_config_editor": "Struktur prüfen (_quarto.yml)",
         "open_rahmen_editor": "Rahmen prüfen (Rahmenseiten)",
         "open_kapitel_editor": "Kapitel prüfen (Kapitelstruktur)",

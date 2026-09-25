@@ -295,9 +295,14 @@ class TestZeilenaktionen:
         assert gerufen == ["prompt"]
 
     def test_doppelklick_ohne_fundstelle_geht_ins_layout(self, dialog, monkeypatch) -> None:
+        from ui_qt.dialogs.doclayout_markup_inventory_dialog import _FILTER_ALLES
+
         karteileichen = [r for r in dialog.inventory.rows if not r.files]
         if not karteileichen:
             pytest.skip("Keine Karteileiche im Testbuch")
+        # 0×-Zeilen sind standardmäßig ausgefiltert — für diesen Test alles zeigen.
+        idx = dialog.filter_auswahl.findData(_FILTER_ALLES)
+        dialog.filter_auswahl.setCurrentIndex(idx)
         gerufen = []
         monkeypatch.setattr(dialog, "_fundstelle_oeffnen", lambda row: gerufen.append("DATEI"))
         monkeypatch.setattr(dialog, "_layout_oeffnen", lambda row: gerufen.append(row.name))
@@ -321,6 +326,36 @@ class TestZeilenaktionen:
         (dialog._book_path / zeile.files[0]).unlink()
         dialog._fundstelle_oeffnen(zeile)
         assert gewarnt and "nicht gefunden" in gewarnt[0]
+
+    def test_fundstelle_refresht_erst_nach_speichern(self, dialog, monkeypatch) -> None:
+        """Nicht-modaler Editor: kein Sofort-Refresh, sondern per Callback."""
+        from ui_qt.dialogs import text_dialogs
+
+        gerufen: dict = {}
+        monkeypatch.setattr(text_dialogs, "open_text_editor", lambda *a, **k: gerufen.update(k))
+        refreshes = []
+        monkeypatch.setattr(dialog, "refresh", lambda: refreshes.append(1))
+        monkeypatch.setattr(dialog, "isVisible", lambda: True)
+        dialog._fundstelle_oeffnen(dialog._row_at(self._zeile_von(dialog, "notruf")))
+        assert refreshes == []
+        gerufen["on_save"]()
+        gerufen["on_finished"]()
+        assert refreshes == [1, 1]
+
+    def test_status_verlinkt_ausgeblendete_zeilen(self, dialog) -> None:
+        from ui_qt.dialogs.doclayout_markup_inventory_dialog import (
+            _FILTER_HANDLUNG,
+            _FILTER_IM_BUCH,
+        )
+
+        leichen = [r for r in dialog.inventory.rows if r.book_count == 0]
+        if not leichen:
+            pytest.skip("Keine 0×-Zeile im Testbuch")
+        dialog.filter_auswahl.setCurrentIndex(dialog.filter_auswahl.findData(_FILTER_IM_BUCH))
+        assert "zeige-handlungsbedarf" in dialog._hidden_rows_link(leichen)
+        dialog._zeige_handlungsbedarf("zeige-handlungsbedarf")
+        assert dialog.filter_auswahl.currentData() == _FILTER_HANDLUNG
+        assert dialog._hidden_rows_link(leichen) == ""
 
 
 @pytest.mark.gui
@@ -358,6 +393,27 @@ class TestFocusGaps:
             assert dialog.tabelle.currentRow() == 0
             assert not dialog.btn_fehlende.isHidden()
             assert "anlegen" in dialog.btn_fehlende.text().lower()
+        finally:
+            dialog.deleteLater()
+
+    def test_filter_im_buch_blendet_null_vorkommen_aus(self, qapp, buch: Path) -> None:
+        from ui_qt.dialogs.doclayout_markup_inventory_dialog import (
+            MarkupInventoryDialog,
+            _FILTER_ALLES,
+            _FILTER_IM_BUCH,
+        )
+
+        dialog = MarkupInventoryDialog(buch, focus_gaps=False)
+        try:
+            assert dialog._row_filter == _FILTER_IM_BUCH
+            assert all(r.book_count > 0 for r in dialog._display_rows)
+            # Vollansicht: auch 0×-Zeilen (falls Inventar welche hat)
+            idx = dialog.filter_auswahl.findData(_FILTER_ALLES)
+            dialog.filter_auswahl.setCurrentIndex(idx)
+            assert dialog._row_filter == _FILTER_ALLES
+            assert len(dialog._display_rows) >= len(
+                [r for r in dialog._inventory.rows if r.book_count > 0]
+            )
         finally:
             dialog.deleteLater()
 

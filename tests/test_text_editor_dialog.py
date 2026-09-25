@@ -783,6 +783,188 @@ def test_save_as_writes_copy_without_touching_original(tmp_path: Path, monkeypat
     _ = app
 
 
+def test_save_as_and_to_skeleton_writes_copy_and_pool(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+
+    from tools.skeleton.manifest import load_manifest
+    from ui_qt.dialogs.text_dialogs import TextEditorDialog
+
+    app = QApplication.instance() or QApplication([])
+    book = tmp_path / "Buch"
+    content_dir = book / "content"
+    content_dir.mkdir(parents=True)
+    src = content_dir / "UeberAutor.md"
+    body = "---\ntitle: Über den Autor\norder: END-25\n---\n\n# Autor\n"
+    src.write_text(body, encoding="utf-8")
+
+    library = tmp_path / "library"
+    profile = library / "standard"
+    profile.mkdir(parents=True)
+    (profile / "manifest.yaml").write_text(
+        "name: standard\nlabel: Standard\nfiles: []\n",
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "app_config.json"
+    cfg.write_text(
+        '{"skeleton_library_path": "library", "skeleton_default_profile": "standard"}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "ui_qt.book_workspace.repo_root",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        "tools.skeleton.config.read_skeleton_settings",
+        lambda _root: {
+            "library_path": str(library),
+            "default_profile": "standard",
+            "on_conflict": "ask",
+            "populate_mode": "all",
+        },
+    )
+
+    dlg = TextEditorDialog(None, src, title="Markdown-Editor", book_path=book)
+    dest = tmp_path / "kopie_UeberAutor.md"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(dest), ""))
+    )
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    )
+    monkeypatch.setattr(
+        QMessageBox, "critical", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok)
+    )
+
+    dlg.editor.setPlainText(body + "\nPersistenz.\n")
+    dlg._save_as_and_to_skeleton()
+
+    assert dest.is_file(), dlg._status.text()
+    pool_file = profile / "content" / "UeberAutor.md"
+    assert pool_file.is_file(), dlg._status.text()
+    assert "Persistenz" in pool_file.read_text(encoding="utf-8")
+    manifest = load_manifest(profile)
+    assert any(e.path == "content/UeberAutor.md" for e in manifest.files)
+    assert dlg.path == src
+    dlg.close()
+    _ = app
+
+
+def test_open_text_editor_is_non_modal(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs import text_dialogs as td
+
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "x.md"
+    path.write_text("# Hi\n", encoding="utf-8")
+    td._active_text_editors.clear()
+
+    dlg = td.open_text_editor(None, path, title="Markdown-Editor")
+    assert dlg.isModal() is False
+    assert dlg.isVisible() is True
+    again = td.open_text_editor(None, path, title="Markdown-Editor")
+    assert again is dlg
+    dlg.close()
+    _ = app
+
+
+def test_second_caller_keeps_its_callbacks(tmp_path: Path, monkeypatch):
+    """Zweiter Aufruf auf dieselbe Datei: dessen on_save/on_finished laufen mit."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs import text_dialogs as td
+
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "x.md"
+    path.write_text("# Hi\n\nZeile zwei\n\nZiel hier\n", encoding="utf-8")
+    td._active_text_editors.clear()
+    calls: list[str] = []
+
+    dlg = td.open_text_editor(
+        None, path, on_save=lambda: calls.append("save1"), on_finished=lambda: calls.append("fin1")
+    )
+    again = td.open_text_editor(
+        None,
+        path,
+        on_save=lambda: calls.append("save2"),
+        on_finished=lambda: calls.append("fin2"),
+        initial_line=5,
+    )
+    assert again is dlg
+    assert dlg.editor.textCursor().blockNumber() == 4
+    dlg.editor.setPlainText("neu\n")
+    dlg._save()
+    assert calls == ["save1", "save2"]
+    dlg.close()
+    assert "fin1" in calls and "fin2" in calls
+    _ = app
+
+
+def test_reopen_with_same_callback_runs_it_once(tmp_path: Path, monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from ui_qt.dialogs import text_dialogs as td
+
+    app = QApplication.instance() or QApplication([])
+    path = tmp_path / "x.md"
+    path.write_text("# Hi\n", encoding="utf-8")
+    td._active_text_editors.clear()
+    calls: list[str] = []
+
+    class Aufrufer:
+        def refresh(self) -> None:
+            calls.append("r")
+
+    aufrufer = Aufrufer()
+    for _ in range(5):
+        dlg = td.open_text_editor(None, path, on_finished=aufrufer.refresh)
+    dlg.close()
+    assert calls == ["r"]
+    _ = app
+
+
+def test_close_with_unsaved_changes_asks(tmp_path: Path, monkeypatch):
+    """Nicht-modal: Schließen (auch durch den Aufrufer) fragt bei Änderungen nach."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from ui_qt.dialogs import text_dialogs as td
+
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(
+        td.TextEditorDialog,
+        "_confirm_close_unsaved",
+        td.TextEditorDialog._confirm_close_unsaved_real,
+    )
+    path = tmp_path / "x.md"
+    path.write_text("alt\n", encoding="utf-8")
+    td._active_text_editors.clear()
+    dlg = td.open_text_editor(None, path)
+    dlg.editor.setPlainText("neu\n")
+
+    answers = [QMessageBox.StandardButton.Cancel]
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: answers[0]))
+    dlg.close()
+    assert dlg.isVisible()  # Abbrechen → bleibt offen
+    dlg.reject()
+    assert dlg.isVisible()
+
+    answers[0] = QMessageBox.StandardButton.Save
+    dlg.close()
+    assert path.read_text(encoding="utf-8") == "neu\n"
+    _ = app
+
+
 def test_save_as_cancelled_dialog_does_nothing(tmp_path: Path, monkeypatch):
     pytest.importorskip("PySide6")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")

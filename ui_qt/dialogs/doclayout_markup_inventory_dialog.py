@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 )
 
 from tools.doclayout.markup_inventory import (
+    SAMPLE_LOREM,
     MarkupInventory,
     MarkupRow,
     StylePreview,
@@ -77,8 +78,12 @@ _SPALTEN_TIPPS = (
     "Import-Meldung = beim Übernehmen aus Pitugrafo hat der Import "
     "mitgeschrieben: „diese Kästen habe ich geliefert“ — wie ein Lieferschein.\n"
     "Kann vom heutigen Buch abweichen (gelöscht, umbenannt, nie angekommen).\n"
-    "Layout(s) = in der Format-Bibliothek schon zugeordnet.",
-    "Wie oft die Klasse im aktuellen Buch vorkommt (Scan der Kapitel).",
+    "Vorlage in Layout(s): … = konkrete Namen aus der Format-Bibliothek "
+    "(z. B. IFJN_layout) — nicht „kommt aus dem Buch“.",
+    "Wie oft die Klasse im aktuellen Buch vorkommt (Scan der Kapitel).\n"
+    "0× heißt: nichts im Markdown zu löschen. Aufräumen betrifft nur "
+    "Karteileichen (Vorlage ohne Text) — Quarto-Callouts ohne Nutzung "
+    "werden hier gar nicht gelistet.",
     "Zugeordnetes Absatzformat in der Vorlage (reference.docx).",
     "Bewertung: fehlt Vorlage, Quarto-Builtin, ok, unbenutzt …",
     "Nächster Schritt für diese Zeile.",
@@ -86,7 +91,10 @@ _SPALTEN_TIPPS = (
     "based_on-Kette und Folgeformat (Enter).",
 )
 
-#: Spalte, in der die naechste Handlung steht -- sie wird hervorgehoben.
+#: Filter der Inventar-Tabelle (Störrauschen vs. Vollansicht).
+_FILTER_IM_BUCH = "im_buch"
+_FILTER_HANDLUNG = "handlung"
+_FILTER_ALLES = "alles"
 _SPALTE_ZU_TUN = 5
 _SPALTE_BEFUND = 4
 _SPALTE_ERBFOLGE = 7
@@ -142,6 +150,10 @@ class MarkupInventoryDialog(QDialog):
         self._inventory: Optional[MarkupInventory] = None
         self._display_rows: list[MarkupRow] = []
         self._focus_gaps = bool(focus_gaps)
+        # Standard: nur was im Buch vorkommt — 0×-Bibliotheksreste ausblenden.
+        self._row_filter = (
+            _FILTER_HANDLUNG if self._focus_gaps else _FILTER_IM_BUCH
+        )
         self.setWindowTitle("Textauszeichnungs-Inventar")
         apply_persisted_size(
             self, _SIZE_KEY, default=_DEFAULT_SIZE, min_size=_MIN_SIZE
@@ -172,6 +184,15 @@ class MarkupInventoryDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 12)
         layout.setSpacing(10)
+        # Bare ``color:`` auf Labels färbt sonst den QToolTip mit (grau auf
+        # System-Blau = unlesbar). QToolTip hier fest und Labels scoped.
+        self.setStyleSheet(
+            "QToolTip {"
+            "  background-color: #1e293b; color: #f8fafc;"
+            "  border: 1px solid #64748b; padding: 6px 10px;"
+            "  font-size: 10pt;"
+            "}"
+        )
 
         # Auswahlliste statt Ordnerdialog: Welche Buchprojekte es gibt, weiss
         # die Anwendung selbst (``book_projects.catalog``). Wer hier einen Pfad
@@ -196,11 +217,34 @@ class MarkupInventoryDialog(QDialog):
 
         self.umfang_hint = QLabel(
             "Nur Absatz-Auszeichnungen (::: {.klasse} → Word-Absatzformat). "
-            "Zeichenformate (fett/kursiv im Fließtext) gehören nicht hierher."
+            "„Vorlage in Layouts: …“ nennt die Profilnamen der Format-Bibliothek "
+            "(nicht Buchinhalt). "
+            "0× im Buch: nichts im Markdown zu löschen — nur echte Karteileichen "
+            "bieten Nur hier / Überall."
         )
         self.umfang_hint.setStyleSheet("QLabel { color: #64748b; font-size: 11px; }")
         self.umfang_hint.setWordWrap(True)
         layout.addWidget(self.umfang_hint)
+
+        filter_zeile = QHBoxLayout()
+        filter_zeile.setSpacing(8)
+        filter_zeile.addWidget(QLabel("Anzeigen:"))
+        self.filter_auswahl = QComboBox()
+        self.filter_auswahl.addItem("Nur im Buch (ohne 0×-Rauschen)", _FILTER_IM_BUCH)
+        self.filter_auswahl.addItem(
+            "Handlungsbedarf (Lücken & Karteileichen)", _FILTER_HANDLUNG
+        )
+        self.filter_auswahl.addItem("Alles", _FILTER_ALLES)
+        idx = max(0, self.filter_auswahl.findData(self._row_filter))
+        self.filter_auswahl.setCurrentIndex(idx)
+        self.filter_auswahl.setToolTip(
+            "Nur im Buch — Spalte „im Buch“ > 0×; Bibliotheksreste mit 0× weg.\n"
+            "Handlungsbedarf — Lücken, Karteileichen, Gestalten, …\n"
+            "Alles — vollständige Inventarliste."
+        )
+        self.filter_auswahl.currentIndexChanged.connect(self._auf_filter_gewechselt)
+        filter_zeile.addWidget(self.filter_auswahl, 1)
+        layout.addLayout(filter_zeile)
 
         self.tabelle = QTableWidget(0, len(_SPALTEN), self)
         self.tabelle.setHorizontalHeaderLabels(list(_SPALTEN))
@@ -250,32 +294,34 @@ class MarkupInventoryDialog(QDialog):
         detail_layout.setSpacing(6)
 
         self.detail_title = QLabel("Zeile wählen — dann erscheinen Aussehen, Probe und Bewertung.")
-        self.detail_title.setStyleSheet("font-weight: 700; color: #1c2740;")
+        self.detail_title.setStyleSheet("QLabel { font-weight: 700; color: #1c2740; }")
         detail_layout.addWidget(self.detail_title)
 
         self.detail_snippets = QLabel("")
         self.detail_snippets.setWordWrap(True)
         self.detail_snippets.setStyleSheet(
-            "color: #475569; font-style: italic; padding: 2px 0 4px 0;"
+            "QLabel { color: #475569; font-style: italic; padding: 2px 0 4px 0; }"
         )
         self.detail_snippets.hide()
         detail_layout.addWidget(self.detail_snippets)
 
         self.detail_erbfolge = QLabel("")
         self.detail_erbfolge.setWordWrap(True)
-        self.detail_erbfolge.setStyleSheet("color: #334155;")
+        self.detail_erbfolge.setStyleSheet("QLabel { color: #334155; }")
         detail_layout.addWidget(self.detail_erbfolge)
 
         self.detail_aussehen = QLabel("")
         self.detail_aussehen.setWordWrap(True)
-        self.detail_aussehen.setStyleSheet("color: #334155;")
+        self.detail_aussehen.setStyleSheet("QLabel { color: #334155; }")
         detail_layout.addWidget(self.detail_aussehen)
 
         self.detail_bewertung = QLabel("")
         self.detail_bewertung.setWordWrap(True)
         self.detail_bewertung.setStyleSheet(
-            "color: #1e3a5f; background: #eef6ff; border-left: 3px solid #2f5cc8;"
-            " padding: 6px 8px;"
+            "QLabel {"
+            "  color: #1e3a5f; background: #eef6ff; border-left: 3px solid #2f5cc8;"
+            "  padding: 6px 8px;"
+            "}"
         )
         detail_layout.addWidget(self.detail_bewertung)
 
@@ -300,8 +346,11 @@ class MarkupInventoryDialog(QDialog):
         probe_box.setContentsMargins(0, 4, 0, 0)
         probe_box.setSpacing(2)
         probe_caption = QLabel("Probe (wirksames Format):")
-        probe_caption.setStyleSheet("color: #92400e; font-size: 11px; font-weight: 600;")
+        probe_caption.setStyleSheet(
+            "QLabel { color: #92400e; font-size: 11px; font-weight: 600; }"
+        )
         probe_box.addWidget(probe_caption)
+        self.detail_probe_caption = probe_caption
         self.detail_probe = QLabel("—")
         self.detail_probe.setWordWrap(True)
         self.detail_probe.setMinimumHeight(56)
@@ -317,6 +366,7 @@ class MarkupInventoryDialog(QDialog):
         self.befund_label = QLabel("")
         self.befund_label.setWordWrap(True)
         self.befund_label.setTextFormat(Qt.TextFormat.RichText)
+        self.befund_label.linkActivated.connect(self._zeige_handlungsbedarf)
         layout.addWidget(self.befund_label)
 
         knopfleiste = QHBoxLayout()
@@ -405,6 +455,7 @@ class MarkupInventoryDialog(QDialog):
             )
 
         rows = list(inventar.rows)
+        rows = [r for r in rows if self._row_matches_filter(r)]
         if self._focus_gaps:
             # Lücken zuerst — Arbeitsweg springt hierhin zum Zuordnen.
             rows.sort(
@@ -446,23 +497,72 @@ class MarkupInventoryDialog(QDialog):
             self.btn_fehlende.setText("Fehlende Formate anlegen…")
 
         if offen:
+            fehlend = inventar.without_template
+            namen = ", ".join(f".{row.name}" for row in fehlend[:5])
+            rest = "" if len(fehlend) <= 5 else f" (+{len(fehlend) - 5})"
             self.befund_label.setText(
+                f"<b style='color:#991b1b;'>Status:</b> "
                 f"<b style='color:#991b1b;'>{offen} ohne Vorlage</b> — "
+                f"gemeint ist <b>{namen}{rest}</b>, "
+                f"<i>nicht</i> die gerade markierte Tabellenzeile. "
                 + Verdict.OHNE_VORLAGE.explanation
+                + self._hidden_rows_link(fehlend)
             )
         elif leichen:
+            unbenutzt = inventar.orphans
+            namen = ", ".join(f".{row.name}" for row in unbenutzt[:5])
+            rest = "" if len(unbenutzt) <= 5 else f" (+{len(unbenutzt) - 5})"
             self.befund_label.setText(
                 f"<b style='color:{_VERDICT_COLORS[Verdict.KARTEILEICHE]};'>"
+                f"Status:</b> "
+                f"<b style='color:{_VERDICT_COLORS[Verdict.KARTEILEICHE]};'>"
                 f"{leichen} unbenutzt</b> — "
+                f"gemeint ist <b>{namen}{rest}</b>, "
+                f"<i>nicht</i> die gerade markierte Tabellenzeile. "
                 + Verdict.KARTEILEICHE.explanation
+                + self._hidden_rows_link(unbenutzt)
             )
         else:
             self.befund_label.setText(
-                "<b style='color:#166534;'>Alles zugeordnet.</b>"
+                "<b style='color:#166534;'>Status: Alles zugeordnet.</b>"
             )
         if self._focus_gaps and offen:
             self._select_first_gap()
         _LOG.info("Textauszeichnungs-Inventar: %s", inventar.summary())
+
+    def _hidden_rows_link(self, rows) -> str:
+        """Link „anzeigen“, wenn der Filter die genannten Zeilen ausblendet."""
+        if all(self._row_matches_filter(row) for row in rows):
+            return ""
+        return (
+            " <a href='zeige-handlungsbedarf'>Diese Zeilen anzeigen</a> "
+            "(der aktuelle Filter blendet sie aus)."
+        )
+
+    def _zeige_handlungsbedarf(self, _link: str = "") -> None:
+        idx = self.filter_auswahl.findData(_FILTER_HANDLUNG)
+        if idx >= 0:
+            self.filter_auswahl.setCurrentIndex(idx)
+
+    def _row_matches_filter(self, row: MarkupRow) -> bool:
+        """Ob die Zeile zum aktuellen Anzeige-Filter passt."""
+        modus = self._row_filter
+        if modus == _FILTER_ALLES:
+            return True
+        if modus == _FILTER_IM_BUCH:
+            return row.book_count > 0
+        if modus == _FILTER_HANDLUNG:
+            return bool(row.todo) or row.verdict in (
+                Verdict.OHNE_VORLAGE,
+                Verdict.KARTEILEICHE,
+            )
+        return True
+
+    def _auf_filter_gewechselt(self, _index: int = -1) -> None:
+        data = self.filter_auswahl.currentData()
+        self._row_filter = str(data) if data else _FILTER_IM_BUCH
+        if self._inventory is not None:
+            self._fill(self._inventory)
 
     def _select_first_gap(self) -> None:
         """Erste Zeile ohne Vorlage markieren und in Sicht scrollen."""
@@ -580,6 +680,7 @@ class MarkupInventoryDialog(QDialog):
             self.detail_bewertung.hide()
             self.detail_bewertung.setText("")
             self.btn_druck_defaults.hide()
+            self.detail_probe_caption.setText("Probe:")
             self.detail_probe.setText("—")
             self.detail_probe.setStyleSheet(
                 f"QLabel {{ background: {_PROBE_BG}; border: 1px solid {_PROBE_BORDER};"
@@ -618,6 +719,12 @@ class MarkupInventoryDialog(QDialog):
         else:
             self.btn_druck_defaults.hide()
 
+        aus_buch = bool(row.snippets) and vorschau.sample_text != SAMPLE_LOREM
+        self.detail_probe_caption.setText(
+            "Probe (erstes Vorkommen im Buch):"
+            if aus_buch
+            else "Probe (Platzhalter — Klasse nicht im Buch):"
+        )
         probe = self._probe_label(vorschau)
         self.detail_probe.setText(probe.text())
         self.detail_probe.setStyleSheet(probe.styleSheet())
@@ -665,7 +772,7 @@ class MarkupInventoryDialog(QDialog):
         QMessageBox.information(self, "Druck-Defaults", message)
 
     def _probe_label(self, vorschau: StylePreview) -> QLabel:
-        """Lorem-Ipsum-Absatz im wirksamen Format (naeherungsweise per QSS)."""
+        """Probeabsatz im wirksamen Format (Buchtext oder Lorem, per QSS)."""
         label = QLabel(vorschau.sample_text)
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
@@ -711,26 +818,89 @@ class MarkupInventoryDialog(QDialog):
         host = QWidget()
         row_layout = QHBoxLayout(host)
         row_layout.setContentsMargins(2, 2, 2, 2)
-        row_layout.setSpacing(0)
-        btn = QPushButton(row.todo)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        row_layout.setSpacing(4)
         farbe = _VERDICT_COLORS.get(row.verdict, "#334155")
-        btn.setStyleSheet(
+        style = (
             f"QPushButton {{"
             f"  background-color: {farbe}; color: #ffffff; font-weight: 600;"
-            f"  border: none; border-radius: 4px; padding: 4px 10px;"
+            f"  border: none; border-radius: 4px; padding: 4px 8px;"
             f"}}"
             f"QPushButton:hover {{ background-color: {farbe}; }}"
         )
-        btn.setToolTip(
-            f"Führt aus: {row.todo}\n"
-            + (
-                "Entfernt die unbenutzte Klasse aus der Layout-Bibliothek."
-                if row.verdict is Verdict.KARTEILEICHE
-                else "Öffnet den Layout-Editor an der richtigen Stelle."
-            )
-        )
         name = row.name
+        if row.verdict is Verdict.KARTEILEICHE:
+            btn_hier = QPushButton("Nur hier")
+            btn_hier.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_hier.setStyleSheet(style)
+            btn_hier.setToolTip(
+                "Aus der Inventar-Liste dieses Buchs nehmen — Layout-Bibliothek und "
+                "andere Bücher bleiben unverändert."
+            )
+            btn_hier.clicked.connect(
+                lambda _=False, n=name: self._orphan_nur_hier(n)
+            )
+            btn_ueberall = QPushButton("Überall")
+            btn_ueberall.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_ueberall.setStyleSheet(style)
+            btn_ueberall.setToolTip(
+                "Aus der gemeinsamen Layout-Bibliothek entfernen — "
+                "betrifft alle Bücher, die diese Layouts nutzen."
+            )
+            btn_ueberall.clicked.connect(
+                lambda _=False, n=name: self._orphan_ueberall(n)
+            )
+            row_layout.addWidget(btn_hier)
+            row_layout.addWidget(btn_ueberall)
+            row_layout.addStretch(1)
+            return host
+
+        if row.todo == "Gestalten":
+            btn_g = QPushButton("Gestalten")
+            btn_g.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_g.setStyleSheet(style)
+            btn_g.setToolTip(
+                "Layout-Editor: dem Format eigene Merkmale geben "
+                "(Abstand, Größe, Farbe …)."
+            )
+            btn_g.clicked.connect(
+                lambda _=False, n=name: self._todo_ausfuehren(n)
+            )
+            btn_v = QPushButton("Verwerfen…")
+            btn_v.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_v.setStyleSheet(style)
+            btn_v.setToolTip(
+                "Eigene Auszeichnung verwerfen und auf einen Vorfahren "
+                "(z. B. BodyText / Fließtext) abbilden — Markdown bleibt."
+            )
+            btn_v.clicked.connect(
+                lambda _=False, n=name: self._verwerfen_auf_vorfahr(n)
+            )
+            row_layout.addWidget(btn_g)
+            row_layout.addWidget(btn_v)
+            row_layout.addStretch(1)
+            return host
+
+        if row.todo == "Eigenes Format":
+            btn = QPushButton("Eigenes Format…")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(style)
+            btn.setToolTip(
+                "Umkehrung von Verwerfen: neues Absatzformat vom Fließtext "
+                "abspalten — danach Gestalten."
+            )
+            btn.clicked.connect(
+                lambda _=False, n=name: self._eigenes_format_anlegen(n)
+            )
+            row_layout.addWidget(btn)
+            row_layout.addStretch(1)
+            return host
+
+        btn = QPushButton(row.todo)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet(style)
+        btn.setToolTip(
+            f"Führt aus: {row.todo}\nÖffnet den Layout-Editor an der richtigen Stelle."
+        )
         btn.clicked.connect(lambda _=False, n=name: self._todo_ausfuehren(n))
         row_layout.addWidget(btn)
         row_layout.addStretch(1)
@@ -749,10 +919,13 @@ class MarkupInventoryDialog(QDialog):
             self._format_anlegen(row)
             return
         if befund is Verdict.KARTEILEICHE:
-            self._orphan_pruefen(row)
+            # Doppelklick / Fallback: Scope muss sichtbar gewählt werden.
             return
         if row.todo == "Gestalten" and row.styles:
             self._gestalten(row)
+            return
+        if row.todo == "Eigenes Format":
+            self._eigenes_format_anlegen(row.name)
             return
         if row.todo == "Vorlage vereinheitlichen":
             self._layout_oeffnen(row)
@@ -803,20 +976,153 @@ class MarkupInventoryDialog(QDialog):
             focus_style=style,
         )
 
-    def _orphan_pruefen(self, row: MarkupRow) -> None:
-        """Karteileiche streichen: aus Bibliothek entfernen und Liste aktualisieren."""
+    def _verwerfen_auf_vorfahr(self, name_oder_zeile: Any) -> None:
+        """Leeres Format verwerfen: Klasse auf einen Vorfahren abbilden."""
+        from tools.doclayout.library import load_layout
+        from tools.doclayout.markup_inventory import (
+            ancestor_choices_for_class,
+            remap_class_to_style,
+        )
+        from tools.doclayout.schema import LayoutError
+
+        row = (
+            self._row_at(name_oder_zeile)
+            if isinstance(name_oder_zeile, int)
+            else self._row_by_name(str(name_oder_zeile))
+        )
+        if row is None:
+            return
+        if row.todo != "Gestalten":
+            QMessageBox.information(
+                self,
+                "Verwerfen",
+                "Verwerfen → Vorfahr gilt nur für Formate ohne eigene Gestaltung.",
+            )
+            return
+
+        # Nur Vorfahren anbieten, die es in JEDEM betroffenen Layout gibt —
+        # sonst scheitert das Umhängen („Zielformat fehlt“).
+        choices: list[str] = []
+        gemeinsam: set[str] | None = None
+        for layout_name in row.layouts:
+            try:
+                definition = load_layout(layout_name)
+            except (LayoutError, OSError, ValueError):
+                continue
+            eigene = list(ancestor_choices_for_class(definition, row.name))
+            if "BodyText" in definition.styles and "BodyText" not in eigene:
+                eigene.append("BodyText")
+            for vorfahr in eigene:
+                if vorfahr not in choices:
+                    choices.append(vorfahr)
+            gemeinsam = set(eigene) if gemeinsam is None else gemeinsam & set(eigene)
+        if gemeinsam is not None:
+            choices = [c for c in choices if c in gemeinsam]
+        if not choices:
+            choices = ["BodyText"]
+
+        ziel, ok = QInputDialog.getItem(
+            self,
+            "Verwerfen → Vorfahr",
+            f".{row.name} trägt keine eigene Gestaltung.\n\n"
+            "Auf welches Vorfahren-Format abbilden?\n"
+            "(Markdown bleibt unverändert — nur die Layout-Abbildung.)",
+            choices,
+            0,
+            False,
+        )
+        if not ok or not str(ziel).strip():
+            return
+
+        result_ok, message = remap_class_to_style(
+            row.name,
+            str(ziel).strip(),
+            layout_names=row.layouts or None,
+            only_unstyled=True,
+        )
+        if not result_ok:
+            QMessageBox.warning(self, "Verwerfen", message)
+            return
+        self.refresh()
+        QMessageBox.information(self, "Verwerfen", message)
+
+    def _eigenes_format_anlegen(self, name_oder_zeile: Any) -> None:
+        """Nach Verwerfen: wieder ein eigenes Format vom Vorfahren abspalten."""
+        from tools.doclayout.markup_inventory import detach_class_to_own_style
+
+        row = (
+            self._row_at(name_oder_zeile)
+            if isinstance(name_oder_zeile, int)
+            else self._row_by_name(str(name_oder_zeile))
+        )
+        if row is None:
+            return
+        antwort = QMessageBox.question(
+            self,
+            "Eigenes Format",
+            f".{row.name} zeigt derzeit auf Fließtext/Basis "
+            f"({', '.join(row.styles) or '—'}).\n\n"
+            "Neues Absatzformat anlegen (basiert auf dem aktuellen Ziel) "
+            "und die Klasse darauf abbilden?\n"
+            "Danach: Gestalten.",
+        )
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+        ok, message = detach_class_to_own_style(
+            row.name, layout_names=row.layouts or None
+        )
+        if not ok:
+            QMessageBox.warning(self, "Eigenes Format", message)
+            return
+        self.refresh()
+        QMessageBox.information(self, "Eigenes Format", message)
+        # Frisch angelegt → gleich Gestalten anbieten.
+        neu = self._row_by_name(row.name)
+        if neu is not None and neu.todo == "Gestalten":
+            self._gestalten(neu)
+
+    def _orphan_nur_hier(self, name_oder_zeile: Any) -> None:
+        """Nur in diesem Buch aus der Liste nehmen — Bibliothek bleibt."""
+        from tools.doclayout.markup_inventory import ignore_orphan_for_book
+
+        row = (
+            self._row_at(name_oder_zeile)
+            if isinstance(name_oder_zeile, int)
+            else self._row_by_name(str(name_oder_zeile))
+        )
+        if row is None:
+            return
+        if self._book_path is None:
+            QMessageBox.warning(self, "Nur hier", "Kein Buch gewählt.")
+            return
+        ok, message = ignore_orphan_for_book(self._book_path, row.name)
+        if not ok:
+            QMessageBox.warning(self, "Nur hier", message)
+            return
+        self.refresh()
+        QMessageBox.information(self, "Nur hier", message)
+
+    def _orphan_ueberall(self, name_oder_zeile: Any) -> None:
+        """Aus der gemeinsamen Layout-Bibliothek entfernen (alle Bücher)."""
         from tools.doclayout.markup_inventory import remove_unused_class_from_library
 
+        row = (
+            self._row_at(name_oder_zeile)
+            if isinstance(name_oder_zeile, int)
+            else self._row_by_name(str(name_oder_zeile))
+        )
+        if row is None:
+            return
         layouts = row.layouts or ()
         layout_hinweis = (
             f"\n\nLayouts: {', '.join(layouts)}" if layouts else ""
         )
         antwort = QMessageBox.question(
             self,
-            "Karteileiche streichen",
-            f".{row.name} kommt 0× im Buch vor.\n\n"
-            f"Eintrag aus der Layout-Bibliothek entfernen "
-            f"(Klassen-Abbildung und ggf. Absatzformat)?{layout_hinweis}",
+            "Überall entfernen",
+            f".{row.name} aus der gemeinsamen Layout-Bibliothek entfernen?\n\n"
+            f"Das betrifft alle Bücher, die diese Layouts nutzen."
+            f"{layout_hinweis}",
         )
         if antwort != QMessageBox.StandardButton.Yes:
             return
@@ -824,13 +1130,30 @@ class MarkupInventoryDialog(QDialog):
             row.name, layout_names=layouts or None
         )
         if not ok:
-            QMessageBox.warning(self, "Streichen", message)
+            QMessageBox.warning(self, "Überall entfernen", message)
             return
         self.refresh()
+        QMessageBox.information(self, "Überall entfernen", message)
 
     @staticmethod
     def _tooltip(row: MarkupRow) -> str:
         teile = [row.verdict.explanation]
+        if row.book_count == 0:
+            if row.verdict is Verdict.QUARTO:
+                teile.append(
+                    "0× im Buch: kein Aufräumen nötig — Quarto bedient diese "
+                    "Auszeichnung selbst (z. B. Callouts)."
+                )
+            elif row.verdict is Verdict.KARTEILEICHE:
+                teile.append(
+                    "0× im Buch + Vorlage in Layouts = Karteileiche "
+                    "(Nur hier / Überall)."
+                )
+            elif row.from_generator:
+                teile.append(
+                    "0× im Buch, aber Import-Meldung: stand auf dem Lieferschein, "
+                    "im aktuellen Text nicht (mehr) — keine Layout-Leiche."
+                )
         if row.todo:
             teile.append(f"Nächster Schritt: {row.todo}")
         if row.styled is False:
@@ -960,19 +1283,28 @@ class MarkupInventoryDialog(QDialog):
             QMessageBox.warning(self, "Fundstelle", f"Datei nicht gefunden:\n{pfad}")
             return
         try:
-            from ui_qt.dialogs.text_dialogs import TextEditorDialog
+            from ui_qt.dialogs.text_dialogs import open_text_editor
         except ImportError as exc:
             QMessageBox.warning(self, "Fundstelle", f"Editor nicht verfügbar:\n{exc}")
             return
-        dialog = TextEditorDialog(
+        # Editor ist nicht-modal: erst nach Speichern/Schließen neu erheben.
+        open_text_editor(
             self,
             pfad,
             title="Fundstelle",
             initial_find_term=f".{row.name}",
             book_path=self._book_path,
+            on_save=self._refresh_if_alive,
+            on_finished=self._refresh_if_alive,
         )
-        dialog.exec()
-        self.refresh()
+
+    def _refresh_if_alive(self) -> None:
+        """Refresh aus Editor-Callbacks — das Inventar kann schon zu sein."""
+        try:
+            if self.isVisible():
+                self.refresh()
+        except RuntimeError:  # C++-Objekt bereits zerstört
+            pass
 
     def _layout_oeffnen(self, row: MarkupRow) -> None:
         """Layout-Editor oeffnen -- wenn moeglich gleich auf dem richtigen Layout."""
