@@ -24,7 +24,9 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+import ui_qt.dialogs.doclayout_editor.library as bibliothek_modul  # noqa: E402
 import ui_qt.dialogs.doclayout_editor_dialog as editor_modul  # noqa: E402
+from ui_qt import qt_session  # noqa: E402
 from tools.doclayout.library import load_layout  # noqa: E402
 from tools.doclayout.profiles import definition_from_profile  # noqa: E402
 from ui_qt.dialogs.doclayout_editor_dialog import (  # noqa: E402
@@ -54,9 +56,7 @@ def _keine_echte_sitzung(monkeypatch):
     Autouse und nicht je Test: Wer hier einen Test dazuschreibt, soll nicht
     daran denken muessen.
     """
-    import ui_qt.dialogs.doclayout_editor_dialog as modul
-
-    monkeypatch.setattr(modul.qt_session, "update_ui_state", lambda *a, **k: None)
+    monkeypatch.setattr(qt_session, "update_ui_state", lambda *a, **k: None)
 
 
 @pytest.fixture()
@@ -172,7 +172,7 @@ def test_das_profil_kommt_aus_den_export_einstellungen(qapp, library, monkeypatc
         DocLayoutEditorDialog, "_start_preview", lambda self, **kwargs: None
     )
     monkeypatch.setattr(
-        editor_modul.qt_session,
+        qt_session,
         "load_session",
         lambda *a, **k: {"export_options": {"layout_profile": "paperback-bleed"}},
     )
@@ -191,10 +191,10 @@ def test_ohne_sitzung_gilt_dieselbe_vorgabe_wie_im_export(
         DocLayoutEditorDialog, "_start_preview", lambda self, **kwargs: None
     )
     monkeypatch.setattr(
-        editor_modul.qt_session, "load_session", lambda *a, **k: {}
+        qt_session, "load_session", lambda *a, **k: {}
     )
     monkeypatch.setattr(
-        editor_modul, "_FALLBACK_LAYOUT_PROFILE", "taschenbuch-bod", raising=False
+        bibliothek_modul, "_FALLBACK_LAYOUT_PROFILE", "taschenbuch-bod"
     )
     dlg = DocLayoutEditorDialog(library_dir=library, select="Probe")
     try:
@@ -214,7 +214,7 @@ def test_eine_kaputte_sitzung_wirft_nicht(qapp, library, monkeypatch):
     def kaputt(*a, **k):
         raise OSError("session_state.json unlesbar")
 
-    monkeypatch.setattr(editor_modul.qt_session, "load_session", kaputt)
+    monkeypatch.setattr(qt_session, "load_session", kaputt)
     dlg = DocLayoutEditorDialog(library_dir=library, select="Probe")
     try:
         assert dlg._active_layout_profile() == editor_modul._FALLBACK_LAYOUT_PROFILE

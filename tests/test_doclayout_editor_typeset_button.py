@@ -21,6 +21,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 from tools.doclayout.library import load_layout  # noqa: E402
 from tools.doclayout.typeset import TypesetResult  # noqa: E402
 from ui_qt.dialogs import doclayout_editor_dialog as D  # noqa: E402
+from ui_qt.dialogs.doclayout_editor import book as buch_modul  # noqa: E402
 from ui_qt.dialogs.doclayout_typeset_runner import TypesetRunner  # noqa: E402
 
 
@@ -132,7 +133,7 @@ def test_the_button_comes_back_after_a_failure(dialog, monkeypatch):
 
 
 def test_the_button_comes_back_after_a_run(dialog, monkeypatch, tmp_path: Path):
-    monkeypatch.setattr(D, "QMessageBox", MeldungsAttrappe)
+    monkeypatch.setattr(buch_modul, "QMessageBox", MeldungsAttrappe)
     dialog._on_typeset_busy()
     dialog._on_typeset_ready(
         TypesetResult(docx=tmp_path / "a.docx", pdf=None, chapters=("a.md", "b.md"))
@@ -143,7 +144,7 @@ def test_the_button_comes_back_after_a_run(dialog, monkeypatch, tmp_path: Path):
 
 def test_pandoc_warnings_reach_the_user(dialog, monkeypatch, tmp_path: Path):
     """Sie betreffen sein Manuskript -- sie zu verschlucken waere Bevormundung."""
-    monkeypatch.setattr(D, "QMessageBox", MeldungsAttrappe)
+    monkeypatch.setattr(buch_modul, "QMessageBox", MeldungsAttrappe)
     dialog._on_typeset_ready(
         TypesetResult(
             docx=tmp_path / "a.docx",
@@ -165,7 +166,7 @@ def test_the_pdf_gets_its_own_button(dialog, monkeypatch, tmp_path: Path):
                 knoepfe.append(a[0])
             return None
 
-    monkeypatch.setattr(D, "QMessageBox", MitKnopf)
+    monkeypatch.setattr(buch_modul, "QMessageBox", MitKnopf)
     pdf = tmp_path / "fertig.pdf"
     pdf.write_bytes(b"%PDF")
     dialog._on_typeset_ready(

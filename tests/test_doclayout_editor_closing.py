@@ -27,6 +27,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
+import ui_qt.dialogs.doclayout_editor.book as buch_modul  # noqa: E402
 import ui_qt.dialogs.doclayout_editor_dialog as editor_modul  # noqa: E402
 import ui_qt.dialogs.doclayout_preview_runner as runner_modul  # noqa: E402
 from tools.doclayout.library import load_layout  # noqa: E402
@@ -286,7 +287,7 @@ def test_apply_with_return_after_apply_closes_editor(
     geschlossen: list[int] = []
 
     monkeypatch.setattr(
-        editor_modul,
+        buch_modul,
         "apply_layout",
         lambda definition, book_path, **kwargs: ApplyResult(
             book_path=Path(book_path),
@@ -298,7 +299,7 @@ def test_apply_with_return_after_apply_closes_editor(
         DocLayoutEditorDialog, "_ask_book", lambda self, title: buch
     )
     monkeypatch.setattr(
-        editor_modul, "is_blocked", lambda _req: False
+        buch_modul, "is_blocked", lambda _req: False
     )
     monkeypatch.setattr(
         QMessageBox,
@@ -332,7 +333,7 @@ def test_apply_without_return_keeps_editor_open(
     (buch / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        editor_modul,
+        buch_modul,
         "apply_layout",
         lambda definition, book_path, **kwargs: ApplyResult(
             book_path=Path(book_path),
@@ -343,7 +344,7 @@ def test_apply_without_return_keeps_editor_open(
     monkeypatch.setattr(
         DocLayoutEditorDialog, "_ask_book", lambda self, title: buch
     )
-    monkeypatch.setattr(editor_modul, "is_blocked", lambda _req: False)
+    monkeypatch.setattr(buch_modul, "is_blocked", lambda _req: False)
     monkeypatch.setattr(
         QMessageBox,
         "information",
