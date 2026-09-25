@@ -12,7 +12,7 @@ from tools.cover_size.calculator import (
     inch_to_mm,
 )
 from tools.kdp_cover.constants import DEFAULT_EXPORT_DPI
-from tools.kdp_cover.export_pdf import export_wrap_pdf
+from tools.kdp_cover.export_pdf import export_cover_set
 from tools.kdp_cover.geometry import build_geometry
 from tools.kdp_cover.model import CoverLayout, load_layout, save_layout
 from tools.kdp_specs import studio_paperback_preset
@@ -41,7 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
     geo.add_argument("--trim-width-mm", type=float, default=0.0)
     geo.add_argument("--trim-height-mm", type=float, default=0.0)
 
-    exp = sub.add_parser("export", help="Wrap-PDF erzeugen.")
+    exp = sub.add_parser(
+        "export", help="Wrap-PDF (Taschenbuch) + eBook-Cover (JPG/PDF) erzeugen."
+    )
     exp.add_argument("--pages", type=int, required=True)
     exp.add_argument("--paper", default=DEFAULT_PAPER_TYPE_ID)
     exp.add_argument("--trim-id", default="")
@@ -159,7 +161,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
     require_safe = layout.mode == "safe"
     try:
-        out, report = export_wrap_pdf(
+        result = export_cover_set(
             layout,
             Path(args.out),
             dpi=float(args.dpi),
@@ -171,7 +173,10 @@ def _cmd_export(args: argparse.Namespace) -> int:
         print(f"FEHLER: {exc}", file=sys.stderr)
         return 1
 
-    print(f"PDF: {out}")
+    report = result.report
+    print(f"PDF: {result.wrap_pdf}")
+    print(f"eBook-JPG: {result.ebook_jpg}")
+    print(f"eBook-PDF: {result.ebook_pdf}")
     if report.warnings:
         print(f"Warnungen: {len(report.warnings)}")
         for w in report.warnings:

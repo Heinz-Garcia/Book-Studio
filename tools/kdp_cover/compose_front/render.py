@@ -299,21 +299,45 @@ def _draw_titles(panel: Image.Image, titles: TitlesSpec) -> Image.Image:
     return panel
 
 
-def _draw_subtitle_block(
-    panel: Image.Image,
+class SubtitleBlockMetrics:
+    """Gemessener Subtitel: Zeilen, Draw-Y-Positionen, Glyphen- und Bandkanten."""
+
+    __slots__ = ("rows", "draw_ys", "ink_top", "ink_bottom", "band_top", "band_bottom")
+
+    def __init__(
+        self,
+        rows: list[tuple[TitleLineSpec, str, object, int, int, int, int]],
+        draw_ys: list[int],
+        ink_top: int,
+        ink_bottom: int,
+        band_top: int | None,
+        band_bottom: int | None,
+    ) -> None:
+        self.rows = rows
+        self.draw_ys = draw_ys
+        self.ink_top = ink_top
+        self.ink_bottom = ink_bottom
+        self.band_top = band_top
+        self.band_bottom = band_bottom
+
+
+def measure_subtitle_block(
+    draw: ImageDraw.ImageDraw,
     subtitle: object,
     *,
-    align: str,
-    offset_x_pct: float,
-) -> Image.Image:
-    """Subtitel inkl. optionalem Vollbreiten-Band (zentriert um die Glyphen)."""
+    content_box: tuple[int, int, int, int],
+) -> SubtitleBlockMetrics | None:
+    """Subtitel vermessen; ``content_box`` = (x, y, w, h) des Bezugsbereichs.
+
+    Positionen und Größen in % beziehen sich auf die Höhe dieses Bereichs
+    (Vorderseite: das ganze Panel; Rückseite: der Trim-Bereich).
+    """
     from tools.kdp_cover.compose_front.model import SubtitleSpec
 
     if not isinstance(subtitle, SubtitleSpec):
-        return panel
-    w, h = panel.size
-    draw = ImageDraw.Draw(panel)
-    sub_y = int(round(h * float(subtitle.top_pct) / 100.0))
+        return None
+    _bx, by, _bw, h = content_box
+    sub_y = by + int(round(h * float(subtitle.top_pct) / 100.0))
     sub_gap = float(getattr(subtitle, "gap_pct", 0.8) or 0.0)
     lines = (subtitle.line1, subtitle.line2)
     # (line, text, font, tw, th, bbox_top, bbox_bottom) — BBox relativ zum Draw-Punkt
@@ -334,7 +358,7 @@ def _draw_subtitle_block(
         th = bbox[3] - bbox[1]
         measured.append((line, text, font, tw, th, int(bbox[1]), int(bbox[3])))
     if not measured:
-        return panel
+        return None
     gap_px = int(round(h * sub_gap / 100.0)) if len(measured) > 1 else 0
 
     # Draw-Y-Positionen und echte Glyphen-Kante (kann von draw-Y abweichen).
@@ -349,6 +373,8 @@ def _draw_subtitle_block(
     ink_top = draw_ys[0] + measured[0][5]
     ink_bottom = draw_ys[-1] + measured[-1][6]
 
+    band_top: int | None = None
+    band_bottom: int | None = None
     band = getattr(subtitle, "band", None)
     if isinstance(band, TextBandSpec) and band.enabled:
         pad_top = max(
@@ -360,17 +386,47 @@ def _draw_subtitle_block(
                 round(h * float(getattr(band, "padding_bottom_pct", 1.2) or 0.0) / 100.0)
             ),
         )
+        band_top = ink_top - pad_top
+        band_bottom = ink_bottom + pad_bot
+    return SubtitleBlockMetrics(measured, draw_ys, ink_top, ink_bottom, band_top, band_bottom)
+
+
+def _draw_subtitle_block(
+    panel: Image.Image,
+    subtitle: object,
+    *,
+    align: str,
+    offset_x_pct: float,
+    content_box: tuple[int, int, int, int] | None = None,
+) -> Image.Image:
+    """Subtitel inkl. optionalem Vollbreiten-Band (zentriert um die Glyphen).
+
+    ``content_box`` begrenzt Ausrichtung und %-Bezug (Default: ganzes Panel);
+    das Band läuft immer über die volle Panel-Breite.
+    """
+    w, h = panel.size
+    box = content_box or (0, 0, w, h)
+    draw = ImageDraw.Draw(panel)
+    metrics = measure_subtitle_block(draw, subtitle, content_box=box)
+    if metrics is None:
+        return panel
+
+    band = getattr(subtitle, "band", None)
+    if metrics.band_top is not None and metrics.band_bottom is not None:
         panel = _draw_full_width_text_band(
             panel,
-            y0=ink_top - pad_top,
-            y1=ink_bottom + pad_bot,
-            color=band.color,
+            y0=metrics.band_top,
+            y1=metrics.band_bottom,
+            color=band.color,  # type: ignore[union-attr]
         )
         draw = ImageDraw.Draw(panel)
 
-    for (line, text, font, tw, _th, _bt, _bb), dy in zip(measured, draw_ys, strict=True):
+    bx, _by, bw, _bh = box
+    for (line, text, font, tw, _th, _bt, _bb), dy in zip(
+        metrics.rows, metrics.draw_ys, strict=True
+    ):
         r, g, b, _ = _hex_to_rgba(line.color, fallback=(255, 255, 255))
-        x = _title_x(w, tw, align, offset_x_pct=offset_x_pct)
+        x = bx + _title_x(bw, tw, align, offset_x_pct=offset_x_pct)
         draw.text((x, dy), text, font=font, fill=(r, g, b, 255))
     return panel
 

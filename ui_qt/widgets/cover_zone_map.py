@@ -99,13 +99,20 @@ class CoverZoneMap(QWidget):
         self.setMinimumSize(220, 320)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._hover_id: str | None = None
+        self._aspect = 0.66  # width / height
         self.setMouseTracking(True)
+
+    def set_aspect(self, aspect: float) -> None:
+        """Seitenverhältnis (Breite/Höhe) des Trims — gleich hoch wie die Rückseite."""
+        if aspect > 0 and abs(aspect - self._aspect) > 1e-4:
+            self._aspect = float(aspect)
+            self.update()
 
     def _cover_rect(self) -> QRect:
         """Letterboxed paperback front inside the widget."""
         margin = 12
         avail = self.rect().adjusted(margin, margin, -margin, -margin - 22)
-        target_ratio = 0.66  # width / height
+        target_ratio = self._aspect
         w = avail.width()
         h = int(w / target_ratio)
         if h > avail.height():
@@ -168,7 +175,7 @@ class CoverZoneMap(QWidget):
         painter.drawText(
             self.rect().adjusted(10, 0, -10, -6),
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom,
-            "Klick auf ein Element → Sprung  ·  Layout-Hilfe, keine Live-Vorschau",
+            "Vorderseite · Klick auf ein Element → Sprung",
         )
         painter.end()
 

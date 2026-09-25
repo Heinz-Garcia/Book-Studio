@@ -16,7 +16,7 @@ from tools.kdp_cover.model import CoverLayout
 
 @dataclass(frozen=True)
 class BackImagePlacement:
-    """Centered contain-rect for the back image (+ optional frame)."""
+    """Rect of the back image (+ optional frame), centered or free."""
 
     image: RectMm
     outer: RectMm  # image inkl. Rahmen
@@ -52,6 +52,13 @@ def rect_contains(outer: RectMm, inner: RectMm, *, epsilon: float = 1e-6) -> boo
     )
 
 
+def _float_attr(layout: CoverLayout, name: str, default: float) -> float:
+    try:
+        return float(getattr(layout, name, default))
+    except (TypeError, ValueError):
+        return default
+
+
 def compute_back_image_placement(
     layout: CoverLayout,
     geo: WrapGeometry,
@@ -59,39 +66,51 @@ def compute_back_image_placement(
     image_width_px: int,
     image_height_px: int,
 ) -> BackImagePlacement | None:
-    """Contain-Skalierung, zentriert im Back-Trim; optional Rahmen.
+    """Rechteck des Rückseitenbilds (+ optional Rahmen) in Canvas-mm.
 
-    ``back_image_scale`` (0..1) skaliert relativ zur maximalen Contain-Größe
-    innerhalb von ``back_safe`` (Safe-Zone als Fit-Box).
+    ``center`` (Default/Legacy): Contain-Skalierung, zentriert im Back-Trim;
+    ``back_image_scale`` (0..1) relativ zur maximalen Contain-Größe innerhalb
+    von ``back_safe``.
+    ``free``: linke obere Ecke ``back_image_x_pct``/``back_image_y_pct`` und
+    Breite ``back_image_width_pct`` in % des Back-Trims; Höhe folgt dem
+    Seitenverhältnis des Bildes.
     """
     if image_width_px <= 0 or image_height_px <= 0:
         return None
-    try:
-        scale = float(getattr(layout, "back_image_scale", 1.0) or 1.0)
-    except (TypeError, ValueError):
-        scale = 1.0
-    scale = max(0.05, min(1.0, scale))
-
-    fit = geo.back_safe
-    max_w = fit.width * scale
-    max_h = fit.height * scale
-    if max_w <= 0 or max_h <= 0:
-        return None
-
     aspect = image_width_px / float(image_height_px)
-    # Contain in (max_w, max_h)
-    if max_w / aspect <= max_h:
-        iw = max_w
-        ih = max_w / aspect
-    else:
-        ih = max_h
-        iw = max_h * aspect
-
-    # Zentriert im Trim-Panel (nicht nur Safe), damit das Foto optisch mittig sitzt.
     panel = geo.back_panel
-    ix = panel.x + (panel.width - iw) / 2.0
-    iy = panel.y + (panel.height - ih) / 2.0
-    image = RectMm(ix, iy, iw, ih)
+
+    if str(getattr(layout, "back_image_placement", "center") or "") == "free":
+        width_pct = max(5.0, min(120.0, _float_attr(layout, "back_image_width_pct", 40.0)))
+        x_pct = _float_attr(layout, "back_image_x_pct", 10.0)
+        y_pct = _float_attr(layout, "back_image_y_pct", 40.0)
+        iw = panel.width * width_pct / 100.0
+        ih = iw / aspect
+        ix = panel.x + panel.width * x_pct / 100.0
+        iy = panel.y + panel.height * y_pct / 100.0
+        image = RectMm(ix, iy, iw, ih)
+    else:
+        scale = _float_attr(layout, "back_image_scale", 1.0) or 1.0
+        scale = max(0.05, min(1.0, scale))
+
+        fit = geo.back_safe
+        max_w = fit.width * scale
+        max_h = fit.height * scale
+        if max_w <= 0 or max_h <= 0:
+            return None
+
+        # Contain in (max_w, max_h)
+        if max_w / aspect <= max_h:
+            iw = max_w
+            ih = max_w / aspect
+        else:
+            ih = max_h
+            iw = max_h * aspect
+
+        # Zentriert im Trim-Panel (nicht nur Safe), damit das Foto optisch mittig sitzt.
+        ix = panel.x + (panel.width - iw) / 2.0
+        iy = panel.y + (panel.height - ih) / 2.0
+        image = RectMm(ix, iy, iw, ih)
 
     frame_on = bool(getattr(layout, "back_image_frame", False))
     try:

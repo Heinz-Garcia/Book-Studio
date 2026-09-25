@@ -13,6 +13,9 @@ from typing import Any, Literal, Optional
 Mode = Literal["safe", "free"]
 SpineBadgePosition = Literal["before", "after"]
 FrontImageMode = Literal["none", "top_third", "full"]
+# Rückseitenbild: ``center`` = Contain in der Safe-Zone (Legacy),
+# ``free`` = beliebige Position/Größe (% des Rückseiten-Trims).
+BackImagePlacementMode = Literal["center", "free"]
 
 
 def normalize_front_image_mode(
@@ -42,6 +45,12 @@ def uses_front_image(layout: CoverLayout) -> bool:
         front_image=str(getattr(layout, "front_image", "") or ""),
     )
     return mode != "none" and bool(str(getattr(layout, "front_image", "") or "").strip())
+
+
+def normalize_back_image_placement(value: object) -> BackImagePlacementMode:
+    """Unbekannt/fehlend → ``center`` (alte Layouts laden unverändert)."""
+    raw = str(value or "").strip().lower()
+    return "free" if raw == "free" else "center"
 
 
 @dataclass
@@ -112,7 +121,10 @@ class CoverLayout:
     ``front_color``), ``top_third`` (Bild im goldenen Schnitt ~38,2 %, Rest
     Farbe) oder ``full`` (Vollbild cover-fit inkl. Bleed). Zoom/Pan gelten für
     ``top_third`` und ``full``. Ohne Bildpfad bleibt die Front-Farbe.
-    Back: einfarbig oder optionales Bild.
+    Back: einfarbig oder optionales Bild — zentriert (``back_image_placement``
+    ``center``) oder frei platziert (``free``: X/Y/Breite in % des Rückseiten-
+    Trims, Höhe aus dem Seitenverhältnis). ``back_compose`` trägt Subtitel,
+    Klappentext und Autor-Kurzbiografie (siehe ``tools.kdp_cover.compose_back``).
     Spine: einfarbig; optionaler Text nur wenn Seitenzahl es erlaubt.
     Titel/Autor: reine Metadaten (PDF-Info / cover_project), nicht aufs Bild
     — außer experimentellem ``front_compose`` (sichtbare Vorderseiten-Layer).
@@ -128,6 +140,9 @@ class CoverLayout:
     paper_type_id: str
     trim_width_mm: float
     trim_height_mm: float
+    # True = Seitenzahl ist eine Schätzung (Innenwerk noch nicht fertig);
+    # Rückenbreite vor dem Upload mit der echten Innenwerk-PDF abgleichen.
+    page_count_estimated: bool = False
     mode: Mode = "safe"
     front_image: str = ""
     back_image: str = ""
@@ -144,6 +159,11 @@ class CoverLayout:
     back_image_frame: bool = False
     back_image_frame_mm: float = 2.0
     back_image_frame_color: str = "#000000"
+    back_image_placement: BackImagePlacementMode = "center"
+    # Nur bei ``free``: linke obere Ecke und Breite in % des Rückseiten-Trims.
+    back_image_x_pct: float = 10.0
+    back_image_y_pct: float = 40.0
+    back_image_width_pct: float = 40.0
     back_color: str = "#FFFFFF"
     spine_color: str = "#222222"
     title: str = ""
@@ -166,6 +186,8 @@ class CoverLayout:
     spine_badge: SpineBadgeSpec = field(default_factory=SpineBadgeSpec)
     # Experimentell / wegwerfbar — siehe tools.kdp_cover.compose_front
     front_compose: Optional[dict[str, Any]] = None
+    # Rückseiten-Elemente (Subtitel, Klappentext, Bio) — compose_back.BackComposeSpec
+    back_compose: Optional[dict[str, Any]] = None
     # Relativer Pfad zum zuletzt am Buch hinterlegten Wrap-PDF (optional)
     wrap_pdf: str = ""
     # Production-UUID (GrammarGraph-Lieferung / BS-Buch) — Cover↔Inhalt-Mapping
@@ -206,6 +228,19 @@ class CoverLayout:
         data = asdict(self)
         if not data.get("front_compose"):
             data.pop("front_compose", None)
+        if not data.get("page_count_estimated"):
+            data.pop("page_count_estimated", None)
+        if not data.get("back_compose"):
+            data.pop("back_compose", None)
+        if data.get("back_image_placement") != "free":
+            # Zentriert = Legacy-Form; freie Koordinaten nicht mitschreiben.
+            for key in (
+                "back_image_placement",
+                "back_image_x_pct",
+                "back_image_y_pct",
+                "back_image_width_pct",
+            ):
+                data.pop(key, None)
         if not data.get("wrap_pdf"):
             data.pop("wrap_pdf", None)
         if not str(data.get("spine_text_down") or "").strip():
@@ -248,6 +283,8 @@ class CoverLayout:
 
         raw_compose = data.get("front_compose")
         front_compose = raw_compose if isinstance(raw_compose, dict) else None
+        raw_back_compose = data.get("back_compose")
+        back_compose = raw_back_compose if isinstance(raw_back_compose, dict) else None
         raw_badge = data.get("spine_badge")
         spine_badge = SpineBadgeSpec.from_dict(
             raw_badge if isinstance(raw_badge, dict) else None
@@ -260,6 +297,7 @@ class CoverLayout:
         return cls(
             page_count=int(data["page_count"]),
             paper_type_id=str(data.get("paper_type_id") or "white_bw"),
+            page_count_estimated=bool(data.get("page_count_estimated", False)),
             trim_width_mm=float(data["trim_width_mm"]),
             trim_height_mm=float(data["trim_height_mm"]),
             mode=mode,  # type: ignore[arg-type]
@@ -277,6 +315,14 @@ class CoverLayout:
             back_image_frame=bool(data.get("back_image_frame", False)),
             back_image_frame_mm=max(0.0, _f("back_image_frame_mm", 2.0)),
             back_image_frame_color=str(data.get("back_image_frame_color") or "#000000"),
+            back_image_placement=normalize_back_image_placement(
+                data.get("back_image_placement")
+            ),
+            back_image_x_pct=max(-20.0, min(120.0, _f("back_image_x_pct", 10.0))),
+            back_image_y_pct=max(-20.0, min(120.0, _f("back_image_y_pct", 40.0))),
+            back_image_width_pct=max(
+                5.0, min(120.0, _f("back_image_width_pct", 40.0) or 40.0)
+            ),
             back_color=str(data.get("back_color") or "#FFFFFF"),
             spine_color=str(data.get("spine_color") or "#222222"),
             title=str(data.get("title") or ""),
@@ -294,6 +340,7 @@ class CoverLayout:
             title_scale=scale,
             spine_badge=spine_badge,
             front_compose=front_compose,
+            back_compose=back_compose,
             wrap_pdf=str(data.get("wrap_pdf") or ""),
             production_uuid=str(data.get("production_uuid") or "").strip(),
             cover_label=str(data.get("cover_label") or "").strip(),
@@ -402,9 +449,11 @@ __all__ = [
     "Mode",
     "SpineBadgePosition",
     "FrontImageMode",
+    "BackImagePlacementMode",
     "SpineBadgeSpec",
     "CoverLayout",
     "normalize_front_image_mode",
+    "normalize_back_image_placement",
     "uses_front_image",
     "save_layout",
     "load_layout",

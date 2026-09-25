@@ -8,12 +8,14 @@ from typing import Literal, Optional
 
 import tools.kdp_specs as kdp_specs
 from tools.kdp_cover.constants import (
+    EBOOK_HEIGHT_PX,
+    EBOOK_WIDTH_PX,
     FRONT_IMAGE_GOLDEN_SECTION_FRACTION,
     MIN_IMAGE_DPI,
     MIN_SPINE_TEXT_PAGE_COUNT,
     SPINE_EDGE_PADDING_MIN_MM,
 )
-from tools.kdp_cover.geometry import WrapGeometry, build_geometry
+from tools.kdp_cover.geometry import RectMm, WrapGeometry, build_geometry
 from tools.kdp_cover.model import (
     CoverLayout,
     normalize_front_image_mode,
@@ -113,6 +115,131 @@ def _image_dpi_for_panel(
     return min(dpi_w, dpi_h)
 
 
+def _ebook_upscale_factor(
+    image_path: Path,
+    *,
+    golden_section: bool,
+    zoom: float,
+) -> Optional[float]:
+    """Vergrößerungsfaktor des Titelbilds im eBook-Cover (1600 × 2560 px).
+
+    > 1 heißt: das Bild wird hochskaliert und wirkt auf dem Kindle weich.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        with Image.open(image_path) as im:
+            w_px, h_px = im.size
+    except OSError:
+        return None
+    if w_px <= 0 or h_px <= 0:
+        return None
+    box_h = EBOOK_HEIGHT_PX * (FRONT_IMAGE_GOLDEN_SECTION_FRACTION if golden_section else 1.0)
+    return max(EBOOK_WIDTH_PX / w_px, box_h / h_px) * max(1.0, zoom)
+
+
+def _validate_back_compose(
+    layout: CoverLayout,
+    geo: WrapGeometry,
+    report: ValidationReport,
+    *,
+    back_image_rect: Optional[RectMm],
+) -> None:
+    """Subtitel, Klappentext und Bio auf der Rückseite: Farben, Safe-Zone, Barcode."""
+    from tools.kdp_cover.compose_back import back_compose_spec, back_element_rects_mm
+    from tools.kdp_cover.panel_images import (
+        barcode_reserve_mm,
+        rect_contains,
+        rects_intersect,
+    )
+
+    spec = back_compose_spec(layout)
+    if spec.is_empty:
+        return
+    labels = {
+        "subtitle": "Rückseiten-Subtitel",
+        "blurb": "Klappentext",
+        "bio": "Autor-Kurzbiografie",
+    }
+    colors: list[tuple[str, str]] = []
+    if spec.subtitle.enabled:
+        colors += [
+            ("subtitle", spec.subtitle.line1.color),
+            ("subtitle", spec.subtitle.line2.color),
+        ]
+        if spec.subtitle.band.enabled:
+            colors.append(("subtitle", spec.subtitle.band.color))
+    for key, block in (("blurb", spec.blurb), ("bio", spec.bio)):
+        if block.enabled:
+            colors.append((key, block.color))
+    for key, color in colors:
+        if _parse_hex_color(color) is None:
+            report.issues.append(
+                ValidationIssue(
+                    code=f"back_{key}_color",
+                    severity="error",
+                    message=f"{labels[key]}: ungültige Farbe {color!r}.",
+                )
+            )
+
+    try:
+        rects = back_element_rects_mm(layout, geo)
+    except OSError as exc:  # Font nicht ladbar
+        report.issues.append(
+            ValidationIssue(
+                code="back_text_font",
+                severity="error",
+                message=f"Rückseiten-Text nicht messbar: {exc}",
+            )
+        )
+        return
+    barcode = barcode_reserve_mm(geo)
+    for key in ("subtitle", "blurb", "bio"):
+        rect = rects.get(key)
+        if rect is None:
+            continue
+        if not rect_contains(geo.back_safe, rect):
+            report.issues.append(
+                ValidationIssue(
+                    code=f"back_{key}_safe_zone",
+                    severity="error",
+                    message=(
+                        f"{labels[key]} ragt aus der Safe-Zone der Rückseite "
+                        "(Text wird evtl. angeschnitten). Position, Breite oder "
+                        "Schriftgröße anpassen."
+                    ),
+                )
+            )
+        if rects_intersect(rect, barcode):
+            report.issues.append(
+                ValidationIssue(
+                    code=f"back_{key}_barcode",
+                    severity="error",
+                    message=(
+                        f"{labels[key]} überlappt die KDP-Barcode-Zone "
+                        "(unten rechts)."
+                    ),
+                )
+            )
+    others: list[tuple[str, RectMm]] = [
+        (labels[k], rects[k]) for k in ("subtitle", "blurb", "bio") if k in rects
+    ]
+    if back_image_rect is not None:
+        others.append(("Rückseiten-Bild", back_image_rect))
+    for i, (name_a, rect_a) in enumerate(others):
+        for name_b, rect_b in others[i + 1 :]:
+            if rects_intersect(rect_a, rect_b):
+                report.issues.append(
+                    ValidationIssue(
+                        code="back_elements_overlap",
+                        severity="warning",
+                        message=f"Rückseite: {name_a} und {name_b} überlappen sich.",
+                    )
+                )
+
+
 def validate_layout(
     layout: CoverLayout,
     *,
@@ -132,6 +259,19 @@ def validate_layout(
                 severity="error",
                 message=f"Seitenzahl muss zwischen {lo} und {hi} liegen "
                 f"(gegeben: {layout.page_count}).",
+            )
+        )
+
+    if bool(getattr(layout, "page_count_estimated", False)):
+        report.issues.append(
+            ValidationIssue(
+                code="page_count_estimated",
+                severity="warning",
+                message=(
+                    f"Seitenzahl {layout.page_count} ist geschätzt — die Rückenbreite "
+                    "vor dem Taschenbuch-Upload mit der fertigen Innenwerk-PDF "
+                    "abgleichen (Maße → „Aus Innenwerk-PDF“)."
+                ),
             )
         )
 
@@ -219,6 +359,26 @@ def validate_layout(
                         ),
                     )
                 )
+            if dpi is not None:
+                try:
+                    zoom = float(getattr(layout, "front_image_zoom", 1.0) or 1.0)
+                except (TypeError, ValueError):
+                    zoom = 1.0
+                upscale = _ebook_upscale_factor(
+                    front_path, golden_section=front_mode == "top_third", zoom=zoom
+                )
+                if upscale is not None and upscale > 1.0 + 1e-6:
+                    report.issues.append(
+                        ValidationIssue(
+                            code="ebook_front_upscaled",
+                            severity="warning",
+                            message=(
+                                f"eBook-Cover ({EBOOK_WIDTH_PX}×{EBOOK_HEIGHT_PX} px): "
+                                f"Titelbild wird um Faktor {upscale:.2f} hochskaliert "
+                                "— auf dem Kindle ggf. unscharf."
+                            ),
+                        )
+                    )
             # Unter dem Bildband bleibt die Front-Farbe sichtbar.
             if front_mode == "top_third":
                 if _parse_hex_color(getattr(layout, "front_color", "") or "") is None:
@@ -233,6 +393,7 @@ def validate_layout(
                         )
                     )
 
+    back_image_rect: Optional[RectMm] = None
     if layout.back_image.strip():
         back_path = Path(layout.back_image)
         if not back_path.is_absolute():
@@ -273,6 +434,7 @@ def validate_layout(
                     layout, geo, image_width_px=iw, image_height_px=ih
                 )
                 if placement is not None:
+                    back_image_rect = placement.outer
                     # Effektive DPI im gezeichneten Rechteck.
                     dpi_eff = min(
                         iw / (placement.image.width / 25.4),
@@ -290,13 +452,19 @@ def validate_layout(
                             )
                         )
                     if not rect_contains(geo.back_safe, placement.outer):
+                        # Frei platziert darf ein Bild bewusst angeschnitten
+                        # werden (bis in den Bleed) — dann nur Hinweis.
+                        free = getattr(layout, "back_image_placement", "") == "free"
                         report.issues.append(
                             ValidationIssue(
                                 code="back_image_safe_zone",
-                                severity="error",
+                                severity="warning" if free else "error",
                                 message=(
-                                    "Rückseiten-Bild (inkl. Rahmen) verletzt die Safe-Zone. "
-                                    "Bitte verkleinern oder Rahmen reduzieren."
+                                    "Rückseiten-Bild ragt über die Safe-Zone — "
+                                    "wird am Beschnitt evtl. angeschnitten."
+                                    if free
+                                    else "Rückseiten-Bild (inkl. Rahmen) verletzt die "
+                                    "Safe-Zone. Bitte verkleinern oder Rahmen reduzieren."
                                 ),
                             )
                         )
@@ -401,6 +569,8 @@ def validate_layout(
                 ),
             )
         )
+
+    _validate_back_compose(layout, geo, report, back_image_rect=back_image_rect)
 
     if not layout.title.strip() and not layout.author.strip():
         report.issues.append(

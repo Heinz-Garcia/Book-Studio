@@ -133,12 +133,29 @@ def mirror_book_wrap_pdf_path(book_root: Path, stem: str) -> Path:
     return cover_export_dir(book_root) / f"{safe}_kdp_wrap.pdf"
 
 
+def ebook_paths_for_wrap(wrap_pdf: Path | str) -> tuple[Path, Path]:
+    """eBook-Cover neben einem Wrap-PDF: ``(…_kdp_ebook.jpg, …_kdp_ebook.pdf)``.
+
+    ``Band_kdp_wrap.pdf`` → ``Band_kdp_ebook.jpg`` / ``.pdf``; fremde Namen
+    (CLI ``--out``) bekommen ``_ebook`` angehängt. Gilt für kanonische Ablage,
+    Buch-Spiegel und Deploy-Kopien gleichermaßen.
+    """
+    wrap = Path(wrap_pdf)
+    stem = wrap.stem
+    if stem.lower().endswith("_kdp_wrap"):
+        base = stem[: -len("_kdp_wrap")] + "_kdp_ebook"
+    else:
+        base = stem + "_ebook"
+    return wrap.with_name(base + ".jpg"), wrap.with_name(base + ".pdf")
+
+
 __all__ = [
     "COVERS_DIR_NAME",
     "canonical_cover_dir",
     "canonical_layout_path",
     "canonical_wrap_pdf_path",
     "cover_filename_stem",
+    "ebook_paths_for_wrap",
     "covers_root",
     "label_slug",
     "mirror_book_layout_path",

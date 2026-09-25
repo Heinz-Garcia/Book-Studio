@@ -10,6 +10,25 @@ from PIL import Image
 from tools.kdp_cover.model import CoverLayout, default_project_path, save_layout
 
 
+def _skip_cover_fertig_dialog(monkeypatch) -> None:
+    """Save-Tests: kein modaler Cover-fertig-Dialog (würde im Headless hängen).
+
+    ``_ask_cover_finished`` baut eine eigene ``QMessageBox``-Instanz — das
+    übliche ``QMessageBox.question``-Monkeypatch greift dort nicht.
+    """
+    from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
+
+    def _zwischenstand(self, layout_path) -> None:  # noqa: ANN001
+        if self._book is None:
+            return
+        from services.work_path import mark_cover_finished
+
+        mark_cover_finished(self._book, layout_path, finished=False)
+        self._notify_work_path_refresh()
+
+    monkeypatch.setattr(KdpCoverQtDialog, "_ask_cover_finished", _zwischenstand)
+
+
 def _app_and_dialog(monkeypatch, tmp_path: Path | None = None, *, auto_yes_mode: bool = True):
     pytest.importorskip("PySide6")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
@@ -638,7 +657,7 @@ def test_spine_badge_ui_roundtrip(monkeypatch, tmp_path):
 
 
 def test_ask_cover_finished_marks_gate(monkeypatch, tmp_path):
-    """Nach Speichern: Ja → Cover-Gate done; Ampel-Logik greift; Designer schließt."""
+    """Ja → Export, dann Cover-Gate done; Designer schließt."""
     from pathlib import Path
     from unittest.mock import MagicMock
 
@@ -654,18 +673,125 @@ def test_ask_cover_finished_marks_gate(monkeypatch, tmp_path):
     layout.parent.mkdir(parents=True, exist_ok=True)
     layout.write_text("{}\n", encoding="utf-8")
 
+    export_calls: list[bool] = []
+
+    def _fake_export() -> bool:
+        export_calls.append(True)
+        return True
+
+    monkeypatch.setattr(dlg, "_export_pdf", _fake_export)
+
+    class _FakeBox:
+        def __init__(self, *a, **k):
+            self._yes = MagicMock(name="yes")
+            self._no = MagicMock(name="no")
+
+        def setIcon(self, *a, **k):
+            return None
+
+        def setWindowTitle(self, *a, **k):
+            return None
+
+        def setText(self, *a, **k):
+            return None
+
+        def setInformativeText(self, *a, **k):
+            return None
+
+        def addButton(self, text, role):
+            if role == QMessageBox.ButtonRole.YesRole or "Ja" in str(text):
+                return self._yes
+            return self._no
+
+        def setDefaultButton(self, *a, **k):
+            return None
+
+        def exec(self):
+            return 0
+
+        def clickedButton(self):
+            return self._yes
+
     monkeypatch.setattr(
-        QMessageBox,
-        "question",
-        lambda *a, **k: QMessageBox.StandardButton.Yes,
+        "ui_qt.dialogs.kdp_cover_dialog.QMessageBox",
+        _FakeBox,
     )
+    # Icon/ButtonRole still needed on the patched name for the method body
+    _FakeBox.Icon = QMessageBox.Icon
+    _FakeBox.ButtonRole = QMessageBox.ButtonRole
+
     close_mock = MagicMock(wraps=dlg.close)
     monkeypatch.setattr(dlg, "close", close_mock)
     dlg._ask_cover_finished(layout)
+    assert export_calls == [True]
     assert cover_finished_ok(book, layout) is True
     data = read_book_run(book)
     assert data["gates"]["cover"]["status"] == "done"
     close_mock.assert_called_once()
+
+
+def test_ask_cover_finished_export_fail_keeps_open(monkeypatch, tmp_path):
+    """Ja, aber Export scheitert → kein Fertig-Gate, Designer bleibt."""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from PySide6.QtWidgets import QMessageBox
+
+    from services.work_path import cover_finished_ok
+    from tools.distribution.book_store import set_kdp_paperback
+
+    _app, dlg, studio = _app_and_dialog(monkeypatch, tmp_path)
+    book = Path(studio.current_book)
+    set_kdp_paperback(book, True)
+    layout = book / "export" / "kdp_cover" / f"{book.name}_kdp_cover.json"
+    layout.parent.mkdir(parents=True, exist_ok=True)
+    layout.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(dlg, "_export_pdf", lambda: False)
+
+    class _FakeBox:
+        def __init__(self, *a, **k):
+            self._yes = MagicMock(name="yes")
+            self._no = MagicMock(name="no")
+
+        def setIcon(self, *a, **k):
+            return None
+
+        def setWindowTitle(self, *a, **k):
+            return None
+
+        def setText(self, *a, **k):
+            return None
+
+        def setInformativeText(self, *a, **k):
+            return None
+
+        def addButton(self, text, role):
+            if role == QMessageBox.ButtonRole.YesRole or "Ja" in str(text):
+                return self._yes
+            return self._no
+
+        def setDefaultButton(self, *a, **k):
+            return None
+
+        def exec(self):
+            return 0
+
+        def clickedButton(self):
+            return self._yes
+
+    _FakeBox.Icon = QMessageBox.Icon
+    _FakeBox.ButtonRole = QMessageBox.ButtonRole
+    monkeypatch.setattr(
+        "ui_qt.dialogs.kdp_cover_dialog.QMessageBox",
+        _FakeBox,
+    )
+    close_mock = MagicMock(wraps=dlg.close)
+    monkeypatch.setattr(dlg, "close", close_mock)
+    dlg._ask_cover_finished(layout)
+    assert cover_finished_ok(book, layout) is False
+    close_mock.assert_not_called()
+    dlg.close()
 
 
 def test_ask_cover_finished_no_keeps_designer_open(monkeypatch, tmp_path):
@@ -685,14 +811,52 @@ def test_ask_cover_finished_no_keeps_designer_open(monkeypatch, tmp_path):
     layout.parent.mkdir(parents=True, exist_ok=True)
     layout.write_text("{}\n", encoding="utf-8")
 
+    export_calls: list[bool] = []
     monkeypatch.setattr(
-        QMessageBox,
-        "question",
-        lambda *a, **k: QMessageBox.StandardButton.No,
+        dlg, "_export_pdf", lambda: export_calls.append(True) or True
+    )
+
+    class _FakeBox:
+        def __init__(self, *a, **k):
+            self._yes = MagicMock(name="yes")
+            self._no = MagicMock(name="no")
+
+        def setIcon(self, *a, **k):
+            return None
+
+        def setWindowTitle(self, *a, **k):
+            return None
+
+        def setText(self, *a, **k):
+            return None
+
+        def setInformativeText(self, *a, **k):
+            return None
+
+        def addButton(self, text, role):
+            if role == QMessageBox.ButtonRole.YesRole or "Ja" in str(text):
+                return self._yes
+            return self._no
+
+        def setDefaultButton(self, *a, **k):
+            return None
+
+        def exec(self):
+            return 0
+
+        def clickedButton(self):
+            return self._no
+
+    _FakeBox.Icon = QMessageBox.Icon
+    _FakeBox.ButtonRole = QMessageBox.ButtonRole
+    monkeypatch.setattr(
+        "ui_qt.dialogs.kdp_cover_dialog.QMessageBox",
+        _FakeBox,
     )
     close_mock = MagicMock(wraps=dlg.close)
     monkeypatch.setattr(dlg, "close", close_mock)
     dlg._ask_cover_finished(layout)
+    assert export_calls == []
     assert cover_finished_ok(book, layout) is False
     close_mock.assert_not_called()
     dlg.close()
@@ -1642,6 +1806,7 @@ def test_kdp_dialog_save_stamps_production_uuid(monkeypatch, tmp_path):
         "_layout_validation_blocks_persist",
         lambda self, layout: ValidationReport(),
     )
+    _skip_cover_fertig_dialog(monkeypatch)
 
     class _Studio:
         current_book = str(book)
@@ -1714,6 +1879,7 @@ def test_save_uses_book_uuid_without_picker(monkeypatch, tmp_path):
         "_layout_validation_blocks_persist",
         lambda self, layout: ValidationReport(),
     )
+    _skip_cover_fertig_dialog(monkeypatch)
 
     class _Studio:
         current_book = str(book)

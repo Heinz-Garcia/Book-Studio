@@ -1388,7 +1388,9 @@ Für KDP-Taschenbücher brauchst du **zwei Uploads**:
 1. **Innenwerk** — das gerenderte Buch-PDF (F5), Trim-Größe, ggf. mit Bleed-Profil
 2. **Cover** — ein durchgehendes **Wrap-PDF** (Rückseite | Rücken | Vorderseite) inkl. Beschnitt
 
-Der **KDP Cover-Designer** erzeugt genau dieses Wrap-PDF. Er ändert **nicht** `content/Deckblatt.md` und hängt **nicht** an der Quarto/Typst-Buch-Pipeline.
+Für das **Kindle-eBook** lädt KDP dagegen **nur die Vorderseite** hoch (JPG, ideal 1600 × 2560 px).
+
+Der **KDP Cover-Designer** erzeugt bei **jedem Export beides paarig**: das Wrap-PDF fürs Taschenbuch und das eBook-Cover (JPG + Archiv-PDF). Er ändert **nicht** `content/Deckblatt.md` und hängt **nicht** an der Quarto/Typst-Buch-Pipeline.
 
 ### Wo öffnen?
 
@@ -1425,8 +1427,8 @@ Flag an heißt **nicht**, dass die Datei sofort angelegt wird. Fehlt sie bei akt
 
 **Schritt 1 — Maße festlegen (KDP)** (eingebetteter Cover-Größen-Rechner)
 
-1. **Seitenzahl** der fertigen Innenwerk-PDF eintragen (bestimmt die Rückenbreite).
-2. **Papierart** wählen (wie später in KDP: Weiß / Cremefarben / Farbe).
+1. **Seitenzahl** — wird automatisch aus der neuesten gerenderten Innenwerk-PDF übernommen (`export/_book…`). Gibt es noch keine, fragt der Designer beim Öffnen per Dialog nach einer **ungefähren Seitenzahl** und der **Papierart** (Rückenbreite live). Das Cover ist dann als **geschätzt** markiert; die Ampel erinnert daran, vor dem Upload **Aus Innenwerk-PDF** zu übernehmen. Nachträglich: Maße → **Schätzen…**.
+2. **Papierart** wählen — die aktuellen KDP-Optionen: Schwarzweiß auf weißem oder cremefarbenem Papier, Standardfarbe oder Premiumfarbe (je weißes Papier).
 3. **Trimmgröße** — Default **Studio Paperback (135×215 mm)**; alternativ KDP-Standardgrößen oder benutzerdefiniert.
 4. Live-Anzeige: Buchrücken-Breite, Gesamt-Coverbreite/-höhe (mm und Zoll), Bleed/Safe-Zone.
 5. Optional **Maße kopieren** — Zwischenablage für Canva / [KDP Cover Creator](https://kdp.amazon.com/de_DE/cover-calculator).
@@ -1434,7 +1436,7 @@ Flag an heißt **nicht**, dass die Datei sofort angelegt wird. Fehlt sie bei akt
 **Schritt 2 — Gestaltung & Inhalt**
 
 6. **Vorderseiten-Bild** wählen (hohe Auflösung; Prüfung grob ≥ 300 DPI). **Front-Zoom** (≥ 1) und **Verschiebung** für den Ausschnitt. Text wie Titel/Untertitel gehört **in die Grafik**.
-7. Optional: **Rückseiten-Bild** (z. B. Autor:innenfoto) — **Back-Größe** (zentriert, Rest = Back-Farbe), optional **Rahmen**; Back-/Spine-Farbe. Speichern und Export **blockieren**, wenn Safe-Zone oder Barcode-Zone verletzt sind.
+7. Optional: **Rückseite gestalten** (Tab **Rückseite**, siehe [unten](#sec-kdp-back)) — Abbildung, Subtitel, Klappentext, Autor-Kurzbiografie; Back-/Spine-Farbe. Speichern und Export **blockieren**, wenn Texte die Safe-Zone oder die Barcode-Zone verletzen.
 8. **zwei Rücken-Texte** (ab 79 Seiten), beide Lesrichtung **unten→oben**: Text 1 **unten verankert**, Text 2 **oben verankert**. **Rücken-Padding** (mm) ändert parallel den Abstand oben/unten. Optional **Badge** an Text 2 (vor/nach), Farbe frei, Größe in Stufen (100 %…40 %).
 9. **Titel / Autor (Meta)** — nur PDF-Dokumentmetadaten und `cover_project.json`, **nicht** aufs Cover-Bild.
 10. Hilfslinien anlassen (Bleed / Trim / Safe / Rückenmitte / **Barcode-Zone** als gelber Platzhalter unten rechts auf der Rückseite).
@@ -1451,9 +1453,26 @@ Neben dem PDF entstehen:
 
 | Datei | Inhalt |
 |-------|--------|
+| `…_kdp_ebook.jpg` | **eBook-Cover** für den Kindle-Upload: nur Vorderseite, 1600 × 2560 px, RGB |
+| `…_kdp_ebook.pdf` | dieselbe Vorderseite als einseitiges PDF (Archiv) |
 | `…_validation.json` | Validierungsbericht (Ampel-Details) |
 | `…_project.json` | Layout-Zwischenstand dieses Exports |
 | `export/kdp_cover/{Buchname}_kdp_cover.json` | kanonisches Cover-Layout (Autoload; Legacy: `cover_project.json`) |
+
+### Rückseite gestalten {#sec-kdp-back}
+
+Tab **Rückseite** — alle Positionen in % der Rückseite **ohne Beschnitt** (0 % = linke/obere Schnittkante):
+
+| Abschnitt | Einstellungen |
+|-----------|---------------|
+| **Abbildung** (PNG/JPG) | **Zentriert** (Größe in %, wie bisher) oder **Frei**: Position X/Y + Breite; die Höhe folgt dem Seitenverhältnis. Optional Rahmen. Frei darf das Bild über den Rand laufen (nur Hinweis), die Barcode-Zone muss frei bleiben. |
+| **Subtitel** | Dieselben Parameter wie auf der Vorderseite (2 Zeilen je Farbe/Größe/Font/Fett/Kursiv, Position, Abstand, Band) plus eigene Ausrichtung/X-Versatz. |
+| **Klappentext** | Fließtext; Font, Farbe, Größe in **pt**, Fett/Kursiv, Ausrichtung **links / zentriert / rechts / Blocksatz**, Zeilenabstand, Position X/Y, Breite. Leerzeile = neuer Absatz. |
+| **Autor-Kurzbiografie** | wie Klappentext, eigener Block (Default: unten links neben der Barcode-Zone, kursiv). |
+
+**Zonenkarte:** Rückseite (links) und Vorderseite (rechts) nebeneinander wie der Umschlag. Die Rückseiten-Zonen stehen dort, wo die Elemente tatsächlich liegen; ausgeschaltete Elemente sind gestrichelt, die Barcode-Reserve ist rot schraffiert. Klick auf eine Zone springt in den passenden Abschnitt und schaltet das Element ein.
+
+Prüfungen (Ampel): Text außerhalb der Safe-Zone oder über der Barcode-Zone → **Fehler**; überlappende Elemente → Warnung. Muss das Titelbild für das eBook-Cover hochskaliert werden, gibt es ebenfalls eine Warnung.
 
 ### Sicher vs. Frei
 

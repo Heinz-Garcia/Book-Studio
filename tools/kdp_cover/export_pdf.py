@@ -1,14 +1,28 @@
-"""Wrap-PDF-Export per Pillow (eine Druckseite, 300 DPI Default)."""
+"""Cover-Export per Pillow.
+
+Jeder Export liefert ein Paar (``export_cover_set``):
+
+* Wrap-PDF: Rückseite | Rücken | Vorderseite, Druckauflösung, Taschenbuch.
+* eBook-Cover: nur die Vorderseite, 1600 x 2560 px JPG (Kindle-Upload) plus
+  ein einseitiges PDF derselben Grafik zur Archivierung.
+"""
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
-from tools.kdp_cover.constants import DEFAULT_EXPORT_DPI, clamp_print_dpi
+from tools.kdp_cover.constants import (
+    DEFAULT_EXPORT_DPI,
+    EBOOK_HEIGHT_PX,
+    EBOOK_JPEG_QUALITY,
+    EBOOK_WIDTH_PX,
+    clamp_print_dpi,
+)
 from tools.kdp_cover.geometry import RectMm, WrapGeometry, build_geometry
 from tools.kdp_cover.model import CoverLayout, SpineBadgeSpec
 from tools.kdp_cover.validate import ValidationReport, validate_layout
@@ -232,6 +246,65 @@ def export_front_deckblatt_pdf(
         save_kwargs["author"] = layout.author.strip()
     rgb.save(output_pdf, "PDF", **save_kwargs)
     return output_pdf
+
+
+def ebook_render_dpi(layout: CoverLayout) -> float:
+    """Effektive DPI der eBook-Grafik (Trim-Höhe → 2560 px)."""
+    height_in = max(1e-6, float(layout.trim_height_mm) / 25.4)
+    return EBOOK_HEIGHT_PX / height_in
+
+
+def render_ebook_front_image(
+    layout: CoverLayout,
+    *,
+    resolve_base: Optional[Path] = None,
+) -> Image.Image:
+    """Vorderseite in KDP-Idealmaß 1600 × 2560 px (1 : 1,6).
+
+    Neu gerendert, nicht aus dem Druckbild beschnitten: Die Compose-Elemente
+    sind relativ positioniert und folgen dem leicht anderen Seitenverhältnis;
+    das Titelbild wird wie im Wrap per Cover-Fit eingepasst.
+    """
+    return build_front_panel_image(
+        layout,
+        width_px=EBOOK_WIDTH_PX,
+        height_px=EBOOK_HEIGHT_PX,
+        dpi=ebook_render_dpi(layout),
+        resolve_base=resolve_base,
+    )
+
+
+def export_ebook_cover(
+    layout: CoverLayout,
+    output_jpg: Path,
+    *,
+    output_pdf: Optional[Path] = None,
+    resolve_base: Optional[Path] = None,
+) -> tuple[Path, Optional[Path]]:
+    """eBook-Cover schreiben: JPG (Upload) und optional PDF (Archiv)."""
+    image = render_ebook_front_image(layout, resolve_base=resolve_base).convert("RGB")
+    dpi = ebook_render_dpi(layout)
+    output_jpg = Path(output_jpg)
+    output_jpg.parent.mkdir(parents=True, exist_ok=True)
+    image.save(
+        output_jpg,
+        "JPEG",
+        quality=EBOOK_JPEG_QUALITY,
+        subsampling=0,
+        optimize=True,
+        dpi=(round(dpi), round(dpi)),
+    )
+    pdf_out: Optional[Path] = None
+    if output_pdf is not None:
+        pdf_out = Path(output_pdf)
+        pdf_out.parent.mkdir(parents=True, exist_ok=True)
+        save_kwargs: dict = {"resolution": float(dpi)}
+        if layout.title.strip():
+            save_kwargs["title"] = layout.title.strip()
+        if layout.author.strip():
+            save_kwargs["author"] = layout.author.strip()
+        image.save(pdf_out, "PDF", **save_kwargs)
+    return output_jpg, pdf_out
 
 
 def _load_font(
@@ -524,6 +597,12 @@ def render_wrap_image(
             with Image.open(back_path) as im:
                 _paste_back_image(canvas, im, layout=layout, geo=geo, dpi=dpi)
 
+    # Rückseiten-Texte (Subtitel, Klappentext, Bio) über Farbe/Bild.
+    from tools.kdp_cover.compose_back import apply_back_compose
+
+    canvas = apply_back_compose(canvas, layout, geo, dpi=dpi)
+    draw = ImageDraw.Draw(canvas)
+
     # Spine
     draw.rectangle(_box_xyxy(spine_ext, dpi), fill=_hex_to_rgb(layout.spine_color))
 
@@ -572,11 +651,13 @@ def export_wrap_pdf(
     require_safe: bool = True,
     production_uuid: str = "",
     layout_path: Optional[Path] = None,
+    extra_payload: Optional[dict] = None,
 ) -> tuple[Path, ValidationReport]:
     """Validiert, rendert und schreibt das Wrap-PDF.
 
     Bei ``require_safe=True`` (Default) wird bei Errors abgebrochen.
-    Optional ``production_uuid`` / ``layout_path`` landen in der Validation-JSON.
+    Optional ``production_uuid`` / ``layout_path`` landen in der Validation-JSON,
+    ``extra_payload`` wird zusätzlich hineingemischt.
     """
     base = Path(resolve_base) if resolve_base else Path.cwd()
     geo = build_geometry(
@@ -614,6 +695,8 @@ def export_wrap_pdf(
         payload["cover_height_mm"] = geo.cover_height_mm
         payload["spine_width_mm"] = geo.spine_width_mm
         payload["dpi"] = dpi
+        if extra_payload:
+            payload.update(extra_payload)
         uid = str(production_uuid or getattr(layout, "production_uuid", "") or "").strip()
         layout_ref = layout_path
         payload = enrich_validation_payload(
@@ -629,8 +712,65 @@ def export_wrap_pdf(
     return output_pdf, report
 
 
+@dataclass(frozen=True)
+class CoverExportResult:
+    """Ergebnis eines paarigen Exports (Taschenbuch + eBook)."""
+
+    wrap_pdf: Path
+    ebook_jpg: Path
+    ebook_pdf: Path
+    report: ValidationReport
+
+
+def export_cover_set(
+    layout: CoverLayout,
+    wrap_pdf: Path,
+    *,
+    dpi: float = DEFAULT_EXPORT_DPI,
+    resolve_base: Optional[Path] = None,
+    validation_json: Optional[Path] = None,
+    require_safe: bool = True,
+    production_uuid: str = "",
+    layout_path: Optional[Path] = None,
+) -> CoverExportResult:
+    """Wrap-PDF **und** eBook-Cover (JPG + Archiv-PDF) in einem Zug.
+
+    Die eBook-Dateien liegen neben dem Wrap (``ebook_paths_for_wrap``). Die
+    Validierung des Wraps gilt für beide; schlägt sie fehl, entsteht keine Datei.
+    """
+    from tools.kdp_cover.cover_paths import ebook_paths_for_wrap
+
+    ebook_jpg, ebook_pdf = ebook_paths_for_wrap(wrap_pdf)
+    out, report = export_wrap_pdf(
+        layout,
+        wrap_pdf,
+        dpi=dpi,
+        resolve_base=resolve_base,
+        validation_json=validation_json,
+        require_safe=require_safe,
+        production_uuid=production_uuid,
+        layout_path=layout_path,
+        extra_payload={
+            "ebook_jpg": str(ebook_jpg),
+            "ebook_pdf": str(ebook_pdf),
+            "ebook_size_px": [EBOOK_WIDTH_PX, EBOOK_HEIGHT_PX],
+        },
+    )
+    export_ebook_cover(
+        layout, ebook_jpg, output_pdf=ebook_pdf, resolve_base=resolve_base
+    )
+    return CoverExportResult(
+        wrap_pdf=out, ebook_jpg=ebook_jpg, ebook_pdf=ebook_pdf, report=report
+    )
+
+
 __all__ = [
+    "CoverExportResult",
     "build_front_panel_image",
+    "ebook_render_dpi",
+    "export_cover_set",
+    "export_ebook_cover",
+    "render_ebook_front_image",
     "export_front_deckblatt_pdf",
     "export_wrap_pdf",
     "render_front_trim_image",
