@@ -593,7 +593,7 @@ class CoverUuidPickDialog(QDialog):
             h = int(getattr(self, "_restore_height", 560))
             self.resize(w, h)
             QTimer.singleShot(0, lambda ww=w, hh=h: self._force_resize(ww, hh))
-        except Exception:
+        except Exception:  # Zustand zurücksetzen, dann weiterwerfen
             self._geometry_applied = True
             self._suppress_geometry_persist = False
             raise

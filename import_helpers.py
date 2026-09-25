@@ -230,13 +230,13 @@ def extract_all_inline_svgs(publish_dir: Path) -> int:
         for f in list(old_img.glob(f"{SVG_FILE_PREFIX}*{SVG_FILE_SUFFIX}")):
             try:
                 f.unlink()
-            except Exception:
-                pass
+            except OSError:
+                pass  # Rest bleibt liegen (gesperrt) — Import geht trotzdem weiter
         # Nur loeschen, wenn jetzt wirklich leer
         try:
             if not any(old_img.iterdir()):
                 old_img.rmdir()
-        except Exception:
+        except OSError:
             pass
     return total
 

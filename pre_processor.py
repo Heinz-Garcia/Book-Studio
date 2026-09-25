@@ -1,6 +1,7 @@
 import re
 import shutil
 import json
+import logging
 from pathlib import Path
 import yaml
 
@@ -22,6 +23,8 @@ from recto_open import (
 )
 from table_to_definition_list import wandle_breite_tabellen
 from table_width_fixer import setze_spaltenbreiten
+
+_LOG = logging.getLogger(__name__)
 
 # B4 (Refactoring): Die komplette Fußnoten-Funktionalität wurde
 # entfernt. Pandoc-konforme `[^1]`-Marker im Quell-Markdown werden
@@ -542,8 +545,9 @@ class PreProcessor:
             if not dst_file.exists():
                 try:
                     shutil.copy2(svg, dst_file)
-                except Exception:
-                    pass
+                except OSError as exc:
+                    # Nicht still: sonst fehlt das Bild später im Render ohne Hinweis.
+                    _LOG.warning("Begleit-SVG nicht kopiert: %s → %s (%s)", svg, dst_file, exc)
 
     def _amalgamate_children(self, children, host_dest, offset):
         # offset: Rekursionstiefe (API); Heading-Shift liegt in den Quellen.

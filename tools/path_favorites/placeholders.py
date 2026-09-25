@@ -124,10 +124,9 @@ def _content_root(book_studio_root: Path) -> Path | None:
         from tools.production_paths.config import resolve_books_workspace_dir
 
         root = resolve_books_workspace_dir(cfg, book_studio_root)
-        if root.is_dir():
-            return root.resolve()
         return root.resolve()
-    except Exception:
+    except (ImportError, OSError, TypeError, ValueError, KeyError):
+        # Kaputte/fehlende Konfiguration → Standardablage, sonst kein Platzhalter.
         default = book_studio_root / "production" / "books"
         if default.is_dir():
             return default.resolve()
@@ -141,8 +140,8 @@ def _grammargraph_inbox(book_studio_root: Path) -> Path | None:
 
         root = resolve_grammargraph_inbox_dir(cfg, book_studio_root)
         return root.resolve()
-    except Exception:
-        return None
+    except (ImportError, OSError, TypeError, ValueError, KeyError):
+        return None  # kaputte/fehlende Konfiguration → kein Platzhalter
 
 
 def build_placeholder_context(

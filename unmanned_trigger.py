@@ -374,7 +374,7 @@ def main():
 
         result = run_unmanned_trigger(request)
         raise SystemExit(result)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - CLI-Grenze: jeder Fehler → Meldung + Exit-Code 1
         print(f"❌ Unmanned-Trigger Fehler: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 

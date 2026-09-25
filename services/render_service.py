@@ -723,7 +723,7 @@ class RenderService:
         if on_safe_command_built is not None:
             try:
                 on_safe_command_built(cmd)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - fremder Hook, darf Render nicht abbrechen
                 # B-Fix (Code-Review 2026-07-03): Fehler im (optionalen,
                 # meist testgetriebenen) Hook wurden bisher komplett
                 # verschluckt. Jetzt zumindest ueber `on_log_line` sichtbar,
@@ -731,7 +731,7 @@ class RenderService:
                 if on_log_line is not None:
                     try:
                         on_log_line(f"⚠️ on_safe_command_built-Hook fehlgeschlagen: {exc}")
-                    except Exception:
+                    except Exception:  # noqa: BLE001 - Log-Rückruf selbst defekt; Render geht vor
                         pass
 
         proc = popen_factory(

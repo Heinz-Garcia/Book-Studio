@@ -1381,8 +1381,8 @@ class ExportManager:
                 self._write_active_render_log(
                     f"safe_command={' '.join(str(part) for part in cmd)}"
                 )
-            except Exception:
-                pass
+            except ValueError:
+                pass  # Log-Datei schon geschlossen; OSError fängt der Schreiber selbst
 
         archive_dir = None
         snapshot_id = self._pending_render_context.get("snapshot_id")

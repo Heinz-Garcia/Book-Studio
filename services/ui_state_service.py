@@ -137,16 +137,18 @@ class UiStateService:
 
     @property
     def search_text(self) -> str:
+        # Studio ohne Such-Variable (Headless/Adapter) oder bereits zerstörtes
+        # Qt-Objekt (RuntimeError) — beides heißt „kein Suchtext“.
         try:
             return self._studio.search_var.get()
-        except Exception:
+        except (AttributeError, RuntimeError):
             return ""
 
     @property
     def file_state_filter(self) -> str:
         try:
             return self._studio.file_state_filter_var.get()
-        except Exception:
+        except (AttributeError, RuntimeError):
             return DEFAULT_FILE_STATE_FILTER
 
     def invalidate_content_search_cache(self) -> None:
