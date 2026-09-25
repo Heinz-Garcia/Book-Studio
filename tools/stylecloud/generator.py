@@ -1208,8 +1208,9 @@ def _generate_organic_blob(options: StylecloudOptions, text: str, output: Path) 
     )
     max_font = resolve_render_max_font(options)
     dens = clamp_word_density(getattr(options, "word_density", DEFAULT_WORD_DENSITY))
-    # Font scale relative to the inner blob, not the full cover margins.
-    inner = max(64, int(min(width, height) * (1.0 - 2.0 * float(options.free_form_margin_pct) / 100.0)))
+    # Hinweis: Eine Schriftskalierung relativ zum inneren Blob (statt zu den
+    # vollen Cover-Rändern) war seit 64f2fe4 angelegt, aber nie verdrahtet —
+    # die tote Berechnung ist entfernt; max_font gilt wie bei den anderen Formen.
     min_font = max(8, int(max_font * min_font_frac_for_density(dens)))
     prefer_h = resolve_prefer_horizontal(
         width,

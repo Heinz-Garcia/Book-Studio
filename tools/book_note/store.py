@@ -32,7 +32,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 #: Ablage innerhalb des Buchprojekts. Derselbe Ordner wie
 #: ``generator_classes.json`` -- ein Kanal, nicht zwei.

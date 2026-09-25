@@ -8,7 +8,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Iterable, Mapping
 
 from tools.path_favorites.placeholders import (
     PlaceholderContext,

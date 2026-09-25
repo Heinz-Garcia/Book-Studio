@@ -171,18 +171,20 @@ def calculate_cover_size(
     )
 
 
-__all__ = [
-    "BLEED_MM",
-    "MIN_PAGE_COUNT",
-    "MAX_PAGE_COUNT",
+# Die Konstanten in GROSSBUCHSTABEN liefert das Modul-``__getattr__`` oben
+# dynamisch aus der geladenen KDP-Config — für den Linter „undefiniert“.
+__all__ = [  # noqa: F822 - dynamische Modul-Attribute (flake8 meldet hier)
+    "BLEED_MM",  # noqa: F822
+    "MIN_PAGE_COUNT",  # noqa: F822
+    "MAX_PAGE_COUNT",  # noqa: F822
     "CUSTOM_TRIM_SIZE_ID",
-    "CUSTOM_WIDTH_RANGE_IN",
-    "CUSTOM_HEIGHT_RANGE_IN",
-    "DEFAULT_PAPER_TYPE_ID",
+    "CUSTOM_WIDTH_RANGE_IN",  # noqa: F822
+    "CUSTOM_HEIGHT_RANGE_IN",  # noqa: F822
+    "DEFAULT_PAPER_TYPE_ID",  # noqa: F822
     "PaperType",
-    "PAPER_TYPES",
+    "PAPER_TYPES",  # noqa: F822
     "TrimSize",
-    "TRIM_SIZES",
+    "TRIM_SIZES",  # noqa: F822
     "CoverSizeResult",
     "get_paper_type",
     "get_trim_size",

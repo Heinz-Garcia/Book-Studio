@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from tools.skeleton.populate_types import (
-    PopulateDialogResult,
     PopulatePlanLine,
     PopulateMode,
     RunConflictChoice,
@@ -338,21 +337,8 @@ def populate_book(
     manifest = load_manifest(profile_dir)
     result = PopulateResult()
 
-    diff_map = build_diff_map(
-        [entry.path for entry in manifest.files],
-        skeleton_root=manifest.root,
-        book_root=book_path,
-    )
-    base_plan = build_populate_plan(
-        manifest,
-        book_path,
-        conflict_mode="ask",
-        run_conflict_choice="skip",
-        populate_mode="all",
-        include_diff=True,
-        include_optional=include_optional,
-    )
-    has_conflicts = any(line.exists for line in base_plan)
+    # Früher wurden hier Diff-Karte und Konflikt-Vorschau für den (entfernten)
+    # Tk-Dialog berechnet und danach verworfen — reine Rechenzeit.
     plan: list[PopulatePlanLine]
     if conflict_mode == "ask" and not skip_dialog:
         raise ValueError(
@@ -487,7 +473,6 @@ def run(studio: Any = None, **kwargs: Any) -> int:
         str(kwargs.get("library_root") or settings["library_path"]),
     )
 
-    parent = getattr(studio, "root", None) if studio is not None else None
     profile = kwargs.get("profile") or settings["default_profile"]
     profiles = list_profiles(library_root)
 
@@ -521,7 +506,6 @@ def run(studio: Any = None, **kwargs: Any) -> int:
                 print(msg)
             return 1
         book_path = Path(book_path)
-        parent = None
 
     skip_dialog = bool(kwargs.get("yes") or kwargs.get("skip_dialog"))
     if conflict_mode == "ask" and not skip_dialog:
