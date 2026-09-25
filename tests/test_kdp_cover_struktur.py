@@ -27,7 +27,7 @@ def test_mixins_stehen_vor_qdialog():
     mro = KdpCoverQtDialog.__mro__
     qdialog = mro.index(QDialog)
     mixins = [c for c in mro if c.__module__.startswith("ui_qt.dialogs.kdp_cover.")]
-    assert len(mixins) == 8
+    assert len(mixins) == 9  # inkl. FrontComposeUiMixin (über FrontMixin)
     assert all(mro.index(c) < qdialog for c in mixins)
 
 
