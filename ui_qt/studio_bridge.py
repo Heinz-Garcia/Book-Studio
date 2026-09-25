@@ -124,6 +124,27 @@ class QtStudioBridge:
             "default_export_template": cfg.get("default_export_template", "Standard"),
         }
 
+    def read_config(self) -> dict:
+        """``app_config.json`` für den ExportManager (Abbruch-Schalter u. a.).
+
+        Fehlte bis 2026-09-25: ``ExportManager._read_config`` bekam per
+        ``getattr`` nichts und rechnete mit ``{}`` — die im Konfigurations-
+        dialog gesetzten Schalter (z. B. ``abort_on_first_preflight_error``)
+        wirkten in der Qt-Oberfläche nie.
+        """
+        try:
+            return _app_config.read_config(self.base_path / "app_config.json")
+        except (OSError, TypeError, ValueError):
+            return {}
+
+    def get_yaml_engine(self) -> Optional[QuartoYamlEngine]:
+        self._sync_from_window()
+        return self.yaml_engine
+
+    def _guide_hint(self, message: str) -> None:
+        """Hinweis des ExportManagers an den Nutzer (früher Tk-Hinweisleiste)."""
+        self.log(f"💡 {message}", "info")
+
     def log(self, message: str, level: str = "info") -> None:
         self._window._facade.log(message, level)
 
