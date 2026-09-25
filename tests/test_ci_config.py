@@ -40,12 +40,49 @@ def test_pytest_ini_has_slow_marker():
     assert "slow" in markers, "pytest.ini: 'slow'-Marker fehlt"
 
 
-def test_pytest_ini_has_coverage_config():
-    cp = configparser.ConfigParser()
-    cp.read(PROJECT_ROOT / "pytest.ini", encoding="utf-8")
-    # Coverage-Sektionen müssen vorhanden sein.
-    assert "coverage:run" in cp, "pytest.ini: [coverage:run] Sektion fehlt"
-    assert "coverage:report" in cp, "pytest.ini: [coverage:report] Sektion fehlt"
+def test_coverage_config_liegt_wo_coverage_sie_liest():
+    """coverage.py liest .coveragerc, nicht pytest.ini.
+
+    Bis 2026-09-25 stand die Konfiguration samt ``fail_under = 80`` in
+    pytest.ini — wirkungslos: Ein Lauf mit 3 % Abdeckung blieb grün.
+    """
+    pytest_ini = configparser.ConfigParser()
+    pytest_ini.read(PROJECT_ROOT / "pytest.ini", encoding="utf-8")
+    assert not [s for s in pytest_ini.sections() if s.startswith("coverage:")], (
+        "pytest.ini: [coverage:*]-Sektionen werden von coverage.py ignoriert"
+    )
+    rc = configparser.ConfigParser()
+    rc.read(PROJECT_ROOT / ".coveragerc", encoding="utf-8")
+    source = rc["run"].get("source", "")
+    for pflicht in ("services", "frontmatter_parser", "ui_qt"):
+        assert pflicht in source, f".coveragerc: {pflicht} fehlt in [run] source"
+
+
+def test_ci_prueft_abdeckung_je_bereich():
+    text = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "tools/dev/coverage_gate.py" in text
+
+
+def test_coverage_gate_ordnet_und_bewertet_bereiche():
+    sys.path.insert(0, str(PROJECT_ROOT / "tools" / "dev"))
+    try:
+        import coverage_gate as gate
+    finally:
+        sys.path.pop(0)
+
+    assert gate._bereich_von("services/render_service.py").name.startswith("Kern")
+    assert gate._bereich_von("frontmatter_parser.py").name.startswith("Kern")
+    assert gate._bereich_von("ui_qt/dialogs/text_dialogs.py").name.startswith("Oberfl")
+    assert gate._bereich_von("tools/kdp_cover/model.py") is None
+
+    kern, ui = gate.BEREICHE
+    ok, text = gate.bericht([gate.Ergebnis(kern, 100, 85), gate.Ergebnis(ui, 100, 61)])
+    assert ok and "85.0 %" in text
+    ok, text = gate.bericht([gate.Ergebnis(kern, 100, 79), gate.Ergebnis(ui, 100, 61)])
+    assert not ok and "ROT" in text
+    # Ohne gemessene Anweisungen kein stilles Grün
+    ok, _ = gate.bericht([gate.Ergebnis(kern, 0, 0), gate.Ergebnis(ui, 100, 61)])
+    assert not ok
 
 
 def test_pytest_ini_has_testpaths():

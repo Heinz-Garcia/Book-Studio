@@ -3,11 +3,13 @@
 Aufgerufen vom pre-commit-Hook (``.pre-commit-config.yaml``, ``language:
 system``). Der Hook läuft mit dem Python aus ``PATH`` -- das ist oft nicht das
 der Projekt-``.venv``. Dieses Skript sucht deshalb deren Interpreter und
-startet die schnelle Suite (``-m "not slow"``, ohne Coverage) damit, parallel,
-wenn ``pytest-xdist`` installiert ist (rund 20 s).
+startet die schnelle Suite (``-m "not slow"``) damit, parallel, wenn
+``pytest-xdist`` installiert ist (rund 25 s).
 
-Die ``slow``-Tests (echter Quarto-Render) und das Coverage-Gate bleiben beim
-vollständigen Lauf (``pytest -q``) -- sie brauchen Quarto bzw. Minuten.
+Im selben Lauf wird die Abdeckung gemessen (``.coveragerc``) und danach je
+Bereich geprüft (``coverage_gate.py``). Ohne ``pytest-cov`` entfällt nur diese
+Prüfung. Die ``slow``-Tests (echter Quarto-Render) bleiben beim vollständigen
+Lauf (``pytest -q``) -- sie brauchen Quarto.
 
 Überspringen nur bewusst: ``git commit --no-verify``.
 """
@@ -34,25 +36,32 @@ def venv_python(root: Path = ROOT) -> str:
     return sys.executable
 
 
-def pytest_befehl(python: str, *, parallel: bool) -> list[str]:
+def pytest_befehl(python: str, *, parallel: bool, abdeckung: bool = False) -> list[str]:
     befehl = [
         python, "-m", "pytest", "-q", "-m", "not slow",
-        "-p", "no:cacheprovider", "--no-cov",
+        "-p", "no:cacheprovider",
     ]
+    # Quellen aus .coveragerc; kein Bericht im Terminal (das Gate druckt ihn).
+    befehl += ["--cov", "--cov-report="] if abdeckung else ["--no-cov"]
     if parallel:
         befehl += ["-n", str(max(1, min(MAX_PROZESSE, os.cpu_count() or 1)))]
     return befehl
 
 
-def hat_xdist(python: str) -> bool:
+def _hat_modul(python: str, modul: str) -> bool:
     return subprocess.run(
-        [python, "-c", "import xdist"], capture_output=True, check=False
+        [python, "-c", f"import {modul}"], capture_output=True, check=False
     ).returncode == 0
+
+
+def hat_xdist(python: str) -> bool:
+    return _hat_modul(python, "xdist")
 
 
 def main() -> int:
     python = venv_python()
-    befehl = pytest_befehl(python, parallel=hat_xdist(python))
+    abdeckung = _hat_modul(python, "pytest_cov")
+    befehl = pytest_befehl(python, parallel=hat_xdist(python), abdeckung=abdeckung)
     umgebung = dict(os.environ, QT_QPA_PLATFORM="offscreen")
     print("Test-Sperre:", " ".join(befehl[1:]), flush=True)
     ergebnis = subprocess.run(befehl, cwd=ROOT, env=umgebung, check=False)
@@ -62,7 +71,21 @@ def main() -> int:
             "(oder bewusst: git commit --no-verify).",
             flush=True,
         )
-    return ergebnis.returncode
+        return ergebnis.returncode
+    if not abdeckung:
+        print("Test-Sperre: pytest-cov fehlt -- Abdeckungs-Gate übersprungen.", flush=True)
+        return 0
+    gate = subprocess.run(
+        [python, str(ROOT / "tools" / "dev" / "coverage_gate.py")],
+        cwd=ROOT, check=False,
+    )
+    if gate.returncode != 0:
+        print(
+            "\nTest-Sperre: Abdeckung unter der Untergrenze -- Commit abgebrochen. "
+            "Tests ergänzen (Schwellen in tools/dev/coverage_gate.py nie senken).",
+            flush=True,
+        )
+    return gate.returncode
 
 
 if __name__ == "__main__":

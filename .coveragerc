@@ -1,0 +1,31 @@
+# Abdeckungs-Konfiguration für coverage.py / pytest-cov.
+#
+# Stand bis 2026-09-25 in pytest.ini — dort liest coverage.py seine
+# Einstellungen aber nie (nur .coveragerc, setup.cfg, tox.ini,
+# pyproject.toml). Das dort notierte 80-%-Gate hat deshalb nie gegriffen
+# (ein Lauf mit 3 % Abdeckung blieb grün).
+#
+# Die Schwellen je Bereich prüft tools/dev/coverage_gate.py (Commit-Sperre),
+# nicht fail_under: eine Gesamtzahl über Kern und Oberfläche würde die
+# strengere Kern-Schwelle verwässern.
+
+[run]
+source =
+    services
+    app_config
+    session_state
+    frontmatter_parser
+    quarto_block_parser
+    ui_qt
+omit =
+    */tests/*
+    */__init__.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    \.\.\.
+show_missing = True
+skip_covered = False

@@ -43,16 +43,16 @@ jobs:
           # Regeln anwendet, sind die wichtigsten Excludes hier
           # inline als CLI-Args dupliziert. Bei Aenderung der lokalen
           # Configs muss dieser Block mitgezogen werden.
+          # tools/ steht seit 2026-09-25 unter Lint (vorher ausgenommen).
           ruff check . \
             --exclude export_manager.py --exclude book_doctor.py \
             --exclude yaml_engine.py --exclude pre_processor.py \
-            --exclude quarto_render_safe.py --exclude tests \
-            --exclude tools
+            --exclude quarto_render_safe.py --exclude tests
           flake8 . \
             --extend-ignore=E,W,D \
             --exclude=.venv,build,dist,.git,__pycache__,htmlcov,\
 export_manager.py,book_doctor.py,yaml_engine.py,pre_processor.py,\
-quarto_render_safe.py,sanitizer.py,Sanitizer.py,tests,tools
+quarto_render_safe.py,sanitizer.py,Sanitizer.py,tests
 
       - name: Compile-Check (alle Module)
         env:
@@ -64,10 +64,11 @@ quarto_render_safe.py,sanitizer.py,Sanitizer.py,tests,tools
         env:
           PYTHONIOENCODING: utf-8
         run: |
-          # Phase 2 / Schritt 4: Coverage-Gate ist in pytest.ini gesetzt
-          # (fail_under=80). Pytest bricht ab, wenn die Service-Layer-
-          # Coverage unter 80 % faellt.
-          python -m pytest tests/ -m "not slow" --cov=services --cov=app_config --cov=session_state --cov=frontmatter_parser --cov=quarto_block_parser --cov-report=term-missing --cov-report=xml
+          # Quellen aus .coveragerc (in pytest.ini las coverage.py sie nie —
+          # das dortige 80-%-Gate griff deshalb nicht). Schwellen je Bereich
+          # (Kern / ui_qt) prüft tools/dev/coverage_gate.py.
+          python -m pytest tests/ -m "not slow" --cov --cov-report=term-missing --cov-report=xml
+          python tools/dev/coverage_gate.py
 
       - name: Run Smoke-Tests
         env:
