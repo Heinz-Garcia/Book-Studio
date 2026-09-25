@@ -330,12 +330,16 @@ Gedruckte Bücher öffnen **Hauptkapitel** (sichtbarer Titel) standardmäßig **
 (Recto = ungerade Seitenzahl, solange die arabische Zählung bei 1 rechts beginnt).
 Das erledigt der **PreProcessor** automatisch beim Rendern — für **Typst** und **DOCX**:
 
-- Typst: `#pagebreak(weak: true, to: "odd")`
-- DOCX: Abschnittswechsel `oddPage`
+- Typst: `#pagebreak(weak: true, to: "odd")` am Kapitelanfang
+- DOCX: Jedes Kapitel wird ein eigener Word-Abschnitt; Kapitel, die rechts
+  öffnen, beginnen „auf ungerader Seite“. Seitenformat, Ränder und Kopf-/Fußzeilen
+  kommen aus der `reference-doc` (DOCX-Layout). Endet das Buch mit einem solchen
+  Kapitel, steht am Ende eine leere linke Seite — im Buchsatz üblich (Vakat).
 
 **Keine** technischen `Vakanz*.md` mehr in die Buchstruktur legen. Manuelle
-`#pagebreak(… to: "odd")` in Kapiteldateien werden beim Render entfernt und durch
-den kanonischen Start ersetzt (sonst Doppel-Vakat).
+`#pagebreak(… to: "odd")` am **Anfang oder Ende** einer Kapiteldatei werden beim
+Render entfernt und durch den kanonischen Start ersetzt (sonst Doppel-Vakat).
+Umbrüche **mitten** im Kapitel bleiben unangetastet.
 
 Opt-out im Frontmatter: `open_recto: false` (z. B. Widmung/Impressum, die **links**
 bleiben sollen). Explizit erzwingen: `open_recto: true`.
@@ -554,14 +558,21 @@ Lokale Bildreferenzen in Markdown:
 - Kontextmenü → **Fehlende Bilder anzeigen**
 
 Im Dialog: Doppelklick oder **Enter** auf eine Zeile → Editor springt zur Stelle.
+Die Liste bleibt dabei offen und blockiert nichts — du kannst im Editor korrigieren
+und die nächste Zeile anklicken. Schließt du die Liste, bleibt der Editor offen.
 
 ---
 
 ## 10) Markdown-Editor {#sec-editor}
 
 - Doppelklick auf Kapitel in links/rechts
+- Der Editor ist ein **eigenes Fenster**: Hauptfenster und andere Dialoge bleiben
+  bedienbar. Pro Datei gibt es **ein** Editorfenster — ein zweites Öffnen holt das
+  vorhandene nach vorn (und springt ggf. zur neuen Stelle).
 - **Strg+S** / **Speichern** schreibt die Datei — der Editor bleibt offen
-- **Schließen** beendet den Dialog
+- **Schließen** beendet den Dialog. Bei **ungespeicherten Änderungen** fragt er
+  nach: **Speichern**, **Verwerfen** oder **Abbrechen** — auch wenn er zusammen
+  mit dem Fenster schließt, aus dem er geöffnet wurde.
 - End-Befehle: harter PDF-Seitenumbruch über Editor-Menü; Recto/Vakat-Logik (`to: "odd"`) siehe Kapitel 6 (Rechte Seite und Vakat)
 
 Toolbar-Buttons (Auswahl):
@@ -1688,7 +1699,16 @@ Bei Karteileichen stehen zwei Knöpfe: **Nur hier** (aus der Liste dieses Buchs
 nehmen, Bibliothek bleibt) und **Überall** (aus der gemeinsamen Layout-Bibliothek —
 betrifft alle Bücher). Ohne Klick bleibt alles unverändert.
 Filter **Anzeigen**: Standard *Nur im Buch (ohne 0×-Rauschen)*; *Alles* zeigt
-auch Bibliotheksreste mit 0×.
+auch Bibliotheksreste mit 0×. Nennt die Statuszeile Klassen, die der Filter gerade
+ausblendet, steht dort der Link **Diese Zeilen anzeigen** (schaltet auf
+*Handlungsbedarf*).
+**Verwerfen…** (bei Formaten ohne eigene Gestaltung) bildet die Klasse auf ein
+Vorfahren-Format ab, z. B. `BodyText`. Angeboten werden nur Vorfahren, die es in
+allen betroffenen Layouts gibt; Layouts, in denen das Format schon gestaltet ist,
+bleiben unverändert. Geht etwas schief, wird nichts geändert. **Eigenes Format…**
+macht das rückgängig.
+Öffnest du eine **Fundstelle** im Editor, aktualisiert sich die Tabelle nach dem
+Speichern und nach dem Schließen des Editors.
 
 **7. Anwenden und rendern.** `Speichern`, dann
 `Auf Buchprojekt anwenden…` → Buchordner wählen. Danach im Studio `F5` und im
