@@ -348,6 +348,13 @@ class CoverLayout:
         )
 
 
+#: Layout-JSON-Schlüssel, die der Export schreibt — keine Gestaltung.
+#: Ampel „Cover fertig“ ignoriert genau diese Felder im Inhalts-Token
+#: (``services.work_path._cover_file_token``). Neue Export-only-Felder hier
+#: eintragen, sonst kippt „Fertig“ nach dem nächsten Export.
+COVER_EXPORT_ONLY_KEYS = frozenset({"wrap_pdf"})
+
+
 def save_layout(layout: CoverLayout, path: Path) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -452,6 +459,7 @@ __all__ = [
     "BackImagePlacementMode",
     "SpineBadgeSpec",
     "CoverLayout",
+    "COVER_EXPORT_ONLY_KEYS",
     "normalize_front_image_mode",
     "normalize_back_image_placement",
     "uses_front_image",

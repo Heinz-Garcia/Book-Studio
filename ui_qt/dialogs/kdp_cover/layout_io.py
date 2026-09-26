@@ -471,8 +471,11 @@ class LayoutIOMixin:
             cover_label=self._cover_label,
             repo=self._studio_repo(),
         )
+        # Nur das primäre Cover ist das Cover des Buchs. Der Spiegel am Buch
+        # ist genau die Datei, die Zuordnung, Ampel und „Fertig“ lesen — analog
+        # zum Export (siehe export.py): Alternativen dürfen ihn nicht überschreiben.
         mirror: Path | None = None
-        if self._book:
+        if self._book and role != "alternative":
             mirror = mirror_book_layout_path(self._book, stem)
         targets = [canon] + ([mirror] if mirror is not None else [])
         if not draft and not self._confirm_canonical_paths(
@@ -599,7 +602,7 @@ class LayoutIOMixin:
             resolved = resolve_existing_project_path(self._book)
             if resolved is not None:
                 gate_path = Path(resolved)
-            mark_cover_finished(
+            hinweis = mark_cover_finished(
                 self._book, gate_path, finished=True,
                 kdp_einschalten=self._kdp_einschalten_bestaetigt(),
             )
@@ -610,7 +613,13 @@ class LayoutIOMixin:
                 f"Fertig-Status konnte nicht gespeichert werden:\n{exc}",
             )
             return
-        self.status_label.setText("● Cover exportiert und fertig — Ampel grün")
+        if hinweis:
+            QMessageBox.warning(self, "Cover fertig — Hinweis", hinweis)
+            self.status_label.setText(
+                f"● Cover fertig — Ampel grün ({hinweis})"
+            )
+        else:
+            self.status_label.setText("● Cover exportiert und fertig — Ampel grün")
         self.status_label.setStyleSheet(_qlabel_color_ss("#15803d", weight="600"))
         self._notify_work_path_refresh()
         self.close()

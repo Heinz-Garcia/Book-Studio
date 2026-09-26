@@ -2022,6 +2022,70 @@ def test_export_einer_alternative_laesst_das_buchcover_in_ruhe(monkeypatch, tmp_
         dlg.close()
 
 
+def test_speichern_einer_alternative_laesst_das_buchcover_in_ruhe(monkeypatch, tmp_path):
+    """Speichern muss dasselbe Spiegel-Gate haben wie der Export.
+    Bis 2026-09-26 schrieb jedes Speichern mit Buch nach
+    ``export/kdp_cover/{stem}_kdp_cover.json`` — auch bei Rolle alternative."""
+    import json
+    from uuid import uuid4
+
+    from tools.kdp_cover.model import load_layout
+    from tools.kdp_cover.validate import ValidationReport
+    from ui_qt.dialogs.kdp_cover_dialog import KdpCoverQtDialog
+
+    _app, dlg, studio = _app_and_dialog(monkeypatch, tmp_path)
+    try:
+        book = Path(studio.current_book)
+        uid = str(uuid4())
+        (book / "publish_meta.json").write_text(
+            json.dumps({"uuid": uid, "title": "Testbuch"}), encoding="utf-8"
+        )
+        dlg._production_uuid = uid
+        dlg._cover_label = "Haupt"
+        dlg._cover_role = "primary"
+        front = book / "img" / "Deckblatt.png"
+        dlg.front_edit.setText(str(front))
+        dlg.title_edit.setText("Primär-Titel")
+        dlg._params_guard = False
+
+        repo = tmp_path / "repo"
+        repo.mkdir(exist_ok=True)
+        monkeypatch.setattr(dlg, "_studio_repo", lambda: repo)
+        monkeypatch.setattr(
+            "tools.kdp_cover.cover_registry.registry_path",
+            lambda: tmp_path / "cover_uuid_registry.json",
+        )
+        monkeypatch.setattr(
+            KdpCoverQtDialog,
+            "_layout_validation_blocks_persist",
+            lambda self, layout: ValidationReport(),
+        )
+        monkeypatch.setattr(dlg, "_register_cover_uuid_link", lambda *a, **k: None)
+        _skip_cover_fertig_dialog(monkeypatch)
+
+        dlg._quick_save_project()
+        cover_json = book / "export" / "kdp_cover" / f"{book.name}_kdp_cover.json"
+        assert cover_json.is_file()
+        vorher = cover_json.read_bytes()
+        assert load_layout(cover_json).title == "Primär-Titel"
+
+        dlg._cover_role = "alternative"
+        dlg._cover_label = "Winter"
+        dlg.title_edit.setText("Alternativ-Titel")
+        dlg._refresh_uuid_link_ui()
+        dlg._quick_save_project()
+
+        assert cover_json.read_bytes() == vorher, (
+            "Speichern einer Alternative hat den Buch-Spiegel überschrieben"
+        )
+        assert load_layout(cover_json).title == "Primär-Titel"
+        alternativen = list(repo.rglob("alternatives/*/*_kdp_cover.json"))
+        assert alternativen, "Alternative nicht kanonisch abgelegt"
+        assert load_layout(alternativen[0]).title == "Alternativ-Titel"
+    finally:
+        dlg.close()
+
+
 @pytest.mark.parametrize("antwort_ja", [False, True])
 def test_cover_fertig_fragt_bevor_kdp_eingeschaltet_wird(monkeypatch, tmp_path, antwort_ja):
     """„Cover fertig“ schaltete KDP still ein, auch wenn der Kanal bewusst aus

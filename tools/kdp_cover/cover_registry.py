@@ -164,11 +164,16 @@ def resolve_primary_cover(
     *,
     path: Path | None = None,
 ) -> Optional[CoverRegistryEntry]:
+    """Liefert den Primary-Eintrag — oder ``None``, wenn keiner existiert.
+
+    Bis 2026-09-26 fiel die Funktion auf ``covers[0]`` zurück (oft eine
+    Alternative). Aufrufer wie Bind/Ampel behandelten das still als Primary.
+    """
     covers = list_covers_for_uuid(production_uuid, path=path)
     for entry in covers:
         if entry.cover_role == "primary":
             return entry
-    return covers[0] if covers else None
+    return None
 
 
 def _merge_entry(old: CoverRegistryEntry, new: CoverRegistryEntry) -> CoverRegistryEntry:

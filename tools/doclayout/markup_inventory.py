@@ -932,14 +932,14 @@ def remove_unused_class_from_library(
 
     Loescht den Classmap-Eintrag in den betroffenen Layouts und das
     Absatzformat, wenn keine andere Klasse mehr darauf zeigt. Schreibt die
-    Layouts und aktualisiert das Klassenverzeichnis.
+    Layouts **ganz oder gar nicht** (wie Verwerfen) und aktualisiert das
+    Klassenverzeichnis.
 
     Rueckgabe: ``(ok, Meldung)``.
     """
     from dataclasses import replace
 
     from tools.doclayout.library import LIBRARY_DIR, available_layouts, load_layout
-    from tools.doclayout.registry import write_registry
     from tools.doclayout.schema import LayoutError
 
     name = str(class_name or "").lstrip(".").strip()
@@ -953,7 +953,7 @@ def remove_unused_class_from_library(
     if not targets:
         return False, "Keine Layouts in der Bibliothek."
 
-    geaendert: list[str] = []
+    vorbereitet: list[tuple[str, Any]] = []
     for layout_name in targets:
         try:
             definition = load_layout(layout_name, root)
@@ -970,29 +970,21 @@ def remove_unused_class_from_library(
         styles = dict(definition.styles)
         if style_id and style_id not in classmap.values():
             styles.pop(str(style_id), None)
-        updated = replace(definition, classmap=classmap, styles=styles)
-        try:
-            # Speichern unter dem Pfad, aus dem geladen wurde
-            for suffix in (".yaml", ".yml"):
-                path = root / f"{layout_name}{suffix}"
-                if path.is_file():
-                    updated.save(path)
-                    break
-            else:
-                updated.save(root / f"{layout_name}.yaml")
-        except (OSError, LayoutError) as exc:
-            return False, f"Layout „{layout_name}“ nicht speicherbar: {exc}"
-        geaendert.append(layout_name)
+        vorbereitet.append(
+            (layout_name, replace(definition, classmap=classmap, styles=styles))
+        )
 
-    if not geaendert:
+    if not vorbereitet:
         return False, f".{name} steht in keinem Layout der Bibliothek."
 
-    try:
-        write_registry(root)
-    except OSError:
-        pass
-    liste = ", ".join(geaendert)
-    return True, f".{name} aus Layout(s) entfernt: {liste}."
+    fehler, registry_hinweis = _speichere_alle(root, vorbereitet)
+    if fehler:
+        return False, fehler
+    liste = ", ".join(layout_name for layout_name, _ in vorbereitet)
+    msg = f".{name} aus Layout(s) entfernt: {liste}."
+    if registry_hinweis:
+        msg = f"{msg} ({registry_hinweis})"
+    return True, msg
 
 
 def ancestor_choices_for_class(
@@ -1023,7 +1015,9 @@ def _layout_datei(root: Path, layout_name: str) -> Path:
     return root / f"{layout_name}.yaml"
 
 
-def _speichere_alle(root: Path, vorbereitet: list[tuple[str, Any]]) -> Optional[str]:
+def _speichere_alle(
+    root: Path, vorbereitet: list[tuple[str, Any]]
+) -> tuple[Optional[str], Optional[str]]:
     """Alle vorbereiteten Layouts speichern -- ganz oder gar nicht.
 
     Scheitert eine Datei, werden die schon geschriebenen auf ihren alten
@@ -1031,7 +1025,11 @@ def _speichere_alle(root: Path, vorbereitet: list[tuple[str, Any]]) -> Optional[
     Meldung „nicht speicherbar“ verschwieg, dass andere Layouts schon
     umgebaut waren.
 
-    Rückgabe: ``None`` bei Erfolg, sonst die Meldung für den Nutzer.
+    Rückgabe: ``(fehler, registry_hinweis)``.
+    ``fehler`` ist gesetzt, wenn Layouts nicht (vollständig) geschrieben
+    wurden — dann wurde zurückgerollt. ``registry_hinweis`` ist gesetzt,
+    wenn die Layouts ok sind, das Klassenverzeichnis aber nicht
+    aktualisiert werden konnte (bis 2026-09-26: still geschluckt).
     """
     from tools.doclayout.registry import write_registry
     from tools.doclayout.schema import LayoutError
@@ -1060,14 +1058,18 @@ def _speichere_alle(root: Path, vorbereitet: list[tuple[str, Any]]) -> Optional[
                 return (
                     f"Layout „{layout_name}“ nicht speicherbar: {exc} — und "
                     f"{', '.join(nicht_zurueck)} ließ sich nicht zurücksetzen. "
-                    "Bitte die Bibliothek prüfen."
+                    "Bitte die Bibliothek prüfen.",
+                    None,
                 )
-            return f"Layout „{layout_name}“ nicht speicherbar: {exc} — nichts geändert."
+            return (
+                f"Layout „{layout_name}“ nicht speicherbar: {exc} — nichts geändert.",
+                None,
+            )
     try:
         write_registry(root)
-    except OSError:
-        pass
-    return None
+    except OSError as exc:
+        return None, f"Klassenverzeichnis nicht aktualisiert: {exc}"
+    return None, None
 
 
 def remap_class_to_style(
@@ -1155,11 +1157,14 @@ def remap_class_to_style(
     # Phase 2: speichern -- ganz oder gar nicht.
     if not vorbereitet:
         return False, f".{name} steht in keinem der genannten Layouts (oder schon auf „{ziel}“)."
-    fehler = _speichere_alle(root, vorbereitet)
+    fehler, registry_hinweis = _speichere_alle(root, vorbereitet)
     if fehler:
         return False, fehler
     liste = ", ".join(layout_name for layout_name, _ in vorbereitet)
-    return True, f".{name} → {ziel} in Layout(s): {liste}."
+    msg = f".{name} → {ziel} in Layout(s): {liste}."
+    if registry_hinweis:
+        msg = f"{msg} ({registry_hinweis})"
+    return True, msg
 
 
 def detach_class_to_own_style(
@@ -1225,16 +1230,18 @@ def detach_class_to_own_style(
             f"(oder Layout fehlt).",
         )
 
-    fehler = _speichere_alle(root, vorbereitet)
+    fehler, registry_hinweis = _speichere_alle(root, vorbereitet)
     if fehler:
         return False, fehler
     liste = ", ".join(layout_name for layout_name, _ in vorbereitet)
     format_hinweis = neues[0] if len(set(neues)) == 1 else "/".join(neues)
-    return (
-        True,
+    msg = (
         f".{name} → neues Format „{format_hinweis}“ in Layout(s): {liste}. "
-        f"Als Nächstes: Gestalten.",
+        f"Als Nächstes: Gestalten."
     )
+    if registry_hinweis:
+        msg = f"{msg} ({registry_hinweis})"
+    return True, msg
 
 
 __all__ = [

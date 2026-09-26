@@ -67,3 +67,22 @@ def test_load_registry_empty_missing_file(tmp_path: Path) -> None:
     data = load_registry(tmp_path / "missing.json")
     assert data["entries"] == []
     assert data["schema_version"] == 1
+
+
+def test_resolve_primary_ohne_primary_gibt_none(tmp_path: Path) -> None:
+    """P2.3: Nur Alternativen → None, kein stiller covers[0]-Fallback."""
+    reg = tmp_path / "cover_uuid_registry.json"
+    uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    alt = tmp_path / "alt_kdp_cover.json"
+    alt.write_text("{}", encoding="utf-8")
+    upsert_cover_link(
+        production_uuid=uid,
+        cover_path=alt,
+        cover_label="Nur Alt",
+        cover_role="alternative",
+        path=reg,
+    )
+    covers = list_covers_for_uuid(uid, path=reg)
+    assert len(covers) == 1
+    assert covers[0].cover_role == "alternative"
+    assert resolve_primary_cover(uid, path=reg) is None

@@ -815,3 +815,32 @@ def test_frueher_bestaetigtes_cover_bleibt_gruen(tmp_path: Path):
     assert cover_finished_ok(book, layout)
     layout.write_text(json.dumps({"title": "Anders"}), encoding="utf-8")
     assert not cover_finished_ok(book, layout)
+
+
+def test_mark_cover_finished_meldet_kdp_fehler(tmp_path: Path, monkeypatch) -> None:
+    """P2.4: set_kdp_paperback-Fehler sichtbar; Fertig-Gate trotzdem gesetzt."""
+    from services.work_path import cover_finished_ok, mark_cover_finished
+
+    book, layout = _cover_buch(tmp_path)
+
+    def boom(_book: Path, _enabled: bool) -> Path:
+        raise OSError("Kanal-Datei gesperrt (Test)")
+
+    monkeypatch.setattr(
+        "tools.distribution.book_store.set_kdp_paperback", boom
+    )
+    hinweis = mark_cover_finished(
+        book, layout, finished=True, kdp_einschalten=True
+    )
+    assert "KDP" in hinweis
+    assert "gesperrt" in hinweis.lower() or "nicht eingeschaltet" in hinweis.lower()
+    assert cover_finished_ok(book, layout)
+
+
+def test_cover_export_only_keys_ssot() -> None:
+    """P2.5: Ampel-Token und Model teilen dieselbe Export-only-Liste."""
+    from services.work_path import _cover_export_only_keys
+    from tools.kdp_cover.model import COVER_EXPORT_ONLY_KEYS
+
+    assert "wrap_pdf" in COVER_EXPORT_ONLY_KEYS
+    assert _cover_export_only_keys() == frozenset(COVER_EXPORT_ONLY_KEYS)

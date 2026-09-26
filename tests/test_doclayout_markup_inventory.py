@@ -725,3 +725,79 @@ def test_ignore_orphan_for_book_persists_and_clears_todo(tmp_path: Path) -> None
     from tools.doclayout.library import load_layout
 
     assert "altklasse" in load_layout("Solo", bib).classmap
+
+
+def test_remove_unused_rollt_zurueck_wenn_zweites_layout_scheitert(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """P2.1: Teilschreibungen dürfen nicht stehen bleiben."""
+    from tools.doclayout.library import load_layout
+    from tools.doclayout.markup_inventory import remove_unused_class_from_library
+    from tools.doclayout.schema import LayoutDefinition, ParagraphStyle
+
+    bib = tmp_path / "bib"
+    bib.mkdir()
+    for name in ("Eins", "Zwei"):
+        LayoutDefinition(
+            name=name,
+            label=name,
+            styles={
+                "BodyText": ParagraphStyle(style_id="BodyText", name="Body Text"),
+                "Themenblock": ParagraphStyle(
+                    style_id="Themenblock", name="Themenblock", bold=True
+                ),
+            },
+            classmap={"themenblock": "Themenblock"},
+        ).save(bib / f"{name}.yaml")
+
+    original = LayoutDefinition.save
+    calls = {"n": 0}
+
+    def failing_save(self: LayoutDefinition, path: Path) -> None:
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            raise OSError("disk voll (Test)")
+        original(self, path)
+
+    monkeypatch.setattr(LayoutDefinition, "save", failing_save)
+    ok, msg = remove_unused_class_from_library(
+        "themenblock", library_dir=bib, layout_names=("Eins", "Zwei")
+    )
+    assert not ok
+    assert "nichts geändert" in msg.lower() or "nicht speicherbar" in msg.lower()
+    assert "themenblock" in load_layout("Eins", bib).classmap
+    assert "themenblock" in load_layout("Zwei", bib).classmap
+
+
+def test_remap_meldet_registry_schreibfehler(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """P2.2: write_registry-Fehler dürfen nicht still verschwinden."""
+    from tools.doclayout.library import load_layout
+    from tools.doclayout.markup_inventory import remap_class_to_style
+    from tools.doclayout.schema import LayoutDefinition, ParagraphStyle
+
+    bib = tmp_path / "bib"
+    bib.mkdir()
+    LayoutDefinition(
+        name="Solo",
+        label="Solo",
+        styles={
+            "BodyText": ParagraphStyle(style_id="BodyText", name="Body Text"),
+            "Leer": ParagraphStyle(
+                style_id="Leer", name="Leer", based_on="BodyText"
+            ),
+        },
+        classmap={"leerklasse": "Leer"},
+    ).save(bib / "Solo.yaml")
+
+    def boom(_root: Path) -> Path:
+        raise OSError("Klassenverzeichnis gesperrt (Test)")
+
+    monkeypatch.setattr("tools.doclayout.registry.write_registry", boom)
+    ok, msg = remap_class_to_style(
+        "leerklasse", "BodyText", library_dir=bib, layout_names=("Solo",)
+    )
+    assert ok, msg
+    assert "Klassenverzeichnis" in msg
+    assert load_layout("Solo", bib).classmap["leerklasse"] == "BodyText"

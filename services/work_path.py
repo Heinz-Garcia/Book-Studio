@@ -438,7 +438,15 @@ def mark_freigabe_seen(book_path: Path, pdf_path: Optional[Path]) -> None:
 
 
 #: Felder, die der Export selbst ins Layout schreibt -- keine Gestaltung.
-_COVER_EXPORT_FELDER = frozenset({"wrap_pdf"})
+#: SSOT liegt bei ``CoverLayout`` / ``COVER_EXPORT_ONLY_KEYS`` (model.py),
+#: damit neue Export-only-Felder nicht still die Ampel „Fertig“ kippen.
+def _cover_export_only_keys() -> frozenset[str]:
+    try:
+        from tools.kdp_cover.model import COVER_EXPORT_ONLY_KEYS
+
+        return frozenset(COVER_EXPORT_ONLY_KEYS)
+    except ImportError:
+        return frozenset({"wrap_pdf"})
 
 
 def _cover_file_token(cover_path: Optional[Path]) -> str:
@@ -467,7 +475,8 @@ def _cover_file_token(cover_path: Optional[Path]) -> str:
     except (UnicodeDecodeError, ValueError):
         daten = None
     if isinstance(daten, dict):
-        gestaltung = {k: v for k, v in daten.items() if k not in _COVER_EXPORT_FELDER}
+        export_keys = _cover_export_only_keys()
+        gestaltung = {k: v for k, v in daten.items() if k not in export_keys}
         roh = json.dumps(gestaltung, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return f"{path.resolve()}|inhalt:{hashlib.sha256(roh).hexdigest()[:24]}"
 
@@ -509,23 +518,27 @@ def mark_cover_finished(
     *,
     finished: bool,
     kdp_einschalten: bool = True,
-) -> None:
+) -> str:
     """Setzt oder löscht die Cover-Fertig-Bestätigung (Ampel Cover nur dann grün).
 
     ``kdp_einschalten``: Den KDP-Taschenbuch-Kanal mit einschalten. Die
     Oberfläche fragt vorher nach, wenn er aus ist -- bis 2026-09-26 geschah
     das still, auch wenn der Kanal bewusst ausgeschaltet war.
+
+    Rückgabe: leerer String bei Erfolg; sonst Hinweis (z. B. KDP-Kanal nicht
+    einschaltbar). Das Fertig-Gate wird trotzdem gesetzt — der Cover-Stand
+    ist fertig, nur der Kanal-Umschalter ist fehlgeschlagen.
     """
+    hinweis = ""
     if finished and cover_path is not None and Path(cover_path).is_file():
-        # Fertiges KDP-Cover → Kanal einschalten, sonst bleibt binding „off“
-        # und die Ampel wirkte früher trotz Gate grau.
         if kdp_einschalten:
             try:
                 from tools.distribution.book_store import set_kdp_paperback
 
                 set_kdp_paperback(Path(book_path), True)
-            except (OSError, TypeError, ValueError):
-                pass
+            except (OSError, TypeError, ValueError) as exc:
+                # Bis 2026-09-26: still geschluckt — Gate done, Kanal blieb aus.
+                hinweis = f"KDP-Taschenbuch-Kanal konnte nicht eingeschaltet werden: {exc}"
         mark_gate(
             book_path,
             "cover",
@@ -533,7 +546,7 @@ def mark_cover_finished(
             cover_token=_cover_file_token(cover_path),
             current_stage=StageId.H.value,
         )
-        return
+        return hinweis
     mark_gate(
         book_path,
         "cover",
@@ -541,6 +554,7 @@ def mark_cover_finished(
         cover_token=_cover_file_token(cover_path) if cover_path else "",
         current_stage=StageId.H.value,
     )
+    return ""
 
 
 def kapitel_structure_as_is_accepted(book_path: Path) -> bool:
