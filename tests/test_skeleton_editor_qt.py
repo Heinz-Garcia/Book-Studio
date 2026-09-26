@@ -732,3 +732,33 @@ def test_skeleton_editor_hides_typ_engine_assets(tmp_path: Path, monkeypatch):
     assert dlg._file_tree.topLevelItemCount() == 0
     dlg.close()
     _ = app
+
+
+def test_verwerfen_sagt_was_verloren_geht(tmp_path: Path, monkeypatch):
+    """Nur die Profil-Beschreibung ungespeichert: Die Rückfrage nennt das
+    Profil -- nicht „die aktuelle Datei“ (bis 2026-09-26)."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from ui_qt.dialogs import skeleton_editor_dialog as modul
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+    lib = tmp_path / "lib"
+    _make_profile(lib)
+    dlg = modul.SkeletonEditorQtDialog(None, library_root=lib, initial_profile="standard")
+    try:
+        fragen: list[str] = []
+        monkeypatch.setattr(modul.QMessageBox, "question", staticmethod(
+            lambda _p, _t, text, *a, **k: fragen.append(text) or QMessageBox.StandardButton.No
+        ))
+        assert dlg._confirm_discard() is True and fragen == [], "nichts ungespeichert"
+        dlg._profile_desc.setText("Neue Beschreibung")
+        assert dlg._profile_meta_dirty
+        assert dlg._confirm_discard() is False
+        assert "Angaben zum Profil" in fragen[-1]
+        assert "Inhalt der Datei" not in fragen[-1]
+    finally:
+        dlg._editor_dirty = dlg._meta_dirty = dlg._profile_meta_dirty = False
+        dlg.close()

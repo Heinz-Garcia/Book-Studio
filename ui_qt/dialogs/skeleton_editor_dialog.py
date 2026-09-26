@@ -984,14 +984,37 @@ class SkeletonEditorQtDialog(QDialog):
     def _show_saved_status(self, text: str) -> None:
         self._status_label.setText(f"✓ {text}")
 
+    def _ungespeichert(self) -> list[str]:
+        """Was verloren ginge -- in Worten, die der Nutzer im Fenster sieht."""
+        entry = self._current_entry()
+        datei = f" „{entry.path}“" if entry is not None else ""
+        teile: list[str] = []
+        if self._editor_dirty:
+            teile.append(f"Inhalt der Datei{datei}")
+        if self._meta_dirty:
+            teile.append(f"Angaben zur Datei{datei} (Titel, Reihenfolge, Pflicht)")
+        if self._profile_meta_dirty:
+            teile.append("Angaben zum Profil (Name, Beschreibung)")
+        return teile
+
     def _confirm_discard(self) -> bool:
-        if not (self._editor_dirty or self._meta_dirty or self._profile_meta_dirty):
+        """Vor dem Verwerfen fragen -- und sagen, *was* verworfen würde.
+
+        Bis 2026-09-26 hieß es immer „Änderungen an der aktuellen Datei
+        verwerfen?“, auch wenn nur Name oder Beschreibung des Profils
+        ungespeichert waren. Wer seine Datei gespeichert wusste, sagte Ja und
+        verlor die Profilangaben.
+        """
+        teile = self._ungespeichert()
+        if not teile:
             return True
         return (
             QMessageBox.question(
                 self,
                 "Ungespeicherte Änderungen",
-                "Änderungen an der aktuellen Datei verwerfen?",
+                "Diese Änderungen sind noch nicht gespeichert und gehen verloren:\n\n"
+                + "\n".join(f"• {t}" for t in teile)
+                + "\n\nTrotzdem verwerfen?",
             )
             == QMessageBox.StandardButton.Yes
         )
