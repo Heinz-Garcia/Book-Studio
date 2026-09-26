@@ -437,18 +437,53 @@ def mark_freigabe_seen(book_path: Path, pdf_path: Optional[Path]) -> None:
     )
 
 
+#: Felder, die der Export selbst ins Layout schreibt -- keine Gestaltung.
+_COVER_EXPORT_FELDER = frozenset({"wrap_pdf"})
+
+
 def _cover_file_token(cover_path: Optional[Path]) -> str:
-    """Stabiler Fingerprint für das aktuelle Cover-Layout (Pfad + mtime + Größe)."""
+    """Fingerprint der *Gestaltung* des Cover-Layouts (Pfad + Inhalts-Prüfsumme).
+
+    Bis 2026-09-26 zählten Zeitstempel und Größe der Datei. „Aktuellen Stand
+    als PDF exportieren“ speichert das Layout neu (und trägt ``wrap_pdf``
+    nach) -- danach galt ein bestätigtes Cover nicht mehr als fertig, obwohl
+    sich an der Gestaltung nichts geändert hatte. Jetzt zählt der Inhalt ohne
+    die Felder, die nur der Export schreibt; eine echte Änderung der
+    Gestaltung hebt das „Fertig“ weiterhin auf.
+    """
     if cover_path is None:
         return ""
     path = Path(cover_path)
     try:
         if not path.is_file():
             return ""
-        st = path.stat()
-        return f"{path.resolve()}|{int(st.st_mtime_ns)}|{int(st.st_size)}"
+        roh = path.read_bytes()
     except OSError:
         return str(path)
+    import hashlib
+
+    try:
+        daten = json.loads(roh.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        daten = None
+    if isinstance(daten, dict):
+        gestaltung = {k: v for k, v in daten.items() if k not in _COVER_EXPORT_FELDER}
+        roh = json.dumps(gestaltung, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return f"{path.resolve()}|inhalt:{hashlib.sha256(roh).hexdigest()[:24]}"
+
+
+def _cover_file_token_alt(cover_path: Path) -> str:
+    """Das frühere Merkmal (Zeitstempel + Größe) -- nur zum Wiedererkennen.
+
+    Covers, die vor der Umstellung als fertig bestätigt wurden, tragen es.
+    Solange die Datei unverändert ist, bleiben sie grün; beim nächsten
+    Bestätigen wird das neue Merkmal geschrieben.
+    """
+    try:
+        st = Path(cover_path).stat()
+        return f"{Path(cover_path).resolve()}|{int(st.st_mtime_ns)}|{int(st.st_size)}"
+    except OSError:
+        return ""
 
 
 def cover_finished_ok(book_path: Path, cover_path: Optional[Path] = None) -> bool:
@@ -462,7 +497,10 @@ def cover_finished_ok(book_path: Path, cover_path: Optional[Path] = None) -> boo
         return False
     if cover_path is None:
         return bool(str(entry.get("cover_token") or "").strip())
-    return str(entry.get("cover_token") or "") == _cover_file_token(cover_path)
+    gespeichert = str(entry.get("cover_token") or "")
+    if not gespeichert:
+        return False
+    return gespeichert in (_cover_file_token(cover_path), _cover_file_token_alt(cover_path))
 
 
 def mark_cover_finished(

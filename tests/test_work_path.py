@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -762,3 +763,55 @@ def test_cover_token_uses_existing_layout_path(tmp_path: Path, monkeypatch):
     layout.write_text('{"schema_version": 1, "rev": 9}\n', encoding="utf-8")
     items2 = {c.id: c for c in assess_checklist(book)}
     assert items2["cover"].kind == StageKind.OPEN
+
+
+def _cover_buch(tmp_path: Path) -> tuple[Path, Path]:
+    book = tmp_path / "Band"
+    (book / "export" / "kdp_cover").mkdir(parents=True)
+    (book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    layout = book / "export" / "kdp_cover" / "Band_kdp_cover.json"
+    layout.write_text(json.dumps({"title": "Band", "front_color": "#112233"}), encoding="utf-8")
+    return book, layout
+
+
+def test_cover_bleibt_fertig_nach_zwischen_export(tmp_path: Path):
+    """„Aktuellen Stand als PDF exportieren“ speichert das Layout neu und
+    trägt wrap_pdf nach. Bis 2026-09-26 fiel die Ampel danach auf offen."""
+    import os
+
+    from services.work_path import cover_finished_ok, mark_cover_finished
+
+    book, layout = _cover_buch(tmp_path)
+    mark_cover_finished(book, layout, finished=True)
+    daten = json.loads(layout.read_text(encoding="utf-8"))
+    daten["wrap_pdf"] = "export/kdp_cover/Band_kdp_wrap.pdf"
+    layout.write_text(json.dumps(daten, indent=2), encoding="utf-8")
+    os.utime(layout, ns=(1, 1))  # anderer Zeitstempel, andere Größe
+    assert cover_finished_ok(book, layout)
+
+
+def test_cover_nicht_mehr_fertig_nach_echter_aenderung(tmp_path: Path):
+    from services.work_path import cover_finished_ok, mark_cover_finished
+
+    book, layout = _cover_buch(tmp_path)
+    mark_cover_finished(book, layout, finished=True)
+    daten = json.loads(layout.read_text(encoding="utf-8"))
+    daten["front_color"] = "#FF0000"
+    layout.write_text(json.dumps(daten), encoding="utf-8")
+    assert not cover_finished_ok(book, layout)
+
+
+def test_frueher_bestaetigtes_cover_bleibt_gruen(tmp_path: Path):
+    """Bestätigungen mit dem alten Merkmal (Zeitstempel) gelten weiter, solange
+    die Datei unverändert ist -- das Update darf keine Ampel umwerfen."""
+    from services.work_path import (
+        _cover_file_token_alt,
+        cover_finished_ok,
+        mark_gate,
+    )
+
+    book, layout = _cover_buch(tmp_path)
+    mark_gate(book, "cover", "done", cover_token=_cover_file_token_alt(layout))
+    assert cover_finished_ok(book, layout)
+    layout.write_text(json.dumps({"title": "Anders"}), encoding="utf-8")
+    assert not cover_finished_ok(book, layout)
