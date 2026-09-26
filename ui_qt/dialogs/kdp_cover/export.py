@@ -232,7 +232,12 @@ class ExportMixin:
         ebook_jpg, ebook_pdf = ebook_paths_for_wrap(out_pdf)
         mirror_pdf: Path | None = None
         mirror_layout: Path | None = None
-        if self._book:
+        # Nur das primäre Cover ist das Cover des Buchs. Der Spiegel am Buch
+        # ist genau die Datei, die Zuordnung, Ampel und „Fertig“ lesen -- bis
+        # 2026-09-26 überschrieb der Export einer Alternative sie still, und
+        # das Buch hatte danach das alternative Druck-Cover.
+        alternative = role == "alternative"
+        if self._book and not alternative:
             mirror_pdf = mirror_book_wrap_pdf_path(self._book, stem)
             mirror_layout = mirror_book_layout_path(self._book, stem)
         confirm_paths = [out_pdf, ebook_jpg, ebook_pdf, validation_json, project_json]
@@ -269,7 +274,12 @@ class ExportMixin:
                 label="Wrap-PDF (Taschenbuch) und eBook-Cover werden gerendert…",
                 work=_do_export,
             )
-            if self._book and self.attach_wrap_check.isChecked():
+            if self._book and alternative:
+                attached_note = (
+                    "\nAlternative: nur im Cover-Ordner abgelegt — das Buch "
+                    "behält sein primäres Cover."
+                )
+            elif self._book and self.attach_wrap_check.isChecked():
                 from tools.kdp_cover.attach_wrap import (
                     attach_wrap_pdf_to_book,
                     wrap_pdf_relpath,
@@ -591,6 +601,26 @@ class ExportMixin:
                 production_uuid=production_uuid,
             )
 
+    def _attach_check_nachziehen(self) -> None:
+        """„Wrap-PDF am Buch hinterlegen“ nur für das primäre Cover.
+
+        Die Datei am Buch ist das KDP-Upload-Artefakt. Eine Alternative
+        überschrieb es bis 2026-09-26 still (der Haken ist standardmäßig an).
+        """
+        check = getattr(self, "attach_wrap_check", None)
+        if check is None:
+            return
+        alternative = self._cover_role_name() == "alternative"
+        check.setEnabled(bool(self._book) and not alternative)
+        check.setToolTip(
+            "Alternatives Cover: bleibt im Cover-Ordner. Das Buch behält sein "
+            "primäres Cover und dessen Wrap-PDF."
+            if alternative else
+            "Nach dem Export zusätzlich kanonisch unter "
+            "export/kdp_cover/{Buch}_kdp_wrap.pdf speichern und im Cover-Layout merken.\n"
+            "Nicht als Quarto-Kapitel / Innenwerk-Buchstruktur — nur KDP-Artefakt."
+        )
+
     def _build_footer(self, root: QVBoxLayout) -> None:
         """Fußzeile: Vorschau aktualisieren, Wrap am Buch, Export, Schließen."""
         footer = QHBoxLayout()
@@ -611,6 +641,7 @@ class ExportMixin:
             "Nicht als Quarto-Kapitel / Innenwerk-Buchstruktur — nur KDP-Artefakt."
         )
         footer.addWidget(self.attach_wrap_check)
+        self._attach_check_nachziehen()
         footer.addStretch(1)
         self.btn_export = QPushButton("Aktuellen Stand als PDF exportieren")
         self.btn_export.setToolTip(

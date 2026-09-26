@@ -1962,3 +1962,61 @@ def test_export_success_dialog_roles_and_pin_buttons(monkeypatch, tmp_path):
     assert dlg.findChild(QPushButton, "kdpExportSuccessLoad") is not None
     assert dlg.findChild(QPushButton, "kdpExportSuccessDeploy") is not None
     dlg.close()
+
+
+def _export_ohne_rendern(monkeypatch, dlg, repo: Path) -> None:
+    """Der echte Exportweg -- nur Rendern, Rückfragen und Registry ersetzt."""
+    from ui_qt.dialogs.kdp_cover import export as export_modul
+
+    def fake_export(layout, out_pdf, **_kw):
+        from tools.kdp_cover.cover_paths import ebook_paths_for_wrap
+
+        out_pdf.parent.mkdir(parents=True, exist_ok=True)
+        out_pdf.write_bytes(b"%PDF " + str(dlg._cover_role).encode())
+        for p in ebook_paths_for_wrap(out_pdf):
+            p.write_bytes(b"ebook")
+
+    monkeypatch.setattr(export_modul, "export_cover_set", fake_export)
+    monkeypatch.setattr(dlg, "_ensure_uuid_link", lambda force=False: True)
+    monkeypatch.setattr(dlg, "_run_with_progress", lambda title, label, work: work())
+    monkeypatch.setattr(dlg, "_confirm_export", lambda layout, report: True)
+    monkeypatch.setattr(dlg, "_confirm_canonical_paths", lambda title, paths: True)
+    monkeypatch.setattr(dlg, "_studio_repo", lambda: repo)
+    monkeypatch.setattr(dlg, "_register_cover_uuid_link", lambda *a, **k: None)
+    monkeypatch.setattr(dlg, "_write_wrap_provenance", lambda *a, **k: None)
+    monkeypatch.setattr(dlg, "_show_export_success", lambda **kw: dlg.__dict__.update(_notiz=kw["attached_note"]))
+
+
+def test_export_einer_alternative_laesst_das_buchcover_in_ruhe(monkeypatch, tmp_path):
+    """Der Spiegel am Buch ist dessen Cover (Zuordnung, Ampel, „Fertig“).
+    Bis 2026-09-26 überschrieb der Export einer Alternative ihn und die
+    Upload-PDF am Buch -- das Buch hatte danach das alternative Cover."""
+    _app, dlg, _ = _app_and_dialog(monkeypatch, tmp_path)
+    try:
+        book = Path(dlg._book)
+        dlg._production_uuid = "01234567-89ab-cdef-0123-456789abcdef"
+        _export_ohne_rendern(monkeypatch, dlg, tmp_path / "repo")
+
+        dlg._cover_role = "primary"
+        assert dlg._export_pdf()
+        cover_ordner = book / "export" / "kdp_cover"
+        vorher = {p.name: p.read_bytes() for p in cover_ordner.iterdir() if p.is_file()}
+        assert any(n.endswith("_kdp_cover.json") for n in vorher)
+        assert any(n.endswith("_kdp_wrap.pdf") for n in vorher)
+
+        dlg._cover_role = "alternative"
+        dlg._cover_label = "Winter"
+        dlg._refresh_uuid_link_ui()
+        assert not dlg.attach_wrap_check.isEnabled()
+        assert dlg._export_pdf()
+        nachher = {p.name: p.read_bytes() for p in cover_ordner.iterdir() if p.is_file()}
+        assert nachher == vorher, "Alternative hat das Cover am Buch verändert"
+        assert "behält sein primäres Cover" in dlg._notiz
+        alternativen = list((tmp_path / "repo").rglob("alternatives/*/*_kdp_cover.json"))
+        assert alternativen, "Alternative nicht im eigenen Ordner abgelegt"
+
+        dlg._cover_role = "primary"
+        dlg._refresh_uuid_link_ui()
+        assert dlg.attach_wrap_check.isEnabled()
+    finally:
+        dlg.close()

@@ -161,6 +161,11 @@ class BindingMixin:
         self._refresh_uuid_link_ui()
 
     def _refresh_uuid_link_ui(self) -> None:
+        # Die Rolle ändert sich beim Laden und beim UUID-Wechsel -- beide Wege
+        # kommen hier vorbei: „Am Buch hinterlegen“ passend nachziehen.
+        nachziehen = getattr(self, "_attach_check_nachziehen", None)
+        if nachziehen is not None:
+            nachziehen()
         label = getattr(self, "uuid_link_label", None)
         if label is None:
             return
