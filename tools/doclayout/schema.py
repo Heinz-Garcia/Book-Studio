@@ -33,6 +33,18 @@ ALIGNMENTS = ("left", "center", "right", "justify")
 #: Rahmenkanten eines Absatzes.
 BORDER_EDGES = ("top", "bottom", "left", "right")
 
+#: Absatzformate, die Pandocs Basisvorlage selbst mitbringt: Kennung -> Name in
+#: Word. Eine Klasse darf darauf zeigen, auch wenn das Layout sie nicht
+#: definiert (``Verwerfen`` = zurück auf die Grundschrift). Im Lua-Filter muss
+#: dann der **Name** stehen: Pandocs ``custom-style`` sucht nach Namen, und
+#: ``custom-style="BodyText"`` legte ein zweites Format mit derselben Kennung
+#: an statt „Body Text“ zu treffen (gemessen mit Pandoc 3, 2026-09-26).
+PANDOC_BASISFORMATE: dict[str, str] = {
+    "Normal": "Normal",
+    "BodyText": "Body Text",
+    "FirstParagraph": "First Paragraph",
+}
+
 
 class LayoutError(ValueError):
     """Ungueltige Layout-Definition -- mit einer Meldung fuer den Editor."""
@@ -728,7 +740,10 @@ class LayoutDefinition:
         for cls_name, style_id in sorted(self.classmap.items()):
             if not cls_name.strip():
                 problems.append("classmap enthaelt einen leeren Klassennamen.")
-            if style_id not in self.styles:
+            # Wie bei ``based_on``: Pandocs Basisformate sind da, auch wenn das
+            # Layout sie nicht aufführt. Bis 2026-09-26 meldete „Verwerfen“
+            # Erfolg und das Layout war danach für Setzen/Vorschau gesperrt.
+            if style_id not in self.styles and style_id not in PANDOC_BASISFORMATE:
                 problems.append(
                     f"classmap: Klasse '.{cls_name}' zeigt auf Format "
                     f"'{style_id}', das im Layout nicht definiert ist."
@@ -855,6 +870,7 @@ __all__ = [
     "Indent",
     "LayoutDefinition",
     "LayoutError",
+    "PANDOC_BASISFORMATE",
     "Page",
     "PageMargin",
     "ParagraphStyle",

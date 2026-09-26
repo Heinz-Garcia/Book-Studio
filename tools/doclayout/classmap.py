@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.doclayout.schema import LayoutDefinition
+from tools.doclayout.schema import PANDOC_BASISFORMATE, LayoutDefinition
 
 _LUA_TEMPLATE = '''-- Erzeugt von tools/doclayout -- nicht von Hand aendern.
 -- Layout: {layout_name}
@@ -170,10 +170,22 @@ def lua_string(text: str) -> str:
     return "".join(out)
 
 
+def _word_name(style_id: str, definition: LayoutDefinition) -> str:
+    """Was als ``custom-style`` im Filter stehen muss.
+
+    Eigene Formate heißen wie ihre Kennung. Pandocs Basisformate nicht
+    („BodyText“ heißt „Body Text“) -- mit der Kennung legte Pandoc ein
+    zweites, ungestaltetes Format gleicher Kennung an.
+    """
+    if style_id in definition.styles:
+        return style_id
+    return PANDOC_BASISFORMATE.get(style_id, style_id)
+
+
 def build_lua_filter(definition: LayoutDefinition) -> str:
     """Erzeugt den Lua-Filter fuer die ``classmap`` von *definition*."""
     entries = "".join(
-        f"  [{lua_string(cls)}] = {lua_string(style)},\n"
+        f"  [{lua_string(cls)}] = {lua_string(_word_name(style, definition))},\n"
         for cls, style in sorted(definition.classmap.items())
     )
     classmap_lua = "{\n" + entries + "}" if entries else "{}"

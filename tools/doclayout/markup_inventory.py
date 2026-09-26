@@ -30,7 +30,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from tools.doclayout.registry import build_registry, load_library_definitions
-from tools.doclayout.schema import LayoutDefinition, LayoutError, ParagraphStyle
+from tools.doclayout.schema import (
+    PANDOC_BASISFORMATE,
+    LayoutDefinition,
+    LayoutError,
+    ParagraphStyle,
+)
 from tools.doclayout.usage import (
     QUARTO_BUILTIN_CLASSES,
     ClassUsage,
@@ -99,7 +104,7 @@ _APPLIED_LAYOUT_PREFIX = "-- Layout:"
 OHNE_GESTALTUNG = "keine eigene Gestaltung"
 
 #: Pandoc-/Word-Basisformate: erlaubte Remap-Ziele und „direkt auf Fließtext“.
-_ALLOWED_EXTERNAL_TARGETS = frozenset({"Normal", "BodyText", "FirstParagraph"})
+_ALLOWED_EXTERNAL_TARGETS = frozenset(PANDOC_BASISFORMATE)
 
 #: Kurzer Probeabsatz fuer die Inventar-Vorschau.
 SAMPLE_LOREM = (
@@ -1170,7 +1175,10 @@ def detach_class_to_own_style(
             ParagraphStyle(
                 style_id=style_id,
                 name=style_id,
-                based_on=aktuell if aktuell in definition.styles else "BodyText",
+                # Das neue Format erbt, was die Klasse bisher trug -- auch ein
+                # Pandoc-Basisformat, das das Layout nicht selbst definiert
+                # (bis 2026-09-26: nach „Normal“ still „BodyText“).
+                based_on=aktuell,
             )
         )
         classmap = dict(definition.classmap)
