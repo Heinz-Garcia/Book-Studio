@@ -115,3 +115,43 @@ def test_eigenes_format_erbt_vom_bisherigen_ziel(bibliothek: Path):
     neues = layout.styles[layout.classmap["fachtext"]]
     assert neues.based_on == "Normal"
     assert layout.validate() == []
+
+
+def _datei(bibliothek: Path, name: str) -> Path:
+    return next(p for p in (bibliothek / f"{name}.yaml", bibliothek / f"{name}.yml") if p.is_file())
+
+
+@pytest.mark.parametrize("aktion", ["verwerfen", "eigenes_format"])
+def test_speichern_ganz_oder_gar_nicht(bibliothek: Path, monkeypatch, aktion: str):
+    """Scheitert das zweite Layout beim Speichern, bleibt auch das erste, wie
+    es war -- bis 2026-09-26 war es schon umgebaut, und die Meldung
+    verschwieg das."""
+    from tools.doclayout.schema import LayoutDefinition
+
+    namen = ("IFJN_layout", "Reisefuehrer_Andalusien")
+    betroffen = [n for n in namen if "fachtext" in library.load_layout(n, bibliothek).classmap]
+    if len(betroffen) < 2:
+        pytest.skip("braucht zwei Layouts mit der Klasse .fachtext")
+    if aktion == "eigenes_format":
+        assert mi.remap_class_to_style("fachtext", "Normal", library_dir=bibliothek,
+                                       layout_names=namen)[0]
+    vorher = {n: _datei(bibliothek, n).read_bytes() for n in namen}
+
+    echtes_speichern = LayoutDefinition.save
+    aufrufe = []
+
+    def zweites_scheitert(self, path):
+        aufrufe.append(path)
+        if len(aufrufe) == 2:
+            raise OSError("Platte voll")
+        return echtes_speichern(self, path)
+
+    monkeypatch.setattr(LayoutDefinition, "save", zweites_scheitert)
+    if aktion == "verwerfen":
+        ok, meldung = mi.remap_class_to_style("fachtext", "BodyText", library_dir=bibliothek,
+                                              layout_names=namen)
+    else:
+        ok, meldung = mi.detach_class_to_own_style("fachtext", library_dir=bibliothek,
+                                                   layout_names=namen)
+    assert not ok and "nichts geändert" in meldung
+    assert {n: _datei(bibliothek, n).read_bytes() for n in namen} == vorher

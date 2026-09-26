@@ -1015,6 +1015,61 @@ def ancestor_choices_for_class(
     return tuple(kette[1:])
 
 
+def _layout_datei(root: Path, layout_name: str) -> Path:
+    for suffix in (".yaml", ".yml"):
+        path = root / f"{layout_name}{suffix}"
+        if path.is_file():
+            return path
+    return root / f"{layout_name}.yaml"
+
+
+def _speichere_alle(root: Path, vorbereitet: list[tuple[str, Any]]) -> Optional[str]:
+    """Alle vorbereiteten Layouts speichern -- ganz oder gar nicht.
+
+    Scheitert eine Datei, werden die schon geschriebenen auf ihren alten
+    Inhalt zurückgesetzt. Bis 2026-09-26 blieben sie geändert, und die
+    Meldung „nicht speicherbar“ verschwieg, dass andere Layouts schon
+    umgebaut waren.
+
+    Rückgabe: ``None`` bei Erfolg, sonst die Meldung für den Nutzer.
+    """
+    from tools.doclayout.registry import write_registry
+    from tools.doclayout.schema import LayoutError
+
+    vorher: dict[Path, Optional[bytes]] = {}
+    for layout_name, updated in vorbereitet:
+        path = _layout_datei(root, layout_name)
+        try:
+            vorher[path] = path.read_bytes() if path.is_file() else None
+            updated.save(path)
+        except (OSError, LayoutError) as exc:
+            nicht_zurueck: list[str] = []
+            for alt_pfad, inhalt in vorher.items():
+                if alt_pfad == path and not alt_pfad.exists():
+                    continue
+                try:
+                    if inhalt is None:
+                        from services.papierkorb import in_papierkorb
+
+                        in_papierkorb(alt_pfad)
+                    else:
+                        alt_pfad.write_bytes(inhalt)
+                except OSError:
+                    nicht_zurueck.append(alt_pfad.name)
+            if nicht_zurueck:
+                return (
+                    f"Layout „{layout_name}“ nicht speicherbar: {exc} — und "
+                    f"{', '.join(nicht_zurueck)} ließ sich nicht zurücksetzen. "
+                    "Bitte die Bibliothek prüfen."
+                )
+            return f"Layout „{layout_name}“ nicht speicherbar: {exc} — nichts geändert."
+    try:
+        write_registry(root)
+    except OSError:
+        pass
+    return None
+
+
 def remap_class_to_style(
     class_name: str,
     target_style_id: str,
@@ -1035,7 +1090,6 @@ def remap_class_to_style(
     """
     from tools.doclayout.library import LIBRARY_DIR, available_layouts, load_layout
     from tools.doclayout.origins import is_standard
-    from tools.doclayout.registry import write_registry
     from tools.doclayout.schema import LayoutError
 
     name = str(class_name or "").lstrip(".").strip()
@@ -1098,34 +1152,13 @@ def remap_class_to_style(
             (layout_name, replace(definition, classmap=classmap, styles=styles))
         )
 
-    # Phase 2: speichern.
-    geaendert: list[str] = []
-    for layout_name, updated in vorbereitet:
-        try:
-            for suffix in (".yaml", ".yml"):
-                path = root / f"{layout_name}{suffix}"
-                if path.is_file():
-                    updated.save(path)
-                    break
-            else:
-                updated.save(root / f"{layout_name}.yaml")
-        except (OSError, LayoutError) as exc:
-            if geaendert:
-                try:
-                    write_registry(root)  # Registry passend zu den schon gespeicherten
-                except OSError:
-                    pass
-            return False, f"Layout „{layout_name}“ nicht speicherbar: {exc}"
-        geaendert.append(layout_name)
-
-    if not geaendert:
+    # Phase 2: speichern -- ganz oder gar nicht.
+    if not vorbereitet:
         return False, f".{name} steht in keinem der genannten Layouts (oder schon auf „{ziel}“)."
-
-    try:
-        write_registry(root)
-    except OSError:
-        pass
-    liste = ", ".join(geaendert)
+    fehler = _speichere_alle(root, vorbereitet)
+    if fehler:
+        return False, fehler
+    liste = ", ".join(layout_name for layout_name, _ in vorbereitet)
     return True, f".{name} → {ziel} in Layout(s): {liste}."
 
 
@@ -1142,7 +1175,6 @@ def detach_class_to_own_style(
     ``Gestalten``.
     """
     from tools.doclayout.library import LIBRARY_DIR, available_layouts, load_layout
-    from tools.doclayout.registry import write_registry
     from tools.doclayout.schema import LayoutError, ParagraphStyle
     from tools.doclayout.usage import suggested_style_id
 
@@ -1157,7 +1189,7 @@ def detach_class_to_own_style(
     if not targets:
         return False, "Keine Layouts in der Bibliothek."
 
-    geaendert: list[str] = []
+    vorbereitet: list[tuple[str, Any]] = []
     neues: list[str] = []
     for layout_name in targets:
         try:
@@ -1183,32 +1215,20 @@ def detach_class_to_own_style(
         )
         classmap = dict(definition.classmap)
         classmap[name] = style_id
-        updated = replace(definition, classmap=classmap)
-        try:
-            for suffix in (".yaml", ".yml"):
-                path = root / f"{layout_name}{suffix}"
-                if path.is_file():
-                    updated.save(path)
-                    break
-            else:
-                updated.save(root / f"{layout_name}.yaml")
-        except (OSError, LayoutError) as exc:
-            return False, f"Layout „{layout_name}“ nicht speicherbar: {exc}"
-        geaendert.append(layout_name)
+        vorbereitet.append((layout_name, replace(definition, classmap=classmap)))
         neues.append(style_id)
 
-    if not geaendert:
+    if not vorbereitet:
         return (
             False,
             f".{name} zeigt in keinem Layout auf BodyText/Normal "
             f"(oder Layout fehlt).",
         )
 
-    try:
-        write_registry(root)
-    except OSError:
-        pass
-    liste = ", ".join(geaendert)
+    fehler = _speichere_alle(root, vorbereitet)
+    if fehler:
+        return False, fehler
+    liste = ", ".join(layout_name for layout_name, _ in vorbereitet)
     format_hinweis = neues[0] if len(set(neues)) == 1 else "/".join(neues)
     return (
         True,
