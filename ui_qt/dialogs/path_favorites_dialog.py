@@ -37,6 +37,7 @@ from tools.path_favorites.badges import resolve_favorite_badge
 from tools.path_favorites.drop_copy import (
     DropConflictPolicy,
     copy_paths_into_folder,
+    konflikte,
 )
 from tools.path_favorites.junction_sync import mirror_path_for_node, sync_junction_mirror
 from tools.path_favorites.model import (
@@ -1012,7 +1013,7 @@ class PathFavoritesDialog(QDialog):
                 "oder Dateien direkt darauf ziehen.",
             )
             return
-        conflicts = [p.name for p in paths if (dest / p.name).exists()]
+        conflicts = konflikte(paths, dest)
         policy = DropConflictPolicy.RENAME
         if conflicts:
             chosen = self._ask_drop_conflict_policy(conflicts)
@@ -1053,6 +1054,13 @@ class PathFavoritesDialog(QDialog):
                         self._open_kdp_cover_tool()
                     else:
                         self._open_stylecloud_tool()
+        elif result.skipped and not result.errors:
+            namen = ", ".join(p.name for p in result.skipped[:3])
+            mehr = f" (+{len(result.skipped) - 3})" if len(result.skipped) > 3 else ""
+            self._set_status(
+                f"Schon vorhanden, nichts zu tun: {namen}{mehr} liegt bereits "
+                f"unverändert in {dest.name}."
+            )
         elif not result.errors:
             self._set_status("Nichts kopiert.")
 

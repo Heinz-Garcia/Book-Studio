@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import filecmp
 import shutil
 from dataclasses import dataclass
 from enum import Enum
@@ -45,6 +46,38 @@ def _same_file(a: Path, b: Path) -> bool:
         return False
 
 
+def ist_bereits_da(src: Path, target: Path) -> bool:
+    """Ob das Ziel schon genau das ist, was abgelegt werden soll.
+
+    Dieselbe Datei (aus dem Ordner selbst gezogen) oder eine Datei mit
+    identischem Inhalt (zweimal abgelegt). Dann gibt es nichts zu
+    entscheiden: „Überschreiben“ änderte nichts, „Umbenennen“ legte nur eine
+    Doublette ``…_1`` an. Ordner werden nur als derselbe Pfad erkannt.
+    """
+    if _same_file(src, target):
+        return True
+    try:
+        return (
+            src.is_file() and target.is_file()
+            and src.stat().st_size == target.stat().st_size
+            and filecmp.cmp(src, target, shallow=False)
+        )
+    except OSError:
+        return False
+
+
+def konflikte(sources: list[Path], dest_dir: Path) -> list[str]:
+    """Namen, bei denen wirklich etwas ersetzt oder umbenannt würde.
+
+    Bis 2026-09-26 fragte der Pfad-Manager schon, wenn nur der Name im Ordner
+    stand -- auch bei derselben oder einer inhaltsgleichen Datei.
+    """
+    return [
+        src.name for src in sources
+        if (dest_dir / src.name).exists() and not ist_bereits_da(src, dest_dir / src.name)
+    ]
+
+
 def _is_inside(child: Path, parent: Path) -> bool:
     try:
         child.resolve().relative_to(parent.resolve())
@@ -76,8 +109,10 @@ def copy_paths_into_folder(
                 errors.append(f"Quelle fehlt: {src}")
                 continue
             target = dest_dir / src.name
-            if _same_file(src, target):
-                # Datei liegt schon hier: "Überschreiben" hiesse Quelle loeschen.
+            if ist_bereits_da(src, target):
+                # Dieselbe oder inhaltsgleiche Datei liegt schon hier.
+                # "Überschreiben" hiesse bei derselben Datei sogar, die Quelle
+                # zu loeschen; "Umbenennen" legte eine Doublette an.
                 skipped.append(src)
                 continue
             if src.is_dir() and _is_inside(dest_dir, src):
@@ -113,5 +148,7 @@ __all__ = [
     "DropConflictPolicy",
     "DropCopyResult",
     "copy_paths_into_folder",
+    "ist_bereits_da",
+    "konflikte",
     "unique_destination",
 ]

@@ -112,3 +112,35 @@ def test_folder_into_its_own_subfolder_is_refused(tmp_path: Path):
     result = copy_paths_into_folder([src], sub)
     assert result.errors
     assert not (sub / "ordner").exists()
+
+
+def test_inhaltsgleiche_datei_ist_kein_konflikt(tmp_path: Path):
+    """Zweimal abgelegt: kein Konflikt, keine Doublette -- egal welche Regel."""
+    from tools.path_favorites.drop_copy import konflikte
+
+    dest = tmp_path / "ziel"
+    dest.mkdir()
+    src = tmp_path / "a.txt"
+    src.write_text("gleich", encoding="utf-8")
+    (dest / "a.txt").write_text("gleich", encoding="utf-8")
+    assert konflikte([src], dest) == []
+    for regel in DropConflictPolicy:
+        result = copy_paths_into_folder([src], dest, on_conflict=regel)
+        assert result.skipped == (src,) and result.copied == ()
+    assert sorted(p.name for p in dest.iterdir()) == ["a.txt"]
+
+
+def test_dieselbe_datei_und_anderer_inhalt(tmp_path: Path):
+    from tools.path_favorites.drop_copy import konflikte
+
+    dest = tmp_path / "ziel"
+    dest.mkdir()
+    (dest / "a.txt").write_text("alt", encoding="utf-8")
+    assert konflikte([dest / "a.txt"], dest) == []
+    anders = tmp_path / "a.txt"
+    anders.write_text("neu", encoding="utf-8")
+    assert konflikte([anders], dest) == ["a.txt"]
+    ordner = tmp_path / "o"
+    ordner.mkdir()
+    (dest / "o").mkdir()
+    assert konflikte([ordner], dest) == ["o"], "Ordner nur als derselbe Pfad gleich"

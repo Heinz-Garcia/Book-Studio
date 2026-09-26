@@ -205,6 +205,24 @@ def test_path_favorites_drop_copies_into_folder(monkeypatch, tmp_path: Path):
         dlg._on_paths_dropped(leaf, [src])
         assert (dest / "drop_me.txt").read_text(encoding="utf-8") == "payload"
         assert "ok" in dlg.werkbank_badge.text().lower() or "●" in dlg.werkbank_badge.text()
+
+        # Zweimal abgelegt oder aus dem Ordner selbst gezogen: nichts zu
+        # entscheiden -- keine Rückfrage, keine Doublette drop_me_1.txt.
+        gefragt: list[list[str]] = []
+        dlg._ask_drop_conflict_policy = lambda namen: gefragt.append(namen) or None
+        status: list[str] = []
+        dlg._set_status = status.append
+        dlg._on_paths_dropped(leaf, [src])
+        dlg._on_paths_dropped(leaf, [dest / "drop_me.txt"])
+        assert gefragt == []
+        assert sorted(p.name for p in dest.iterdir()) == ["drop_me.txt"]
+        assert status and "Schon vorhanden" in status[-1] and "drop_me.txt" in status[-1]
+
+        # Anderer Inhalt unter gleichem Namen: Das ist ein echter Konflikt.
+        src.write_text("neu", encoding="utf-8")
+        dlg._on_paths_dropped(leaf, [src])
+        assert gefragt == [["drop_me.txt"]]
+        assert (dest / "drop_me.txt").read_text(encoding="utf-8") == "payload"
     finally:
         dlg.close()
 
