@@ -21,6 +21,7 @@ from recto_open import (
     maybe_ensure_recto_open,
     ohne_eigenen_docx_abschnitt,
     should_open_on_recto,
+    strip_manual_recto_breaks,
 )
 from table_to_definition_list import wandle_breite_tabellen
 from table_width_fixer import setze_spaltenbreiten
@@ -571,6 +572,13 @@ class PreProcessor:
                     content = f.read()
 
                 _, body = self._extract_parts(content)
+
+                # 0. Manuelle Rechts-Umbrueche (odd) an Anfang/Ende weg: Ein
+                # Unterkapitel steht im Fluss seines Kapitels. Bis 2026-09-26
+                # blieben sie hier stehen (nur Kapitel wurden bereinigt) und
+                # erzeugten Leerseiten mitten im Kapitel. Umbrueche im Text
+                # selbst bleiben, wie bei Kapiteln.
+                body = strip_manual_recto_breaks(body)
 
                 # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
                 body = self._sanitize_markdown(body)

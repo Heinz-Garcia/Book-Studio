@@ -256,3 +256,31 @@ def test_preprocessor_docx_gets_odd_page(tmp_path: Path):
     kap = (book / "processed" / "content" / "Kapitel.md").read_text(encoding="utf-8")
     assert 'w:val="oddPage"' in kap
     assert "chapter-titles-visible" not in kap  # Titel-Injection nur Typst
+
+
+def test_unterkapitel_verliert_manuellen_rechtsumbruch(tmp_path: Path):
+    """Amalgamierte Unterkapitel wurden nicht bereinigt: Ein manuelles
+    #pagebreak(to: "odd") erzeugte eine Leerseite mitten im Kapitel."""
+    book = tmp_path / "Book"
+    (book / "content").mkdir(parents=True)
+    (book / "index.md").write_text("---\ntitle: I\nunnumbered: true\n---\n\n", encoding="utf-8")
+    (book / "content" / "Kapitel.md").write_text(
+        "---\ntitle: Kapitel\n---\n\nEinleitung\n", encoding="utf-8"
+    )
+    (book / "content" / "Unter.md").write_text(
+        "---\ntitle: Unter\n---\n\n"
+        "```{=typst}\n#pagebreak(to: \"odd\")\n```\n\n"
+        "## Unterkapitel\n\nMitte\n\n"
+        "```{=typst}\n#pagebreak()\n```\n\nNach dem gewollten Umbruch\n",
+        encoding="utf-8",
+    )
+    tree = [{
+        "title": "Kapitel", "path": "content/Kapitel.md",
+        "children": [{"title": "Unter", "path": "content/Unter.md", "children": []}],
+    }]
+    PreProcessor(book, output_format="typst").prepare_render_environment(tree)
+    kap = (book / "processed" / "content" / "Kapitel.md").read_text(encoding="utf-8")
+    assert kap.count('to: "odd"') == 1, "nur der kanonische Kapitelanfang"
+    assert kap.index(RECTO_MARKER) < kap.index("Einleitung")
+    assert "#pagebreak()" in kap, "gewollter Umbruch im Text bleibt"
+    assert "Unterkapitel" in kap and "Mitte" in kap
