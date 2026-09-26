@@ -19,6 +19,7 @@ from recto_open import (
     docx_section_break_block,
     is_docx_format,
     maybe_ensure_recto_open,
+    ohne_eigenen_docx_abschnitt,
     should_open_on_recto,
 )
 from table_to_definition_list import wandle_breite_tabellen
@@ -314,8 +315,19 @@ class PreProcessor:
             shutil.rmtree(self.processed_dir)
         self.processed_dir.mkdir(parents=True)
 
-        # --- DER MAGISCHE PANDOC FIX ---
         index_path = self.book_path / "index.md"
+        # Ein frueher angehaengter DOCX-Abschnittsblock kommt zuerst weg: Bei
+        # DOCX wird er unten mit der aktuellen Seiteneinrichtung neu gesetzt,
+        # bei jedem anderen Format gehoert er nicht hinein. Bis 2026-09-26
+        # blieb er im Original stehen (prepare-only) und verhinderte jede
+        # Aktualisierung.
+        if index_path.exists():
+            alt = index_path.read_text(encoding='utf-8')
+            bereinigt = ohne_eigenen_docx_abschnitt(alt)
+            if bereinigt != alt:
+                index_path.write_text(bereinigt, encoding='utf-8')
+
+        # --- DER MAGISCHE PANDOC FIX ---
         if index_path.exists():
             with open(index_path, 'r', encoding='utf-8') as f:
                 idx_content = f.read()

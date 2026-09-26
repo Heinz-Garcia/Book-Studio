@@ -76,6 +76,34 @@ _TRAILING_BREAK = re.compile(
 )
 
 
+#: Nur der eigene DOCX-Abschnittsblock am Dateiende (mit Marker davor).
+_EIGENER_DOCX_ABSCHNITT_AM_ENDE = re.compile(
+    r"\s*" + _RECTO_COMMENT_CORE + r"\s*" + _OPENXML_SECTION_CORE + r"\s*\Z",
+    re.IGNORECASE,
+)
+
+
+def ohne_eigenen_docx_abschnitt(text: str) -> str:
+    """Den selbst angehaengten DOCX-Abschnittsblock am Ende entfernen.
+
+    Er traegt die Seiteneinrichtung der Vorlage *zum Zeitpunkt* des
+    Anhaengens. Blieb er in einer Datei stehen, die ueber Laeufe hinweg lebt
+    (``index.md`` im Original, prepare-only), uebersprang jeder spaetere Lauf
+    das Anhaengen (Marker schon da) -- nach einer Layout-Aenderung behielt der
+    erste Abschnitt die alte Seiteneinrichtung. Fremde Umbrueche des Autors
+    bleiben unberuehrt; nur Marker **und** eigener Block zusammen gehen.
+    """
+    if not text:
+        return text
+    neu = text
+    while True:
+        m = _EIGENER_DOCX_ABSCHNITT_AM_ENDE.search(neu)
+        if not m:
+            break
+        neu = neu[: m.start()]
+    return text if neu == text else neu.rstrip() + "\n\n"
+
+
 def should_open_on_recto(
     parsed_frontmatter: Optional[dict[str, Any]], *, rel_path: str = ""
 ) -> bool:
@@ -247,6 +275,7 @@ def maybe_ensure_recto_open(
 
 __all__ = [
     "RECTO_MARKER",
+    "ohne_eigenen_docx_abschnitt",
     "build_recto_open_injection",
     "docx_page_setup_from_reference",
     "docx_reference_for_book",

@@ -173,6 +173,47 @@ def test_docx_index_close_is_idempotent(tmp_path: Path):
     assert index.count("<w:sectPr>") == 1
 
 
+def _vorlage(book: Path, breite: int) -> None:
+    import zipfile
+
+    with zipfile.ZipFile(book / "ref.docx", "w") as zf:
+        zf.writestr(
+            "word/document.xml",
+            f'<w:document><w:body><w:p/><w:sectPr><w:pgSz w:w="{breite}" w:h="11906"/>'
+            "</w:sectPr></w:body></w:document>",
+        )
+
+
+def test_docx_index_folgt_einer_geaenderten_vorlage(tmp_path: Path):
+    """prepare-only schreibt ins Original. Bis 2026-09-26 blieb der erste
+    Block dort stehen, und jeder spätere Lauf übersprang das Anhängen: Nach
+    einer Layout-Änderung behielt der erste Abschnitt die alte Seitengröße."""
+    book = _docx_book(tmp_path, [("Eins", "title: Eins")], reference=True)
+    tree = [{"title": "Eins", "path": "content/Eins.md", "children": []}]
+    _vorlage(book, 9999)
+    PreProcessor(book, output_format="docx").prepare_render_environment(tree)
+    index = (book / "index.md").read_text(encoding="utf-8")
+    assert index.count("<w:sectPr>") == 1
+    assert 'w:w="9999"' in index and 'w:w="8391"' not in index
+
+
+def test_docx_block_verschwindet_bei_anderem_format(tmp_path: Path):
+    book = _docx_book(tmp_path, [("Eins", "title: Eins")])
+    assert "<w:sectPr>" in (book / "index.md").read_text(encoding="utf-8")
+    tree = [{"title": "Eins", "path": "content/Eins.md", "children": []}]
+    PreProcessor(book, output_format="typst").prepare_render_environment(tree)
+    index = (book / "index.md").read_text(encoding="utf-8")
+    assert "sectPr" not in index and RECTO_MARKER not in index
+    assert index.endswith("Vorwort\n\n")
+
+
+def test_fremde_umbrueche_im_index_bleiben():
+    from recto_open import ohne_eigenen_docx_abschnitt
+
+    von_hand = "Vorwort\n\n```{=openxml}\n<w:p><w:pPr><w:sectPr/></w:pPr></w:p>\n```\n"
+    assert ohne_eigenen_docx_abschnitt(von_hand) == von_hand
+
+
 def test_no_recto_for_silent_page():
     fm = "---\ntitle: Vakanz\nrequired: true\n---\n"
     body = "```{=typst}\n#pagebreak()\n```\n"
