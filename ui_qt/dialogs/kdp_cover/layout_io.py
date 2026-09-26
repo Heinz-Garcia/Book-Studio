@@ -599,7 +599,10 @@ class LayoutIOMixin:
             resolved = resolve_existing_project_path(self._book)
             if resolved is not None:
                 gate_path = Path(resolved)
-            mark_cover_finished(self._book, gate_path, finished=True)
+            mark_cover_finished(
+                self._book, gate_path, finished=True,
+                kdp_einschalten=self._kdp_einschalten_bestaetigt(),
+            )
         except (OSError, TypeError, ValueError) as exc:
             QMessageBox.warning(
                 self,
@@ -611,6 +614,30 @@ class LayoutIOMixin:
         self.status_label.setStyleSheet(_qlabel_color_ss("#15803d", weight="600"))
         self._notify_work_path_refresh()
         self.close()
+
+    def _kdp_einschalten_bestaetigt(self) -> bool:
+        """Ist der KDP-Kanal aus, fragen, ob „Cover fertig“ ihn einschalten soll.
+
+        Ein Cover kann fertig sein, obwohl das Buch (noch) nicht als
+        Taschenbuch erscheint. Den Kanal umzulegen, entscheidet der Nutzer.
+        """
+        from tools.distribution.book_store import is_kdp_paperback
+
+        try:
+            if is_kdp_paperback(Path(self._book)):
+                return True
+        except (OSError, TypeError, ValueError):
+            return True
+        antwort = QMessageBox.question(
+            self,
+            "KDP-Taschenbuch einschalten?",
+            "Für dieses Buch ist das KDP-Taschenbuch ausgeschaltet.\n\n"
+            "Ja: einschalten — das Cover wird beim Veröffentlichen mitgeliefert.\n"
+            "Nein: ausgeschaltet lassen — das Cover gilt trotzdem als fertig.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        return antwort == QMessageBox.StandardButton.Yes
 
     def _notify_work_path_refresh(self) -> None:
         studio = self._studio

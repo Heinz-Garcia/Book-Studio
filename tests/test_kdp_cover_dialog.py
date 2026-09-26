@@ -2020,3 +2020,46 @@ def test_export_einer_alternative_laesst_das_buchcover_in_ruhe(monkeypatch, tmp_
         assert dlg.attach_wrap_check.isEnabled()
     finally:
         dlg.close()
+
+
+@pytest.mark.parametrize("antwort_ja", [False, True])
+def test_cover_fertig_fragt_bevor_kdp_eingeschaltet_wird(monkeypatch, tmp_path, antwort_ja):
+    """„Cover fertig“ schaltete KDP still ein, auch wenn der Kanal bewusst aus
+    war. Jetzt entscheidet der Nutzer; das Cover gilt in beiden Fällen als
+    fertig."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from services.work_path import cover_finished_ok
+    from tools.distribution.book_store import is_kdp_paperback, set_kdp_paperback
+    from ui_qt.dialogs.kdp_cover import layout_io
+
+    _app, dlg, studio = _app_and_dialog(monkeypatch, tmp_path)
+    try:
+        book = Path(studio.current_book)
+        set_kdp_paperback(book, False)
+        layout = book / "export" / "kdp_cover" / f"{book.name}_kdp_cover.json"
+        layout.parent.mkdir(parents=True, exist_ok=True)
+        layout.write_text("{}\n", encoding="utf-8")
+        fragen: list[str] = []
+
+        def frage(_p, titel, text, *a, **k):
+            fragen.append(titel)
+            return QMessageBox.StandardButton.Yes if antwort_ja else QMessageBox.StandardButton.No
+
+        monkeypatch.setattr(layout_io.QMessageBox, "question", staticmethod(frage))
+        assert dlg._kdp_einschalten_bestaetigt() is antwort_ja
+        assert fragen == ["KDP-Taschenbuch einschalten?"]
+
+        from services.work_path import mark_cover_finished
+
+        mark_cover_finished(book, layout, finished=True, kdp_einschalten=antwort_ja)
+        assert cover_finished_ok(book, layout)
+        assert is_kdp_paperback(book) is antwort_ja
+
+        # Ist KDP schon an, wird nicht gefragt.
+        fragen.clear()
+        set_kdp_paperback(book, True)
+        assert dlg._kdp_einschalten_bestaetigt() is True
+        assert fragen == []
+    finally:
+        dlg.close()

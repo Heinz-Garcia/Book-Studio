@@ -508,17 +508,24 @@ def mark_cover_finished(
     cover_path: Optional[Path],
     *,
     finished: bool,
+    kdp_einschalten: bool = True,
 ) -> None:
-    """Setzt oder löscht die Cover-Fertig-Bestätigung (Ampel Cover nur dann grün)."""
+    """Setzt oder löscht die Cover-Fertig-Bestätigung (Ampel Cover nur dann grün).
+
+    ``kdp_einschalten``: Den KDP-Taschenbuch-Kanal mit einschalten. Die
+    Oberfläche fragt vorher nach, wenn er aus ist -- bis 2026-09-26 geschah
+    das still, auch wenn der Kanal bewusst ausgeschaltet war.
+    """
     if finished and cover_path is not None and Path(cover_path).is_file():
         # Fertiges KDP-Cover → Kanal einschalten, sonst bleibt binding „off“
         # und die Ampel wirkte früher trotz Gate grau.
-        try:
-            from tools.distribution.book_store import set_kdp_paperback
+        if kdp_einschalten:
+            try:
+                from tools.distribution.book_store import set_kdp_paperback
 
-            set_kdp_paperback(Path(book_path), True)
-        except (OSError, TypeError, ValueError):
-            pass
+                set_kdp_paperback(Path(book_path), True)
+            except (OSError, TypeError, ValueError):
+                pass
         mark_gate(
             book_path,
             "cover",
