@@ -915,18 +915,51 @@ Gemeinsames Lauf-Objekt und Handoff ergänzen den klassischen Import — Details
 
 Timeout beim Handoff: kein Auto-Retry — Marker bleibt `expired` bis du neu lieferst oder manuell übernimmst.
 
-### Automatik: GG-Batchlauf bis zur DOCX (Stand 27.09.) {#sec-automatik-docx}
+### Vollautomatik: GG-Batchlauf bis zur DOCX (Stand 27.09.) {#sec-automatik-docx}
 
-Optional läuft alles ohne Eingreifen vom Batchlauf in El Pitugrafo bis zur fertigen **DOCX** in Book Studio. Die DOCX ist das Endformat: Darin korrigierst du Kleinigkeiten und exportierst danach selbst als PDF.
+Optional läuft alles ohne Eingreifen vom Batchlauf in El Pitugrafo bis zur fertigen **DOCX** in Book Studio. Die DOCX ist das Endformat: Darin korrigierst du Kleinigkeiten und exportierst danach selbst als PDF. Entscheidungen fallen **am Anfang**, offene Punkte werden **am Ende** gefragt — unterwegs fragt niemand.
 
-**Starten:** El Pitugrafo → Tools → Arbeitsweg → **Automatik (Band → DOCX)…** (oder `python -m tools.band_automatik neu … --starten` im GrammarGraph-Ordner).
+**So startest du sie**
 
-1. **Alle Entscheidungen am Anfang.** Der Startdialog fragt Formatvorlage (Layout-Editor), Skeleton-Profil, Startstufe, Nachbessern (aus / an / nur messen), Zielordner und Benachrichtigung ab. Ein Cover gehört nicht in die DOCX und wird nicht abgefragt.
-2. **Prüfen.** Die Vorab-Prüfung zeigt **alle** Lücken auf einmal (fehlende UUID, Buchkonfiguration, Formatvorlage, Pandoc, ein noch ausstehender Handoff …). Erst ohne Lücken lässt sich starten; nichts Bezahltes läuft vorher.
-3. **Durchlaufen.** Rote Gates halten nicht an und fragen nicht — sie werden **Warnungen** im Bericht. Abgebrochen wird nur, wenn der nächsten Stufe der Input fehlt (kein Lauf, keine Lieferung, Satz gescheitert).
-4. **Ergebnis.** Neben dem Profil unter `production/runs/<UUID>/` liegen `automatik_bericht.md` (DOCX-Pfad, Stufen beider Apps, alle Warnungen, **API-Kosten je Stufe und Modell** inklusive Batchlauf) und `automatik_<Zeit>.log`. Die GUI öffnet den Bericht am Ende. Die DOCX liegt im Buchprojekt unter `export/doclayout/`, im Render-Archiv und — falls gewählt — als Kopie im Zielordner.
+1. In El Pitugrafo das Buchprojekt (Prosa) laden. Am Projekt muss eine Production-UUID gewählt sein (Cover-first, geplante UUID aus Book Studio).
+2. **Tools → Arbeitsweg → Automatik (Band → DOCX)…** öffnen.
+3. Entscheiden: Formatvorlage (Layout-Editor), Skeleton-Profil, Startstufe (*ab Zuschnitt* = neuer, bezahlter Lauf; *ab Kanon/Nachbesserung* = vorhandener Lauf), Nachbessern (aus / an / nur messen), Zielordner für eine Kopie der DOCX, Benachrichtigung per ntfy. Ein Cover gehört nicht in die DOCX und wird nicht abgefragt.
+4. **Prüfen:** Die Vorab-Prüfung zeigt **alle** Lücken auf einmal (UUID, Buchkonfiguration, Formatvorlage, Pandoc, ein noch ausstehender Handoff …). Erst ohne Lücken lässt sich starten; vorher wird nichts bezahlt.
+5. **Starten.** Bei einem neuen Lauf kommt die einzige Rückfrage — vor dem Start.
 
-Ohne GUI in Book Studio: `python -m tools.automatik lauf --profil production/runs/<UUID>/automatik.json` (übernimmt den ausstehenden Handoff und setzt die DOCX). Plan und Fortschritt: [`.doc/automatik_gg_bis_docx.md`](../.doc/automatik_gg_bis_docx.md).
+Ohne Oberfläche (im GrammarGraph-Ordner): `python -m tools.band_automatik neu --project <Projekt> --doclayout <Vorlage> [--skeleton …] [--nachbessern an] [--start-at …] --starten`.
+
+**Was dann passiert**
+
+- **El Pitugrafo:** Teilkette Zuschnitt → Lauf → Kanon → Nachbesserung. Mit „Nachbessern an“ werden fehlende direkte Vergleiche alt/neu geholt und die empfohlenen Fassungen übernommen. Danach Lieferung und Handoff an Book Studio.
+- **Book Studio (ohne Oberfläche):** Lieferung übernehmen, fehlende **Pflichtseiten** in die Struktur aufnehmen (vorher Time-Machine-Snapshot; im Log steht je Seite, aus welchem Skeleton-Profil sie stammt), DOCX setzen, ins Render-Archiv legen.
+- **Rote Gates halten nicht an** — sie werden **Warnungen** im Bericht. Abgebrochen wird nur, wenn der nächsten Stufe der Input fehlt (kein Lauf, keine Lieferung, Satz gescheitert).
+- Beide Apps tragen ihren Stand in `production/runs/<UUID>/band_run.json` ein.
+
+**Am Ende: Nacharbeit**
+
+Nach einem Lauf aus der El-Pitugrafo-Oberfläche öffnet sich in Book Studio der Dialog **Nacharbeit**:
+
+| Bereich | Was du tun kannst |
+|---------|-------------------|
+| Ergebnis | vollständiger DOCX-Pfad mit **Öffnen** / **Ordner**; Links auf Gegenüberstellung und Abschlussbericht |
+| Fehlende Ressourcen (z. B. Bilder) | **Datei wählen…** oder **Platzhalter einsetzen** (beschriftetes Bild am erwarteten Ort) |
+| Absatzformate ohne Zuordnung | Format der Vorlage wählen → **Zuordnen**, oder **Als Fließtext fortsetzen**; Shortcut in den Layout-Editor. Die Zuordnung ändert die Formatvorlage (gilt für alle Bücher mit ihr). |
+| Pflichtseiten aus Vorlagen | **Im Buch öffnen**, **Vorlage öffnen** (★ = wörtlich gleich, also die benutzte Vorlage; weitere im Menü), Shortcut in den Skeleton-Editor — so korrigierst du die Vorlage selbst |
+| Danach | **DOCX neu setzen** |
+
+Den Dialog später erneut öffnen (im Book-Studio-Ordner): `python -m tools.automatik nacharbeit --profil production/runs/<UUID>/automatik.json` (`--json` gibt nur die Liste aus).
+
+**Wo liegt was**
+
+| Ergebnis | Pfad |
+|----------|------|
+| DOCX | `production/books/<Buch>/export/doclayout/<Formatvorlage>.docx` (+ Render-Archiv `export/publish_renders/`, + Kopie im Zielordner, falls gewählt) |
+| Abschlussbericht: Stufen, alle Warnungen, API-Kosten je Stufe und Modell | `production/runs/<UUID>/automatik_bericht.md` |
+| Gegenüberstellung Vorfassung ↔ übernommene Fassung (Absätze nebeneinander, Begründung des Vergleichs) | `production/runs/<UUID>/automatik_gegenueberstellung.html` |
+| Ausführliches Log | `production/runs/<UUID>/automatik_<Zeit>.log` |
+
+Plan und Fortschritt: [`.doc/automatik_gg_bis_docx.md`](../.doc/automatik_gg_bis_docx.md) · Zusammenfassung: [`.doc/Vollautomatik.md`](../.doc/Vollautomatik.md).
 
 ### Phase 1 — Import aus GrammarGraph
 
