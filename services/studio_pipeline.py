@@ -72,6 +72,11 @@ class PipelineOptions:
     conflict_mode: str = "skip"
     stop_on_warning: bool = True
     publisher_profile_id: str = "kdp"
+    #: Automatik (``.doc/automatik_gg_bis_docx.md``): Ein rotes Gate hält nicht
+    #: an -- übersteuerbare Stufen gehen automatisch weiter, fehlender Rahmen,
+    #: leere Kapitel oder ungemappte Absatzformate werden Warnungen. Abbruch
+    #: nur ohne Input (keine Lieferung, kein Buch, Satz gescheitert).
+    durchlaufen: bool = False
 
 
 @dataclass
@@ -95,6 +100,8 @@ class PipelineResult:
     outcomes: list[StageOutcome] = field(default_factory=list)
     status: str = "aborted"  # passed | failed | aborted
     message: str = ""
+    #: Was die Durchlauf-Policy ohne Nachfrage übergangen hat (je Stufe).
+    warnungen: list[str] = field(default_factory=list)
 
 
 def _happy_path_export_defaults() -> dict[str, Any]:
@@ -170,6 +177,9 @@ def run_studio_chain(
         outcome = _run_stage(book, stage_id, opts, h)
         result.outcomes.append(outcome)
         _persist_step(book, outcome)
+        for warnung in outcome.details.get("warnungen") or []:
+            result.warnungen.append(f"{stage_id}: {warnung}")
+            h.log(f"Teilkette: Warnung {stage_id} — {warnung}", "warning")
 
         if outcome.status in {StageStatus.PASS, StageStatus.SKIPPED}:
             idx += 1
@@ -181,8 +191,15 @@ def run_studio_chain(
             _finish(book, result)
             return result
 
-        # fail → Interrupt
-        decision = h.on_interrupt(outcome)
+        # fail → Interrupt (im Durchlauf entscheidet die Policy, niemand wird gefragt)
+        if opts.durchlaufen:
+            if outcome.allow_override:
+                decision = InterruptDecision.CONTINUE_OVERRIDE
+                result.warnungen.append(f"{stage_id}: {outcome.message}")
+            else:
+                decision = InterruptDecision.ABORT
+        else:
+            decision = h.on_interrupt(outcome)
         try:
             record_interrupt_decision(
                 book,
@@ -289,9 +306,9 @@ def _run_stage(
     if stage_id == "skeleton":
         return _stage_skeleton(book, opts, hooks)
     if stage_id == "render":
-        return _stage_render(book, hooks)
+        return _stage_render(book, hooks, opts)
     if stage_id == "compliance":
-        return _stage_compliance(book, opts)
+        return _stage_compliance(book, opts, hooks)
     if stage_id == "archive":
         return _stage_archive(book)
     return StageOutcome(stage_id, StageStatus.FAIL, f"Unbekannte Stufe: {stage_id}")
@@ -398,6 +415,13 @@ def _stage_skeleton(
         )
 
     profile_dir = hooks.resolve_skeleton_profile()
+    if (profile_dir is None or not Path(profile_dir).is_dir()) and opts.durchlaufen:
+        return StageOutcome(
+            "skeleton",
+            StageStatus.SKIPPED,
+            "Kein Skeleton-Profil — Buch wird ohne Rahmen gesetzt.",
+            details={"warnungen": ["Kein Skeleton-Profil — Buch ohne Rahmen/Pflichtseiten gesetzt."]},
+        )
     if profile_dir is None or not Path(profile_dir).is_dir():
         return StageOutcome(
             "skeleton",
@@ -455,19 +479,36 @@ def _stage_skeleton(
     )
 
 
-def _stage_render(book: Path, hooks: PipelineHooks) -> StageOutcome:
+def _docx_layout(export: dict[str, Any]) -> Optional[str]:
+    """Formatvorlage, wenn das Ziel die DOCX über den doclayout-Weg ist."""
+    fmt = str(export.get("format") or export.get("output_format") or "").strip().lower()
+    name = str(export.get("doclayout") or "").strip()
+    return name if fmt == "docx" and name else None
+
+
+def _stage_render(
+    book: Path, hooks: PipelineHooks, opts: Optional[PipelineOptions] = None
+) -> StageOutcome:
     from services.work_path import _cover_gap, _g_content_gap
+
+    opts = opts or PipelineOptions()
+    export = dict(hooks.get_export_options() or {})
+    docx_layout = _docx_layout(export)
+    warnungen: list[str] = []
 
     gap = _g_content_gap(book)
     if gap is not None:
-        return StageOutcome(
-            "render",
-            StageStatus.FAIL,
-            gap[1],
-            details={"redirect": gap[0]},
-            allow_override=False,
-        )
-    cover = _cover_gap(book)
+        if not opts.durchlaufen:
+            return StageOutcome(
+                "render",
+                StageStatus.FAIL,
+                gap[1],
+                details={"redirect": gap[0]},
+                allow_override=False,
+            )
+        warnungen.append(f"Vor dem Satz offen ({gap[0]}): {gap[1]}")
+    # Die DOCX ist der Buchblock -- das Cover ist ein eigenes Artefakt.
+    cover = None if docx_layout else _cover_gap(book)
     if cover is not None:
         return StageOutcome(
             "render",
@@ -477,7 +518,9 @@ def _stage_render(book: Path, hooks: PipelineHooks) -> StageOutcome:
             allow_override=False,
         )
 
-    export = dict(hooks.get_export_options() or {})
+    if docx_layout:
+        return _stage_render_docx(book, docx_layout, warnungen)
+
     if not export:
         export = _happy_path_export_defaults()
     if not export:
@@ -540,7 +583,70 @@ def _stage_render(book: Path, hooks: PipelineHooks) -> StageOutcome:
         "render",
         StageStatus.PASS,
         f"Render ok: {pdf.name}",
-        details={"pdf": str(pdf), "returncode": 0},
+        details={"pdf": str(pdf), "returncode": 0, "warnungen": warnungen},
+    )
+
+
+def _stage_render_docx(book: Path, layout_name: str, warnungen: list[str]) -> StageOutcome:
+    """Stufe H mit DOCX-Ziel: derselbe Satz wie im Export-Dialog (Pandoc + Vorlage).
+
+    Gate ist die ``.docx`` **dieses** Satzes (aus dem Ergebnis, nicht „neueste
+    Datei im Ordner“). DOCX und Beiwerk-PDF kommen ins Render-Archiv des aktiven
+    Snapshots und in die Publish-Map.
+    """
+    from render_artifact_store import archive_render_artifacts, snapshot_root_files
+    from tools.doclayout.library import load_layout
+    from tools.doclayout.schema import LayoutError
+    from tools.doclayout.typeset import OUTPUT_SUBDIR, typeset_book
+
+    out_dir = Path(book).joinpath(*OUTPUT_SUBDIR)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        baseline = snapshot_root_files(out_dir)
+        definition = load_layout(layout_name)
+        result = typeset_book(definition, book)
+    except (LayoutError, OSError) as exc:
+        return StageOutcome("render", StageStatus.FAIL, f"DOCX-Satz fehlgeschlagen: {exc}")
+    if not result.docx.is_file():
+        return StageOutcome("render", StageStatus.FAIL, f"DOCX fehlt nach dem Satz: {result.docx}")
+
+    warnungen = list(warnungen)
+    if result.pdf is None:
+        warnungen.append(result.note or "Keine Beiwerk-PDF (LibreOffice fehlt?) — die DOCX ist vollständig.")
+    warnungen += [f"Pandoc: {zeile}" for zeile in result.warnings]
+
+    archiviert: list[Path] = []
+    try:
+        from tools.publish_map.store import append_render, ensure_active_snapshot_id, snapshot_render_dir
+
+        snap = ensure_active_snapshot_id(book)
+        archiviert = archive_render_artifacts(out_dir, snapshot_render_dir(book, snap), baseline=baseline)
+        archiv_docx = next((a for a in archiviert if a.suffix.lower() == ".docx"), result.docx)
+        append_render(
+            book,
+            {
+                "format": "docx",
+                "target_format": "docx",
+                "template": layout_name,
+                "artifact_path": str(archiv_docx),
+                "notes": "Studio-Kette (DOCX-Satz)",
+            },
+            snapshot_id=snap,
+        )
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        warnungen.append(f"Render-Archiv nicht geschrieben: {exc}")
+
+    mark_gate(book, "H", "pass", docx=str(result.docx), current_stage="H")
+    return StageOutcome(
+        "render",
+        StageStatus.PASS,
+        f"DOCX gesetzt: {result.docx.name}",
+        details={
+            "docx": str(result.docx),
+            "pdf": str(result.pdf) if result.pdf else "",
+            "archiv": [str(a) for a in archiviert],
+            "warnungen": warnungen,
+        },
     )
 
 
@@ -594,7 +700,17 @@ def _resolve_render_args(
     return target_fmt, profile_name, extra_opts, archive_dir, render_channel
 
 
-def _stage_compliance(book: Path, opts: PipelineOptions) -> StageOutcome:
+def _stage_compliance(
+    book: Path, opts: PipelineOptions, hooks: Optional[PipelineHooks] = None
+) -> StageOutcome:
+    export = dict(hooks.get_export_options() or {}) if hooks is not None else {}
+    if _docx_layout(export):
+        return StageOutcome(
+            "compliance",
+            StageStatus.SKIPPED,
+            "DOCX-Ziel: keine Druckprüfung — die PDF entsteht erst nach den "
+            "Korrekturen in der DOCX.",
+        )
     pdf = _newest_pdf(book)
     if pdf is None:
         return StageOutcome(

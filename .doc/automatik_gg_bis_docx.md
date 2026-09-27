@@ -76,49 +76,65 @@ BS  Handoff-Claim ─ F′ Übernahme ─ G Skeleton/Inhalt/Formate ─ H DOCX-S
       (BS `tests/test_automatik.py`, GG `tests/tools/test_band_automatik_profil.py` inkl. Live-Aufruf BS)
 - Umgesetzt: BS `services/automatik.py` + CLI `python -m tools.automatik optionen|pruefe`;
   GG `tools/band_automatik/profil.py` (bauen/schreiben/lesen, `pruefe_gg`, `pruefe_alles`)
-  + `tools/book_studio_bridge/automatik.py` (BS-CLI als Unterprozess).
+  und `tools/book_studio_bridge/automatik.py` (BS-CLI als Unterprozess).
   Kein Plan im Projekt = Warnung (Zuschnitt-Veto entfällt), keine Lücke.
 
 ### Paket 2 — Durchlauf-Policy statt Interrupt (GG)
 
-- [ ] `Policy.durchlaufen` in `tools/teilkette/kette.py`: rotes Gate → `weiter` mit
-      Warnung, Entscheidung als `wer="automatik"` protokolliert (statt `melde_interrupt`)
-- [ ] Harte Abbrüche nur ohne Input: kein Projekt, kein Batch, keine Kapitel, Lieferung gescheitert
-- [ ] Gate B (Zuschnitt-Veto) im Durchlauf: Warnung + weiter, **deutlich** als
-      „Lauf trotz Veto bezahlt“ im Log und im Bericht
-- [ ] Gate E ohne Lösung: jüngste Fassung behalten, Kapitel als „offen“ in den Bericht
-- [ ] Tests je Gate: Durchlauf protokolliert Warnung, Standard-Policy verhält sich unverändert
+- [x] `Policy.durchlaufen` in `tools/teilkette/kette.py` (+ CLI `--durchlaufen`): rotes Gate →
+      `weiter` mit Warnung, Entscheidung als `wer="auto"` protokolliert (gemeinsamer
+      Entscheider `_entscheide` statt `melde_interrupt`)
+- [x] Harte Abbrüche nur ohne Input: kein Projekt, kein Batch, Lieferung gescheitert,
+      **Lauf ohne neuen Bericht** (sonst würde ein alter Batch geliefert)
+- [x] Gate B (Zuschnitt-Veto) im Durchlauf: Warnung + weiter, **deutlich** als
+      „Lauf trotz Zuschnitt-Veto bezahlt“; ohne Plan entfällt das Veto (Warnung)
+- [x] Gate E ohne Lösung: vorhandene Fassung bleibt, Befund als Warnung in Bericht und Übersicht
+- [x] Warnungen stehen in `pitugrafo_run.json` (`warnungen`), im `Ergebnis.bericht()` und
+      in `pitugrafo_run.md` (Abschnitt „Warnungen (Durchlauf …)“)
+- [x] Tests je Gate: Durchlauf protokolliert Warnung, Standard-Policy verhält sich unverändert
+      (GG `tests/tools/test_teilkette.py::TestDurchlaufPolicy`, 9 Tests)
 
 ### Paket 3 — Kosten vollständig (GG)
 
-- [ ] Kosten des Batchlaufs (Stufe C, eigener Prozess) aus dessen Bericht
-      (`*_report_data.json`) übernehmen: dieselbe Preistabelle (`src/core/api_token_pricing`),
-      keine zweite
-- [ ] Kosten je Stufe (C Lauf / E Prüfen / E Schreiben) und je Modell in `pitugrafo_run.json`
-- [ ] Test: Lauf-Kosten + Ketten-Kosten ergeben die Gesamtsumme; fehlender Bericht = „unbekannt“, nicht 0
+- [x] Kosten des Batchlaufs (Stufe C, eigener Prozess) erfassen. Der Lauf-Bericht enthält
+      **keine** Token-Angaben (nur die GUI-Livezeile), deshalb: `llm_client` hängt jeden Aufruf
+      zusätzlich an `PITUGRAFO_VERBRAUCH_DATEI` an; die Teilkette setzt die Variable für den
+      Lauf-Prozess und legt die Datei als `<batch>/verbrauch_lauf.jsonl` ab. Bewertet mit
+      derselben Preistabelle (`src/core/api_token_pricing`), keine zweite
+- [x] Kosten je Stufe (Lauf / Kette) und je Modell in `pitugrafo_run.json` (`kosten.stufen`,
+      `kosten.modelle`, `kosten.eur`, `kosten.vollstaendig`) und in `Ergebnis.kosten`.
+      Prüfen und Schreiben laufen je über ihr eigenes Modell und sind so je Modell getrennt sichtbar
+- [x] Test: Lauf-Kosten + Ketten-Kosten ergeben die Gesamtsumme; fehlende Verbrauchsangabe =
+      „unbekannt“ (Summe = Untergrenze), nicht 0 (GG `TestKostenMitLauf`, 9 Tests)
 
 ### Paket 4 — BS ohne Oberfläche übernehmen
 
-- [ ] CLI `python -m services.handoff consume --uuid <U> [--profil <automatik.json>]`
-      (headless `run_handoff_consume`, Exit-Code + JSON-Ergebnis auf stdout)
-- [ ] Hooks aus dem Profil: Skeleton-Profil, Export-Optionen (DOCX + Formatvorlage),
-      `on_interrupt` = Durchlauf-Policy (Override + Warnung, wo erlaubt)
-- [ ] Studio-Kette: Durchlauf-Policy für die Gates, die heute `allow_override=False`
-      haben (Skeleton, Kapitel, Absatzformate). Bei fehlender Zuordnung setzt der Satz
-      trotzdem, der Bericht listet die betroffenen Absätze
-- [ ] Offene Kante „Handoff ohne GUI“ in `offene_kanten_orchestrierung.md` schließen
-- [ ] Tests: Konsum ohne Qt, mit Fixture-Lieferung bis Gate G
+- [x] CLI `python -m tools.automatik lauf --profil <automatik.json>` (headless
+      `run_handoff_consume` über `services.automatik.fuehre_bs_teil_aus`; JSON-Ergebnis auf
+      stdout, Verlauf zeilenweise auf stderr, Exit 0 = DOCX entstanden). CLI unter `tools/`,
+      weil `services/` kein `print()` haben darf
+- [x] Hooks aus dem Profil: Skeleton-Profil, Export-Optionen (DOCX + Formatvorlage);
+      Bridge und Handoff reichen `pipeline_options` durch und geben das Kettenergebnis zurück
+- [x] Studio-Kette: `PipelineOptions.durchlaufen`. Übersteuerbare Stufen gehen automatisch
+      weiter, fehlendes Skeleton-Profil, leere Kapitel und ungemappte Absatzformate werden
+      Warnungen, der Satz läuft trotzdem. Abbruch nur ohne Input
+- [x] Offenes Primary-Cover ist beim DOCX-Ziel nur eine Warnung
+- [x] Zielordner: Kopie der DOCX als `<Buch>_<Zeitstempel>.docx` (nie überschreiben)
+- [x] Offene Kante „Handoff ohne GUI“ in `offene_kanten_orchestrierung.md` geschlossen
+- [x] Tests: Konsum ohne Qt mit der Vertrags-Beispiellieferung bis zur DOCX
+      (`tests/test_automatik_lauf.py`), Durchlauf in der Kette (`tests/test_studio_pipeline_docx.py`)
 
 ### Paket 5 — DOCX als Ziel der Studio-Kette (BS)
 
-- [ ] Stufe `render`: Ziel `docx` + Formatvorlage → `tools/doclayout/typeset.typeset_book`
+- [x] Stufe `render`: Ziel `docx` + Formatvorlage → `tools/doclayout/typeset.typeset_book`
       direkt (derselbe Weg wie im Export-Dialog, keine Kopie der Logik)
-- [ ] Gate H prüft die `.docx` **dieses** Laufs (Zeitstempel/Pfad aus dem Ergebnis),
+- [x] Gate H prüft die `.docx` **dieses** Satzes (Pfad aus dem Ergebnis),
       nicht „neueste Datei im Ordner“
-- [ ] Stufe `compliance` (KDP-PDF-Druckprüfung) bei DOCX-Ziel: `skipped` mit Grund
-- [ ] DOCX (+ Beiwerk-PDF) ins Render-Archiv `export/publish_renders/<snapshot>/` und in `publish_map.json`
-- [ ] Cover-Behandlung laut Startentscheidung (siehe offene Entscheidungen)
-- [ ] Tests: Kette mit DOCX-Ziel (Pandoc gefakt) + ein `slow`-Test mit echtem Pandoc gegen `Band_Dummy`
+- [x] Stufe `compliance` (KDP-PDF-Druckprüfung) bei DOCX-Ziel: `skipped` mit Grund
+- [x] DOCX (+ Beiwerk-PDF) ins Render-Archiv `export/publish_renders/<snapshot>/` und in `publish_map.json`
+- [x] Cover: beim DOCX-Ziel wird keine Cover-Lücke geprüft (Entscheidung: weglassen)
+- [x] Tests: Kette mit DOCX-Ziel (Pandoc gefakt) + `slow`-Test mit echtem Pandoc gegen
+      eine Kopie von `Band_Dummy` (real: 10 s, DOCX + PDF im Archiv, keine Warnungen)
 
 ### Paket 6 — Ein Einstieg für alles
 
@@ -127,7 +143,8 @@ BS  Handoff-Claim ─ F′ Übernahme ─ G Skeleton/Inhalt/Formate ─ H DOCX-S
 - [ ] GG-GUI: Startdialog „Automatik (Band → DOCX)…“, der **alle** Entscheidungen
       abfragt, `automatik.json` schreibt und die CLI als QProcess startet (keine zweite Logik)
 - [ ] Handoff-Datei bleibt SSOT: Stirbt der BS-Aufruf, liegt der Handoff weiter aus
-      und lässt sich per Menü übernehmen
+      und lässt sich per Menü übernehmen. Achtung: Stirbt er **nach** dem Claim, steht der
+      Handoff auf `claimed` bis zum Timeout (2 h) -- Verhalten prüfen und im Bericht nennen
 - [ ] `band_run.json`: beide Zonen werden über den Lauf fortgeschrieben
 
 ### Paket 7 — Abschlussbericht und Logging
@@ -160,5 +177,13 @@ Werden **vor** Paket 1 geklärt und dann in die Leitregeln übernommen.
   Prozess ist. Ohne Paket 3 fehlt im Kostenbericht der größte Posten.
 - 2026-09-27: `_consume_band_handoff` (BS-Shell) übergibt kein Skeleton-Profil. Ein frisches Buch
   bleibt bei Rahmen-Policy `required_pages` an Gate G hängen.
+- 2026-09-27: GG-Teilkette nahm nach dem Lauf „jüngsten Batch“ ungeprüft. Schreibt der Lauf
+  keinen neuen Bericht, ist das ein alter Batch. Im Durchlauf jetzt harter Abbruch
+  (`kette._bericht_seit`), ohne Durchlauf unverändert (Mensch sieht Gate C).
+- 2026-09-27: **Bug behoben (betraf auch „Band durchlaufen“ in der GUI):** `claim_handoff`
+  übergibt den `band_run`-Lock an `bs`, die Bridge schrieb danach als `orchestrator` und wurde
+  still abgewiesen (Fehler landete in der Cover-Meldung). `band_run.json` bekam nach einem
+  Handoff nie Buch-/Lieferpfad und Gate F. Jetzt schreibt die Bridge als Claimant
+  (`band_run_writer="bs"`); Regressionstest `test_band_run_bekommt_pfade_nach_handoff`.
 - 2026-09-27: Gate H der Studio-Kette prüft „neueste PDF im Ausgabeordner“ und kann damit eine
   alte PDF für den aktuellen Lauf halten.

@@ -209,7 +209,14 @@ def _record_band_run(
     delivery: Path,
     cover_status: str,
     cover_message: str,
+    writer: str = "orchestrator",
 ) -> None:
+    """Pfade, Gate F und ``zone_bs`` nach der Übernahme ins Lauf-Objekt.
+
+    *writer*: wer den Lock hält. Nach einem Handoff-Claim ist das ``bs`` --
+    als ``orchestrator`` wäre jedes Schreiben abgewiesen worden (real bis
+    2026-09-27: ``band_run`` bekam nach „Band durchlaufen“ nie Buch/Lieferung).
+    """
     from services.band_run import (
         BandRunLockError,
         acquire_lock,
@@ -222,7 +229,7 @@ def _record_band_run(
     try:
         acquire_lock(
             uid,
-            owner="orchestrator",
+            owner=writer,
             purpose="bridge",
             production_root=prod,
             repo=repo,
@@ -234,11 +241,11 @@ def _record_band_run(
 
     try:
         materialize_band_run_from_book(
-            book, production_root=prod, repo=repo, updated_by="orchestrator"
+            book, production_root=prod, repo=repo, updated_by=writer
         )
         update_band_run(
             uid,
-            writer="orchestrator",
+            writer=writer,
             production_root=prod,
             repo=repo,
             paths_patch={
@@ -265,16 +272,14 @@ def _record_band_run(
         if cover_message and cover_status in {"interrupt", "conflict", "error"}:
             update_band_run(
                 uid,
-                writer="orchestrator",
+                writer=writer,
                 production_root=prod,
                 repo=repo,
                 zone_bs={"detail": cover_message},
             )
     finally:
         try:
-            release_lock(
-                uid, owner="orchestrator", production_root=prod, repo=repo
-            )
+            release_lock(uid, owner=writer, production_root=prod, repo=repo)
         except (OSError, ValueError, TypeError):
             pass
 
@@ -288,8 +293,14 @@ def run_delivery_bridge(
     pipeline_hooks: Any = None,
     registry_file: Optional[Path] = None,
     apply_bundle: bool = True,
+    pipeline_options: Any = None,
+    band_run_writer: str = "orchestrator",
 ) -> BridgeResult:
     """Orchestriert Übernahme + Primary-Cover-Bindung (+ optional Teilkette).
+
+    ``pipeline_options``: ``PipelineOptions`` der Studio-Kette (z. B.
+    ``durchlaufen`` für die Automatik); ihr Ergebnis steht danach in
+    ``details["pipeline_result"]``.
 
     Bei mehreren Lieferungen ohne explizites ``delivery``: ``need_pick``.
     Cover-Konflikt / fehlendes Primary: ``conflict`` bzw. ``interrupt`` —
@@ -340,12 +351,14 @@ def run_delivery_bridge(
                 delivery=delivery_path,
                 cover_status=cover_status,
                 cover_message=cover_message,
+                writer=band_run_writer,
             )
         except (OSError, TypeError, ValueError) as exc:
             cover_message = f"{cover_message} (band_run: {exc})".strip()
 
     pipeline_ran = False
     pipeline_ok: Optional[bool] = None
+    pipeline_result: Any = None
     if run_pipeline:
         try:
             from services.studio_pipeline import PipelineHooks, run_studio_chain
@@ -353,8 +366,9 @@ def run_delivery_bridge(
             hooks = pipeline_hooks if pipeline_hooks is not None else PipelineHooks()
             # delivery-Stufe schon erledigt → ab skeleton
             outcome = run_studio_chain(
-                book_path, hooks=hooks, start_at="skeleton"
+                book_path, options=pipeline_options, hooks=hooks, start_at="skeleton"
             )
+            pipeline_result = outcome
             pipeline_ran = True
             pipeline_ok = outcome.status == "passed"
             if outcome.status != "passed" and outcome.message:
@@ -398,5 +412,6 @@ def run_delivery_bridge(
         details={
             "bundle_applied": accept.bundle_applied,
             "accept_cover_status": accept.cover_bind_status,
+            "pipeline_result": pipeline_result,
         },
     )

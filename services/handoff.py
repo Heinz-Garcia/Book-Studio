@@ -482,10 +482,12 @@ def run_handoff_consume(
     production_uuid: Optional[str] = None,
     run_pipeline: bool = True,
     pipeline_hooks: Any = None,
+    pipeline_options: Any = None,
 ) -> dict[str, Any]:
     """Claim → ``run_delivery_bridge`` → optional Studio-Kette → complete.
 
-    Rückgabe: ``{status, message, uuid, bridge?, pipeline?}``.
+    Rückgabe: ``{status, message, uuid, book_path?, pipeline_result?,
+    cover_status?, cover_message?}`` (``pipeline_result``: ``PipelineResult``).
     ``status``: ok | empty | expired | interrupt | conflict | error
     """
     from services.delivery_bridge import run_delivery_bridge
@@ -530,6 +532,9 @@ def run_handoff_consume(
             delivery=delivery if delivery.is_dir() else None,
             run_pipeline=run_pipeline,
             pipeline_hooks=pipeline_hooks,
+            pipeline_options=pipeline_options,
+            # Der Claim hat den Lock an BS übergeben -- die Brücke schreibt als BS.
+            band_run_writer="bs",
         )
     except (OSError, TypeError, ValueError) as exc:
         complete_handoff(
@@ -545,21 +550,18 @@ def run_handoff_consume(
         err = None if bridge.status == "ok" else bridge.message
         complete_handoff(uid, production_root=prod, repo=repo, error=err)
         # interrupt/conflict: Buch übernommen, Cover offen — Handoff done mit Hinweis
-        if bridge.status == "ok":
-            return {
-                "status": "ok",
-                "message": bridge.message,
-                "uuid": uid,
-                "book_path": str(bridge.book_path) if bridge.book_path else None,
-                "pipeline_ran": bridge.pipeline_ran,
-                "pipeline_ok": bridge.pipeline_ok,
-            }
-        return {
-            "status": bridge.status,
-            "message": bridge.message,
+        gemeinsam = {
             "uuid": uid,
             "book_path": str(bridge.book_path) if bridge.book_path else None,
+            "pipeline_ran": bridge.pipeline_ran,
+            "pipeline_ok": bridge.pipeline_ok,
+            "pipeline_result": bridge.details.get("pipeline_result"),
+            "cover_status": bridge.cover_bind_status,
+            "cover_message": bridge.cover_bind_message,
         }
+        if bridge.status == "ok":
+            return {"status": "ok", "message": bridge.message, **gemeinsam}
+        return {"status": bridge.status, "message": bridge.message, **gemeinsam}
 
     complete_handoff(
         uid, production_root=prod, repo=repo, error=bridge.message or bridge.status
