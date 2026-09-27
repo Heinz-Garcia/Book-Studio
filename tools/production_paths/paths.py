@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -56,8 +57,21 @@ def resolve_repo_root(repo: Path | None = None) -> Path:
     return Path(repo).resolve() if repo else Path(__file__).resolve().parents[2]
 
 
+#: Umlenkung der Produktionswurzel (Tests über beide Apps, Vertrag BS↔GG).
+PRODUCTION_ROOT_ENV = "BSU_PRODUCTION_ROOT"
+
+
+def production_root_override() -> Path | None:
+    """``$BSU_PRODUCTION_ROOT``, wenn gesetzt -- sonst ``None``."""
+    roh = os.environ.get(PRODUCTION_ROOT_ENV, "").strip()
+    return Path(roh).expanduser().resolve() if roh else None
+
+
 def default_production_root(repo: Path | None = None) -> Path:
     """Geplanter Wurzelordner für Variante C (Default: ``<repo>/production``)."""
+    umgelenkt = production_root_override()
+    if umgelenkt is not None:
+        return umgelenkt
     return resolve_repo_root(repo) / PRODUCTION_DIR_NAME
 
 

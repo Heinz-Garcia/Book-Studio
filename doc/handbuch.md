@@ -915,6 +915,19 @@ Gemeinsames Lauf-Objekt und Handoff ergänzen den klassischen Import — Details
 
 Timeout beim Handoff: kein Auto-Retry — Marker bleibt `expired` bis du neu lieferst oder manuell übernimmst.
 
+### Automatik: GG-Batchlauf bis zur DOCX (Stand 27.09.) {#sec-automatik-docx}
+
+Optional läuft alles ohne Eingreifen vom Batchlauf in El Pitugrafo bis zur fertigen **DOCX** in Book Studio. Die DOCX ist das Endformat: Darin korrigierst du Kleinigkeiten und exportierst danach selbst als PDF.
+
+**Starten:** El Pitugrafo → Tools → Arbeitsweg → **Automatik (Band → DOCX)…** (oder `python -m tools.band_automatik neu … --starten` im GrammarGraph-Ordner).
+
+1. **Alle Entscheidungen am Anfang.** Der Startdialog fragt Formatvorlage (Layout-Editor), Skeleton-Profil, Startstufe, Nachbessern (aus / an / nur messen), Zielordner und Benachrichtigung ab. Ein Cover gehört nicht in die DOCX und wird nicht abgefragt.
+2. **Prüfen.** Die Vorab-Prüfung zeigt **alle** Lücken auf einmal (fehlende UUID, Buchkonfiguration, Formatvorlage, Pandoc, ein noch ausstehender Handoff …). Erst ohne Lücken lässt sich starten; nichts Bezahltes läuft vorher.
+3. **Durchlaufen.** Rote Gates halten nicht an und fragen nicht — sie werden **Warnungen** im Bericht. Abgebrochen wird nur, wenn der nächsten Stufe der Input fehlt (kein Lauf, keine Lieferung, Satz gescheitert).
+4. **Ergebnis.** Neben dem Profil unter `production/runs/<UUID>/` liegen `automatik_bericht.md` (DOCX-Pfad, Stufen beider Apps, alle Warnungen, **API-Kosten je Stufe und Modell** inklusive Batchlauf) und `automatik_<Zeit>.log`. Die GUI öffnet den Bericht am Ende. Die DOCX liegt im Buchprojekt unter `export/doclayout/`, im Render-Archiv und — falls gewählt — als Kopie im Zielordner.
+
+Ohne GUI in Book Studio: `python -m tools.automatik lauf --profil production/runs/<UUID>/automatik.json` (übernimmt den ausstehenden Handoff und setzt die DOCX). Plan und Fortschritt: [`.doc/automatik_gg_bis_docx.md`](../.doc/automatik_gg_bis_docx.md).
+
 ### Phase 1 — Import aus GrammarGraph
 
 GrammarGraph exportiert ein **Publish-Verzeichnis** (Ordner mit `.md`-Dateien, optional `img/`, `_book_studio.toml`, `grammargraph_export.json`).

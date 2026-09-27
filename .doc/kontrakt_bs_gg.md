@@ -34,8 +34,9 @@ Beispiel-Fixture: `tests/kontrakt/beispiel/band_run.json`.
 `bookconfig/book_run.json` bleibt Studio-lokal (Gates F–J).
 
 GG ruft BS für die UUIDs als Unterprozess auf (BS-Python im BS-Verzeichnis).
-Für Tests lassen sich Registry und Cover-Ablage umlenken:
-`BSU_COVER_REGISTRY`, `BSU_COVERS_ROOT`.
+Für Tests lassen sich Registry, Cover-Ablage und die ganze Produktionswurzel
+(Bücher, Inbox, Runs) umlenken: `BSU_COVER_REGISTRY`, `BSU_COVERS_ROOT`,
+`BSU_PRODUCTION_ROOT` (seit 2026-09-27, für den Ende-zu-Ende-Test der Automatik).
 
 ### Automatik-Profil (2026-09-27)
 

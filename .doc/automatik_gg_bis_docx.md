@@ -138,28 +138,40 @@ BS  Handoff-Claim ─ F′ Übernahme ─ G Skeleton/Inhalt/Formate ─ H DOCX-S
 
 ### Paket 6 — Ein Einstieg für alles
 
-- [ ] GG-CLI `python -m tools.band_automatik --profil <automatik.json>`:
-      Preflight → Teilkette (Durchlauf, `--liefern`) → BS-CLI als Unterprozess → Abschlussbericht
-- [ ] GG-GUI: Startdialog „Automatik (Band → DOCX)…“, der **alle** Entscheidungen
-      abfragt, `automatik.json` schreibt und die CLI als QProcess startet (keine zweite Logik)
-- [ ] Handoff-Datei bleibt SSOT: Stirbt der BS-Aufruf, liegt der Handoff weiter aus
-      und lässt sich per Menü übernehmen. Achtung: Stirbt er **nach** dem Claim, steht der
-      Handoff auf `claimed` bis zum Timeout (2 h) -- Verhalten prüfen und im Bericht nennen
-- [ ] `band_run.json`: beide Zonen werden über den Lauf fortgeschrieben
+- [x] GG-CLI `python -m tools.band_automatik neu|pruefe|lauf|optionen`
+      (`tools/band_automatik/lauf.py`): Vorab-Prüfung → Teilkette (Durchlauf, Lieferung) →
+      BS-CLI als Unterprozess (`book_studio_bridge.automatik.bs_lauf`) → Abschlussbericht
+- [x] GG-GUI: Tools → Arbeitsweg → „Automatik (Band → DOCX)…“ (`tools/band_automatik/dialog.py`):
+      fragt **alle** Entscheidungen ab, Listen live aus Book Studio, „Starten“ erst nach Prüfung
+      ohne Lücken (jede Änderung macht die Prüfung ungültig), einzige Rückfrage = bezahlter Lauf,
+      **vor** dem Start. Startet die CLI als QProcess (keine zweite Logik). Offscreen gerendert geprüft
+- [x] Handoff-Datei bleibt SSOT: Stirbt der BS-Aufruf, liegt der Handoff aus und lässt sich per
+      Menü übernehmen. Ein noch ausstehender Handoff (`pending`/`claimed`, nicht abgelaufen) ist
+      jetzt eine **Lücke der Vorab-Prüfung** -- sonst schriebe die Kette keinen neuen
+- [ ] `band_run.json`: `zone_bs`/Pfade/Gate F schreibt die Bridge (nach dem Lock-Fix). `zone_gg`
+      schreibt GG weiterhin nicht -- bestehende offene Kante „volle GG-Writer-API für band_run“,
+      für die DOCX nicht nötig, bewusst nicht in diesem Plan
 
 ### Paket 7 — Abschlussbericht und Logging
 
-- [ ] Logdatei je Automatik-Lauf: `production/runs/<uuid>/automatik_<zeitstempel>.log`
-- [ ] Bericht `automatik_bericht.md`: Ergebnis-DOCX (Pfad), jede Stufe mit
-      Status/Dauer, **alle Warnungen**, offene Kapitel, Kosten je Stufe und Modell + Summe
-- [ ] Optional ntfy-Benachrichtigung am Ende (fertig / abgebrochen + Kurzgrund)
-- [ ] Nach dem Ende öffnet sich der Bericht bzw. der DOCX-Ordner (nur mit GUI-Start)
+- [x] Logdatei je Automatik-Lauf: `production/runs/<uuid>/automatik_<zeitstempel>.log` -- jede
+      Zeile mit Zeit und Stufe; Ausgaben der Teilkette und Book Studios Verlauf landen mit darin
+- [x] Bericht `automatik_bericht.md` (+ `automatik_ergebnis.json`): Ergebnis-DOCX, Stufen beider
+      Seiten mit Status, **alle Warnungen**, Kosten je Stufe (Lauf / Kette) und Modell + Summe,
+      Verweise auf Log, Laufübersicht (`pitugrafo_run.md`, Kapitelstand) und Batch.
+      Dauer: Zeitraum im Bericht, je Stufe über die Zeitstempel im Log
+- [x] Optional ntfy am Ende über `send_finish_notification` (Status, Warnungen, Euro)
+- [x] Nach dem Ende öffnet die GUI den Bericht
 
 ### Paket 8 — Abnahme
 
-- [ ] End-to-End-Test über beide Repos mit Fixture-Projekt (Modelle gefakt): Profil → DOCX
-- [ ] Realer Lauf mit einem kleinen Band (z. B. HuG), Bericht und Kosten plausibel
-- [ ] Doku: Handbuch-Abschnitt „Automatik“, Kontrakt-Doku, CHANGELOG, Versionen gebumpt
+- [x] End-to-End-Test über beide Repos (`GG tests/tools/test_band_automatik_e2e.py`): GG-Batch →
+      echte Lieferung + Handoff → BS als echter Unterprozess → echter Pandoc-Satz → DOCX, Kopie,
+      `band_run`, Bericht. Nur das Messen ist gefälscht. BS schreibt über `BSU_PRODUCTION_ROOT` ins Temp
+- [ ] Realer Lauf mit einem kleinen Band (z. B. HuG), Bericht und Kosten plausibel -- **kostet Geld,
+      wartet auf dein Go**
+- [x] Doku: Handbuch-Abschnitt „Automatik“ (BS `doc/handbuch.md`), Kontrakt-Doku (beide Repos),
+      Versionen gebumpt. GG-CHANGELOG wird seit 31.59 nicht mehr geführt -- nicht nachgetragen
 
 ---
 
@@ -185,5 +197,11 @@ Werden **vor** Paket 1 geklärt und dann in die Leitregeln übernommen.
   still abgewiesen (Fehler landete in der Cover-Meldung). `band_run.json` bekam nach einem
   Handoff nie Buch-/Lieferpfad und Gate F. Jetzt schreibt die Bridge als Claimant
   (`band_run_writer="bs"`); Regressionstest `test_band_run_bekommt_pfade_nach_handoff`.
+- 2026-09-27: **Bug behoben (Ende-zu-Ende-Test):** `liefere()` suchte die Production-UUID nur
+  unter `GG/projects/<Name>`, nicht im Projektordner, an dem die Teilkette arbeitet -- ein Projekt
+  anderswo scheiterte an „keine Production-UUID“. Die Kette übergibt sie jetzt ausdrücklich.
+- 2026-09-27: Datenfund, nicht Code: Die Formatvorlage `Prosa_Layout` trägt das Label
+  „IFJN Reiseführer“ (wie `Formate_Backup`/`IFJN_layout`) -- im Startdialog verwirrend.
+  Im Layout-Editor umbenennen, wenn gewünscht.
 - 2026-09-27: Gate H der Studio-Kette prüft „neueste PDF im Ausgabeordner“ und kann damit eine
   alte PDF für den aktuellen Lauf halten.

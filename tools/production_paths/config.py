@@ -7,7 +7,13 @@ from typing import Any
 
 from services.workspace_service import normalize_content_root_paths
 from tools.gg_content_swap.source_guard import check_source_folder
-from tools.production_paths.paths import BOOKS_DIR_NAME, INBOX_DIR_NAME, LEGACY_PRODUCTION_DIR_NAME, PRODUCTION_DIR_NAME
+from tools.production_paths.paths import (
+    BOOKS_DIR_NAME,
+    INBOX_DIR_NAME,
+    LEGACY_PRODUCTION_DIR_NAME,
+    PRODUCTION_DIR_NAME,
+    production_root_override,
+)
 
 
 def _resolve_path_entry(raw: str, base_path: Path) -> Path | None:
@@ -31,7 +37,15 @@ def _append_unique(roots: list[Path], candidate: Path | None) -> None:
 
 
 def resolve_production_root(cfg: dict[str, Any], base_path: Path) -> Path:
-    """Produktions-Root (Default: ``<repo>/production``; Dual-Read: legacy ``Buchproduktion``)."""
+    """Produktions-Root (Default: ``<repo>/production``; Dual-Read: legacy ``Buchproduktion``).
+
+    ``$BSU_PRODUCTION_ROOT`` gilt vor der Konfiguration -- für Tests über beide
+    Apps (Vertrag, wie ``BSU_COVER_REGISTRY``), damit nichts in die echte
+    Produktion schreibt.
+    """
+    umgelenkt = production_root_override()
+    if umgelenkt is not None:
+        return umgelenkt
     raw = str(cfg.get("production_root_path") or PRODUCTION_DIR_NAME).strip()
     resolved = _resolve_path_entry(raw, base_path)
     if resolved is None:

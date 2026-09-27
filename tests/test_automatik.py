@@ -262,3 +262,18 @@ def test_cli_pruefe_mit_luecke(werkzeuge_da, tmp_path: Path, capsysbinary) -> No
 def test_cli_pruefe_ungueltiges_profil(tmp_path: Path, capsysbinary) -> None:
     assert cli_main(["pruefe", "--profil", str(tmp_path / "fehlt.json")]) == 1
     assert "fehlt" in _json_aus(capsysbinary)["luecken"][0]
+
+
+def test_produktionswurzel_umlenkbar(tmp_path: Path, monkeypatch) -> None:
+    """Vertrag: ``BSU_PRODUCTION_ROOT`` lenkt alle Produktionspfade um (Tests über beide Apps)."""
+    from services.band_run import resolve_runs_root
+    from services.handoff import _production_root
+    from tools.production_paths.config import resolve_books_workspace_dir
+
+    monkeypatch.setenv("BSU_PRODUCTION_ROOT", str(tmp_path / "prod"))
+    ziel = (tmp_path / "prod").resolve()
+    assert _production_root(BS_ROOT) == ziel
+    assert resolve_runs_root() == ziel / "runs"
+    assert resolve_books_workspace_dir({"production_root_path": "production"}, BS_ROOT) == ziel / "books"
+    monkeypatch.delenv("BSU_PRODUCTION_ROOT")
+    assert _production_root(BS_ROOT) != ziel
