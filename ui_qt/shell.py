@@ -147,7 +147,9 @@ class MainWindow(QMainWindow):
         pdfs_btn.setToolTip("Ablegen (PDF-Manager) — Render-Archiv für dieses Buch")
         pdfs_btn.clicked.connect(self._open_finished_pdfs)
         book_row.addWidget(pdfs_btn)
-        refresh_btn = QPushButton("Aktualisieren")
+        refresh_btn = QPushButton("↻")
+        refresh_btn.setFixedWidth(36)
+        refresh_btn.setToolTip("Buchliste aktualisieren")
         refresh_btn.clicked.connect(self._refresh_book_list)
         book_row.addWidget(refresh_btn)
         top.addWidget(book_half, stretch=1)
@@ -784,7 +786,6 @@ class MainWindow(QMainWindow):
     def _accept_delivery_interactive(self) -> Optional[Path]:
         """F′: Lieferung wählen, materialisieren, Buch aktivieren. Rückgabe: Buchpfad."""
         from services.delivery_intake import (
-            accept_delivery,
             gate_f_ok,
             list_actionable_deliveries,
             list_book_deliveries,
@@ -856,7 +857,11 @@ class MainWindow(QMainWindow):
             return None
 
         try:
-            result = accept_delivery(chosen.path, repo=root)
+            from services.delivery_bridge import run_delivery_bridge
+
+            bridge = run_delivery_bridge(
+                root, book=book, delivery=chosen.path
+            )
         except (OSError, ValueError, TypeError) as exc:
             QMessageBox.warning(
                 self,
@@ -865,15 +870,24 @@ class MainWindow(QMainWindow):
             )
             return None
 
+        if bridge.status == "error" or bridge.book_path is None:
+            QMessageBox.warning(
+                self,
+                "Lieferung übernehmen",
+                bridge.message or "Übernahme fehlgeschlagen.",
+            )
+            return None
+
         self._facade.log(
-            f"Lieferung übernommen: {chosen.path.name} -> {result.book_path.name}",
+            f"Lieferung übernommen: {chosen.path.name} -> {bridge.book_path.name}",
             "success",
         )
-        if result.cover_bind_status == "needs_choice":
+        if bridge.status == "interrupt":
+            self._facade.log(f"Cover↔Buch: {bridge.message}", "warning")
             try:
                 from ui_qt.dialogs.cover_bind_dialog import prompt_bind_cover_to_book
 
-                bind = prompt_bind_cover_to_book(self, result.book_path)
+                bind = prompt_bind_cover_to_book(self, bridge.book_path)
                 if bind.message:
                     level = (
                         "success"
@@ -885,20 +899,28 @@ class MainWindow(QMainWindow):
                     self._facade.log(f"Cover↔Buch: {bind.message}", level)
             except (OSError, TypeError, ValueError, ImportError) as exc:
                 self._facade.log(f"Cover↔Buch: {exc}", "warning")
-        elif result.cover_bind_message:
+        elif bridge.status == "conflict":
+            QMessageBox.warning(
+                self,
+                "Cover↔Buch",
+                bridge.message or "Cover-Bindung Konflikt.",
+            )
+            self._facade.log(f"Cover↔Buch: {bridge.message}", "warning")
+        elif bridge.cover_bind_message:
             level = (
                 "success"
-                if result.cover_bind_status in ("auto", "chosen", "already_bound")
+                if bridge.cover_bind_status
+                in ("auto", "chosen", "already_bound", "no_cover", "skipped")
                 else "warning"
-                if result.cover_bind_status in ("conflict", "error")
+                if bridge.cover_bind_status in ("conflict", "error", "interrupt")
                 else "info"
             )
-            self._facade.log(f"Cover↔Buch: {result.cover_bind_message}", level)
+            self._facade.log(f"Cover↔Buch: {bridge.cover_bind_message}", level)
 
         self._refresh_book_list()
-        self._try_select_book(result.book_path)
+        self._try_select_book(bridge.book_path)
         self._refresh_work_path()
-        return result.book_path
+        return bridge.book_path
 
     def _run_studio_pipeline(self, *, from_delivery: bool = False) -> None:
         """Teilkette: optional F′ -> Smart-G′ -> Render -> Freigabe -> Archiv."""
@@ -1054,6 +1076,98 @@ class MainWindow(QMainWindow):
             f"Teilkette beendet: {result.status} — {result.message}",
             level,
         )
+        self._refresh_work_path()
+
+    def _consume_band_handoff(self) -> None:
+        """Slice C: ausstehenden Handoff claimen → Bridge → Studio-Teilkette."""
+        from services.handoff import list_pending_handoffs, run_handoff_consume
+        from services.studio_pipeline import PipelineHooks
+        from tools.production_uuid import normalize_uuid, read_book_uuid
+        from ui_qt.work_path_guidance import prompt_pipeline_interrupt
+
+        root = repo_root()
+        uid = ""
+        book = self._facade.current_book
+        if book is not None:
+            try:
+                uid = normalize_uuid(read_book_uuid(Path(book)) or "") or ""
+            except (OSError, TypeError, ValueError):
+                uid = ""
+
+        pending = list_pending_handoffs(repo=root)
+        if not uid and not pending:
+            QMessageBox.information(
+                self,
+                "Band durchlaufen",
+                "Kein ausstehender Handoff von GrammarGraph.\n\n"
+                "Weiter: In El Pitugrafo „Band durchlaufen…“ / Teilkette mit "
+                "Lieferung starten — danach erscheint der Marker hier.\n"
+                "Ohne Production-UUID zuerst in Book Studio eine geplante "
+                "UUID wählen (Cover-first).",
+            )
+            return
+        if not uid and len(pending) > 1:
+            labels = [
+                f"{p.get('project_slug') or '?'} — {p.get('production_uuid')}"
+                for p in pending
+            ]
+            from PySide6.QtWidgets import QInputDialog
+
+            choice, ok = QInputDialog.getItem(
+                self,
+                "Band durchlaufen",
+                "Mehrere Handoffs — UUID wählen:",
+                labels,
+                0,
+                False,
+            )
+            if not ok:
+                return
+            idx = labels.index(choice)
+            uid = str(pending[idx].get("production_uuid") or "")
+        elif not uid and len(pending) == 1:
+            uid = str(pending[0].get("production_uuid") or "")
+
+        def _on_interrupt(outcome):
+            return prompt_pipeline_interrupt(self, outcome)
+
+        hooks = PipelineHooks(
+            log=self._facade.log,
+            on_interrupt=_on_interrupt,
+            repo_root=root,
+        )
+        self._facade.log(
+            f"Handoff übernehmen (Band durchlaufen)… UUID={uid or '(auto)'}",
+            "header",
+        )
+        result = run_handoff_consume(
+            root,
+            production_uuid=uid or None,
+            run_pipeline=True,
+            pipeline_hooks=hooks,
+        )
+        status = str(result.get("status") or "")
+        message = str(result.get("message") or "")
+        level = {
+            "ok": "success",
+            "interrupt": "warning",
+            "conflict": "warning",
+            "expired": "warning",
+            "empty": "info",
+            "error": "error",
+        }.get(status, "info")
+        self._facade.log(f"Handoff: {status} — {message}", level)
+        if status == "ok":
+            book_path = result.get("book_path")
+            if book_path:
+                self._refresh_book_list()
+                self._try_select_book(Path(book_path))
+        elif status in {"expired", "error", "empty", "interrupt", "conflict"}:
+            QMessageBox.information(
+                self,
+                "Band durchlaufen",
+                message or status,
+            )
         self._refresh_work_path()
 
     def _save(self) -> bool:

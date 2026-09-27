@@ -42,6 +42,8 @@ ERLAUBT: dict[str, str] = {
         "processed/ im Temp-Render-Klon, wird neu erzeugt",
     "services/backup_service.py::BackupService.is_backup_base_usable":
         "Schreibprobe im Backup-Ziel",
+    "services/band_run.py::write_band_run": ATOMAR,
+    "services/handoff.py::write_handoff": ATOMAR,
     "services/cover_deckblatt_pdf.py::build_interior_with_cover_deckblatt": TEMP,
     "tools/book_note/store.py::save": LEER,
     "tools/book_projects/label.py::write_display_name": LEER,

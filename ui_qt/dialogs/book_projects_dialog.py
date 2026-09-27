@@ -215,8 +215,13 @@ class BookProjectsQtDialog(QDialog):
         actions.addWidget(self.btn_import)
 
         actions.addStretch(1)
-        self.btn_delete = QPushButton("Ordner löschen…")
+        self.btn_delete = QPushButton("Buchprojekt löschen…")
         self.btn_delete.setObjectName("bookProjectsDanger")
+        self.btn_delete.setToolTip(
+            "Buchprojekt löschen… — Book-Studio-Ordner in den Papierkorb; "
+            "optional Inbox-Läufe und GrammarGraph-Projekt (mit Nachfrage). "
+            "Cover-Registry bleibt."
+        )
         self.btn_delete.clicked.connect(self._delete_book)
         actions.addWidget(self.btn_delete)
         self.btn_close = QPushButton("Schließen")
@@ -654,48 +659,41 @@ class BookProjectsQtDialog(QDialog):
             )
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Buchordner löschen",
-            f"Buchordner in den Papierkorb verschieben?\n\n{info.path}\n\n"
-            "Das trifft das ganze Projekt: Manuskript, bookconfig/ und alle "
-            "Renderarchive unter export/. Wiederherstellen geht über den "
-            "Windows-Papierkorb.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        # Zweite Stufe: den Ordnernamen tippen. Eine einzige Ja/Nein-Frage ist
-        # fuer eine Aktion dieser Tragweite zu billig -- ein Fehlklick in der
-        # Liste plus die Eingabetaste genuegten sonst, um ein Buch zu verlieren.
-        eingabe, ok = QInputDialog.getText(
-            self,
-            "Löschen bestätigen",
-            f"Zur Bestätigung den Ordnernamen eingeben:\n\n{info.name}",
-        )
-        if not ok:
-            return
-        if eingabe.strip() != info.name:
-            QMessageBox.information(
-                self,
-                "Löschen",
-                "Der eingegebene Name stimmt nicht überein — nichts gelöscht.",
-            )
-            return
-
-        from services.papierkorb import in_papierkorb
+        from services.lifecycle_end import LifecycleEndError, plan_lifecycle_end, run_lifecycle_end
+        from ui_qt.dialogs.lifecycle_end_dialog import prompt_lifecycle_end
 
         try:
-            in_papierkorb(info.path)
-        except OSError as exc:
-            QMessageBox.critical(self, "Löschen", str(exc))
+            plan = plan_lifecycle_end(info.path, repo=self._repo)
+        except LifecycleEndError as exc:
+            QMessageBox.warning(self, "Buchprojekt löschen", str(exc))
             return
+
+        choice = prompt_lifecycle_end(self, plan)
+        if not choice.confirmed:
+            return
+
+        result = run_lifecycle_end(
+            info.path,
+            repo=self._repo,
+            confirm_name=choice.confirm_name,
+            include_inbox=choice.include_inbox,
+            include_gg=choice.include_gg,
+            active_book=self._active_book_path(),
+            writer="orchestrator",
+        )
+        if result.status == "cancelled":
+            QMessageBox.information(self, "Löschen", result.message)
+            return
+        if result.status in {"blocked", "error"}:
+            QMessageBox.warning(self, "Buchprojekt löschen", result.message)
+            return
+
         self._reload()
         self._notify_host_refresh()
         if self.studio is not None and hasattr(self.studio, "log"):
-            self.studio.log(f"Buchordner in den Papierkorb: {info.path}", "warning")
+            self.studio.log(result.message, "warning")
+            for left in result.left_behind:
+                self.studio.log(f"Lebensende: {left}", "info")
 
 
 def open_book_projects_qt(studio: Any = None, parent: Optional[QWidget] = None) -> None:

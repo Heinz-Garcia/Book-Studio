@@ -241,9 +241,11 @@ class WorkPathBar(QWidget):
         # Alias für ältere Tests / Aufrufer
         self._collapsed_next_btn = self._primary_cta
 
-        self._refresh_btn = QPushButton("Aktualisieren")
+        self._refresh_btn = QPushButton("↻")
+        self._refresh_btn.setFixedWidth(36)
         self._refresh_btn.setToolTip(
-            "Ampeln aus dem Buchstand neu lesen (kein Werkzeug-Start)."
+            "Aktualisieren — Ampeln aus dem Buchstand neu lesen "
+            "(kein Werkzeug-Start)."
         )
         self._refresh_btn.clicked.connect(self._emit_refresh)
         head.addWidget(self._refresh_btn)

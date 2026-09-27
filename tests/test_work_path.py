@@ -49,6 +49,13 @@ def test_no_book_points_to_book_projects():
     ]
     assert state.checklist[1].kind == StageKind.OPEN
     assert all(c.kind == StageKind.BLOCKED for c in state.checklist[2:])
+    # Lieferung-Spalte: Lieferung + Buch + Rahmen
+    by_id = {c.id: c for c in state.checklist}
+    assert by_id["lieferung"].stage_id == StageId.F
+    assert by_id["book"].stage_id == StageId.F
+    assert by_id["rahmen"].stage_id == StageId.F
+    assert by_id["kapitel"].stage_id == StageId.G
+    assert by_id["formate"].stage_id == StageId.G
 
 
 def test_book_with_quarto_without_pdf_wants_render(tmp_path: Path, production_ready):
@@ -248,8 +255,8 @@ def test_gate_action_no_book():
     assert gate_action("delivery_intake", None).allowed
 
 
-def test_assess_with_inbox_repo_prefers_delivery(tmp_path: Path) -> None:
-    """Mit repo_root und Inbox-Lauf: F OPEN vor Bücher."""
+def test_assess_with_inbox_repo_still_wants_book_first(tmp_path: Path) -> None:
+    """Ohne Buch: Weiter = Buch wählen — auch wenn die Inbox gefüllt ist."""
     import json
 
     repo = tmp_path / "BS"
@@ -271,9 +278,12 @@ def test_assess_with_inbox_repo_prefers_delivery(tmp_path: Path) -> None:
     (run / "x.md").write_text("# x\n", encoding="utf-8")
 
     state = assess_work_path(None, repo_root=repo)
-    assert state.current_stage == StageId.F
-    assert next_action(state) == "delivery_intake"
-    assert state.stages[0].kind == StageKind.OPEN
+    assert state.current_stage == StageId.G
+    assert next_action(state) == "book_projects"
+    assert state.stages[0].kind == StageKind.EMPTY  # F: Hinweis, kein CTA
+    assert state.stages[1].kind == StageKind.OPEN  # G: Buch
+    assert "Buch" in state.summary
+    assert "Inbox" in state.checklist[0].detail or "Lieferung" in state.checklist[0].detail
 
 
 def test_gate_action_compliance_needs_pdf(tmp_path: Path, monkeypatch, production_ready):

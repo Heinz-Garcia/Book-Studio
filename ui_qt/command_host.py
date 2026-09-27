@@ -74,6 +74,9 @@ class CommandHost:
     def work_path_pipeline_from_delivery(self) -> None:
         self.w._run_studio_pipeline(from_delivery=True)
 
+    def work_path_band_a_to_j(self) -> None:
+        self.w._consume_band_handoff()
+
     def work_path_delivery_intake(self) -> None:
         self.w._work_path_run_action("delivery_intake")
 

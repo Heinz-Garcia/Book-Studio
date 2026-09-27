@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "production_uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "updated_at": "2026-09-26T12:00:00+00:00",
+  "updated_by": "orchestrator",
+  "current_stage": "G",
+  "lifecycle": "active",
+  "paths": {
+    "gg_project": null,
+    "delivery": "C:/example/production/inbox/Prosa_X/01.01.2026_12.00",
+    "book": "C:/example/books/Prosa_X",
+    "cover_primary": null,
+    "archive_hint": null
+  },
+  "gates": {
+    "F": {
+      "status": "pass",
+      "detail": "Lieferung 01.01.2026_12.00",
+      "source": "delivery_bridge"
+    }
+  },
+  "zone_gg": {
+    "stage": "E",
+    "detail": null,
+    "artifacts": {}
+  },
+  "zone_bs": {
+    "stage": "G",
+    "detail": "Brücke ok; Cover=no_cover",
+    "artifacts": {
+      "delivery": "C:/example/production/inbox/Prosa_X/01.01.2026_12.00",
+      "cover_bind": "no_cover"
+    }
+  },
+  "lock": null,
+  "tombstone": null
+}

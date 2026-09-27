@@ -37,6 +37,7 @@ __all__ = [
     "mark_gate",
     "cover_finished_ok",
     "next_action",
+    "primary_cta_short",
     "read_book_run",
     "record_interrupt_decision",
     "record_pipeline_step",
@@ -83,13 +84,13 @@ STUDIO_STAGES: tuple[StageSpec, ...] = (
         StageId.F,
         "Lieferung",
         "delivery_intake",
-        "Lieferung aus der Inbox übernehmen.",
+        "Lieferung übernehmen, Buch wählen und Rahmen prüfen.",
     ),
     StageSpec(
         StageId.G,
         "Struktur",
         "book_projects",
-        "Buch wählen, Rahmen, Kapitel und Formate prüfen.",
+        "Kapitel und Formate prüfen.",
     ),
     StageSpec(
         StageId.H,
@@ -143,6 +144,8 @@ class WorkPathState:
     summary: str
     artifacts: dict[str, str] = field(default_factory=dict)
     checklist: tuple[ChecklistItem, ...] = ()
+    #: Für Primär-CTA (Lieferung 1 vs. n); optional.
+    repo_root: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -178,8 +181,8 @@ def guided_bar_enablement(state: WorkPathState) -> GuidedBarEnablement:
     „Teilkette“ gehört ins Menü, nicht als zweite CTA auf die Leiste.
     """
     labels = {
-        "delivery_intake": "Lieferung übernehmen (Inbox)",
-        "book_projects": "Bücher wählen (Buchprojekte verwalten)",
+        "delivery_intake": "Lieferung übernehmen",
+        "book_projects": "Buch wählen",
         "open_quarto_config_editor": "Struktur prüfen (_quarto.yml)",
         "open_rahmen_editor": "Rahmen prüfen (Rahmenseiten)",
         "open_kapitel_editor": "Kapitel prüfen (Kapitelstruktur)",
@@ -194,10 +197,14 @@ def guided_bar_enablement(state: WorkPathState) -> GuidedBarEnablement:
     }
     next_id = state.next_action_id
     next_enabled = bool(next_id)
-    next_label = labels.get(next_id or "", "nächste Stufe")
+    next_label = primary_cta_short(state) if next_enabled else labels.get(
+        next_id or "", "nächste Stufe"
+    )
     next_reason = (
         f"Als Nächstes: {next_label}."
         if next_enabled
+        else "Kein nächster Schritt — bitte zuerst ein Buch wählen."
+        if state.book_path is None
         else "Kein nächster Schritt."
     )
 
@@ -262,6 +269,75 @@ def guided_bar_enablement(state: WorkPathState) -> GuidedBarEnablement:
     )
 
 
+def primary_cta_short(state: WorkPathState) -> str:
+    """Primär-CTA-Text laut Mehrdeutigkeits-Policy (ohne „Weiter:“-Präfix).
+
+    | Situation | CTA |
+    | Kein Buch | Buch wählen |
+    | 1 actionable Lieferung | Lieferung übernehmen (+ Laufname) |
+    | Mehrere actionable | Lieferung wählen… |
+    """
+    action = str(state.next_action_id or "").strip()
+    if not action:
+        return "nächste Stufe"
+    if action == "book_projects":
+        return "Buch wählen"
+    if action == "delivery_intake":
+        book = state.book_path
+        if book is None:
+            return "Buch wählen"
+        try:
+            from services.delivery_intake import (
+                list_actionable_deliveries,
+                newest_actionable_delivery,
+            )
+
+            repo = Path(state.repo_root) if state.repo_root is not None else _guess_repo_root(Path(book))
+            actionable = list_actionable_deliveries(repo, Path(book))
+            if len(actionable) > 1:
+                return "Lieferung wählen…"
+            if len(actionable) == 1:
+                newest = newest_actionable_delivery(repo, Path(book)) or actionable[0]
+                name = Path(newest.path).name if newest else ""
+                return (
+                    f"Lieferung übernehmen ({name})"
+                    if name
+                    else "Lieferung übernehmen"
+                )
+        except (OSError, TypeError, ValueError, ImportError):
+            pass
+        return "Lieferung übernehmen"
+    fallback = {
+        "open_quarto_config_editor": "Struktur prüfen (_quarto.yml)",
+        "open_rahmen_editor": "Rahmen prüfen (Rahmenseiten)",
+        "open_kapitel_editor": "Kapitel prüfen (Kapitelstruktur)",
+        "skeleton_populate": "Übernehmen (Skeleton)",
+        "gg_content_swap": "Inhalt aktualisieren (GG-Inhaltstausch)",
+        "accept_kapitel_as_is": "Inhalt belassen (Buchstruktur)",
+        "markup_inventory": "Formate zuordnen (Textauszeichnungs-Inventar)",
+        "kdp_cover": "Cover gestalten (KDP Cover-Designer)",
+        "render": "PDF erzeugen (Export)",
+        "publisher_compliance": "Freigabe prüfen (Druck-Freigabe)",
+        "mapping_manager": "Ablegen (PDF-Manager)",
+    }
+    return fallback.get(action, "nächste Stufe")
+
+
+def _guess_repo_root(book: Path) -> Path:
+    """Best effort: Production-Root → Repo, sonst Buch-Eltern."""
+    try:
+        for parent in [book.parent, *book.parents]:
+            if (parent / "app_config.json").is_file():
+                return parent.resolve()
+            if (parent / "production").is_dir() and (parent / "book_studio.py").is_file():
+                return parent.resolve()
+    except (OSError, TypeError, ValueError):
+        pass
+    if book.parent.name.lower() == "books" and book.parent.parent.name.lower() == "production":
+        return book.parent.parent.parent.resolve()
+    return book.parent.resolve()
+
+
 def gate_action(
     action: str,
     book_path: Optional[Path],
@@ -283,23 +359,9 @@ def gate_action(
 
     if key == "studio_pipeline":
         if book_path is None:
-            try:
-                from services.delivery_intake import has_actionable_deliveries
-
-                scan_root = Path(repo_root) if repo_root is not None else None
-                if scan_root is not None and has_actionable_deliveries(scan_root, None):
-                    return ActionGate(
-                        False,
-                        "Keine Buch aktiv — zuerst Lieferung übernehmen "
-                        "(dann Teilkette ab Lieferung).",
-                        redirect_action="delivery_intake",
-                    )
-            except ImportError:
-                pass
             return ActionGate(
                 False,
-                "Kein Buchprojekt aktiv. Zuerst Stufe G: Bücher wählen "
-                "oder eine Lieferung übernehmen.",
+                "Kein Buchprojekt aktiv. Zuerst Stufe G: Bücher wählen.",
                 redirect_action="book_projects",
             )
         book = Path(book_path)
@@ -330,6 +392,9 @@ def gate_action(
         return ActionGate(True)
 
     if book_path is None:
+        # Ohne aktives Buch ist der nächste Schritt immer „Buch wählen“.
+        # Eine anonyme Inbox-Lieferung wäre ohne Projektkontext irreführend
+        # (welche Lieferung? welches Zielbuch?).
         try:
             from services.delivery_intake import has_actionable_deliveries
 
@@ -337,9 +402,9 @@ def gate_action(
             if scan_root is not None and has_actionable_deliveries(scan_root, None):
                 return ActionGate(
                     False,
-                    "Kein Buchprojekt aktiv. Neuere Lieferung in der Inbox — "
-                    "zuerst übernehmen.",
-                    redirect_action="delivery_intake",
+                    "Kein Buchprojekt aktiv. Zuerst Stufe G: Bücher wählen "
+                    "(danach ggf. Lieferung für dieses Buch).",
+                    redirect_action="book_projects",
                 )
         except ImportError:
             pass
@@ -1132,32 +1197,26 @@ def assess_checklist(
         )
 
     if book_path is None:
-        lieferung_kind = StageKind.EMPTY
+        # Ohne Buch: nächster sinnvoller Schritt ist immer Bücher wählen.
+        # Inbox-Hinweis nur im Detail — nicht als Ampel-OPEN (sonst stiehlt
+        # „Lieferung“ dem Weiter-Button den Kontext).
         lieferung_detail = "Keine Lieferung in der Inbox"
         if repo_root is not None:
             try:
                 from services.delivery_intake import has_actionable_deliveries
 
                 if has_actionable_deliveries(Path(repo_root), None):
-                    lieferung_kind = StageKind.OPEN
-                    lieferung_detail = "Neuere Lieferung — jetzt übernehmen"
+                    lieferung_detail = (
+                        "Inbox hat Lieferungen — zuerst Buch wählen, "
+                        "dann für dieses Buch prüfen"
+                    )
             except ImportError:
                 pass
-        book_kind = (
-            StageKind.BLOCKED
-            if lieferung_kind == StageKind.OPEN
-            else StageKind.OPEN
-        )
-        book_detail = (
-            "Zuerst Lieferung übernehmen"
-            if book_kind == StageKind.BLOCKED
-            else "Kein Buch gewählt"
-        )
         return (
             _item(
                 "lieferung",
                 "Lieferung",
-                kind=lieferung_kind,
+                kind=StageKind.EMPTY,
                 action="delivery_intake",
                 detail=lieferung_detail,
                 stage_id=StageId.F,
@@ -1165,10 +1224,10 @@ def assess_checklist(
             _item(
                 "book",
                 "Buch",
-                kind=book_kind,
+                kind=StageKind.OPEN,
                 action="book_projects",
-                detail=book_detail,
-                stage_id=StageId.G,
+                detail="Kein Buch gewählt",
+                stage_id=StageId.F,
             ),
             _item(
                 "rahmen",
@@ -1176,7 +1235,7 @@ def assess_checklist(
                 kind=StageKind.BLOCKED,
                 action="skeleton_populate",
                 detail="Zuerst Buch wählen",
-                stage_id=StageId.G,
+                stage_id=StageId.F,
             ),
             _item(
                 "kapitel",
@@ -1374,7 +1433,7 @@ def assess_checklist(
                 else "book_projects"
             ),
             detail=book_detail,
-            stage_id=StageId.G,
+            stage_id=StageId.F,
         ),
         _item(
             "rahmen",
@@ -1386,7 +1445,7 @@ def assess_checklist(
                 else "skeleton_populate"
             ),
             detail=rahmen[1],
-            stage_id=StageId.G,
+            stage_id=StageId.F,
         ),
         _item(
             "kapitel",
@@ -1549,6 +1608,27 @@ def _stage_f_snapshot(
             detail="Lieferungsmodul nicht ladbar",
         )
 
+    if book is None:
+        # Ohne Buch: F nicht als OPEN aus der globalen Inbox — sonst wirkt
+        # „Weiter: Lieferung“ sinnvoll, obwohl unklar ist, welche.
+        detail = "Keine Lieferung in der Inbox"
+        try:
+            if has_actionable_deliveries(root, None):
+                detail = (
+                    "Inbox hat Lieferungen — zuerst Buch wählen, "
+                    "dann für dieses Buch prüfen"
+                )
+        except TypeError:
+            pass
+        return StageSnapshot(
+            id=spec.id,
+            label=spec.label,
+            kind=StageKind.EMPTY,
+            action=spec.action,
+            tip=spec.tip,
+            detail=detail,
+        )
+
     if has_actionable_deliveries(root, book):
         newest = newest_actionable_delivery(root, book)
         detail = (
@@ -1563,16 +1643,6 @@ def _stage_f_snapshot(
             action=spec.action,
             tip=spec.tip,
             detail=detail,
-        )
-
-    if book is None:
-        return StageSnapshot(
-            id=spec.id,
-            label=spec.label,
-            kind=StageKind.EMPTY,
-            action=spec.action,
-            tip=spec.tip,
-            detail="Keine Lieferung in der Inbox",
         )
 
     if gate_f_ok(book):
@@ -1609,52 +1679,8 @@ def assess_work_path(
     f_snap = _stage_f_snapshot(book_path, repo_root=repo_root)
 
     if book_path is None:
-        if f_snap.kind == StageKind.OPEN:
-            stages = (
-                f_snap,
-                StageSnapshot(
-                    id=StageId.G,
-                    label="Struktur",
-                    kind=StageKind.BLOCKED,
-                    action="book_projects",
-                    tip=STUDIO_STAGES[1].tip,
-                    detail="Zuerst Lieferung übernehmen",
-                ),
-                StageSnapshot(
-                    id=StageId.H,
-                    label="Render",
-                    kind=StageKind.BLOCKED,
-                    action="render",
-                    tip=STUDIO_STAGES[2].tip,
-                    detail="Zuerst Lieferung",
-                ),
-                StageSnapshot(
-                    id=StageId.I,
-                    label="Freigabe",
-                    kind=StageKind.BLOCKED,
-                    action="publisher_compliance",
-                    tip=STUDIO_STAGES[3].tip,
-                    detail="Zuerst Lieferung",
-                ),
-                StageSnapshot(
-                    id=StageId.J,
-                    label="Archiv",
-                    kind=StageKind.BLOCKED,
-                    action="mapping_manager",
-                    tip=STUDIO_STAGES[4].tip,
-                    detail="Zuerst Lieferung",
-                ),
-            )
-            return WorkPathState(
-                book_path=None,
-                stages=stages,
-                current_stage=StageId.F,
-                next_action_id="delivery_intake",
-                summary="Neuere Lieferung — als Nächstes: übernehmen",
-                artifacts={},
-                checklist=assess_checklist(None, repo_root=repo_root),
-            )
-
+        # Ohne Buch: immer „Bücher wählen“. Inbox-OPEN als Next wäre ohne
+        # Projektkontext irreführend („welche Lieferung?“).
         stages = (
             f_snap,
             StageSnapshot(
@@ -1695,9 +1721,10 @@ def assess_work_path(
             stages=stages,
             current_stage=StageId.G,
             next_action_id="book_projects",
-            summary="Kein Buch — als Nächstes: Bücher wählen",
+            summary="Kein Buch — als Nächstes: Buch wählen",
             artifacts={},
             checklist=assess_checklist(None, repo_root=repo_root),
+            repo_root=Path(repo_root) if repo_root is not None else None,
         )
 
     book = Path(book_path)
@@ -1853,6 +1880,14 @@ def assess_work_path(
         current = StageId.J
     action = next_action_from_stages(stages)
     summary = _summary(book, stages, action)
+    try:
+        from services.band_run import summary_hint_for_book
+
+        hint = summary_hint_for_book(book, repo=repo_root)
+        if hint:
+            summary = f"{summary} — {hint}"
+    except ImportError:
+        pass
     _persist_derived(book, stages, current, artifacts)
     return WorkPathState(
         book_path=book,
@@ -1864,6 +1899,7 @@ def assess_work_path(
         checklist=assess_checklist(
             book, repo_root=repo_root, structure_paths=structure_paths
         ),
+        repo_root=Path(repo_root) if repo_root is not None else None,
     )
 
 
@@ -1885,8 +1921,8 @@ def next_action(state: WorkPathState) -> Optional[str]:
 def _summary(book: Path, stages: tuple[StageSnapshot, ...], action: Optional[str]) -> str:
     open_stage = next((s for s in stages if s.kind == StageKind.OPEN), None)
     labels = {
-        "delivery_intake": "Lieferung übernehmen (Inbox)",
-        "book_projects": "Bücher wählen (Buchprojekte verwalten)",
+        "delivery_intake": "Lieferung übernehmen",
+        "book_projects": "Buch wählen",
         "open_quarto_config_editor": "Struktur prüfen (_quarto.yml)",
         "open_rahmen_editor": "Rahmen prüfen (Rahmenseiten)",
         "open_kapitel_editor": "Kapitel prüfen (Kapitelstruktur)",

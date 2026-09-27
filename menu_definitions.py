@@ -122,6 +122,10 @@ MENU_VIEW = [
                 label="⛓ Teilkette ab Lieferung (Studio-Pipeline)…",
                 command="work_path_pipeline_from_delivery",
             ),
+            MenuItem(
+                label="⏭ Band durchlaufen (Handoff A→J)…",
+                command="work_path_band_a_to_j",
+            ),
             MenuSeparator(),
             MenuItem(
                 label="F · Lieferung übernehmen (Inbox)…",

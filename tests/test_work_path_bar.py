@@ -30,7 +30,7 @@ def test_work_path_bar_applies_no_book_state():
     assert not bar._stage_buttons[2].isEnabled()
     assert not bar._stage_buttons[3].isEnabled()
     assert not bar._stage_buttons[4].isEnabled()
-    assert bar._refresh_btn.text() == "Aktualisieren"
+    assert bar._refresh_btn.text() == "↻"
     assert not hasattr(bar, "_pipeline_btn")
     assert bar.collapsed is False
     # Primär-CTA und Aktualisieren nur im ausgeklappten Panel

@@ -22,8 +22,8 @@ __all__ = [
 ]
 
 _GO_LABELS = {
-    "delivery_intake": "Lieferung übernehmen (Inbox)…",
-    "book_projects": "Bücher wählen (Buchprojekte verwalten)…",
+    "delivery_intake": "Lieferung übernehmen…",
+    "book_projects": "Buch wählen…",
     "open_quarto_config_editor": "Struktur öffnen (_quarto.yml)…",
     "open_rahmen_editor": "Rahmen öffnen (Rahmenseiten)…",
     "open_kapitel_editor": "Kapitel öffnen (Kapitelstruktur)…",
@@ -48,16 +48,16 @@ def prompt_need_book(
     title: str = "Kein Buch",
     message: str = (
         "Kein Buchprojekt aktiv.\n\n"
-        "Stufe G im Arbeitsweg: zuerst ein Buch wählen oder anlegen."
+        "Weiter: Buch wählen — danach ggf. Lieferung für dieses Buch."
     ),
 ) -> bool:
-    """True, wenn der Nutzer „Bücher wählen…“ gewählt hat."""
+    """True, wenn der Nutzer „Buch wählen…“ gewählt hat."""
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Warning)
     box.setWindowTitle(title)
     box.setText(message)
     open_btn = box.addButton(
-        "Bücher wählen (Buchprojekte verwalten)…", QMessageBox.ButtonRole.AcceptRole
+        "Buch wählen…", QMessageBox.ButtonRole.AcceptRole
     )
     box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
     box.setDefaultButton(open_btn)
@@ -76,7 +76,7 @@ def warn_need_book(
     """Warnung mit optionalem Sprung zu Bücher wählen."""
     text = message or (
         "Kein Buchprojekt aktiv.\n\n"
-        "Stufe G im Arbeitsweg: zuerst ein Buch wählen oder anlegen."
+        "Weiter: Buch wählen — danach ggf. Lieferung für dieses Buch."
     )
     if prompt_need_book(parent, title=title, message=text):
         if on_open_books is not None:

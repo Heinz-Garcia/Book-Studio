@@ -128,6 +128,57 @@
       "lesen": "publish_meta.json uuid -> bookconfig/grammargraph_export.json -> _book_studio.toml [book]/[metadata] uuid",
       "schreiben": "nur _book_studio.toml [book] uuid, nur wenn das Buch keine UUID traegt; nie ueberschreiben (tools/production_uuid.py::write_book_uuid, aufgerufen von bind_cover_to_book)",
       "quittung": "publish_meta.json bleibt die unveraenderte Lieferquittung von GG"
+    },
+    "band_run": {
+      "richtung": "beide lesen; Zone-Schreiben GG=zone_gg / BS=zone_bs / Orchestrator mit Lock",
+      "erzeuger": "BS services/band_run.py::write_band_run / materialize_band_run_from_book; Bridge services/delivery_bridge.py::run_delivery_bridge (Slice B, zone_bs + paths); spaeter GG-Writer + Orchestrator",
+      "leser": [
+        "BS services/band_run.py::read_band_run",
+        "BS services/work_path.py (Summary-Hinweis)",
+        "BS services/delivery_bridge.py (nach Übernahme)",
+        "GG tools/book_studio_bridge/band_run.py::read_band_run"
+      ],
+      "ordner": "<production>/runs/<production_uuid>/",
+      "datei": "band_run.json",
+      "spiegel": "band_run.md (nur generiert aus JSON)",
+      "schema_version": 1,
+      "beispiel": "tests/kontrakt/beispiel/band_run.json",
+      "felder": {
+        "band_run.json": {
+          "schema_version": "int",
+          "production_uuid": "uuid",
+          "updated_at": "str",
+          "updated_by": "str",
+          "current_stage": "str",
+          "lifecycle": "str",
+          "paths": "dict",
+          "paths.gg_project": "str?",
+          "paths.delivery": "str?",
+          "paths.book": "str?",
+          "paths.cover_primary": "str?",
+          "paths.archive_hint": "str?",
+          "gates": "dict",
+          "zone_gg": "dict",
+          "zone_bs": "dict",
+          "lock": "dict?",
+          "tombstone": "dict?"
+        }
+      },
+      "hinweis": "Menschenlesbar: BS .doc/1klick-orchestrierung-beide-apps.md. book_run.json bleibt Studio-Spiegel, nicht app-uebergreifende SSOT. lifecycle=tombstoned + tombstone nach Slice L (services/lifecycle_end.py); Cover-Registry wird nie geloescht."
+    },
+    "handoff": {
+      "richtung": "GG schreibt pending; BS claimt und konsumiert (Slice C)",
+      "erzeuger": "GG tools/book_studio_bridge/handoff.py::write_pending_handoff (nach Teilkette --liefern); BS services/handoff.py",
+      "leser": [
+        "BS services/handoff.py::read_handoff / claim_handoff / run_handoff_consume",
+        "BS ui_qt/shell.py::_consume_band_handoff"
+      ],
+      "ordner": "<production>/runs/<production_uuid>/",
+      "datei": "handoff_pending.json",
+      "schema_version": 1,
+      "timeout_default_hours": 2,
+      "status": ["pending", "claimed", "done", "expired", "cancelled"],
+      "hinweis": "Timeout → expired, kein Auto-Retry. Kein paralleler A→J-Lauf derselben UUID."
     }
   }
 }
