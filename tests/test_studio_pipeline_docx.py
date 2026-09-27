@@ -237,3 +237,51 @@ def test_echter_docx_satz_band_dummy(tmp_path: Path) -> None:
     docx = Path(outcome.details["docx"])
     assert docx.is_file() and docx.stat().st_size > 1000
     assert any(Path(a).suffix == ".docx" for a in outcome.details["archiv"])
+
+
+def _mit_pflichtseite(book: Path) -> None:
+    (book / "content" / "Titel.md").write_text(
+        '---\ntitle: "Titel"\nrequired: true\norder: "1"\n---\n\n# Titel\n', encoding="utf-8"
+    )
+    (book / "kapitel.md").write_text("---\ntitle: Kapitel\n---\n\nText.\n", encoding="utf-8")
+    (book / "_quarto.yml").write_text(
+        "project:\n  type: book\nbook:\n  chapters:\n  - kapitel.md\n", encoding="utf-8"
+    )
+
+
+def test_durchlauf_nimmt_pflichtseiten_mit_herkunft_auf(tmp_path: Path, satz) -> None:
+    import yaml
+
+    book = _book(tmp_path)
+    _mit_pflichtseite(book)
+    zeilen: list[str] = []
+    result = run_studio_chain(
+        book,
+        options=DURCH,
+        hooks=PipelineHooks(
+            log=lambda m, _l="info": zeilen.append(m),
+            get_export_options=lambda: dict(DOCX_EXPORT),
+            on_interrupt=_niemand_fragen,
+        ),
+    )
+    assert result.status == "passed"
+    skeleton = {o.id: o for o in result.outcomes}["skeleton"]
+    assert "1 Pflichtseite(n) aufgenommen" in skeleton.message
+    assert list(skeleton.details["pflichtseiten"]) == ["content/Titel.md"]
+    assert skeleton.details["struktur_snapshot"]
+    kapitel = yaml.safe_load((book / "_quarto.yml").read_text(encoding="utf-8"))["book"]["chapters"]
+    assert kapitel.index("content/Titel.md") < kapitel.index("kapitel.md")
+    assert any(z.startswith("Pflichtseite aufgenommen: content/Titel.md — ") for z in zeilen)
+
+
+def test_ohne_durchlauf_bleibt_struktur_unberuehrt(tmp_path: Path, satz) -> None:
+    book = _book(tmp_path)
+    _mit_pflichtseite(book)
+    vorher = (book / "_quarto.yml").read_text(encoding="utf-8")
+    run_studio_chain(
+        book,
+        hooks=PipelineHooks(get_export_options=lambda: dict(DOCX_EXPORT), on_interrupt=_niemand_fragen),
+    )
+    assert (book / "_quarto.yml").read_text(encoding="utf-8").count("content/Titel.md") == vorher.count(
+        "content/Titel.md"
+    ) == 0

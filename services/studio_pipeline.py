@@ -304,7 +304,10 @@ def _run_stage(
     if stage_id == "delivery":
         return _stage_delivery(book, hooks)
     if stage_id == "skeleton":
-        return _stage_skeleton(book, opts, hooks)
+        outcome = _stage_skeleton(book, opts, hooks)
+        if opts.durchlaufen and outcome.status in {StageStatus.PASS, StageStatus.SKIPPED}:
+            outcome = _mit_pflichtseiten(book, outcome, hooks)
+        return outcome
     if stage_id == "render":
         return _stage_render(book, hooks, opts)
     if stage_id == "compliance":
@@ -467,12 +470,14 @@ def _stage_skeleton(
             },
         )
 
-    mark_gate(book, "G", "pass", detail="populated", current_stage="G")
+    mark_gate(book, "G", "pass", detail=f"populated ({Path(profile_dir).name})", current_stage="G")
+    hooks.log(f"Skeleton aus Profil {Path(profile_dir).name} übernommen.", "info")
     return StageOutcome(
         "skeleton",
         StageStatus.PASS,
-        "Skeleton übernommen.",
+        f"Skeleton übernommen (Profil {Path(profile_dir).name}).",
         details={
+            "profil": Path(profile_dir).name,
             "copied": list(getattr(result, "copied", []) or []),
             "replaced": list(getattr(result, "replaced", []) or []),
         },
@@ -484,6 +489,39 @@ def _docx_layout(export: dict[str, Any]) -> Optional[str]:
     fmt = str(export.get("format") or export.get("output_format") or "").strip().lower()
     name = str(export.get("doclayout") or "").strip()
     return name if fmt == "docx" and name else None
+
+
+def _mit_pflichtseiten(book: Path, outcome: StageOutcome, hooks: PipelineHooks) -> StageOutcome:
+    """Durchlauf: fehlende Pflichtseiten in die Struktur („all required“), mit Herkunft im Log."""
+    from dataclasses import replace
+
+    from services.pflichtseiten import nimm_pflichtseiten_auf
+    from tools.skeleton.herkunft import bibliothek
+
+    repo = Path(hooks.repo_root) if hooks.repo_root else Path(__file__).resolve().parent.parent
+    try:
+        ergebnis = nimm_pflichtseiten_auf(book, library_root=bibliothek(repo))
+    except (OSError, TypeError, ValueError) as exc:
+        warnung = f"Pflichtseiten nicht aufgenommen: {exc}"
+        return replace(outcome, details={**outcome.details, "warnungen": [
+            *(outcome.details.get("warnungen") or []), warnung]})
+    if not ergebnis.aufgenommen:
+        return outcome
+    for pfad in ergebnis.aufgenommen:
+        hooks.log(f"Pflichtseite aufgenommen: {pfad} — {ergebnis.herkunft.get(pfad, '?')}", "info")
+    if ergebnis.snapshot:
+        hooks.log(f"Struktur vorher gesichert (Time-Machine): {ergebnis.snapshot}", "dim")
+    quellen = sorted({ergebnis.herkunft.get(p, "?").split(" (")[0] for p in ergebnis.aufgenommen})
+    return replace(
+        outcome,
+        message=f"{outcome.message} {len(ergebnis.aufgenommen)} Pflichtseite(n) aufgenommen "
+        f"({'; '.join(quellen)}).",
+        details={
+            **outcome.details,
+            "pflichtseiten": dict(ergebnis.herkunft),
+            "struktur_snapshot": ergebnis.snapshot or "",
+        },
+    )
 
 
 def _stage_render(

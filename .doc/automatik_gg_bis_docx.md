@@ -169,12 +169,31 @@ BS  Handoff-Claim ─ F′ Übernahme ─ G Skeleton/Inhalt/Formate ─ H DOCX-S
 - [x] End-to-End-Test über beide Repos (`GG tests/tools/test_band_automatik_e2e.py`): GG-Batch →
       echte Lieferung + Handoff → BS als echter Unterprozess → echter Pandoc-Satz → DOCX, Kopie,
       `band_run`, Bericht. Nur das Messen ist gefälscht. BS schreibt über `BSU_PRODUCTION_ROOT` ins Temp
-- [ ] Realer Lauf mit einem kleinen Band (z. B. HuG), Bericht und Kosten plausibel -- **kostet Geld,
-      wartet auf dein Go**
+- [x] Realer Lauf mit Hänsel und Gretel (27.09., Nachbessern an, Start Zuschnitt): **fertig**,
+      DOCX gesetzt, 47 min, 0,23 € (Lauf lokal über Ollama, bezahlt nur Prüfen/Schreiben).
+      Funde und Schärfungen siehe „Nach dem echten Lauf“
 - [x] Doku: Handbuch-Abschnitt „Automatik“ (BS `doc/handbuch.md`), Kontrakt-Doku (beide Repos),
       Versionen gebumpt. GG-CHANGELOG wird seit 31.59 nicht mehr geführt -- nicht nachgetragen
 
 ---
+
+## Nach dem echten Lauf (27.09.)
+
+Entscheidungen des Nutzers nach dem HuG-Lauf:
+
+- [x] **Neufassungen vergleichen und übernehmen.** Alle 6 bezahlten Neufassungen blieben liegen:
+      ohne Erstbewertung kein direkter Vergleich alt/neu, also keine „empfohlen“. Jetzt holt die
+      Teilkette die fehlenden Vergleiche selbst (`Policy.vergleichen`, Prüf-Preset), die Automatik
+      schaltet das ein, sobald nachgebessert wird. Übernahmeregeln unverändert (GG c8ae9f8)
+- [x] **Pflichtseiten automatisch in die Struktur**, mit Herkunft im Log: `services/pflichtseiten.py`
+      (wie „all required“, Time-Machine-Snapshot vorher), `tools/skeleton/herkunft.py`. Populate hält
+      das Profil jetzt in `bookconfig/skeleton_herkunft.json` fest; ältere Seiten werden aus der
+      Bibliothek **nachgewiesen** (identisch / Pfad gleich, Inhalt geändert / unbekannt), nie geraten.
+      Alle Pflichtseiten kommen auch in die DOCX, Platzhalter inklusive -- der Nutzer bearbeitet sie in Word
+- [x] **Keine Kapitelüberschriften erfinden.** Die HuG-Buchkonfiguration liefert „ohne #“; Book Studio
+      ergänzt nichts. Das Inhaltsverzeichnis der DOCX bleibt dann leer -- gewollt
+- [x] Bericht: mehrzeilige Warnungen vollständig, lokaler Lauf = 0 € statt „unbekannt“, Gate B in der
+      Stufentabelle
 
 ## Offene Entscheidungen
 

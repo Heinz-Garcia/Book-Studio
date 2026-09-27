@@ -393,6 +393,18 @@ def populate_book(
     # Kein Anfassen von Buchbaum / _quarto.yml — Nutzer hängt rechts manuell ein.
     if save:
         result.saved = True
+        try:
+            from tools.skeleton.herkunft import schreibe_herkunft
+
+            schreibe_herkunft(
+                book_path,
+                profil=profile_name or Path(profile_dir).name,
+                dateien=result.copied + result.replaced,
+            )
+        except OSError:
+            # Der Herkunftsnachweis ist Zusatz -- die Seiten sind kopiert.
+            # Fehlt er, weist ``herkunft()`` sie später aus der Bibliothek nach.
+            pass
     return result
 
 
