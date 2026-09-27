@@ -321,6 +321,17 @@ def _kopiere_in_zielordner(docx: Path, zielordner: str, buch: str) -> Path:
     return kopie
 
 
+def _nacharbeit_kurz(buch: Path, layout: str, repo: Path, skeleton: str = "") -> dict[str, Any]:
+    """Offene Punkte für den Bericht (``services.nacharbeit``); leer bei Fehler."""
+    from services.nacharbeit import offene_punkte
+    from tools.skeleton.herkunft import bibliothek
+
+    try:
+        return offene_punkte(buch, layout_name=layout, library_root=bibliothek(repo), skeleton_profil=skeleton)
+    except (OSError, TypeError, ValueError, RuntimeError):
+        return {}
+
+
 def fuehre_bs_teil_aus(
     profil: dict[str, Any],
     repo: Path,
@@ -402,6 +413,9 @@ def fuehre_bs_teil_aus(
 
     antwort["status"] = "ok"
     antwort["meldung"] = f"DOCX gesetzt: {Path(docx).name}"
+    antwort["nacharbeit"] = _nacharbeit_kurz(
+        Path(str(ergebnis.get("book_path") or "")), export["doclayout"], repo, skeleton
+    )
     zielordner = str(bs.get("zielordner") or "")
     if zielordner:
         buch = Path(str(ergebnis.get("book_path") or "")).name

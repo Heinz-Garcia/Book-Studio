@@ -9,6 +9,11 @@
     # BS-Teil ausführen: Handoff → Übernahme → Studio-Kette → DOCX; Exit 0 = DOCX da
     python -m tools.automatik lauf --profil production/runs/<uuid>/automatik.json
 
+    # Nacharbeit am Ende: Dialog (fehlende Ressourcen, Formate, Vorlagen, DOCX neu)
+    python -m tools.automatik nacharbeit --profil production/runs/<uuid>/automatik.json
+    # ... oder nur die offenen Punkte als JSON
+    python -m tools.automatik nacharbeit --profil ... --json
+
 Das Ergebnis ist immer ein JSON-Objekt auf stdout (UTF-8), damit GG es ohne
 Textraten lesen kann. ``lauf`` schreibt seinen Verlauf zeilenweise nach
 stderr (``[stufe] meldung``) -- GG nimmt ihn ins Automatik-Log auf.
@@ -55,7 +60,54 @@ def build_parser() -> argparse.ArgumentParser:
     pruefe.add_argument("--profil", required=True, help="Pfad zu automatik.json")
     lauf = unter.add_parser("lauf", help="Handoff ohne Oberfläche bis zur DOCX führen")
     lauf.add_argument("--profil", required=True, help="Pfad zu automatik.json")
+    nach = unter.add_parser("nacharbeit", help="Offene Punkte nach dem Lauf (Dialog oder --json)")
+    nach.add_argument("--profil", required=True, help="Pfad zu automatik.json")
+    nach.add_argument("--json", action="store_true", help="Nur die offenen Punkte als JSON ausgeben")
     return p
+
+
+def _buch_und_docx(profil: dict, lauf_ordner: Path) -> tuple[Path | None, str]:
+    """Buchordner aus ``band_run.json`` (BS-Zone), DOCX aus dem Ergebnis des Laufs."""
+    from services.band_run import read_band_run
+
+    docx = ""
+    ergebnis = lauf_ordner / "automatik_ergebnis.json"
+    try:
+        daten = json.loads(ergebnis.read_text(encoding="utf-8"))
+        docx = str(daten.get("docx") or "")
+    except (OSError, ValueError):
+        pass
+    try:
+        band = read_band_run(profil["production_uuid"], repo=_WURZEL) or {}
+    except (OSError, ValueError):
+        band = {}
+    buch = str((band.get("paths") or {}).get("book") or "")
+    return (Path(buch) if buch else None), docx
+
+
+def _nacharbeit(profil: dict, profil_pfad: Path, *, nur_json: bool) -> int:
+    from services.nacharbeit import offene_punkte
+    from tools.skeleton.herkunft import bibliothek
+
+    lauf_ordner = Path(profil_pfad).resolve().parent
+    buch, docx = _buch_und_docx(profil, lauf_ordner)
+    if buch is None or not buch.is_dir():
+        _ausgeben({"fehler": "Kein Buchprojekt zu diesem Lauf (band_run.json ohne paths.book)."})
+        return 1
+    layout = str(profil["bs"]["doclayout"])
+    skeleton = str(profil["bs"].get("skeleton_profil") or "")
+    if nur_json:
+        _ausgeben({"docx": docx, **offene_punkte(
+            buch, layout_name=layout, library_root=bibliothek(_WURZEL), skeleton_profil=skeleton
+        )})
+        return 0
+    from ui_qt.dialogs.automatik_nacharbeit_dialog import open_nacharbeit_dialog
+
+    open_nacharbeit_dialog(
+        book=buch, layout_name=layout, docx=docx, lauf_ordner=lauf_ordner,
+        library_root=bibliothek(_WURZEL), skeleton_profil=skeleton,
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             _ausgeben({"luecken": [str(exc)], "warnungen": []})
         return 1
+    if args.befehl == "nacharbeit":
+        return _nacharbeit(profil, Path(args.profil), nur_json=args.json)
     if args.befehl == "lauf":
         ergebnis = fuehre_bs_teil_aus(profil, _WURZEL, log=_log)
         _ausgeben(ergebnis)

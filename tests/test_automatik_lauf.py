@@ -51,7 +51,7 @@ def satz(monkeypatch):
 
     monkeypatch.setattr("tools.doclayout.typeset.typeset_book", _typeset)
     monkeypatch.setattr(
-        "tools.doclayout.library.load_layout", lambda name, directory=None: SimpleNamespace(name=name)
+        "tools.doclayout.library.load_layout", lambda name, directory=None: SimpleNamespace(name=name, styles={})
     )
 
 
@@ -87,6 +87,8 @@ def test_handoff_bis_docx(repo: Path, satz, tmp_path: Path) -> None:
     # Kein Skeleton-Profil: Warnung, kein Stopp.
     assert any(w.startswith("skeleton: Kein Skeleton-Profil") for w in ergebnis["warnungen"])
     assert read_handoff(PRODUCTION_UUID, repo=repo)["status"] == "done"
+    # Offene Punkte für die Nacharbeit gehen mit ans Ergebnis (GG zeigt danach den Dialog).
+    assert set(ergebnis["nacharbeit"]) >= {"fehlende_ressourcen", "formate_ohne_zuordnung", "pflichtseiten", "offen"}
     assert zeilen[0][0] == "header" and zeilen[-1][0] == "success"
     json.dumps(ergebnis)  # GG liest es als JSON
 
@@ -134,7 +136,7 @@ def test_satz_scheitert_abgebrochen(repo: Path, monkeypatch) -> None:
 
     monkeypatch.setattr("tools.doclayout.typeset.typeset_book", _kaputt)
     monkeypatch.setattr(
-        "tools.doclayout.library.load_layout", lambda name, directory=None: SimpleNamespace(name=name)
+        "tools.doclayout.library.load_layout", lambda name, directory=None: SimpleNamespace(name=name, styles={})
     )
     _handoff(repo)
     ergebnis = fuehre_bs_teil_aus(_profil(), repo)
