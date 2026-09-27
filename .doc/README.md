@@ -63,7 +63,10 @@ Diese Datei ist der zentrale Einstieg für interne Projektdokumentation.
 ## Feature Requests / Zurückgestellte Ideen
 
 - **Next Level — Orientierung, Pfadführung, 1-Klick-Orchestrierung** (Plan): [next_Level.md](next_Level.md)
-- **1-Klick über beide Apps** (Warum, Architektur, Aufwand, kein Wegwerfen; Stand 24.09.): [1klick-orchestrierung-beide-apps.md](1klick-orchestrierung-beide-apps.md)
+- **1-Klick über beide Apps** (Schema, Konflikte, Mehrdeutigkeit, Lebensende, Handoff; Slices A–C+L ✅, Feinschliff D): [1klick-orchestrierung-beide-apps.md](1klick-orchestrierung-beide-apps.md)
+- **Prompt — Batch-Umsetzung Orchestrierung beide Apps** (lebende Checkboxen): [prompt_1klick_orchestrierung_beide_apps.md](prompt_1klick_orchestrierung_beide_apps.md)
+- **Offene Kanten Orchestrierung** (bewusst nicht geschlossen): [offene_kanten_orchestrierung.md](offene_kanten_orchestrierung.md)
+- **BS↔GG-Kontrakt** (Menschenlesbar): [kontrakt_bs_gg.md](kontrakt_bs_gg.md)
 - **Studio-Maßnahmen: 1-Klick-Fabrik + Einfachheit** (nach Phase 1–3): [einfachheit_und_1klick.md](einfachheit_und_1klick.md)
 - **Prompt — Umsetzung Studio 1-Klick §1** (lebende Checkboxen F′/Teilkette/Leiste/Defaults): [prompt_1klick_studio.md](prompt_1klick_studio.md)
 - **Pfad-Manager → Werkbank** (Kontext-Aktionen, Badges, Drop, Apps; Skizze): [path_favorites_werkbank.md](path_favorites_werkbank.md)

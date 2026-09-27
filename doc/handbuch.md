@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** 8. September 2026 · **Version:** 2.56 („Skeleton Unleashed“)
+**Stand:** 26. September 2026 · **Version:** 2.85.37 („Skeleton Unleashed“)
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -47,7 +47,7 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 23. Layout-Editor (Word/Writer-Vorlagen)
 24. Neuerungen 2026-09: Autonome Plugins (Audit & Polish)
 
-In Kapitel 16: optionaler Abschnitt **Marktvarianten** (AT/CH u. Ä.) — siehe [§ Marktvarianten](#sec-marktvarianten).  
+In Kapitel 16: [Orchestrierung beide Apps](#sec-orchestrierung-beide-apps) · optional **Marktvarianten** (AT/CH u. Ä.) — siehe [§ Marktvarianten](#sec-marktvarianten).  
 In Kapitel 22: [Geplante UUID (Cover zuerst)](#sec-kdp-planned-uuid) · [Cover aus Vorlage](#sec-kdp-clone-cover).
 
 ---
@@ -901,6 +901,19 @@ Dieses Kapitel beschreibt den **empfohlenen End-to-End-Ablauf**: Nutzinhalt aus 
 | **Skeleton** | Fixe Rahmenseiten (Klappentext, Impressum, Einleitung, …) als **Kopien** ins Projekt |
 
 **Wichtig:** Links = Datei-Pool (noch nicht gerendert). Rechts = Buchstruktur (`_quarto.yml`, wird gerendert). Nur du entscheidest, was nach rechts kommt.
+
+### Orchestrierung beide Apps (Stand 26.09.) {#sec-orchestrierung-beide-apps}
+
+Gemeinsames Lauf-Objekt und Handoff ergänzen den klassischen Import — Details und Policies: [`.doc/1klick-orchestrierung-beide-apps.md`](../.doc/1klick-orchestrierung-beide-apps.md).
+
+| Aktion | Wo | Was passiert |
+|--------|-----|----------------|
+| **Band durchlaufen (A→F + Handoff)** | El Pitugrafo → Tools → Arbeitsweg | Teilkette bis Lieferung; schreibt `handoff_pending.json` unter `production/runs/<UUID>/` |
+| **Band durchlaufen (Handoff A→J)** | Book Studio → Ansicht → Arbeitsweg | Claimt den Marker → Lieferung übernehmen (Bridge) → Studio-Teilkette |
+| **Buchprojekt löschen…** | Book Studio → Buchprojekte | Papierkorb für BS-Buch; optional Inbox und GG-Projekt; Cover-Registry bleibt; `lifecycle=tombstoned` |
+| **Weiter-CTA** | Arbeitsweg-Leiste | Ohne Buch immer **Buch wählen**; eine Lieferung → **Lieferung übernehmen**; mehrere → **Lieferung wählen…** |
+
+Timeout beim Handoff: kein Auto-Retry — Marker bleibt `expired` bis du neu lieferst oder manuell übernimmst.
 
 ### Phase 1 — Import aus GrammarGraph
 

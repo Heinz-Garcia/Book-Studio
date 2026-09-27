@@ -219,8 +219,9 @@ bezahltes Buchprojekt erprobt.
 
 **Exit:** Ein Klick für den Happy Path; der Unglücksfall bleibt geführt, nicht still.
 
-> **Verdichtung 2026-09-24:** Warum über beide Apps, menschenlesbares Lauf-Objekt
-> (JSON + Markdown-Spiegel), Aufwands-Slices A–D, kein Wegwerfen von SSOTs —
+> **Verdichtung 2026-09-24 / Ergänzung 2026-09-26:** Warum über beide Apps,
+> Lauf-Objekt-Schema, Konflikt-/Prozessregeln, Mehrdeutigkeits-Policies,
+> Lebensende, Kontrakt-Anbindung, Aufwands-Slices A–D(+L), kein Wegwerfen von SSOTs —
 > siehe [1klick-orchestrierung-beide-apps.md](1klick-orchestrierung-beide-apps.md).
 
 ---

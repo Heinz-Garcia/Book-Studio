@@ -18,9 +18,19 @@ Prüfer `pruefe.py`, Beispiel-Lieferung). Die Datei nennt je Kanal, was die
 | Übernahme-Nachweis (`books/<Buch>/bookconfig/book_run.json`, `artifacts.delivery`) | BS → GG | BS `accept_delivery` | GG `bisherige_uuids` |
 | Layout-Klassen (`tools/doclayout/library/_available_classes.json`) | BS → GG | BS `doclayout/registry.build_registry` | GG `book_studio_bridge/layout_classes` |
 | Buchnotiz (`<Buch>/bookconfig/notiz.md`) | beide | beide | beide |
+| Band-Lauf (`production/runs/<uuid>/band_run.json`) | beide lesen; Zonen schreiben | BS `services/band_run` (Slice A); später GG/Orchestrator | BS Arbeitsweg; GG `book_studio_bridge/band_run` |
+| Handoff (`handoff_pending.json`) | GG → BS | GG `book_studio_bridge/handoff` nach `--liefern` | BS `services/handoff` / „Band durchlaufen“ |
 
 Lieferordner: `<inbox>/<Projekt>/<TT.MM.JJJJ_HH.MM>`. Erkannt wird er an
 `publish_meta.json` oder `_book_studio.toml`.
+
+### Band-Lauf (Slice A, 2026-09-26)
+
+App-übergreifende Statuslandkarte **pro Production-UUID** unter
+`production/runs/<uuid>/band_run.json` (+ generiertes `band_run.md`).
+Schema und Policies: `.doc/1klick-orchestrierung-beide-apps.md`.
+Beispiel-Fixture: `tests/kontrakt/beispiel/band_run.json`.
+`bookconfig/book_run.json` bleibt Studio-lokal (Gates F–J).
 
 GG ruft BS für die UUIDs als Unterprozess auf (BS-Python im BS-Verzeichnis).
 Für Tests lassen sich Registry und Cover-Ablage umlenken:
