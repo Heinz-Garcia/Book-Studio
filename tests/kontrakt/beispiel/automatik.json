@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "production_uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "erstellt_am": "2026-09-27T18:00:00+00:00",
+  "erstellt_von": "gg",
+  "durchlaufen": true,
+  "benachrichtigen": false,
+  "gg": {
+    "projekt": "C:/example/GrammarGraph/projects/Prosa_X",
+    "bookconfig": "",
+    "start_at": "zuschnitt",
+    "batch": "",
+    "nachbessern": "an",
+    "max_durchgaenge": 2
+  },
+  "bs": {
+    "ziel": "docx",
+    "doclayout": "Prosa_Layout",
+    "skeleton_profil": "Prosa_Standard",
+    "zielordner": ""
+  }
+}

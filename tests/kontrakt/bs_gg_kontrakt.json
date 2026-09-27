@@ -179,6 +179,60 @@
       "timeout_default_hours": 2,
       "status": ["pending", "claimed", "done", "expired", "cancelled"],
       "hinweis": "Timeout → expired, kein Auto-Retry. Kein paralleler A→J-Lauf derselben UUID."
+    },
+    "automatik": {
+      "richtung": "GG schreibt (Startdialog/CLI); beide lesen",
+      "erzeuger": "GG tools/band_automatik (Startdialog / CLI)",
+      "leser": [
+        "BS services/automatik.py::read_automatik / pruefe_bs",
+        "BS tools/automatik (CLI: optionen, pruefe)",
+        "GG tools/band_automatik"
+      ],
+      "ordner": "<production>/runs/<production_uuid>/",
+      "datei": "automatik.json",
+      "schema_version": 1,
+      "beispiel": "tests/kontrakt/beispiel/automatik.json",
+      "werte": {
+        "gg.start_at": [
+          "zuschnitt",
+          "lauf",
+          "kanon",
+          "nachbesserung"
+        ],
+        "gg.nachbessern": [
+          "aus",
+          "an",
+          "nur_messen"
+        ],
+        "bs.ziel": [
+          "docx"
+        ]
+      },
+      "cli_bs": {
+        "optionen": "python -m tools.automatik optionen -> JSON {doclayouts[{name,label,ok,problem}], skeleton_profile[], skeleton_default, ziele[]}",
+        "pruefe": "python -m tools.automatik pruefe --profil <automatik.json> -> JSON {luecken[], warnungen[]}; Exit 0 = keine Luecken"
+      },
+      "felder": {
+        "automatik.json": {
+          "schema_version": "int",
+          "production_uuid": "uuid",
+          "erstellt_am": "str",
+          "erstellt_von": "str",
+          "durchlaufen": "bool",
+          "benachrichtigen": "bool",
+          "gg.projekt": "str",
+          "gg.bookconfig": "str",
+          "gg.start_at": "str",
+          "gg.batch": "str",
+          "gg.nachbessern": "str",
+          "gg.max_durchgaenge": "int?",
+          "bs.ziel": "str",
+          "bs.doclayout": "str",
+          "bs.skeleton_profil": "str",
+          "bs.zielordner": "str"
+        }
+      },
+      "hinweis": "Alle Entscheidungen vorab (kein Nachfragen unterwegs). durchlaufen=true: rotes Gate = Warnung + weiter, Abbruch nur ohne technischen Input. Kein Cover in der DOCX, kein Kostenlimit (nur Bericht). Plan: BS .doc/automatik_gg_bis_docx.md."
     }
   }
 }

@@ -20,6 +20,7 @@ Prüfer `pruefe.py`, Beispiel-Lieferung). Die Datei nennt je Kanal, was die
 | Buchnotiz (`<Buch>/bookconfig/notiz.md`) | beide | beide | beide |
 | Band-Lauf (`production/runs/<uuid>/band_run.json`) | beide lesen; Zonen schreiben | BS `services/band_run` (Slice A); später GG/Orchestrator | BS Arbeitsweg; GG `book_studio_bridge/band_run` |
 | Handoff (`handoff_pending.json`) | GG → BS | GG `book_studio_bridge/handoff` nach `--liefern` | BS `services/handoff` / „Band durchlaufen“ |
+| Automatik-Profil (`production/runs/<uuid>/automatik.json`) | GG schreibt, beide lesen | GG `tools/band_automatik/profil` (Startdialog/CLI) | BS `services/automatik` + CLI `python -m tools.automatik optionen\|pruefe`; GG `book_studio_bridge/automatik` |
 
 Lieferordner: `<inbox>/<Projekt>/<TT.MM.JJJJ_HH.MM>`. Erkannt wird er an
 `publish_meta.json` oder `_book_studio.toml`.
@@ -35,6 +36,15 @@ Beispiel-Fixture: `tests/kontrakt/beispiel/band_run.json`.
 GG ruft BS für die UUIDs als Unterprozess auf (BS-Python im BS-Verzeichnis).
 Für Tests lassen sich Registry und Cover-Ablage umlenken:
 `BSU_COVER_REGISTRY`, `BSU_COVERS_ROOT`.
+
+### Automatik-Profil (2026-09-27)
+
+Alle Entscheidungen eines Automatik-Laufs GG-Batch → DOCX stehen **vorab** in
+`production/runs/<uuid>/automatik.json` (Beispiel: `tests/kontrakt/beispiel/automatik.json`).
+GG baut und schreibt es, BS prüft den eigenen Teil über
+`python -m tools.automatik pruefe --profil <pfad>` (JSON `{luecken, warnungen}`, Exit 0 = keine Lücken)
+und liefert Auswahllisten über `python -m tools.automatik optionen`.
+Plan und Leitregeln: BS `.doc/automatik_gg_bis_docx.md`.
 
 ## Production-UUID am Buch
 
