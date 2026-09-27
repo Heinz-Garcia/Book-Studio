@@ -1,8 +1,7 @@
 name: Prosa_Layout
-label: IFJN Reiseführer
-description: 'Layout der IFJN-Bände: Prompt-Frage im Kasten mit Akzentbalken, Themenblock auf neuer Seite,
-  dreistufiges Inhaltsverzeichnis. Übernommen aus der Layout-Reparatur layout_fix.py, dort in Twips und
-  Halbpunkten notiert.'
+label: Prosa
+description: 'Layout für Prosa-Bände, abgeleitet vom IFJN-Layout (IFJN_layout): Absätze mit Erstzeileneinzug
+  4 mm statt eigenem Fließtext-Format, sonst Seiten, Schriften und Verzeichnis wie dort.'
 page:
   width_mm: 210.0
   height_mm: 297.0
