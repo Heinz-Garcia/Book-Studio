@@ -27,6 +27,9 @@ BAND_RUN_MD = "band_run.md"
 UPDATED_BY = frozenset({"gg", "bs", "orchestrator"})
 LIFECYCLES = frozenset({"active", "archived", "tombstoned"})
 STAGES = frozenset("ABCDEFGHIJ")
+#: Was GG schreiben darf: seine Stufen (F = Lieferung; F′–J gehören BS) und seine Pfade.
+GG_GATES = frozenset("ABCDEF")
+GG_PATHS = frozenset({"gg_project", "delivery"})
 LOCK_OWNERS = UPDATED_BY
 DEFAULT_LOCK_HOURS = 2
 
@@ -612,6 +615,13 @@ def update_band_run(
         raise BandRunError("GG darf zone_bs nicht schreiben.")
     if tombstone is not None and who == "gg":
         raise BandRunError("GG darf tombstone nicht schreiben (Lösch-Orchestrierung).")
+    if who == "gg":
+        fremde_gates = sorted(set(gates_patch or {}) - GG_GATES)
+        if fremde_gates:
+            raise BandRunError(f"GG darf nur Gates A–F schreiben, nicht {', '.join(fremde_gates)}.")
+        fremde_pfade = sorted(set(paths_patch or {}) - GG_PATHS)
+        if fremde_pfade:
+            raise BandRunError(f"GG darf nur die Pfade {sorted(GG_PATHS)} setzen, nicht {fremde_pfade}.")
 
     data = _ensure_loaded(
         production_uuid, production_root=production_root, repo=repo, create=True
