@@ -131,7 +131,7 @@
     },
     "band_run": {
       "richtung": "beide lesen; Zone-Schreiben GG=zone_gg / BS=zone_bs / Orchestrator mit Lock",
-      "erzeuger": "BS services/band_run.py::write_band_run / materialize_band_run_from_book; Bridge services/delivery_bridge.py::run_delivery_bridge (Slice B, zone_bs + paths); spaeter GG-Writer + Orchestrator",
+      "erzeuger": "BS services/band_run.py::write_band_run / materialize_band_run_from_book; Bridge services/delivery_bridge.py::run_delivery_bridge (Slice B, zone_bs + paths); GG zone_gg/Gates A-F/gg_project,delivery ueber BS-CLI python -m tools.band_run gg (GG tools/book_studio_bridge/band_run.py::schreibe_gg_zone, aus der Teilkette)",
       "leser": [
         "BS services/band_run.py::read_band_run",
         "BS services/work_path.py (Summary-Hinweis)",

@@ -148,9 +148,10 @@ BS  Handoff-Claim ─ F′ Übernahme ─ G Skeleton/Inhalt/Formate ─ H DOCX-S
 - [x] Handoff-Datei bleibt SSOT: Stirbt der BS-Aufruf, liegt der Handoff aus und lässt sich per
       Menü übernehmen. Ein noch ausstehender Handoff (`pending`/`claimed`, nicht abgelaufen) ist
       jetzt eine **Lücke der Vorab-Prüfung** -- sonst schriebe die Kette keinen neuen
-- [ ] `band_run.json`: `zone_bs`/Pfade/Gate F schreibt die Bridge (nach dem Lock-Fix). `zone_gg`
-      schreibt GG weiterhin nicht -- bestehende offene Kante „volle GG-Writer-API für band_run“,
-      für die DOCX nicht nötig, bewusst nicht in diesem Plan
+- [x] `band_run.json`: `zone_bs`/Pfade/Gate F schreibt die Bridge (nach dem Lock-Fix). `zone_gg`
+      schreibt GG seit 27.09. selbst -- über Book Studios API (`python -m tools.band_run gg`):
+      nach B, vor dem Lauf („C läuft“), vor der Nachbesserung („E läuft“), Endstand bei jedem
+      Ausgang, Lieferpfad bei F. GG darf nur Gates A–F. Fehler halten die Kette nicht an (Log)
 
 ### Paket 7 — Abschlussbericht und Logging
 

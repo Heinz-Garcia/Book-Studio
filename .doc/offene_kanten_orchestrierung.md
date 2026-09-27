@@ -7,7 +7,7 @@ Bewusst **nicht** still geschlossen — entweder späterer Slice oder Produktent
 
 | Kante | Status | Hinweis |
 |-------|--------|---------|
-| GG schreibt `zone_gg` / Lock bei Handoff nur best-effort über JSON-Marker | offen | BS claimt und setzt Lock; volle GG-Writer-API für `band_run` fehlt noch |
+| GG schreibt `zone_gg` | erledigt (27.09.) | Teilkette meldet B, „C läuft“, „E läuft“ und den Endstand über BS-CLI `python -m tools.band_run gg`; GG darf nur Gates A–F |
 | Handoff → BS ohne laufende GUI (Headless/CI Claim) | erledigt (27.09.) | `python -m tools.automatik lauf --profil <automatik.json>` (siehe [automatik_gg_bis_docx.md](automatik_gg_bis_docx.md)) |
 | `band_run` nach Handoff ohne Buch-/Lieferpfad (Lock bs vs. orchestrator) | erledigt (27.09.) | Bridge schreibt als Claimant (`band_run_writer="bs"`) |
 | QProcess GG→BS (sofortige Übergabe ohne Marker-Poll) | bewusst nicht | Plan erlaubt Marker **oder** QProcess; Marker ist SSOT für Slice C |

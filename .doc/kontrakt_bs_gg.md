@@ -18,7 +18,7 @@ Prüfer `pruefe.py`, Beispiel-Lieferung). Die Datei nennt je Kanal, was die
 | Übernahme-Nachweis (`books/<Buch>/bookconfig/book_run.json`, `artifacts.delivery`) | BS → GG | BS `accept_delivery` | GG `bisherige_uuids` |
 | Layout-Klassen (`tools/doclayout/library/_available_classes.json`) | BS → GG | BS `doclayout/registry.build_registry` | GG `book_studio_bridge/layout_classes` |
 | Buchnotiz (`<Buch>/bookconfig/notiz.md`) | beide | beide | beide |
-| Band-Lauf (`production/runs/<uuid>/band_run.json`) | beide lesen; Zonen schreiben | BS `services/band_run` (Slice A); später GG/Orchestrator | BS Arbeitsweg; GG `book_studio_bridge/band_run` |
+| Band-Lauf (`production/runs/<uuid>/band_run.json`) | beide lesen; Zonen schreiben | BS `services/band_run`; GG seine Zone über `python -m tools.band_run gg` (seit 27.09.) | BS Arbeitsweg; GG `book_studio_bridge/band_run` |
 | Handoff (`handoff_pending.json`) | GG → BS | GG `book_studio_bridge/handoff` nach `--liefern` | BS `services/handoff` / „Band durchlaufen“ |
 | Automatik-Profil (`production/runs/<uuid>/automatik.json`) | GG schreibt, beide lesen | GG `tools/band_automatik/profil` (Startdialog/CLI) | BS `services/automatik` + CLI `python -m tools.automatik optionen\|pruefe`; GG `book_studio_bridge/automatik` |
 
