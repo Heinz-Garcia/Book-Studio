@@ -177,6 +177,30 @@ BS  Handoff-Claim ─ F′ Übernahme ─ G Skeleton/Inhalt/Formate ─ H DOCX-S
 
 ---
 
+### Paket 9 — Nacharbeit am Ende des Laufs (Wunsch nach HuG-Lauf 2, 27.09.)
+
+Am Ende fragt die Automatik -- nicht mittendrin. Ein Dialog (Book Studio) öffnet sich nach dem Lauf.
+
+- [x] **Gegenüberstellung Vorfassung ↔ übernommene Fassung**, absolut transparent: je übernommenem
+      Kapitel beide Texte nebeneinander (Absätze, Änderungen markiert), Wortzahl vorher/nachher,
+      Urteil und Begründung des direkten Vergleichs, Befunde vorher (GG,
+      `production/runs/<uuid>/automatik_gegenueberstellung.html`, im Bericht und im Dialog verlinkt).
+      Dazu, welche Fassung im Vergleich „A“ hieß -- der Vergleich mischt die Reihenfolge, ohne diese
+      Angabe wäre die Begründung nicht lesbar (nur angezeigt, wenn die Fingerabdrücke passen) (GG 52b8026)
+- [x] **Fehlende Ressourcen** (z. B. Bilder): je Ressource „Datei wählen…“ oder
+      **„Platzhalter einsetzen“** (erzeugt ein beschriftetes Platzhalterbild am erwarteten Ort)
+- [x] **Absatzformate ohne Zuordnung:** je Klasse ein Absatzformat der Vorlage wählen oder
+      **„Als Fließtext fortsetzen“** (Klasse → BodyText); schreibt in die Formatvorlage; dazu Shortcut
+      in den Layout-Editor
+- [x] **Pflichtseiten aus Vorlagen:** je Seite Link auf die benutzte Vorlagendatei (bei mehreren
+      gleichen Profilen alle) und Shortcut in den Skeleton-Editor
+- [x] **Vollständiger DOCX-Pfad** im Dialog (öffnen / Ordner) und „DOCX neu setzen“ nach Änderungen
+- [x] Ohne GUI: `python -m tools.automatik nacharbeit --profil …` (Dialog) bzw. `--json` (nur Liste);
+      der Bericht listet die offenen Punkte mit Links
+- [x] Tests (BS `tests/test_nacharbeit.py` inkl. Dialog offscreen, GG
+      `tests/tools/test_band_automatik_gegenueberstellung.py`). Der Dialog ist nicht modal -- aus einem
+      modalen bekämen Layout- und Skeleton-Editor keine Eingaben (Schutztest) (BS f06f0bd)
+
 ## Nach dem echten Lauf (27.09.)
 
 Entscheidungen des Nutzers nach dem HuG-Lauf:
