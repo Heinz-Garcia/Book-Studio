@@ -106,7 +106,7 @@ styles:
   Prompt-Trenner:
     name: Prompt-Trenner
     next: Prompt-Frage
-    size_pt: 14.0
+    size_pt: 21.0
     color: rule
     letter_spacing_pt: 3.0
     align: center
