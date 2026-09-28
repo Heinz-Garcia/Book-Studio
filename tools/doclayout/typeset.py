@@ -383,6 +383,15 @@ def typeset_book(
         )
 
     pdf, grund = _convert_to_pdf(converter, docx, ziel_dir)
+    if toc and pdf is not None and pdf.is_file():
+        # Die DOCX ist das Endformat: Verzeichnis mit den Seitenzahlen der
+        # eben gesetzten PDF fuellen, statt ein leeres Feld auszuliefern.
+        from tools.doclayout.toc_fill import fuelle_verzeichnis
+
+        try:
+            fuelle_verzeichnis(docx, pdf, definition, tiefe=toc_depth)
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
+            warnungen += (f"Verzeichnis nicht in die DOCX geschrieben: {exc}",)
     return TypesetResult(
         docx=docx, pdf=pdf, chapters=namen, note=grund, warnings=warnungen
     )

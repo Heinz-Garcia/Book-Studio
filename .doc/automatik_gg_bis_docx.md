@@ -310,3 +310,15 @@ Werden **vor** Paket 1 geklärt und dann in die Leitregeln übernommen.
     `reference.docx` (`schema.mit_hilfsformaten`), Filter setzt es; Typst über
     `pre_processor.zentriere_fuer_typst` (verschachtelungsfest). Formatinventur zeigt
     „N× zentriert (vom Satz erledigt)“ statt einer Lücke. Nur `center` umgesetzt.
+- 2026-09-28: **IVZ leer in der DOCX, voll in der PDF.** Das TOC-Feld kam leer aus Pandoc
+  (`w:dirty`); LibreOffice baute es nur für die PDF auf, nicht beim Öffnen der DOCX.
+  Jetzt schreibt `tools/doclayout/toc_fill.py` nach dem PDF-Export das Feldergebnis in die DOCX:
+  Einträge (TOC1/TOC2, Führungspunkte, Seitenzahl aus den PDF-Lesezeichen per PyMuPDF,
+  Sprungmarke auf Pandocs Bookmark). Das Feld bleibt aktualisierbar (F9). Zuordnung der Reihe
+  nach am Titel, weil die Lesezeichen-Verschachtelung der Gliederung folgt, nicht der Ebene.
+  Nebenbei: Fragen-Trenner im DOCX 21 pt (= 1.9em im Typst-PDF).
+- 2026-09-28: **Inhalt Andalusien ist Altbestand.** Lauf `…_20260830_21.57` (Lieferung 31.08.)
+  liegt vor Kanon (ab 11.09.), Zuschnitt/Nachbesserung (ab 15.09.) und Teilkette (ab 22.09.);
+  das Projekt ist kein Prosa-Projekt, die Teilkette greift dort ohnehin nicht. Beleg eines
+  Sachfehlers: „Policía Local (062)“ -- 062 ist die Guardia Civil, Policía Local 092 (kommt im
+  Band nicht vor).
