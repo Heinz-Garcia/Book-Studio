@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.doclayout.schema import PANDOC_BASISFORMATE, LayoutDefinition
+from tools.doclayout.schema import PANDOC_BASISFORMATE, ZENTRIERT, LayoutDefinition
 
 _LUA_TEMPLATE = '''-- Erzeugt von tools/doclayout -- nicht von Hand aendern.
 -- Layout: {layout_name}
@@ -217,6 +217,15 @@ local function separator_style(el)
   return classmap["prompt-separator"]
 end
 
+--- Jede andere Anweisung ``text-align: center``: das Hilfsformat, das jede
+--- Vorlage mitbringt (schema.HILFSFORMATE). Keine Klasse, also kein Eintrag
+--- in der Zuordnung -- und keine Luecke in der Formatinventur.
+local function centered_style(el)
+  local css = el.attributes["style"] or ""
+  if css:match("text%-align:%s*center") then return {zentriert_lua} end
+  return nil
+end
+
 function Div(el)
   if el.classes:includes("bs-ivz") then
     if satz then return toc_block() end
@@ -224,7 +233,7 @@ function Div(el)
   end
   local callout = is_callout(el.classes)
   if callout then el.content = callout_titles(el.content) end
-  local style = style_for(el.classes) or separator_style(el)
+  local style = style_for(el.classes) or separator_style(el) or centered_style(el)
   if not style then
     if callout then return el end
     return nil
@@ -378,6 +387,7 @@ def build_lua_filter(definition: LayoutDefinition) -> str:
     return _LUA_TEMPLATE.format(
         layout_name=definition.name,
         classmap_lua=classmap_lua,
+        zentriert_lua=lua_string(ZENTRIERT),
     )
 
 

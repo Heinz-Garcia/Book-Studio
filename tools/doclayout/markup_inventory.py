@@ -24,7 +24,7 @@ GUI-frei (siehe ``.doc/gui_architektur.md``).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -42,6 +42,7 @@ from tools.doclayout.usage import (
     collect_book_snippets,
     read_generator_classes,
     scan_book_detailed,
+    scan_book_directives,
 )
 
 
@@ -549,6 +550,9 @@ class MarkupInventory:
     book_path: str = ""
     library: str = ""
     generator_source: str = ""
+    #: Formatieranweisungen im Text (``{"zentriert": 119}``) -- vom Satz
+    #: erledigt, keine Klasse und keine Luecke; nur zur Auskunft.
+    directives: dict[str, int] = field(default_factory=dict)
 
     def by_verdict(self, verdict: Verdict) -> tuple[MarkupRow, ...]:
         return tuple(row for row in self.rows if row.verdict is verdict)
@@ -583,6 +587,13 @@ class MarkupInventory:
             rest = "" if len(leichen) <= 5 else f" (+{len(leichen) - 5})"
             teile.append(f"unbenutzt: {namen}{rest}")
         return " - ".join(teile)
+
+    def directives_summary(self) -> str:
+        """``Formatieranweisungen: 119× zentriert (vom Satz erledigt)`` -- oder leer."""
+        if not self.directives:
+            return ""
+        teile = ", ".join(f"{anzahl}× {name}" for name, anzahl in sorted(self.directives.items()))
+        return f"Formatieranweisungen: {teile} (vom Satz erledigt)"
 
 
 def applied_layout_name(book_path: Path | str) -> Optional[str]:
@@ -855,11 +866,16 @@ def build_markup_inventory(
         and not (r.is_builtin and r.book_count == 0 and not r.from_generator)
     ]
     rows.sort(key=lambda r: (_VERDICT_ORDER[r.verdict], -r.book_count, r.name))
+    try:
+        anweisungen = scan_book_directives(root)
+    except OSError:
+        anweisungen = {}
     return MarkupInventory(
         rows=tuple(rows),
         book_path=str(root),
         library=str(registry.get("library", "")),
         generator_source=gemeldet.source if gemeldet else "",
+        directives=anweisungen,
     )
 
 

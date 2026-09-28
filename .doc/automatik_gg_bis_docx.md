@@ -295,3 +295,18 @@ Werden **vor** Paket 1 geklärt und dann in die Leitregeln übernommen.
   - Offen, Entscheidung Nutzer: IVZ-Zeilenlänge. Andalusien-Layout (99 mm Satzbreite, Cambria
     11 pt, Reserve für Punkte + Seitenzahl): **höchstens 48 Zeichen** je Eintrag, damit er nicht
     umbricht; die 6 Kapitel haben 77–96.
+- 2026-09-28: **Taschenbuch, IVZ-Länge, Zentrieren (Nutzer: „A4 mit Calibri ist unmöglich“).**
+  - Alle Formatvorlagen im Taschenbuchformat (Seitenblock wie Reisefuehrer_Andalusien,
+    135 × 215 mm, gespiegelt; Fließtext Cambria). `tools/doclayout/taschenbuch.py` prüft gegen
+    die Studio-Presets (SSOT `tools/kdp_specs`); Vorab-Prüfung: anderes Format = Lücke.
+  - `tools/doclayout/ivz.py`: Zeichengrenze je Verzeichnisebene, gemessen mit der echten
+    Schrift (Pillow + Windows-Schriftregister). Andalusien/Prosa: Ebene 2 ≈ 50, Ebene 1
+    (fett, 12 pt) ≈ 42 Zeichen. CLI `python -m tools.automatik ivz`.
+  - Frühe Meldung: GG-Vorab-Prüfung misst die Überschriften der Prompt-Datei (nur Ebenen,
+    die die Buchkonfiguration ausgibt; `auswahl.ueberschrift_ebenen` als SSOT) -- Warnung.
+    Der Planner bekommt `max_title_chars` (Brief-Formular: „Titel höchstens“, Knopf
+    „Aus Formatvorlage …“). Späte Meldung: Nacharbeit `ivz_zu_lang` (Dialog + Bericht).
+  - `style="text-align: center;"` = Formatieranweisung: Hilfsformat „Zentriert“ in jeder
+    `reference.docx` (`schema.mit_hilfsformaten`), Filter setzt es; Typst über
+    `pre_processor.zentriere_fuer_typst` (verschachtelungsfest). Formatinventur zeigt
+    „N× zentriert (vom Satz erledigt)“ statt einer Lücke. Nur `center` umgesetzt.

@@ -202,7 +202,9 @@ def test_paragraph_property_order_is_schema_conform(ifjn: LayoutDefinition):
 
 def test_run_property_order_is_schema_conform(ifjn: LayoutDefinition):
     element = build_style_element(ifjn, ifjn.styles["Prompt-Frage"])
-    assert _children(element, "rPr") == ["b", "bCs", "color", "sz", "szCs"]
+    # rFonts: Prompt-Frage hat eine Gliederungsebene, bekommt also die
+    # Ueberschriftenschrift (Calibri, seit dem Taschenbuch-Layout gesetzt).
+    assert _children(element, "rPr") == ["rFonts", "b", "bCs", "color", "sz", "szCs"]
 
 
 def test_style_element_order_is_schema_conform(ifjn: LayoutDefinition):
@@ -384,8 +386,9 @@ def test_build_reference_docx_sets_page_size(ifjn: LayoutDefinition, tmp_path: P
     with zipfile.ZipFile(out) as archive:
         root = ET.fromstring(archive.read("word/document.xml"))
     sectpr = root.find(qn("body")).find(qn("sectPr"))
-    assert sectpr.find(qn("pgSz")).get(qn("w")) == str(units.mm_to_twips(210))
-    assert sectpr.find(qn("pgMar")).get(qn("left")) == str(units.mm_to_twips(25))
+    # Taschenbuch 135 x 215 mm, gespiegelt: links steht der Bundsteg (innen).
+    assert sectpr.find(qn("pgSz")).get(qn("w")) == str(units.mm_to_twips(135))
+    assert sectpr.find(qn("pgMar")).get(qn("left")) == str(units.mm_to_twips(20))
 
 
 @pandoc_required
@@ -617,7 +620,10 @@ def test_mirrored_margins_are_detected_for_bound_books(ifjn: LayoutDefinition):
 
 
 def test_unmirrored_margins_use_left_right(ifjn: LayoutDefinition):
-    options = typst_format_options_for(ifjn)
+    from dataclasses import replace
+
+    ungespiegelt = replace(ifjn, page=replace(ifjn.page, mirrored=False))
+    options = typst_format_options_for(ungespiegelt)
     assert set(options["page-margin"]) == {"left", "right", "top", "bottom"}
 
 

@@ -59,6 +59,44 @@ _TITELEI_DIV_RE = re.compile(
     re.MULTILINE | re.DOTALL,
 )
 
+#: Formatieranweisung ``text-align: center`` an einem Div (mit oder ohne Klasse).
+_ZENTRIERT_AUF_RE = re.compile(r"^:{3,}[ \t]*\{[^}\n]*text-align:\s*center[^}\n]*\}[ \t]*$")
+_DIV_AUF_RE = re.compile(r"^:{3,}[ \t]*\S")
+_DIV_ZU_RE = re.compile(r"^:{3,}[ \t]*$")
+_CODEZAUN_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
+
+
+def zentriere_fuer_typst(text):
+    """Zentrierte Divs in ``#align(center)[`` ... ``]`` fassen (Raw-Typst).
+
+    Quartos Typst-Writer verwirft das ``style``-Attribut. Der Inhalt bleibt
+    Markdown; nur Anfang und Ende des Divs werden zu Raw-Typst-Klammern --
+    verschachtelte Divs und Codebloecke werden mitgezaehlt, nicht geraten.
+    Das DOCX-Gegenstueck ist das Hilfsformat ``Zentriert`` (classmap.lua).
+    """
+    zeilen = text.split("\n")
+    stapel = []  # je offenem Div: zentriert?
+    zaun = ""
+    for i, zeile in enumerate(zeilen):
+        if zaun:
+            if zeile.lstrip().startswith(zaun):
+                zaun = ""
+            continue
+        treffer = _CODEZAUN_RE.match(zeile)
+        if treffer:
+            zaun = treffer.group(1)
+            continue
+        if _ZENTRIERT_AUF_RE.match(zeile):
+            stapel.append(True)
+            zeilen[i] = "```{=typst}\n#align(center)[\n```\n"
+        elif _DIV_ZU_RE.match(zeile):
+            if stapel and stapel.pop():
+                zeilen[i] = "\n```{=typst}\n]\n```"
+        elif _DIV_AUF_RE.match(zeile):
+            stapel.append(False)
+    return "\n".join(zeilen)
+
+
 def _load_unnumbered_heading_levels(book_path: Path) -> frozenset[int]:
     """Read ``dialog_state.unnumbered_heading_levels`` from publish_meta.json."""
     meta_path = Path(book_path) / "publish_meta.json"
@@ -250,6 +288,11 @@ class PreProcessor:
         # 0b. Titelei (Schmutztitel/Haupttitel) ebenfalls nur fuer Typst:
         #     dieselben Klassen-Divs wie im DOCX, dort ueber Absatzformate.
         text = self._rewrite_titelei(text)
+
+        # 0c. Uebrige Formatieranweisung text-align: center (mehrzeilig, also
+        #     kein Trenner): zentriert setzen statt stillschweigend linksbuendig.
+        if str(self.output_format or "").lower().startswith("typst"):
+            text = zentriere_fuer_typst(text)
 
         # 1. Alles Formatneutrale (Listen, Kaestchen, breite Tabellen,
         #    Spaltenbreiten, [BOX:]-Kaesten, @-Zitationen) -- SSOT mit dem

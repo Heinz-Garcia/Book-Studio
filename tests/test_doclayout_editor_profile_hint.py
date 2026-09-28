@@ -61,7 +61,11 @@ def _keine_echte_sitzung(monkeypatch):
 
 @pytest.fixture()
 def library(tmp_path: Path) -> Path:
-    replace(load_layout("IFJN_layout"), name="Probe").save(tmp_path / "Probe.yaml")
+    # Absichtlich A4: der Fall, den der Abgleich mit dem Druckprofil meldet.
+    vorlage = load_layout("IFJN_layout")
+    replace(
+        vorlage, name="Probe", page=replace(vorlage.page, width_mm=210.0, height_mm=297.0)
+    ).save(tmp_path / "Probe.yaml")
     return tmp_path
 
 

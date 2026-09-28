@@ -13,6 +13,7 @@ Danach „DOCX neu setzen“. Logik: ``services/nacharbeit.py``.
 
 from __future__ import annotations
 
+import html
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,7 @@ class NacharbeitDialog(QDialog):
         self._rumpf = QVBoxLayout(rumpf)
         self._rumpf.addWidget(self._ressourcen())
         self._rumpf.addWidget(self._formate())
+        self._rumpf.addWidget(self._ivz())
         self._rumpf.addWidget(self._pflichtseiten())
         self._rumpf.addStretch(1)
         scroll = QScrollArea()
@@ -260,6 +262,33 @@ class NacharbeitDialog(QDialog):
             open_doclayout_editor_qt(parent=self, focus_unmapped=True)
         except (ImportError, RuntimeError, TypeError, ValueError) as exc:
             QMessageBox.warning(self, "Layout-Editor", f"Layout-Editor nicht zu öffnen: {exc}")
+
+    # ── Verzeichnis ───────────────────────────────────────────────────
+
+    def _ivz(self) -> QWidget:
+        """Zu lange Verzeichniseintraege -- nur anzeigen: Die Ueberschriften
+        liefert der Generator, gekuerzt wird dort (oder in Word)."""
+        eintraege = self.punkte.get("ivz_zu_lang") or []
+        box = QGroupBox(f"Verzeichniseinträge, die umbrechen ({len(eintraege)})")
+        senkrecht = QVBoxLayout(box)
+        if not eintraege:
+            senkrecht.addWidget(QLabel("Keine – jeder Eintrag passt in eine Zeile."))
+            return box
+        grenze = min(e["grenze"] for e in eintraege)
+        hinweis = QLabel(
+            f"Höchstens etwa {grenze} Zeichen je Eintrag (Vorlage „{self.layout_name}“). "
+            "Kürzen in der Quelle (GrammarGraph) oder in Word."
+        )
+        hinweis.setWordWrap(True)
+        senkrecht.addWidget(hinweis)
+        for eintrag in eintraege:
+            rahmen, _knoepfe = _eintrag(
+                html.escape(eintrag["titel"]),
+                f"Ebene {eintrag['ebene']}: {eintrag['zeichen']} Zeichen "
+                f"(Grenze ≈ {eintrag['grenze']}; {eintrag['breite_mm']} mm für {eintrag['platz_mm']} mm Platz)",
+            )
+            senkrecht.addWidget(rahmen)
+        return box
 
     # ── Pflichtseiten ─────────────────────────────────────────────────
 

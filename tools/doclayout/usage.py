@@ -358,6 +358,35 @@ def scan_text_detailed(body: str) -> tuple[list[str], list[str]]:
     return valid, legacy
 
 
+#: Formatieranweisungen im ``style``-Attribut eines Divs, die der Satz selbst
+#: umsetzt (DOCX: Hilfsformat ``Zentriert`` bzw. Fragen-Trenner; Typst:
+#: ``#align(center)``). Keine Klasse -- also nie eine Luecke im Layout.
+FORMATIERANWEISUNGEN = {"zentriert": re.compile(r"text-align:\s*center")}
+_STYLE_ATTR_RE = re.compile(r"""style\s*=\s*["']([^"']*)["']""")
+
+
+def scan_book_directives(book_path: Path | str) -> dict[str, int]:
+    """Wie oft das Buch welche Formatieranweisung traegt (``{"zentriert": 119}``)."""
+    root = Path(book_path)
+    zaehler: dict[str, int] = {}
+    for path in markdown_files(root):
+        try:
+            body = frontmatter_parser.parse(path.read_text(encoding="utf-8")).body
+        except (OSError, UnicodeDecodeError):
+            continue
+        for _number, line, in_fence in iter_body_lines_outside_code_fences(body):
+            match = _FENCE_RE.match(line)
+            if in_fence or not match:
+                continue
+            stil = _STYLE_ATTR_RE.search(match.group(2))
+            if not stil:
+                continue
+            for name, muster in FORMATIERANWEISUNGEN.items():
+                if muster.search(stil.group(1)):
+                    zaehler[name] = zaehler.get(name, 0) + 1
+    return zaehler
+
+
 def scan_book(book_path: Path | str) -> dict[str, ClassUsage]:
     """Zaehlt die gueltigen Fenced-Div-Klassen eines Buchprojekts."""
     valid, _broken = scan_book_detailed(book_path)

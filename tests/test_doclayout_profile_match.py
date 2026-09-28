@@ -32,7 +32,14 @@ from tools.doclayout.schema import LayoutDefinition, LayoutError
 
 @pytest.fixture()
 def ifjn() -> LayoutDefinition:
-    return load_layout("IFJN_layout")
+    """IFJN-Layout, absichtlich auf A4 gestellt -- der Abweichungsfall.
+
+    Die Bibliotheksvorlage steht seit 2026-09-28 selbst im Taschenbuchformat
+    (A4 ist fuer den Buchsatz ausgeschlossen); geprueft wird hier der
+    Abgleich, nicht die Bibliothek.
+    """
+    vorlage = load_layout("IFJN_layout")
+    return replace(vorlage, page=replace(vorlage.page, width_mm=210.0, height_mm=297.0))
 
 
 # ---------------------------------------------------------------------------

@@ -3,22 +3,22 @@ label: Prosa
 description: 'Layout für Prosa-Bände, abgeleitet vom IFJN-Layout (IFJN_layout): Absätze mit Erstzeileneinzug
   4 mm statt eigenem Fließtext-Format, sonst Seiten, Schriften und Verzeichnis wie dort.'
 page:
-  width_mm: 210.0
-  height_mm: 297.0
-  mirrored: false
+  width_mm: 135.0
+  height_mm: 215.0
+  mirrored: true
   margin:
-    top_mm: 20.0
+    top_mm: 19.0
     bottom_mm: 20.0
-    inner_mm: 25.0
-    outer_mm: 20.0
+    inner_mm: 20.0
+    outer_mm: 16.0
   header_distance_mm: 12.5
   footer_distance_mm: 12.5
   footer:
     page_number: true
     align: center
 typography:
-  body_font: Calibri
-  heading_font: ''
+  body_font: Cambria
+  heading_font: Calibri
   mono_font: Consolas
   base_size_pt: 11.0
   line_height: 1.15

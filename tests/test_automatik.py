@@ -146,7 +146,12 @@ def test_optionen_nennen_vorlagen_und_profile() -> None:
     assert "Prosa_Layout" in namen
     assert "Prosa_Standard" in daten["skeleton_profile"]
     assert daten["ziele"] == ["docx"]
-    assert all(set(d) == {"name", "label", "ok", "problem"} for d in daten["doclayouts"])
+    assert all(
+        set(d) == {"name", "label", "ok", "problem", "taschenbuch", "ivz_zeichen"}
+        for d in daten["doclayouts"]
+    )
+    # Buecher nur im Taschenbuchformat: jede mitgelieferte Vorlage ist eins.
+    assert all(d["ok"] and d["taschenbuch"] and d["ivz_zeichen"] > 0 for d in daten["doclayouts"])
 
 
 def test_optionen_melden_kaputte_vorlage(tmp_path: Path, monkeypatch) -> None:

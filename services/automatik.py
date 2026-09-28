@@ -199,8 +199,10 @@ def resolve_skeleton_profile_dir(repo: Path, name: str) -> Path | None:
 
 def optionen(repo: Path) -> dict[str, Any]:
     """Was der Startdialog zur Auswahl anbieten kann (JSON-freundlich)."""
+    from tools.doclayout.ivz import grenzen
     from tools.doclayout.library import available_layouts
     from tools.doclayout.schema import LayoutDefinition, LayoutError
+    from tools.doclayout.taschenbuch import pruefe_taschenbuch, taschenbuch_format
 
     layouts: list[dict[str, Any]] = []
     for pfad in available_layouts():
@@ -209,13 +211,15 @@ def optionen(repo: Path) -> dict[str, Any]:
         except LayoutError as exc:
             layouts.append({"name": pfad.stem, "label": "", "ok": False, "problem": str(exc)})
             continue
-        probleme = definition.validate()
+        probleme = definition.validate() + pruefe_taschenbuch(definition)
         layouts.append(
             {
                 "name": pfad.stem,
                 "label": definition.label or "",
                 "ok": not probleme,
                 "problem": "; ".join(probleme),
+                "taschenbuch": taschenbuch_format(definition) or "",
+                "ivz_zeichen": grenzen(definition).zeichen,
             }
         )
 
@@ -267,6 +271,9 @@ def pruefe_bs(profil: dict[str, Any], repo: Path) -> dict[str, list[str]]:
             probleme = definition.validate()
             if probleme:
                 luecken.append(f"Formatvorlage «{name}» nicht erzeugbar: " + "; ".join(probleme))
+            from tools.doclayout.taschenbuch import pruefe_taschenbuch
+
+            luecken += pruefe_taschenbuch(definition)
 
     try:
         from tools.doclayout.targets.docx import find_pandoc

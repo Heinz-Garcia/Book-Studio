@@ -14,6 +14,9 @@
     # ... oder nur die offenen Punkte als JSON
     python -m tools.automatik nacharbeit --profil ... --json
 
+    # Zeichengrenze fuer Verzeichniseintraege; mit --titel wird jeder Titel gemessen
+    python -m tools.automatik ivz --doclayout Reisefuehrer_Andalusien --titel titel.json
+
 Das Ergebnis ist immer ein JSON-Objekt auf stdout (UTF-8), damit GG es ohne
 Textraten lesen kann. ``lauf`` schreibt seinen Verlauf zeilenweise nach
 stderr (``[stufe] meldung``) -- GG nimmt ihn ins Automatik-Log auf.
@@ -63,7 +66,38 @@ def build_parser() -> argparse.ArgumentParser:
     nach = unter.add_parser("nacharbeit", help="Offene Punkte nach dem Lauf (Dialog oder --json)")
     nach.add_argument("--profil", required=True, help="Pfad zu automatik.json")
     nach.add_argument("--json", action="store_true", help="Nur die offenen Punkte als JSON ausgeben")
+    ivz = unter.add_parser(
+        "ivz", help="Zeichengrenze fuer Verzeichniseintraege einer Formatvorlage (und zu lange Titel)"
+    )
+    ivz.add_argument("--doclayout", required=True, help="Name der Formatvorlage")
+    ivz.add_argument(
+        "--titel",
+        default="",
+        help='JSON-Datei mit [[ebene, "Titel"], ...] (oder "-" fuer stdin); gemessen wird jeder Titel',
+    )
     return p
+
+
+def _ivz(layout: str, titel_quelle: str) -> int:
+    """``{layout, satzbreite_mm, zeichen, ebenen, zu_lang[]}`` -- gemessen mit der echten Schrift."""
+    from tools.doclayout.ivz import grenzen, zu_lange_titel
+    from tools.doclayout.library import load_layout
+    from tools.doclayout.schema import LayoutError
+
+    try:
+        definition = load_layout(layout)
+    except LayoutError as exc:
+        _ausgeben({"fehler": str(exc)})
+        return 1
+    titel: list[tuple[int, str]] = []
+    if titel_quelle:
+        if titel_quelle == "-":
+            roh = sys.stdin.buffer.read().decode("utf-8-sig")
+        else:
+            roh = Path(titel_quelle).read_text(encoding="utf-8-sig")
+        titel = [(int(e), str(t)) for e, t in json.loads(roh or "[]")]
+    _ausgeben({**grenzen(definition).als_dict(), "zu_lang": zu_lange_titel(definition, titel)})
+    return 0
 
 
 def _buch_und_docx(profil: dict, lauf_ordner: Path) -> tuple[Path | None, str]:
@@ -115,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.befehl == "optionen":
         _ausgeben(optionen(_WURZEL))
         return 0
+    if args.befehl == "ivz":
+        return _ivz(args.doclayout, args.titel)
     try:
         profil = read_automatik(args.profil)
     except AutomatikError as exc:

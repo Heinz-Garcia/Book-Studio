@@ -41,7 +41,7 @@ from tools.doclayout.ooxml import (
 # Haelften erzeugen dieselbe Datei, und zwei Fassungen derselben Reihenfolge
 # waeren die sichere Art, sie auseinanderlaufen zu lassen.
 from tools.doclayout.ooxml import _PPR_ORDER, _RPR_ORDER, _STYLE_ORDER, _ordered_append
-from tools.doclayout.schema import LayoutDefinition, LayoutError
+from tools.doclayout.schema import LayoutDefinition, LayoutError, mit_hilfsformaten
 from tools.doclayout.units import mm_to_twips
 
 #: Zeitgrenze fuer ``pandoc --print-default-data-file``. Der Aufruf liest nur
@@ -189,6 +189,9 @@ def build_reference_docx(
         raise DocxTargetError(
             "Layout ist nicht erzeugbar:\n  - " + "\n  - ".join(problems)
         )
+    # Hilfsformate (z. B. „Zentriert“) bringt jede Vorlage mit -- auch eine,
+    # die im Layout-Editor neu entsteht.
+    definition = mit_hilfsformaten(definition)
 
     register_namespaces()
     out = Path(out_path)

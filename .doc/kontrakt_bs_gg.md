@@ -47,6 +47,15 @@ GG baut und schreibt es, BS prüft den eigenen Teil über
 und liefert Auswahllisten über `python -m tools.automatik optionen`.
 Plan und Leitregeln: BS `.doc/automatik_gg_bis_docx.md`.
 
+Seit 2026-09-28: Formatvorlagen nur im **Taschenbuchformat** (Paperback 135 × 215 mm,
+BoD A5 -- aus den Studio-Presets); `optionen` nennt je Vorlage `taschenbuch` und
+`ivz_zeichen`, `pruefe` meldet andere Formate als Lücke. Die Zeichengrenze für
+einzeilige Verzeichniseinträge misst BS mit der echten Schrift:
+`python -m tools.automatik ivz --doclayout <name> [--titel <json [[ebene, titel], ...]>]`
+(JSON `{zeichen, ebenen, satzbreite_mm, zu_lang[]}`). GG nutzt sie in der Vorab-Prüfung
+(Überschriften der Prompt-Datei, Warnung) und als Titelvorgabe des Planners
+(`max_title_chars` im Brief); die Nacharbeit (`nacharbeit --json`) nennt `ivz_zu_lang`.
+
 ## Production-UUID am Buch
 
 - **SSOT ist Book Studio.** Geplante UUIDs entstehen dort (Cover zuerst). GG

@@ -154,11 +154,14 @@ def offene_punkte(
     book = Path(book)
     dateien = _kapiteldateien(book)
     try:
-        formate_der_vorlage = list(load_layout(layout_name).styles)
+        definition = load_layout(layout_name)
+        formate_der_vorlage = list(definition.styles)
     except LayoutError:
+        definition = None
         formate_der_vorlage = []
     ressourcen = _fehlende_ressourcen(book, dateien)
     formate = _formate(book)
+    ivz = _ivz_zu_lang(book, definition)
     return {
         "buch": str(book),
         "layout": layout_name,
@@ -166,8 +169,27 @@ def offene_punkte(
         "formate_ohne_zuordnung": formate,
         "absatzformate": formate_der_vorlage + sorted(PANDOC_BASISFORMATE),
         "pflichtseiten": _pflichtseiten(book, dateien, library_root, skeleton_profil),
-        "offen": len(ressourcen) + len(formate),
+        "ivz_zu_lang": ivz,
+        "offen": len(ressourcen) + len(formate) + len(ivz),
     }
+
+
+def _ivz_zu_lang(book: Path, definition: Any) -> list[dict[str, Any]]:
+    """Verzeichniseintraege, die umbrechen -- gemessen mit Schrift und Satzbreite.
+
+    Ursache ist der Text (Ueberschriften liefert der Generator), nicht das
+    Layout; der Dialog zeigt sie deshalb nur an, er aendert nichts.
+    """
+    from tools.doclayout.ivz import buch_titel, zu_lange_titel
+    from tools.doclayout.schema import LayoutDefinition
+
+    if not isinstance(definition, LayoutDefinition):
+        return []
+
+    try:
+        return zu_lange_titel(definition, buch_titel(book))
+    except (OSError, ValueError, RuntimeError):
+        return []
 
 
 # ---------------------------------------------------------------------------

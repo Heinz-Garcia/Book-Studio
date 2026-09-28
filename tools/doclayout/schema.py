@@ -863,10 +863,42 @@ def _style_cycles(styles: dict[str, ParagraphStyle]) -> Iterable[list[str]]:
             current = styles[current].based_on
 
 
+#: Absatzformat fuer die Formatieranweisung ``style="text-align: center;"``.
+#: Keine Klasse, sondern eine Anweisung im Text -- deshalb steht sie in keiner
+#: Klassen-Zuordnung, sondern jede Vorlage bringt das Format mit
+#: (:func:`mit_hilfsformaten`). Der Klassen-Filter setzt es.
+ZENTRIERT = "Zentriert"
+
+#: Hilfsformate, die jede ``reference.docx`` enthaelt. Definiert eine Vorlage
+#: ein gleichnamiges Format selbst, gilt ihres.
+HILFSFORMATE: dict[str, dict[str, Any]] = {
+    ZENTRIERT: {
+        "name": ZENTRIERT,
+        "based_on": "BodyText",
+        "next": "BodyText",
+        "align": "center",
+        "indent": {"left_mm": 0.0, "right_mm": 0.0, "hanging_mm": 0.0, "first_line_mm": 0.0},
+    },
+}
+
+
+def mit_hilfsformaten(definition: LayoutDefinition) -> LayoutDefinition:
+    """*definition* plus die fehlenden :data:`HILFSFORMATE` (Original unveraendert)."""
+    fehlend = {
+        style_id: ParagraphStyle.from_dict(style_id, daten)
+        for style_id, daten in HILFSFORMATE.items()
+        if style_id not in definition.styles
+    }
+    if not fehlend:
+        return definition
+    return replace(definition, styles={**definition.styles, **fehlend})
+
+
 __all__ = [
     "ALIGNMENTS",
     "BORDER_EDGES",
     "Border",
+    "HILFSFORMATE",
     "Indent",
     "LayoutDefinition",
     "LayoutError",
@@ -875,4 +907,6 @@ __all__ = [
     "PageMargin",
     "ParagraphStyle",
     "Typography",
+    "ZENTRIERT",
+    "mit_hilfsformaten",
 ]

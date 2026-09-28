@@ -526,6 +526,12 @@ class MarkupInventoryDialog(QDialog):
             self.befund_label.setText(
                 "<b style='color:#166534;'>Status: Alles zugeordnet.</b>"
             )
+        anweisungen = inventar.directives_summary()
+        if anweisungen:
+            # Auskunft, kein Befund: Formatieranweisungen setzt der Satz selbst.
+            self.befund_label.setText(
+                self.befund_label.text() + f"<br><span style='color:#475569;'>{anweisungen}.</span>"
+            )
         if self._focus_gaps and offen:
             self._select_first_gap()
         _LOG.info("Textauszeichnungs-Inventar: %s", inventar.summary())

@@ -209,8 +209,10 @@
         ]
       },
       "cli_bs": {
-        "optionen": "python -m tools.automatik optionen -> JSON {doclayouts[{name,label,ok,problem}], skeleton_profile[], skeleton_default, ziele[]}",
-        "pruefe": "python -m tools.automatik pruefe --profil <automatik.json> -> JSON {luecken[], warnungen[]}; Exit 0 = keine Luecken"
+        "optionen": "python -m tools.automatik optionen -> JSON {doclayouts[{name,label,ok,problem,taschenbuch,ivz_zeichen}], skeleton_profile[], skeleton_default, ziele[]}; ok=false auch fuer Nicht-Taschenbuch-Formate",
+        "pruefe": "python -m tools.automatik pruefe --profil <automatik.json> -> JSON {luecken[], warnungen[]}; Exit 0 = keine Luecken; Formatvorlage ohne Taschenbuchformat = Luecke",
+        "ivz": "python -m tools.automatik ivz --doclayout <name> [--titel <json [[ebene,titel],...]>] -> JSON {layout, satzbreite_mm, zeichen, ebenen{1,2}, zu_lang[{ebene,titel,zeichen,grenze,breite_mm,platz_mm}]}; gemessen mit der echten Schrift",
+        "nacharbeit": "python -m tools.automatik nacharbeit --profil <automatik.json> --json -> JSON {docx, fehlende_ressourcen[], formate_ohne_zuordnung[], pflichtseiten[], ivz_zu_lang[], offen, ...}"
       },
       "felder": {
         "automatik.json": {
