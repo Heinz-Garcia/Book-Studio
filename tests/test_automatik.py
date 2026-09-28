@@ -282,3 +282,20 @@ def test_produktionswurzel_umlenkbar(tmp_path: Path, monkeypatch) -> None:
     assert resolve_books_workspace_dir({"production_root_path": "production"}, BS_ROOT) == ziel / "books"
     monkeypatch.delenv("BSU_PRODUCTION_ROOT")
     assert _production_root(BS_ROOT) != ziel
+
+
+def test_cli_stdout_gehoert_allein_dem_json(monkeypatch, capsys) -> None:
+    """Was eine Bibliothek unterwegs nach stdout schreibt, darf das Ergebnis
+    nicht verderben -- PyMuPDFs Veraltet-Warnung stand vor dem JSON, und GG
+    las „kein Ergebnis“ (Ende-zu-Ende-Test, 2026-09-28)."""
+    import tools.automatik.__main__ as cli
+
+    def geschwaetzig(_repo):
+        print("warning: The `fitz` API is deprecated")
+        return {"doclayouts": [], "skeleton_profile": [], "skeleton_default": "", "ziele": ["docx"]}
+
+    monkeypatch.setattr(cli, "optionen", geschwaetzig)
+    assert cli.main(["optionen"]) == 0
+    ausgabe = capsys.readouterr()
+    assert json.loads(ausgabe.out)["ziele"] == ["docx"]
+    assert "deprecated" in ausgabe.err

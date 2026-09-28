@@ -25,6 +25,7 @@ stderr (``[stufe] meldung``) -- GG nimmt ihn ins Automatik-Log auf.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -41,10 +42,16 @@ from services.automatik import (
 _WURZEL = Path(__file__).resolve().parent.parent.parent
 
 
+#: Wohin das Ergebnis-JSON geht: das stdout beim Aufruf von :func:`main`.
+#: Waehrend des Laufs zeigt ``sys.stdout`` auf stderr (siehe ``main``).
+_KANAL = None
+
+
 def _ausgeben(daten: dict) -> None:
+    kanal = _KANAL or sys.stdout
     text = json.dumps(daten, ensure_ascii=False, indent=2) + "\n"
-    sys.stdout.buffer.write(text.encode("utf-8"))
-    sys.stdout.flush()
+    kanal.buffer.write(text.encode("utf-8"))
+    kanal.flush()
 
 
 def _log(meldung: str, stufe: str = "info") -> None:
@@ -145,6 +152,23 @@ def _nacharbeit(profil: dict, profil_pfad: Path, *, nur_json: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """stdout gehoert allein dem Ergebnis-JSON -- GG liest es als Ganzes.
+
+    Was eine Bibliothek unterwegs nach stdout schreibt (PyMuPDF meldet
+    Fehler dort), ginge sonst in das JSON und GG laese „kein Ergebnis“ --
+    gefunden am Ende-zu-Ende-Test nach dem Verzeichnis-Fuellen (2026-09-28).
+    Waehrend des Laufs zeigt ``sys.stdout`` deshalb auf stderr (ins Log).
+    """
+    global _KANAL
+    _KANAL = sys.stdout
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            return _main(argv)
+    finally:
+        _KANAL = None
+
+
+def _main(argv: list[str] | None) -> int:
     args = build_parser().parse_args(argv)
     if args.befehl == "optionen":
         _ausgeben(optionen(_WURZEL))

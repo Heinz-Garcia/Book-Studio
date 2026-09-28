@@ -44,7 +44,7 @@ def docx(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def pdf(tmp_path: Path) -> Path:
-    import fitz
+    import pymupdf as fitz
 
     dokument = fitz.open()
     for _ in range(4):

@@ -83,12 +83,18 @@ def ueberschriften(document_xml: str, *, tiefe: int = 2) -> list[Eintrag]:
 def pdf_seiten(pdf: Path) -> list[tuple[str, str]]:
     """(Titel, gedruckte Seitenzahl) aller PDF-Lesezeichen in Dokumentreihenfolge.
 
-    PyMuPDF ist Book Studios PDF-Leser (``requirements.txt``).
+    PyMuPDF ist Book Studios PDF-Leser (``requirements.txt``). Importiert als
+    ``pymupdf``: ``import fitz`` schreibt eine Veraltet-Warnung nach
+    **stdout** -- in der Automatik-CLI stand sie vor dem Ergebnis-JSON, und
+    GrammarGraph las „kein Ergebnis“.
     """
-    import fitz
+    try:
+        import pymupdf
+    except ImportError:  # aeltere PyMuPDF-Fassungen kennen nur ``fitz``
+        import fitz as pymupdf
 
     ergebnis: list[tuple[str, str]] = []
-    with fitz.open(str(pdf)) as dokument:
+    with pymupdf.open(str(pdf)) as dokument:
         for _ebene, titel, seite in dokument.get_toc(simple=True):
             if seite < 1:
                 continue
