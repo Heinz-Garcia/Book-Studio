@@ -341,8 +341,62 @@ styles:
         color: accent2
         space_pt: 3.0
         style: single
+  Impressum:
+    name: Impressum
+    based_on: BodyText
+    next: Impressum
+    align: left
+    space_before_pt: 0.0
+    space_after_pt: 6.0
+    indent:
+      left_mm: 0.0
+      right_mm: 0.0
+      hanging_mm: 0.0
+      first_line_mm: 0.0
+  Callout:
+    name: Callout
+    based_on: BodyText
+    next: BodyText
+    align: left
+    language: de-DE
+    shading: fill
+    space_before_pt: 12.0
+    space_after_pt: 12.0
+    indent:
+      left_mm: 0.0
+      right_mm: 0.0
+      hanging_mm: 0.0
+      first_line_mm: 0.0
+    borders:
+      bottom:
+        width_pt: 0.75
+        color: accent2
+        space_pt: 4.0
+        style: single
+      left:
+        width_pt: 2.25
+        color: accent
+        space_pt: 4.0
+        style: single
+      right:
+        width_pt: 0.75
+        color: accent2
+        space_pt: 4.0
+        style: single
+      top:
+        width_pt: 0.75
+        color: accent2
+        space_pt: 4.0
+        style: single
 classmap:
   fachtext: Fachtext
   prompt: Prompt-Frage
   prompt-separator: Prompt-Trenner
   themenblock: Themenblock
+  impressum: Impressum
+  callout: Callout
+  callout-tip: Callout
+  callout-note: Callout
+  callout-warning: Callout
+  callout-caution: Callout
+  callout-important: Callout

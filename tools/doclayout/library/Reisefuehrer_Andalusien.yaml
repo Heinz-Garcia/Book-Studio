@@ -311,6 +311,18 @@ styles:
         color: accent2
         space_pt: 3.0
         style: single
+  Impressum:
+    name: Impressum
+    based_on: BodyText
+    next: Impressum
+    align: left
+    space_before_pt: 0.0
+    space_after_pt: 6.0
+    indent:
+      left_mm: 0.0
+      right_mm: 0.0
+      hanging_mm: 0.0
+      first_line_mm: 0.0
 classmap:
   fachtext: Fachtext
   prompt: Prompt-Frage
@@ -324,3 +336,4 @@ classmap:
   callout-caution: Callout
   callout-important: Callout
   themenblock: Themenblock
+  impressum: Impressum

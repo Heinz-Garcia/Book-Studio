@@ -450,7 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-toc", action="store_true", help="ohne Inhaltsverzeichnis setzen"
     )
     sp_typeset.add_argument(
-        "--toc-depth", type=int, default=1, help="Gliederungstiefe des Verzeichnisses"
+        "--toc-depth", type=int, default=2, help="Gliederungstiefe des Verzeichnisses"
     )
     sp_typeset.add_argument(
         "--keep-template", action="store_true",

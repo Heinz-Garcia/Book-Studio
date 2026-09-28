@@ -215,7 +215,10 @@ Entscheidungen des Nutzers nach dem HuG-Lauf:
       Bibliothek **nachgewiesen** (identisch / Pfad gleich, Inhalt geändert / unbekannt), nie geraten.
       Alle Pflichtseiten kommen auch in die DOCX, Platzhalter inklusive -- der Nutzer bearbeitet sie in Word
 - [x] **Keine Kapitelüberschriften erfinden.** Die HuG-Buchkonfiguration liefert „ohne #“; Book Studio
-      ergänzt nichts. Das Inhaltsverzeichnis der DOCX bleibt dann leer -- gewollt
+      ergänzt nichts. ~~Das Inhaltsverzeichnis der DOCX bleibt dann leer -- gewollt~~
+      **Revidiert 2026-09-28** (Nutzer: „Hauptteil kommt im IVZ nicht vor“): Der DOCX-Satz setzt
+      über einen Nutzinhalt ohne Frontmatter und ohne `#` den **Buchtitel** als Überschrift -- nur
+      wenn es genau ein solches Kapitel gibt. Erfunden wird weiterhin nichts (siehe unten, DOCX-Satz)
 - [x] Bericht: mehrzeilige Warnungen vollständig, lokaler Lauf = 0 € statt „unbekannt“, Gate B in der
       Stufentabelle
 
@@ -249,3 +252,23 @@ Werden **vor** Paket 1 geklärt und dann in die Leitregeln übernommen.
   Im Layout-Editor umbenennen, wenn gewünscht.
 - 2026-09-27: Gate H der Studio-Kette prüft „neueste PDF im Ausgabeordner“ und kann damit eine
   alte PDF für den aktuellen Lauf halten.
+- 2026-09-28: **DOCX-Satz als Buch (8 Mängel aus HuG-Lauf 2, behoben im Pool, nicht im Artefakt).**
+  Die Skeleton-Pflichtseiten waren nur für Typst gebaut: Pandoc verwirft `{=typst}`-Blöcke, also
+  auch alle Seitenumbrüche. Jetzt:
+  - `typeset.assemble_book` setzt die Kapitel zu **einer** Eingabe zusammen: Frontmatter weg,
+    `title` → `#` nach `chapter_title_render` (SSOT), Kapitelgrenze `::: {.bs-kapitel}` zwischen
+    den Dateien. Der Klassen-Filter macht daraus einen Seitenumbruch vor dem nächsten
+    **sichtbaren** Block (reine Typst-Seiten erzeugen keine Leerseiten, kein Umbruch am Ende).
+  - Verzeichnis an der Stelle der Pflichtseite IVZ (`::: {.bs-ivz}`) statt Pandocs `--toc`
+    (das stand immer direkt hinter dem Titel). Tiefe 2: GG-Kapitel sind `##`.
+  - Skeleton (alle 5 Profile): Deckblatt-Anleitung als Kommentar, Impressum als
+    `::: {.impressum}` mit Leerzeilen um jeden Zaun, Rückseite ohne `#` (kein IVZ-Eintrag),
+    QR-Bild im Manifest (wurde nie kopiert).
+  - Layouts (alle 5): Formate „Impressum“ (linksbündig) und „Callout“ + Klassen. Filter:
+    Callout-Titel als fetter Absatz statt Überschrift, Bild im Kasten, `/img/...` ab Buchwurzel.
+  - Pandoc liest `markdown+lists_without_preceding_blankline` (GG setzt Listen direkt unter eine
+    Zeile). Dabei gefunden: Der Filter verwarf **Unterlisten** in Klassen-Divs -- behoben.
+  - Test: `tests/test_docx_satz_buchseiten.py`; realer Großtest Andalusien (440 KB, 598
+    Überschriften, Tabellen) über `fuehre_bs_teil_aus` mit `BSU_PRODUCTION_ROOT` im Temp.
+- 2026-09-28: Hinweis für Tests: Eine kopierte `.~lock.<datei>#` (LibreOffice offen) lässt den
+  UNO-Weg scheitern; die PDF entsteht dann über den Direktweg **ohne** gefülltes Verzeichnis.

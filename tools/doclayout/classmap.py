@@ -71,6 +71,38 @@ local function flatten_single_item_list(blocks)
   return {{pandoc.Para(inlines)}}
 end
 
+--- Listenpunkte als Absaetze, Unterlisten eingerueckt dahinter. Unterlisten
+--- gingen frueher verloren (nur Plain/Para des Punkts wurden uebernommen).
+local function flatten_items(list, out, depth)
+  local einzug = string.rep(utf8.char(0xA0), 4 * depth)
+  local nummer = (list.t == "OrderedList" and list.listAttributes
+    and list.listAttributes.start) or 1
+  for _, item in ipairs(list.content) do
+    local marke = depth == 0 and "•" or "◦"
+    if list.t == "OrderedList" then marke = tostring(nummer) .. "." end
+    nummer = nummer + 1
+    local inlines = {{pandoc.Str(einzug .. marke), pandoc.Space()}}
+    local danach = {{}}
+    for _, part in ipairs(item) do
+      if part.t == "Plain" or part.t == "Para" then
+        for _, inline in ipairs(part.content) do
+          table.insert(inlines, inline)
+        end
+      else
+        table.insert(danach, part)
+      end
+    end
+    table.insert(out, pandoc.Para(inlines))
+    for _, part in ipairs(danach) do
+      if part.t == "BulletList" or part.t == "OrderedList" then
+        flatten_items(part, out, depth + 1)
+      else
+        table.insert(out, part)
+      end
+    end
+  end
+end
+
 --- Aufzaehlungen im Div zu Absaetzen mit Bullet: sonst gewinnt der Listenstil
 --- und KeyTakeaway/Spanisch/Callout verlieren ihre Vorlage.
 local function flatten_bullet_lists(blocks, style)
@@ -79,18 +111,7 @@ local function flatten_bullet_lists(blocks, style)
   for _, block in ipairs(blocks) do
     if block.t == "BulletList" then
       changed = true
-      for _, item in ipairs(block.content) do
-        local inlines = {{pandoc.Str("•"), pandoc.Space()}}
-        for _, part in ipairs(item) do
-          if part.t == "Plain" or part.t == "Para" then
-            for _, inline in ipairs(part.content) do
-              table.insert(inlines, inline)
-            end
-          end
-        end
-        local para = pandoc.Para(inlines)
-        table.insert(out, para)
-      end
+      flatten_items(block, out, 0)
     else
       table.insert(out, block)
     end
@@ -99,9 +120,99 @@ local function flatten_bullet_lists(blocks, style)
   return nil
 end
 
+-- Satz-Modus: nur wenn tools/doclayout/typeset das Buch setzt
+-- (``-M bs-typeset=true``). Quartos eigener DOCX-Render nutzt denselben
+-- Filter; dort bleiben IVZ-Platzhalter und Kapitelgrenzen wirkungslos.
+local satz = false
+local toc_title = ""
+local toc_depth = "2"
+
+local function read_meta(meta)
+  local flag = meta["bs-typeset"]
+  satz = flag == true or (flag ~= nil and pandoc.utils.stringify(flag) == "true")
+  if meta["toc-title"] ~= nil then
+    toc_title = pandoc.utils.stringify(meta["toc-title"])
+  end
+  if meta["bs-toc-depth"] ~= nil then
+    toc_depth = pandoc.utils.stringify(meta["bs-toc-depth"])
+  end
+  return nil
+end
+
+local function xml_escape(text)
+  return (text:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"))
+end
+
+--- Verzeichnis an der Stelle von ``::: {{.bs-ivz}}`` (Pflichtseite IVZ).
+--- Gleiches Feld wie Pandocs ``--toc`` -- das setzt es aber immer an den
+--- Anfang, vor Impressum und Titelseiten.
+local function toc_block()
+  local titel = ""
+  if toc_title ~= "" then
+    titel = [[<w:p><w:pPr><w:pStyle w:val="TOCHeading"/></w:pPr>]]
+      .. [[<w:r><w:t xml:space="preserve">]] .. xml_escape(toc_title)
+      .. [[</w:t></w:r></w:p>]]
+  end
+  -- Feldschalter mit string.char(92) statt woertlichem Backslash: Backslash
+  -- plus u sieht im Filter aus wie ein JSON-Escape (siehe lua_string).
+  local bs = string.char(92)
+  local feld = "TOC " .. bs .. "o &quot;1-" .. toc_depth .. "&quot; "
+    .. bs .. "h " .. bs .. "z " .. bs .. "u"
+  return pandoc.RawBlock("openxml",
+    [[<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val="Table of Contents"/>]]
+    .. [[<w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent>]] .. titel
+    .. [[<w:p><w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/>]]
+    .. [[<w:instrText xml:space="preserve">]] .. feld
+    .. [[</w:instrText><w:fldChar w:fldCharType="separate"/>]]
+    .. [[<w:fldChar w:fldCharType="end"/></w:r></w:p></w:sdtContent></w:sdt>]])
+end
+
+local function page_break()
+  return pandoc.RawBlock("openxml", [[<w:p><w:r><w:br w:type="page"/></w:r></w:p>]])
+end
+
+local function is_callout(classes)
+  for _, class in ipairs(classes) do
+    if string.sub(normalize(class), 1, 7) == "callout" then return true end
+  end
+  return false
+end
+
+--- Callout-Titel (``## Titel`` im Div) als fetter Absatz: als Ueberschrift
+--- landete er im Verzeichnis und verlöre die Callout-Vorlage. Abbildungen
+--- ebenso als schlichter Absatz -- sonst steht das Bild ausserhalb des Kastens.
+local function callout_titles(blocks)
+  local out = {{}}
+  for _, block in ipairs(blocks) do
+    if block.t == "Header" then
+      table.insert(out, pandoc.Para({{pandoc.Strong(block.content)}}))
+    elseif block.t == "Figure" then
+      for _, inner in ipairs(block.content) do
+        if inner.t == "Plain" then
+          table.insert(out, pandoc.Para(inner.content))
+        else
+          table.insert(out, inner)
+        end
+      end
+    else
+      table.insert(out, block)
+    end
+  end
+  return out
+end
+
 function Div(el)
+  if el.classes:includes("bs-ivz") then
+    if satz then return toc_block() end
+    return nil
+  end
+  local callout = is_callout(el.classes)
+  if callout then el.content = callout_titles(el.content) end
   local style = style_for(el.classes)
-  if not style then return nil end
+  if not style then
+    if callout then return el end
+    return nil
+  end
   el.attributes["custom-style"] = style
   -- Sprache fuer Rechtschreibpruefung (DE/ES parallel im selben Dokument).
   if style == "Spanisch" then
@@ -121,6 +232,65 @@ function Div(el)
   end
   return el
 end
+
+--- Quarto deutet ``/img/x.png`` als Pfad ab Buchwurzel; Pandoc laeuft im Buch.
+function Image(img)
+  if satz and string.sub(img.src, 1, 1) == "/" then
+    img.src = string.sub(img.src, 2)
+    return img
+  end
+  return nil
+end
+
+--- Sichtbar im DOCX? Typst-Rohbloecke, Kommentare und leere Absaetze nicht.
+local function visible(block)
+  if block.t == "RawBlock" then return block.format == "openxml" end
+  if block.t == "Para" or block.t == "Plain" then return #block.content > 0 end
+  if block.t == "Div" then
+    for _, inner in ipairs(block.content) do
+      if visible(inner) then return true end
+    end
+    return false
+  end
+  return true
+end
+
+--- Jedes Kapitel auf eine neue Seite. Die Grenzen (``::: {{.bs-kapitel}}``)
+--- setzt tools/doclayout/typeset zwischen die Kapiteldateien. Umbrochen wird
+--- erst vor dem naechsten sichtbaren Block: Reine Typst-Seiten
+--- (Schmutztitel, Deckblatt) ergeben so keine leeren Seiten und das Buch
+--- endet nicht auf einer Leerseite.
+local function chapter_breaks(doc)
+  if not satz then return nil end
+  local out = {{}}
+  local seit_umbruch = doc.meta.title ~= nil -- der Titelblock steht davor
+  local offen = false
+  for _, block in ipairs(doc.blocks) do
+    if block.t == "Div" and block.classes:includes("bs-kapitel") then
+      if seit_umbruch then
+        offen = true
+        seit_umbruch = false
+      end
+    elseif visible(block) then
+      if offen then
+        table.insert(out, page_break())
+        offen = false
+      end
+      table.insert(out, block)
+      seit_umbruch = true
+    else
+      table.insert(out, block)
+    end
+  end
+  doc.blocks = out
+  return doc
+end
+
+return {{
+  {{Meta = read_meta}},
+  {{Div = Div, Image = Image}},
+  {{Pandoc = chapter_breaks}},
+}}
 '''
 
 

@@ -19,6 +19,7 @@ GUI-frei; der Dialog ruft :func:`typeset_book` in einem eigenen Faden auf.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,16 +47,29 @@ OUTPUT_SUBDIR = ("export", "doclayout")
 #: Ein ganzes Buch braucht laenger als ein Mustertext.
 BOOK_PANDOC_TIMEOUT_S = 600
 
-#: Roher OOXML-Seitenumbruch. Er wird als **erste Eingabedatei** vor das
-#: Manuskript gestellt und nicht ueber ``--include-before-body`` eingehaengt:
-#: Pandoc setzt Letzteres **vor** das Inhaltsverzeichnis, wo es nichts bewirkt.
-#: Ohne ihn beginnt der Text auf derselben Seite, auf der die letzten
-#: Verzeichniszeilen stehen.
-PAGE_BREAK_MARKDOWN = (
-    "```{=openxml}\n"
-    '<w:p><w:r><w:br w:type="page"/></w:r></w:p>\n'
-    "```\n"
-)
+#: Die eine Eingabedatei, die Pandoc bekommt: alle Kapitel ohne Frontmatter,
+#: getrennt durch Kapitelgrenzen. Liegt nur waehrend des Laufs im Ausgabeordner.
+ASSEMBLED_NAME = "_satz.md"
+
+#: Grenze zwischen zwei Kapiteldateien. Der Klassen-Filter macht daraus einen
+#: Seitenumbruch vor dem naechsten **sichtbaren** Block -- reine Typst-Seiten
+#: (Schmutztitel, Deckblatt) erzeugen so keine Leerseiten.
+CHAPTER_BOUNDARY = "::: {.bs-kapitel}\n:::"
+
+#: Platzhalter fuer das Verzeichnis. Die Pflichtseite ``IVZ.md`` traegt ihn;
+#: fehlt er im Buch, setzt der Satz ihn als eigene Seite vor das erste Kapitel.
+#: Pandocs ``--toc`` wird nicht benutzt: Es setzt das Verzeichnis immer direkt
+#: hinter den Titelblock, vor Impressum und Titelseiten.
+TOC_PLACEHOLDER = "::: {.bs-ivz}\n:::"
+
+#: Generator-Texte setzen Aufzaehlungen oft direkt unter eine Zeile
+#: (``**1. Sevilla**`` / ``* Klinik``). Ohne die Erweiterung stuende jedes
+#: ``*`` woertlich im Fliesstext -- gefunden im Andalusien-Band.
+MARKDOWN_FORMAT = "markdown+lists_without_preceding_blankline"
+
+_TOC_PLACEHOLDER_RE = re.compile(r"(?m)^:::+\s*\{[^}\n]*\.bs-ivz\b")
+_H1_RE = re.compile(r"(?m)^#(?!#)\s+\S")
+_FENCE_RE = re.compile(r"(?ms)^(`{3,}|~{3,}).*?^\1\s*$")
 
 
 class TypesetError(PreviewError):
@@ -178,6 +192,65 @@ def book_metadata(book_path: Path | str) -> dict[str, str]:
     return meta
 
 
+def _has_h1(body: str) -> bool:
+    """Steht im Text eine Level-1-Ueberschrift (Codebloecke ausgenommen)?"""
+    return bool(_H1_RE.search(_FENCE_RE.sub("", body)))
+
+
+def assemble_book(
+    root: Path, kapitel: list[Path], *, toc: bool, book_title: str = ""
+) -> str:
+    """Die Kapitel als **ein** Markdown -- so, wie Quarto sie liest.
+
+    Pandoc allein kennt keine Buch-Semantik: Frontmatter-Titel wuerden zu
+    Metadaten, nicht zu Kapitelueberschriften, und zwischen den Dateien laege
+    kein Seitenumbruch. Hier wird das nachgebildet:
+
+    - Frontmatter faellt weg; ein ``title`` wird zur ``#``-Ueberschrift, wenn
+      Quarto ihn drucken wuerde (``chapter_title_render`` ist die SSOT dafuer)
+      und das Kapitel nicht schon selbst mit einer steht.
+    - Ein Kapitel **ohne** Frontmatter und ohne ``#`` (der Nutzinhalt einer
+      GG-Lieferung) bekommt den Buchtitel -- sonst fehlte der Hauptteil im
+      Verzeichnis. Nur wenn es genau ein solches Kapitel gibt: Bei mehreren
+      waere derselbe Titel mehrfach falsch.
+    - Zwischen den Kapiteln steht :data:`CHAPTER_BOUNDARY`.
+    - Traegt kein Kapitel den :data:`TOC_PLACEHOLDER`, steht er (bei *toc*)
+      vor dem ersten Kapitel.
+    """
+    import frontmatter_parser
+    from chapter_title_render import should_print_chapter_title
+
+    teile: list[tuple[str, str, bool]] = []  # (Ueberschrift, Text, ohne Frontmatter)
+    for pfad in kapitel:
+        roh = pfad.read_text(encoding="utf-8")
+        parts = frontmatter_parser.parse(roh)
+        body = parts.body if parts.has_frontmatter else roh.lstrip("﻿")
+        daten = parts.parsed() if parts.has_frontmatter else {}
+        titel = str(daten.get("title") or "").strip()
+        rel = pfad.relative_to(root).as_posix()
+        ueberschrift = ""
+        if titel and not _has_h1(body) and should_print_chapter_title(daten, rel_path=rel):
+            ueberschrift = titel
+        teile.append((ueberschrift, body, not parts.has_frontmatter))
+
+    ohne_titel = [
+        i for i, (u, body, roh) in enumerate(teile) if roh and not u and not _has_h1(body)
+    ]
+    if book_title and len(ohne_titel) == 1:
+        i = ohne_titel[0]
+        teile[i] = (book_title, teile[i][1], teile[i][2])
+
+    bloecke: list[str] = []
+    if toc and not any(_TOC_PLACEHOLDER_RE.search(body) for _, body, _ in teile):
+        bloecke += [CHAPTER_BOUNDARY, TOC_PLACEHOLDER]
+    for ueberschrift, body, _ in teile:
+        bloecke.append(CHAPTER_BOUNDARY)
+        if ueberschrift:
+            bloecke.append(f"# {ueberschrift}")
+        bloecke.append(body.strip("\n"))
+    return "\n\n".join(bloecke) + "\n"
+
+
 # ---------------------------------------------------------------------------
 # Der Lauf
 # ---------------------------------------------------------------------------
@@ -190,7 +263,7 @@ def typeset_book(
     out_dir: Optional[Path] = None,
     to_pdf: bool = True,
     toc: bool = True,
-    toc_depth: int = 1,
+    toc_depth: int = 2,
     pandoc: Optional[str] = None,
     soffice: Optional[str] = None,
     rebuild_template: bool = True,
@@ -238,32 +311,32 @@ def typeset_book(
                 f"{was} fehlt: {datei}. Erst »Auf Buch anwenden«, dann setzen."
             )
 
-    eingaben = [str(p) for p in kapitel]
-    umbruch: Optional[Path] = None
-    if toc:
-        # Muss vor dem Manuskript stehen und nach dem Verzeichnis wirken --
-        # siehe PAGE_BREAK_MARKDOWN.
-        umbruch = ziel_dir / "_seitenumbruch.md"
-        umbruch.write_text(PAGE_BREAK_MARKDOWN, encoding="utf-8", newline="\n")
-        eingaben.insert(0, str(umbruch))
+    meta = book_metadata(root)
+    try:
+        text = assemble_book(root, kapitel, toc=toc, book_title=meta.get("title", ""))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise TypesetError(f"Kapitel nicht lesbar: {exc}") from exc
+    satz = ziel_dir / ASSEMBLED_NAME
+    satz.write_text(text, encoding="utf-8", newline="\n")
 
     befehl = [
         executable,
-        "--from", "markdown",
+        "--from", MARKDOWN_FORMAT,
         "--to", "docx",
         f"--reference-doc={reference}",
         f"--lua-filter={lua}",
         f"--resource-path={root}",
         "--output", str(docx),
+        "--metadata", "bs-typeset=true",
+        "--metadata", f"bs-toc-depth={toc_depth}",
     ]
     if toc:
-        befehl += ["--toc", f"--toc-depth={toc_depth}"]
         titel = toc_title_for(definition.typography.language)
         if titel:
             befehl += ["--metadata", f"toc-title={titel}"]
-    for schluessel, wert in book_metadata(root).items():
+    for schluessel, wert in meta.items():
         befehl += ["--metadata", f"{schluessel}={wert}"]
-    befehl += eingaben
+    befehl.append(str(satz))
 
     try:
         ergebnis = run_hidden(
@@ -277,8 +350,7 @@ def typeset_book(
     except OSError as exc:
         raise TypesetError(f"Pandoc nicht ausfuehrbar: {exc}") from exc
     finally:
-        if umbruch is not None:
-            umbruch.unlink(missing_ok=True)
+        satz.unlink(missing_ok=True)
 
     meldungen = (ergebnis.stderr or b"").decode("utf-8", "replace").strip()
     if ergebnis.returncode != 0 or not docx.is_file():
@@ -319,11 +391,15 @@ def typeset_book(
 
 
 __all__ = [
+    "ASSEMBLED_NAME",
     "BOOK_PANDOC_TIMEOUT_S",
+    "CHAPTER_BOUNDARY",
+    "MARKDOWN_FORMAT",
     "OUTPUT_SUBDIR",
-    "PAGE_BREAK_MARKDOWN",
+    "TOC_PLACEHOLDER",
     "TypesetError",
     "TypesetResult",
+    "assemble_book",
     "book_chapters",
     "book_metadata",
     "typeset_book",

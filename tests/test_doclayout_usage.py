@@ -173,9 +173,10 @@ def test_quarto_classes_are_not_reported_as_a_gap(tmp_path: Path, layout: Layout
 
 
 def test_quarto_classes_can_be_demanded_explicitly(tmp_path: Path, layout: LayoutDefinition):
-    book = _book(tmp_path, k="::: {.callout-note}\nX\n:::\n")
+    # Eine Quarto-Klasse, die das Layout nicht abbildet (Callouts bildet es ab).
+    book = _book(tmp_path, k="::: {.column-margin}\nX\n:::\n")
     result = compare(scan_book(book), layout, ignore_builtins=False)
-    assert [u.name for u in result.unmapped] == ["callout-note"]
+    assert [u.name for u in result.unmapped] == ["column-margin"]
 
 
 def test_mappings_without_a_use_are_listed(tmp_path: Path, layout: LayoutDefinition):

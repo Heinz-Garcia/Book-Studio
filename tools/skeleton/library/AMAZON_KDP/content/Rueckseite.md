@@ -7,6 +7,4 @@ required: true
 order: "END-10"
 ---
 
-# Rückseite
-
 Abschluss- oder Werbeseite.

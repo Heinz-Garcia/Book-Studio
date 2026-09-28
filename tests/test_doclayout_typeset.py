@@ -135,13 +135,22 @@ def test_missing_data_is_left_out_not_invented(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
+class _Aufrufe(list):
+    """Pandoc-Aufrufe plus der Text der zusammengesetzten Eingabe je Aufruf."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.texte: list[str] = []
+
+
 @pytest.fixture()
 def pandoc_attrappe(monkeypatch):
-    """Ersetzt Pandoc und LibreOffice; merkt sich den Aufruf."""
-    aufrufe: list[list[str]] = []
+    """Ersetzt Pandoc und LibreOffice; merkt sich den Aufruf und den Satztext."""
+    aufrufe = _Aufrufe()
 
     def unecht(command, **kwargs):
         aufrufe.append(list(command))
+        aufrufe.texte.append(Path(command[-1]).read_text(encoding="utf-8"))
         ziel = Path(command[command.index("--output") + 1])
         ziel.write_bytes(b"PK\x03\x04 docx")
         return subprocess.CompletedProcess(command, 0, b"", b"")
@@ -171,33 +180,44 @@ def test_the_chapters_reach_pandoc_in_order(
     T.typeset_book(layout, buch)
     befehl = pandoc_attrappe[0]
     eingaben = [Path(t).name for t in befehl if t.endswith(".md")]
-    assert eingaben == ["_seitenumbruch.md", "a.md", "b.md", "c.md"]
+    assert eingaben == [T.ASSEMBLED_NAME]
+    text = pandoc_attrappe.texte[0]
+    assert text.index("# a.md") < text.index("# b.md") < text.index("# c.md")
 
 
-def test_the_page_break_is_the_first_input_not_an_include(
+def test_every_chapter_starts_behind_a_boundary(
     tmp_path: Path, layout: LayoutDefinition, pandoc_attrappe, monkeypatch
 ):
-    """``--include-before-body`` landet **vor** dem Verzeichnis und wirkt nicht.
+    """Die Grenzen macht der Filter zu Seitenumbruechen -- je Kapiteldatei eine."""
+    buch = _buch(tmp_path, kapitel=("a.md", "b.md"))
+    monkeypatch.setattr(T, "find_soffice", lambda explicit=None: None)
+    T.typeset_book(layout, buch)
+    text = pandoc_attrappe.texte[0]
+    # Zwei Kapitel + das eingesetzte Verzeichnis.
+    assert text.count(T.CHAPTER_BOUNDARY) == 3
 
-    Ohne den Umbruch beginnt der Text auf derselben Seite, auf der die letzten
-    Verzeichniszeilen stehen -- im Andalusien-Band war das Seite 8.
-    """
+
+def test_the_assembled_file_does_not_stay_behind(
+    tmp_path: Path, layout: LayoutDefinition, pandoc_attrappe, monkeypatch
+):
+    buch = _buch(tmp_path)
+    monkeypatch.setattr(T, "find_soffice", lambda explicit=None: None)
+    T.typeset_book(layout, buch)
+    assert not (buch.joinpath(*T.OUTPUT_SUBDIR) / T.ASSEMBLED_NAME).exists()
+
+
+def test_pandocs_own_toc_is_not_used(
+    tmp_path: Path, layout: LayoutDefinition, pandoc_attrappe, monkeypatch
+):
+    """``--toc`` stuende immer direkt hinter dem Titel, vor dem Impressum."""
     buch = _buch(tmp_path)
     monkeypatch.setattr(T, "find_soffice", lambda explicit=None: None)
     T.typeset_book(layout, buch)
     befehl = pandoc_attrappe[0]
-    assert not any(t.startswith("--include-before-body") for t in befehl)
-    md = [t for t in befehl if t.endswith(".md")]
-    assert Path(md[0]).name == "_seitenumbruch.md"
-
-
-def test_the_helper_file_does_not_stay_behind(
-    tmp_path: Path, layout: LayoutDefinition, pandoc_attrappe, monkeypatch
-):
-    buch = _buch(tmp_path)
-    monkeypatch.setattr(T, "find_soffice", lambda explicit=None: None)
-    T.typeset_book(layout, buch)
-    assert not (buch.joinpath(*T.OUTPUT_SUBDIR) / "_seitenumbruch.md").exists()
+    assert "--toc" not in befehl
+    assert "bs-typeset=true" in befehl
+    assert "bs-toc-depth=2" in befehl
+    assert befehl[befehl.index("--from") + 1] == T.MARKDOWN_FORMAT
 
 
 def test_the_table_of_contents_is_german_for_a_german_layout(
@@ -207,20 +227,19 @@ def test_the_table_of_contents_is_german_for_a_german_layout(
     monkeypatch.setattr(T, "find_soffice", lambda explicit=None: None)
     T.typeset_book(layout, buch)
     befehl = pandoc_attrappe[0]
-    assert "--toc" in befehl
     assert "toc-title=Inhaltsverzeichnis" in befehl
+    assert T.TOC_PLACEHOLDER in pandoc_attrappe.texte[0]
 
 
-def test_without_a_toc_there_is_no_page_break_either(
+def test_without_a_toc_there_is_no_placeholder_either(
     tmp_path: Path, layout: LayoutDefinition, pandoc_attrappe, monkeypatch
 ):
-    """Der Umbruch trennt Verzeichnis und Text -- ohne Verzeichnis trennt er nichts."""
     buch = _buch(tmp_path)
     monkeypatch.setattr(T, "find_soffice", lambda explicit=None: None)
     T.typeset_book(layout, buch, toc=False)
     befehl = pandoc_attrappe[0]
-    assert "--toc" not in befehl
-    assert not any(Path(t).name == "_seitenumbruch.md" for t in befehl)
+    assert not any(t.startswith("toc-title=") for t in befehl)
+    assert T.TOC_PLACEHOLDER not in pandoc_attrappe.texte[0]
 
 
 def test_the_book_data_reaches_pandoc(

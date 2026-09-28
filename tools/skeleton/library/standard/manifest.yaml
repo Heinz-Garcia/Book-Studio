@@ -102,3 +102,8 @@ files:
   title: Über den Autor (IFJN - Medizin)
   order: END-25
   required: false
+- path: img/qr_bonus_heinz_garcia.png
+  title: QR-Code Bonus-Material
+  required: true
+  include_in_tree: false
+  description: Bild zum Bonus-Hinweis im Impressum (/img/qr_bonus_heinz_garcia.png).

@@ -15,6 +15,12 @@ comment: >-
   ebenso verschluckt wie die (hier bewusst unterdrueckte) YAML-title-Heading.
 ---
 
+<!-- Platzhalter für den DOCX-Satz (tools/doclayout): dort steht das
+Word-Verzeichnis. Im Typst-Render bleibt er leer. -->
+
+::: {.bs-ivz}
+:::
+
 ```{=typst}
 #chapter-titles-visible.update(true)
 #heading(level: 1, outlined: false, bookmarked: false)[Inhaltsverzeichnis]
