@@ -71,6 +71,11 @@ QUARTO_BUILTIN_CLASSES = frozenset(
         "unlisted",
         "hidden",
         "landscape",
+        # Satzmarker des DOCX-Satzes (tools/doclayout/typeset): Platzhalter
+        # fuer das Verzeichnis und Kapitelgrenze. Kein Absatzformat, also
+        # auch keine Luecke im Layout.
+        "bs-ivz",
+        "bs-kapitel",
     }
 )
 

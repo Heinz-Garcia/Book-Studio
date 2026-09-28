@@ -216,9 +216,9 @@ Entscheidungen des Nutzers nach dem HuG-Lauf:
       Alle Pflichtseiten kommen auch in die DOCX, Platzhalter inklusive -- der Nutzer bearbeitet sie in Word
 - [x] **Keine Kapitelüberschriften erfinden.** Die HuG-Buchkonfiguration liefert „ohne #“; Book Studio
       ergänzt nichts. ~~Das Inhaltsverzeichnis der DOCX bleibt dann leer -- gewollt~~
-      **Revidiert 2026-09-28** (Nutzer: „Hauptteil kommt im IVZ nicht vor“): Der DOCX-Satz setzt
-      über einen Nutzinhalt ohne Frontmatter und ohne `#` den **Buchtitel** als Überschrift -- nur
-      wenn es genau ein solches Kapitel gibt. Erfunden wird weiterhin nichts (siehe unten, DOCX-Satz)
+      **Bestätigt 2026-09-28** (nach kurzem Umweg über „Buchtitel als Überschrift“, am selben Tag
+      zurückgenommen): BS erfindet nichts. Generierter Inhalt braucht Überschriften -- die liefert
+      das LLM an GrammarGraph, nicht Book Studio
 - [x] Bericht: mehrzeilige Warnungen vollständig, lokaler Lauf = 0 € statt „unbekannt“, Gate B in der
       Stufentabelle
 
@@ -272,3 +272,26 @@ Werden **vor** Paket 1 geklärt und dann in die Leitregeln übernommen.
     Überschriften, Tabellen) über `fuehre_bs_teil_aus` mit `BSU_PRODUCTION_ROOT` im Temp.
 - 2026-09-28: Hinweis für Tests: Eine kopierte `.~lock.<datei>#` (LibreOffice offen) lässt den
   UNO-Weg scheitern; die PDF entsteht dann über den Direktweg **ohne** gefülltes Verzeichnis.
+- 2026-09-28: **Typst und DOCX gleich im Inhalt (Nutzerregel).** Der Automatik-Satz
+  (`tools/doclayout/typeset`) lief an `pre_processor` vorbei. Jetzt:
+  - `render_text_prep.bereite_markdown_vor` ist die SSOT der formatneutralen Vorbereitung
+    (Listen, ☐, breite Tabellen, Spaltenbreiten, `[BOX:]`, `@`-Zitate); PreProcessor und
+    DOCX-Satz rufen sie beide auf.
+  - Kapiteltitel wie im Typst-Weg: erste `#` im Text fällt weg, `title` nur bei `print_title`
+    (`chapter_title_render`). Folge: Impressum ohne Überschrift, nicht im IVZ. Kein
+    Pandoc-Titelblatt mehr (gibt es im PDF nicht); Titel/Autor nur in den Dokumenteigenschaften.
+  - Titelei (Schmutztitel, Haupttitel) als Klassen-Divs `titelei-autor|titel|zusatz`: Typst über
+    `PreProcessor._rewrite_titelei`, DOCX über die Layout-Formate `Titelei-*`. Rohes Typst in den
+    Pflichtseiten nur noch für Seitenumbrüche (AMAZON_KDP hat eigene Platzhalter, unverändert).
+  - Trenner ◈ ohne Klasse (`style="text-align: center;"`, eine Zeile): DOCX nach derselben Regel
+    wie `_PROMPT_SEPARATOR_DIV_RE` → Prompt-Trenner.
+  - IVZ flach und zwei Ebenen tief, in beiden Wegen (`#outline(indent: 0em, depth: 2)`, TOC2/TOC3
+    ohne Einzug).
+  - `bs-ivz`/`bs-kapitel` sind Satzmarker, keine Formatlücke (vorher: falsche Warnung
+    „1 Absatzformat ohne Zuordnung“).
+  - Offen, bewusst nicht angeglichen: `typst-show.typ` blendet **jede** H1 aus. Eine GG-Lieferung
+    mit `#`-Kapiteln hätte im PDF keine sichtbaren Kapitelköpfe, im DOCX schon. Andalusien nutzt
+    `##` -- betrifft es heute nicht.
+  - Offen, Entscheidung Nutzer: IVZ-Zeilenlänge. Andalusien-Layout (99 mm Satzbreite, Cambria
+    11 pt, Reserve für Punkte + Seitenzahl): **höchstens 48 Zeichen** je Eintrag, damit er nicht
+    umbricht; die 6 Kapitel haben 77–96.

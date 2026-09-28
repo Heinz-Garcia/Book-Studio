@@ -11,7 +11,6 @@ from chapter_title_render import (
     parse_frontmatter_yaml,
 )
 from heading_anchor_ascii import ensure_ascii_heading_ids
-from list_markup_fixer import repariere_listen_markup
 from recto_open import (
     RECTO_MARKER,
     docx_page_setup_from_reference,
@@ -23,8 +22,7 @@ from recto_open import (
     should_open_on_recto,
     strip_manual_recto_breaks,
 )
-from table_to_definition_list import wandle_breite_tabellen
-from table_width_fixer import setze_spaltenbreiten
+from render_text_prep import bereite_markdown_vor, ohne_erste_h1
 
 _LOG = logging.getLogger(__name__)
 
@@ -46,6 +44,20 @@ _PROMPT_SEPARATOR_DIV_RE = re.compile(
     re.MULTILINE,
 )
 
+
+#: Titelei-Klassen und ihre Schriftgroesse im Typst-Satz (relativ zur
+#: Grundschrift). Das DOCX-Gegenstueck sind die Formate ``Titelei-*`` der
+#: Layouts (tools/doclayout/library).
+TITELEI_TYPST_GROESSE = {
+    "titelei-autor": "1.2em",
+    "titelei-titel": "2.4em",
+    "titelei-zusatz": "1em",
+}
+_TITELEI_DIV_RE = re.compile(
+    r"^:{3,}[ \t]*\{\.(?P<klasse>titelei-autor|titelei-titel|titelei-zusatz)\}[ \t]*\r?\n"
+    r"(?P<inhalt>.*?)\r?\n:{3,}[ \t]*$",
+    re.MULTILINE | re.DOTALL,
+)
 
 def _load_unnumbered_heading_levels(book_path: Path) -> frozenset[int]:
     """Read ``dialog_state.unnumbered_heading_levels`` from publish_meta.json."""
@@ -204,101 +216,48 @@ class PreProcessor:
 
         return _PROMPT_SEPARATOR_DIV_RE.sub(_ersetze, text)
 
+    def _rewrite_titelei(self, text):
+        """Titelei-Divs (``::: {.titelei-titel}`` ...) fuer Typst zentriert setzen.
+
+        Quartos Typst-Writer wirft die Klasse weg (siehe
+        :meth:`_rewrite_prompt_separators`). Der Inhalt bleibt Markdown; nur
+        Anfang und Ende des Divs werden zu Raw-Typst-Klammern. Der DOCX-Satz
+        sieht die Klassen unveraendert und bildet sie auf Absatzformate ab --
+        so haben beide Formate dieselben Titelseiten aus derselben Quelle.
+        """
+        if not str(self.output_format or "").lower().startswith("typst"):
+            return text
+
+        def _ersetze(match):
+            groesse = TITELEI_TYPST_GROESSE[match.group("klasse")]
+            inhalt = match.group("inhalt").strip("\n")
+            return (
+                "```{=typst}\n"
+                f"#align(center)[#text(size: {groesse})[\n"
+                "```\n\n"
+                + inhalt
+                + "\n\n```{=typst}\n]]\n```"
+            )
+
+        return _TITELEI_DIV_RE.sub(_ersetze, text)
+
     def _sanitize_markdown(self, text):
         """Repariert alte Boxen und übersetzt @-Zitationen absolut verlustfrei in echte Fußnoten."""
         # 0. Trenner zuerst: danach ist er ein Raw-Block und keine der
         #    folgenden Div-/Zitations-Regeln fasst ihn mehr an.
         text = self._rewrite_prompt_separators(text)
 
-        # 0b. Leerzeile vor Listen, die einen Absatz unterbrechen. Pandoc
-        #     laesst eine Liste einen Absatz nicht unterbrechen; ohne die
-        #     Leerzeile wird die Aufzaehlungszeile zur Fortsetzung des
-        #     Absatzes und der Bindestrich steht mitten im gesetzten Text.
-        #     Am Andalusien-Buch: 174 Stellen in der Quelle, 294 Befunde im
-        #     Druck-PDF. Laeuft NACH _rewrite_prompt_separators, damit der
-        #     Trenner-Div bereits Raw-Block ist, und ist idempotent -- ein
-        #     erneuter Render aendert nichts mehr.
-        #     Zusaetzlich werden ``☐``-Zeilen zu echten Listeneintraegen:
-        #     das Kaestchen allein ist fuer Pandoc Fliesstext, die Zeilen
-        #     werden sonst zu einem Absatz zusammengezogen (S. 347 der
-        #     Andalusien-Druckfahne: 15 Kaestchen als Textwand).
-        text, _reparaturen = repariere_listen_markup(text)
+        # 0b. Titelei (Schmutztitel/Haupttitel) ebenfalls nur fuer Typst:
+        #     dieselben Klassen-Divs wie im DOCX, dort ueber Absatzformate.
+        text = self._rewrite_titelei(text)
 
-        # 0c. Tabellen, die als Tabelle nicht mehr tragen, in Definitions-
-        #     listen wandeln. Laeuft VOR der Spaltenverteilung: was hier
-        #     zum Absatz wird, braucht keine Spaltenbreite mehr, und was
-        #     Tabelle bleibt, bekommt sie anschliessend proportional.
-        #     Am Andalusien-Buch nachgemessen: alle 130 Tabellen verlangen
-        #     mehr Breite, als die Seite hat -- die schmalste hat eine
-        #     Zelle mit 40 Zeichen, der Median 108, bei 53 Zeichen
-        #     Satzbreite. Keine Spaltenverteilung loest einen solchen
-        #     Mangel; kleiner setzen macht die Tabelle nur unlesbar.
-        #     Kein Zellinhalt geht verloren (1858 von 1858 wiedergefunden),
-        #     die Wortfolge innerhalb der Zellen bleibt unveraendert.
-        text, _definitionslisten = wandle_breite_tabellen(text)
+        # 1. Alles Formatneutrale (Listen, Kaestchen, breite Tabellen,
+        #    Spaltenbreiten, [BOX:]-Kaesten, @-Zitationen) -- SSOT mit dem
+        #    DOCX-Satz, siehe render_text_prep.py. Laeuft NACH den
+        #    Typst-Schritten, damit Trenner und Titelei bereits Raw-Bloecke
+        #    sind und keine Regel sie mehr anfasst.
+        text = bereite_markdown_vor(text)
 
-        # 0d. Spaltenbreiten der verbliebenen Pipe-Tabellen ableiten.
-        #     Pandoc liest sie aus der Strichzahl der Trennzeile; bei
-        #     gleich langen Trennern verteilt Typst gleichmaessig, und
-        #     "951 29 00 00" bekommt so viel Platz wie ein ganzer Satz.
-        #     Aendert ausschliesslich Bindestriche, kein Wort.
-        text, _spalten = setze_spaltenbreiten(text)
-        
-        # 1. Boxen reparieren: :::: \[BOX: Titel\] Inhalt ::: -> Quarto Callout
-        text = re.sub(
-            r':{3,4}\s*\\?\[BOX:\s*(.*?)\\?\](.*?):{3,4}', 
-            r'::: {.callout-note title="\1"}\n\2\n:::', 
-            text, 
-            flags=re.DOTALL
-        )
-        
-        # 1b. Übrig gebliebene eklige 4er-Doppelpunkte auf saubere 3er kürzen
-        text = re.sub(r'^::::\s*$', r':::', text, flags=re.MULTILINE)
-        
-        # 2. @-ZITATIONEN ROBUST IN FUSSNOTEN UMWANDELN
-        # Ziel: Auch Varianten wie [@Key, S. 331] oder [vgl. @Key1; @Key2] sicher abfangen.
-
-        # A) Definitionszeilen mit Klammernotation normalisieren:
-        #    [@Key, S. 331]: Text  ->  [^Key]: Text
-        text = re.sub(
-            r'^([ \t]*)\[@([a-zA-Z0-9_-]+)(?:[^\]]*)\]:',
-            r'\1[^\2]:',
-            text,
-            flags=re.MULTILINE,
-        )
-
-        # B) Definitionszeilen ohne Klammern normalisieren:
-        #    @Key: Text -> [^Key]: Text
-        text = re.sub(
-            r'^([ \t]*)@([a-zA-Z0-9_-]+):',
-            r'\1[^\2]:',
-            text,
-            flags=re.MULTILINE,
-        )
-
-        # C) Klammer-Zitationsgruppen in Marker umwandeln:
-        #    [@Key, S. 331] -> [^Key]
-        #    [vgl. @A; @B]  -> [^A][^B]
-        def _replace_citation_group(match):
-            group_content = match.group(1)
-            labels = re.findall(r'@([a-zA-Z0-9_-]+)', group_content)
-            if not labels:
-                return match.group(0)
-            unique_labels = []
-            seen = set()
-            for label in labels:
-                if label in seen:
-                    continue
-                seen.add(label)
-                unique_labels.append(label)
-            return ''.join(f'[^{label}]' for label in unique_labels)
-
-        text = re.sub(r'\[([^\]\n]*@[^\]\n]*)\]', _replace_citation_group, text)
-
-        # D) Bare @Label-Verweise im Fließtext umwandeln (ohne E-Mail/Teilwörter zu beschädigen)
-        #    Beispiel: "... (siehe @Key)" -> "... (siehe [^Key])"
-        text = re.sub(r'(?<![\w\[\^])@([a-zA-Z0-9_-]+)', r'[^\1]', text)
-        
         return text
     # =========================================================================
 
@@ -457,7 +416,7 @@ class PreProcessor:
         body = self._sanitize_markdown(body)
 
         # 2. H1 bereinigen (Body-H1 würde mit YAML-title konkurrieren)
-        body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
+        body = ohne_erste_h1(body)
 
         # 2b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround Typst-PDF-
         # Named-Destination-Bug bei Umlauten, siehe heading_anchor_ascii.py)
@@ -511,7 +470,7 @@ class PreProcessor:
         body = self._sanitize_markdown(body)
 
         # 2. H1 bereinigen (Body-H1 würde mit YAML-title konkurrieren)
-        body = re.sub(r'^(#\s+.*)$', r'', body, count=1, flags=re.MULTILINE)
+        body = ohne_erste_h1(body)
 
         # 2b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround Typst-PDF-
         # Named-Destination-Bug bei Umlauten, siehe heading_anchor_ascii.py)

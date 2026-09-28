@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from render_text_prep import bereite_markdown_vor
 from tools.doclayout import typeset as T
 from tools.doclayout.classmap import write_lua_filter
 from tools.doclayout.library import load_layout
@@ -62,38 +63,42 @@ def test_stille_pflichtseiten_bekommen_keine_ueberschrift(tmp_path: Path, kopf: 
     assert "# " not in T.assemble_book(tmp_path, [kap], toc=False)
 
 
-def test_vorhandene_h1_wird_nicht_verdoppelt(tmp_path: Path) -> None:
+def test_erste_h1_weicht_dem_kapiteltitel_wie_im_typst_weg(tmp_path: Path) -> None:
+    """Dieselbe Regel wie ``PreProcessor``: Die Text-H1 konkurriert mit dem Titel."""
     kap = _schreibe(tmp_path / "k.md", "---\ntitle: Titel\n---\n\n# Eigene\n\nText.\n")
     text = T.assemble_book(tmp_path, [kap], toc=False)
-    assert "# Titel" not in text and "# Eigene" in text
+    assert "# Titel" in text and "# Eigene" not in text
 
 
-def test_nutzinhalt_ohne_frontmatter_bekommt_den_buchtitel(tmp_path: Path) -> None:
-    """Sonst fehlt der Hauptteil einer GG-Lieferung im Verzeichnis."""
+def test_impressum_hat_wie_im_pdf_keine_ueberschrift(tmp_path: Path) -> None:
+    """Im Typst-PDF verschwindet ``# Impressum`` (stille Pflichtseite) -- im DOCX
+    ebenso, damit steht es auch nicht im Verzeichnis."""
+    kap = _schreibe(
+        tmp_path / "content" / "Impressum.md",
+        "---\ntitle: Impressum\nprint_title: false\nrequired: true\n---\n\n# Impressum\n\nText.\n",
+    )
+    assert "# " not in T.assemble_book(tmp_path, [kap], toc=False)
+
+
+def test_nichts_wird_erfunden(tmp_path: Path) -> None:
+    """Ueberschriften im Nutzinhalt liefert der Generator, nicht Book Studio."""
     kap = _schreibe(tmp_path / "band.md", "::: {.produktion}\nText.\n:::\n")
-    text = T.assemble_book(tmp_path, [kap], toc=False, book_title="Mein Band")
-    assert "# Mein Band\n\n::: {.produktion}" in text
+    assert "# " not in T.assemble_book(tmp_path, [kap], toc=False)
 
 
-def test_mehrere_kapitel_ohne_titel_bekommen_ihn_nicht(tmp_path: Path) -> None:
-    """Derselbe Buchtitel ueber zwei Kapiteln waere zweimal falsch."""
-    a = _schreibe(tmp_path / "a.md", "Text A.\n")
-    b = _schreibe(tmp_path / "b.md", "Text B.\n")
-    assert "# Mein Band" not in T.assemble_book(tmp_path, [a, b], toc=False, book_title="Mein Band")
-
-
-def test_h1_im_codeblock_zaehlt_nicht(tmp_path: Path) -> None:
-    kap = _schreibe(tmp_path / "band.md", "```\n# kein Titel\n```\n")
-    assert "# Mein Band" in T.assemble_book(tmp_path, [kap], toc=False, book_title="Mein Band")
+def test_text_durchlaeuft_die_gemeinsame_vorbereitung(tmp_path: Path) -> None:
+    """Listen ohne Leerzeile: im Typst-Weg repariert, also auch im DOCX."""
+    kap = _schreibe(tmp_path / "band.md", "**1. Sevilla**\n* Klinik A\n")
+    assert "**1. Sevilla**\n\n* Klinik A" in T.assemble_book(tmp_path, [kap], toc=False)
 
 
 def test_verzeichnis_platzhalter_nur_einmal(tmp_path: Path) -> None:
     ivz = _schreibe(tmp_path / "IVZ.md", "---\ntitle: IVZ\nrequired: true\n---\n\n::: {.bs-ivz}\n:::\n")
-    kap = _schreibe(tmp_path / "k.md", "# K\n")
+    kap = _schreibe(tmp_path / "k.md", "## K\n")
     assert T.assemble_book(tmp_path, [ivz, kap], toc=True).count(".bs-ivz") == 1
     # Ohne IVZ-Seite setzt der Satz es selbst vor das erste Kapitel.
     ohne = T.assemble_book(tmp_path, [kap], toc=True)
-    assert ohne.index(T.TOC_PLACEHOLDER) < ohne.index("# K")
+    assert ohne.index(T.TOC_PLACEHOLDER) < ohne.index("## K")
 
 
 # ---------------------------------------------------------------------------
@@ -138,13 +143,74 @@ def test_qr_bild_des_impressums_wird_mitkopiert(profil: str) -> None:
     assert (SKELETON / profil / "img" / "qr_bonus_heinz_garcia.png").is_file()
 
 
+@pytest.mark.parametrize("profil", [p for p in PROFILE if p != "AMAZON_KDP"])
+@pytest.mark.parametrize("seite", ["Schmutztitel.md", "Haupttitel.md"])
+def test_titelei_ist_fuer_beide_formate_dieselbe(profil: str, seite: str) -> None:
+    """Kein Inhalt nur fuer Typst: Rohes Typst hoechstens fuer den Seitenumbruch."""
+    body = _body(SKELETON / profil / "content" / seite)
+    assert "::: {.titelei-titel}" in body and "{{BOOK_TITLE}}" in body
+    for roh in re.findall(r"(?s)```\{=typst\}\n(.*?)```", body):
+        assert roh.strip() == "#pagebreak()"
+
+
+@pytest.mark.parametrize("profil", PROFILE)
+def test_typst_verzeichnis_flach_und_zwei_ebenen(profil: str) -> None:
+    assert "#outline(indent: 0em, depth: 2)" in _body(SKELETON / profil / "content" / "IVZ.md")
+
+
 @pytest.mark.parametrize("layout", sorted(p.stem for p in LAYOUTS.glob("*.yaml")))
-def test_jedes_layout_kennt_impressum_und_callout(layout: str) -> None:
+def test_jedes_layout_kennt_die_pflichtseiten_formate(layout: str) -> None:
     definition = load_layout(layout)
     assert definition.classmap.get("impressum") == "Impressum"
     assert definition.styles["Impressum"].align == "left"
     assert definition.classmap.get("callout-tip") == "Callout"
+    for klasse, stil in (
+        ("titelei-autor", "Titelei-Autor"),
+        ("titelei-titel", "Titelei-Titel"),
+        ("titelei-zusatz", "Titelei-Zusatz"),
+    ):
+        assert definition.classmap.get(klasse) == stil
+        assert definition.styles[stil].align == "center"
+    # IVZ flach: keine Einrueckung der Gliederungspunkte.
+    for toc in ("TOC2", "TOC3"):
+        einzug = definition.styles[toc].indent
+        assert einzug.left_mm == 0.0 and einzug.hanging_mm == 0.0
     assert not definition.validate()
+
+
+def test_typst_weg_setzt_die_titelei_zentriert() -> None:
+    import pre_processor
+
+    pp = pre_processor.PreProcessor(".", output_format="typst")
+    text = pp._sanitize_markdown("::: {.titelei-titel}\nMein Band\n:::\n")
+    assert "#align(center)[#text(size: 2.4em)[" in text and "Mein Band" in text
+    # DOCX-Weg (PreProcessor mit docx) laesst die Klasse fuer den Filter stehen.
+    docx = pre_processor.PreProcessor(".", output_format="docx")
+    assert "::: {.titelei-titel}" in docx._sanitize_markdown("::: {.titelei-titel}\nMein Band\n:::\n")
+
+
+def test_satzmarker_sind_keine_formatluecke() -> None:
+    from tools.doclayout.usage import QUARTO_BUILTIN_CLASSES
+
+    assert {"bs-ivz", "bs-kapitel"} <= QUARTO_BUILTIN_CLASSES
+
+
+def test_titel_und_autor_in_den_dokumenteigenschaften(tmp_path: Path) -> None:
+    from tools.doclayout.targets.docx import patch_docx_core_properties
+
+    docx = tmp_path / "x.docx"
+    with zipfile.ZipFile(docx, "w") as archiv:
+        archiv.writestr("[Content_Types].xml", "<Types/>")
+        archiv.writestr(
+            "docProps/core.xml",
+            '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/'
+            'metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"/>',
+        )
+    assert patch_docx_core_properties(docx, title="Ernstfall Urlaub", author="W. D. Heinz")
+    with zipfile.ZipFile(docx) as archiv:
+        assert archiv.namelist()[0] == "[Content_Types].xml"
+        core = archiv.read("docProps/core.xml").decode("utf-8")
+    assert "Ernstfall Urlaub</dc:title>" in core and "W. D. Heinz</dc:creator>" in core
 
 
 # ---------------------------------------------------------------------------
@@ -161,14 +227,15 @@ def pandoc() -> str:
 
 
 def _setze(pandoc: str, tmp_path: Path, text: str) -> str:
+    """Wie ``typeset_book``: gemeinsame Vorbereitung, Filter, kein Titelblatt."""
     lua = write_lua_filter(load_layout("Prosa_Layout"), tmp_path / "classmap.lua")
-    md = _schreibe(tmp_path / "satz.md", text)
+    md = _schreibe(tmp_path / "satz.md", bereite_markdown_vor(text))
     docx = tmp_path / "out.docx"
     subprocess.run(
         [
             pandoc, "--from", T.MARKDOWN_FORMAT, "--to", "docx", f"--lua-filter={lua}",
             "--metadata", "bs-typeset=true", "--metadata", "bs-toc-depth=2",
-            "--metadata", "toc-title=Inhaltsverzeichnis", "--metadata", "title=Band",
+            "--metadata", "toc-title=Inhaltsverzeichnis", "--metadata", "lang=de",
             "--output", str(docx), str(md),
         ],
         check=True, capture_output=True, cwd=tmp_path,
@@ -193,8 +260,9 @@ def test_verzeichnis_steht_an_der_ivz_stelle(pandoc: str, tmp_path: Path) -> Non
 def test_jedes_sichtbare_kapitel_auf_neuer_seite(pandoc: str, tmp_path: Path) -> None:
     typst_seite = "```{=typst}\n#pagebreak()\n```"
     xml = _setze(pandoc, tmp_path, _kapitel("Eins.", typst_seite, "Zwei.", "<!-- nur Kommentar -->", "Drei."))
-    # Titelblock | Eins | Zwei | Drei -- die unsichtbaren Seiten erzeugen nichts.
-    assert xml.count(UMBRUCH) == 3
+    # Eins | Zwei | Drei -- die unsichtbaren Seiten erzeugen nichts, und vor
+    # dem ersten Kapitel steht kein Umbruch (kein Pandoc-Titelblatt davor).
+    assert xml.count(UMBRUCH) == 2
     assert xml.rstrip().endswith("</w:document>") and not re.search(
         re.escape(UMBRUCH) + r"(?:(?!<w:t).)*</w:body>", xml, re.DOTALL
     )
@@ -206,11 +274,36 @@ def test_callout_titel_ist_keine_ueberschrift(pandoc: str, tmp_path: Path) -> No
     assert 'w:val="Callout"' in xml
 
 
-def test_div_zaun_ohne_leerzeile_wird_trotzdem_geoeffnet(pandoc: str, tmp_path: Path) -> None:
-    """Das alte Impressum: Die ``\\``-Zeile davor machte den Zaun zu Text."""
+def test_impressum_bekommt_seine_vorlage(pandoc: str, tmp_path: Path) -> None:
+    """Linksbuendig statt Blocksatz: Zeilen mit Zeilenumbruch wurden sonst gesperrt."""
     xml = _setze(pandoc, tmp_path, "::: {.impressum}\nZeile\\\nZeile\n:::\n")
     assert ":::" not in xml
     assert 'w:val="Impressum"' in xml
+
+
+def test_titelei_bekommt_ihre_formate(pandoc: str, tmp_path: Path) -> None:
+    xml = _setze(
+        pandoc, tmp_path,
+        "::: {.titelei-autor}\nAutorin\n:::\n\n::: {.titelei-titel}\nBand\n:::\n\n"
+        "::: {.titelei-zusatz}\naus der Reihe:\n:::\n",
+    )
+    for stil in ("Titelei-Autor", "Titelei-Titel", "Titelei-Zusatz"):
+        assert f'w:val="{stil}"' in xml
+
+
+@pytest.mark.parametrize(
+    "div, trenner",
+    [
+        ('::: {style="text-align: center;"}\n◈\n:::\n', True),
+        ('::: {style="text-align: center;"}\nZeile eins\nZeile zwei\n:::\n', False),
+    ],
+)
+def test_zentrierter_einzeiler_ist_der_fragen_trenner(
+    pandoc: str, tmp_path: Path, div: str, trenner: bool
+) -> None:
+    """Dieselbe Regel wie ``pre_processor._PROMPT_SEPARATOR_DIV_RE`` (Typst)."""
+    xml = _setze(pandoc, tmp_path, div)
+    assert ('w:val="Prompt-Trenner"' in xml) is trenner
 
 
 def test_listen_direkt_unter_einer_zeile(pandoc: str, tmp_path: Path) -> None:

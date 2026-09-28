@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import re
 import subprocess
+import xml.etree.ElementTree as ET
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -62,14 +64,12 @@ CHAPTER_BOUNDARY = "::: {.bs-kapitel}\n:::"
 #: hinter den Titelblock, vor Impressum und Titelseiten.
 TOC_PLACEHOLDER = "::: {.bs-ivz}\n:::"
 
-#: Generator-Texte setzen Aufzaehlungen oft direkt unter eine Zeile
-#: (``**1. Sevilla**`` / ``* Klinik``). Ohne die Erweiterung stuende jedes
-#: ``*`` woertlich im Fliesstext -- gefunden im Andalusien-Band.
-MARKDOWN_FORMAT = "markdown+lists_without_preceding_blankline"
+#: Reines Pandoc-Markdown wie im Quarto/Typst-Weg -- keine Erweiterung, die
+#: den Text anders liest. Listen ohne Leerzeile repariert die gemeinsame
+#: Vorbereitung (``render_text_prep``) fuer beide Formate.
+MARKDOWN_FORMAT = "markdown"
 
 _TOC_PLACEHOLDER_RE = re.compile(r"(?m)^:::+\s*\{[^}\n]*\.bs-ivz\b")
-_H1_RE = re.compile(r"(?m)^#(?!#)\s+\S")
-_FENCE_RE = re.compile(r"(?ms)^(`{3,}|~{3,}).*?^\1\s*$")
 
 
 class TypesetError(PreviewError):
@@ -192,58 +192,45 @@ def book_metadata(book_path: Path | str) -> dict[str, str]:
     return meta
 
 
-def _has_h1(body: str) -> bool:
-    """Steht im Text eine Level-1-Ueberschrift (Codebloecke ausgenommen)?"""
-    return bool(_H1_RE.search(_FENCE_RE.sub("", body)))
+def assemble_book(root: Path, kapitel: list[Path], *, toc: bool) -> str:
+    """Die Kapitel als **ein** Markdown -- mit denselben Regeln wie der Typst-Weg.
 
+    Das Typst-PDF ist der Massstab: Beide Formate sollen inhaltlich gleich sein.
+    Deshalb gelten hier die Regeln des ``PreProcessor``, keine eigenen:
 
-def assemble_book(
-    root: Path, kapitel: list[Path], *, toc: bool, book_title: str = ""
-) -> str:
-    """Die Kapitel als **ein** Markdown -- so, wie Quarto sie liest.
-
-    Pandoc allein kennt keine Buch-Semantik: Frontmatter-Titel wuerden zu
-    Metadaten, nicht zu Kapitelueberschriften, und zwischen den Dateien laege
-    kein Seitenumbruch. Hier wird das nachgebildet:
-
-    - Frontmatter faellt weg; ein ``title`` wird zur ``#``-Ueberschrift, wenn
-      Quarto ihn drucken wuerde (``chapter_title_render`` ist die SSOT dafuer)
-      und das Kapitel nicht schon selbst mit einer steht.
-    - Ein Kapitel **ohne** Frontmatter und ohne ``#`` (der Nutzinhalt einer
-      GG-Lieferung) bekommt den Buchtitel -- sonst fehlte der Hauptteil im
-      Verzeichnis. Nur wenn es genau ein solches Kapitel gibt: Bei mehreren
-      waere derselbe Titel mehrfach falsch.
+    - Frontmatter faellt weg; der Text durchlaeuft die formatneutrale
+      Vorbereitung (``render_text_prep.bereite_markdown_vor``).
+    - Die erste ``#`` im Text wird entfernt (sie konkurrierte mit dem
+      Kapiteltitel); der Frontmatter-``title`` wird zur Ueberschrift, wenn
+      ``chapter_title_render`` ihn drucken laesst. Stille Pflichtseiten
+      (Impressum, Titelei) bekommen so auch im DOCX keine Ueberschrift.
+    - Es wird **nichts erfunden**: Ein Kapitel ohne Titel bleibt ohne Titel.
+      Ueberschriften im Nutzinhalt liefert der Generator.
     - Zwischen den Kapiteln steht :data:`CHAPTER_BOUNDARY`.
     - Traegt kein Kapitel den :data:`TOC_PLACEHOLDER`, steht er (bei *toc*)
       vor dem ersten Kapitel.
     """
     import frontmatter_parser
-    from chapter_title_render import should_print_chapter_title
+    from chapter_title_render import resolve_print_title_text, should_print_chapter_title
+    from render_text_prep import bereite_markdown_vor, ohne_erste_h1
 
-    teile: list[tuple[str, str, bool]] = []  # (Ueberschrift, Text, ohne Frontmatter)
+    teile: list[tuple[str, str]] = []  # (Ueberschrift, Text)
     for pfad in kapitel:
         roh = pfad.read_text(encoding="utf-8")
         parts = frontmatter_parser.parse(roh)
         body = parts.body if parts.has_frontmatter else roh.lstrip("﻿")
         daten = parts.parsed() if parts.has_frontmatter else {}
-        titel = str(daten.get("title") or "").strip()
+        body = ohne_erste_h1(bereite_markdown_vor(body))
         rel = pfad.relative_to(root).as_posix()
         ueberschrift = ""
-        if titel and not _has_h1(body) and should_print_chapter_title(daten, rel_path=rel):
-            ueberschrift = titel
-        teile.append((ueberschrift, body, not parts.has_frontmatter))
-
-    ohne_titel = [
-        i for i, (u, body, roh) in enumerate(teile) if roh and not u and not _has_h1(body)
-    ]
-    if book_title and len(ohne_titel) == 1:
-        i = ohne_titel[0]
-        teile[i] = (book_title, teile[i][1], teile[i][2])
+        if daten and should_print_chapter_title(daten, rel_path=rel):
+            ueberschrift = resolve_print_title_text(daten, node_title="")
+        teile.append((ueberschrift, body))
 
     bloecke: list[str] = []
-    if toc and not any(_TOC_PLACEHOLDER_RE.search(body) for _, body, _ in teile):
+    if toc and not any(_TOC_PLACEHOLDER_RE.search(body) for _, body in teile):
         bloecke += [CHAPTER_BOUNDARY, TOC_PLACEHOLDER]
-    for ueberschrift, body, _ in teile:
+    for ueberschrift, body in teile:
         bloecke.append(CHAPTER_BOUNDARY)
         if ueberschrift:
             bloecke.append(f"# {ueberschrift}")
@@ -313,7 +300,7 @@ def typeset_book(
 
     meta = book_metadata(root)
     try:
-        text = assemble_book(root, kapitel, toc=toc, book_title=meta.get("title", ""))
+        text = assemble_book(root, kapitel, toc=toc)
     except (OSError, UnicodeDecodeError) as exc:
         raise TypesetError(f"Kapitel nicht lesbar: {exc}") from exc
     satz = ziel_dir / ASSEMBLED_NAME
@@ -334,8 +321,11 @@ def typeset_book(
         titel = toc_title_for(definition.typography.language)
         if titel:
             befehl += ["--metadata", f"toc-title={titel}"]
-    for schluessel, wert in meta.items():
-        befehl += ["--metadata", f"{schluessel}={wert}"]
+    # Nur die Sprache: Mit ``title`` setzte Pandoc ein eigenes Titelblatt, das
+    # es im Typst-PDF nicht gibt. Titel und Autor gehen danach nur in die
+    # Dokumenteigenschaften (patch_docx_core_properties).
+    if meta.get("lang"):
+        befehl += ["--metadata", f"lang={meta['lang']}"]
     befehl.append(str(satz))
 
     try:
@@ -362,6 +352,14 @@ def typeset_book(
         patch_docx_style_languages(docx, definition)
     except Exception:  # noqa: BLE001 - Sprache ist Zusatz, Satz darf nicht scheitern
         pass
+    try:
+        from tools.doclayout.targets.docx import patch_docx_core_properties
+
+        patch_docx_core_properties(
+            docx, title=meta.get("title", ""), author=meta.get("author", "")
+        )
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile, ET.ParseError) as exc:
+        meldungen += f"\nDokumenteigenschaften nicht gesetzt: {exc}"
 
     warnungen = tuple(
         zeile.strip() for zeile in meldungen.splitlines() if zeile.strip()

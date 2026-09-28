@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-28T08:25:29",
+  "generated_at": "2026-09-28T09:06:50",
   "library": "C:\\Users\\RDP-Nutzer\\IDE\\Book_Studio_Unleashed\\tools\\doclayout\\library",
   "layouts": [
     "Formate_Backup",
@@ -23,7 +23,10 @@
     "prompt",
     "prompt-separator",
     "spanisch",
-    "themenblock"
+    "themenblock",
+    "titelei-autor",
+    "titelei-titel",
+    "titelei-zusatz"
   ],
   "classes": {
     "bericht": {
@@ -182,6 +185,42 @@
       ],
       "styles": [
         "Themenblock"
+      ]
+    },
+    "titelei-autor": {
+      "layouts": [
+        "Formate_Backup",
+        "IFJN_Referenz",
+        "IFJN_layout",
+        "Prosa_Layout",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Titelei-Autor"
+      ]
+    },
+    "titelei-titel": {
+      "layouts": [
+        "Formate_Backup",
+        "IFJN_Referenz",
+        "IFJN_layout",
+        "Prosa_Layout",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Titelei-Titel"
+      ]
+    },
+    "titelei-zusatz": {
+      "layouts": [
+        "Formate_Backup",
+        "IFJN_Referenz",
+        "IFJN_layout",
+        "Prosa_Layout",
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "Titelei-Zusatz"
       ]
     }
   }

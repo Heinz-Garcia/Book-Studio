@@ -635,10 +635,60 @@ def patch_docx_style_languages(
     return geaendert
 
 
+_CORE_PART = "docProps/core.xml"
+_CORE_NS = {
+    "cp": "http://schemas.openxmlformats.org/package/2006/metadata/core-properties",
+    "dc": "http://purl.org/dc/elements/1.1/",
+}
+
+
+def patch_docx_core_properties(
+    docx_path: Path | str, *, title: str = "", author: str = ""
+) -> bool:
+    """Titel und Autor in die Dokumenteigenschaften (``docProps/core.xml``).
+
+    Der Buchsatz gibt Pandoc keinen ``title`` mehr: Pandoc setzte daraus ein
+    Titelblatt, das es im Typst-PDF nicht gibt (die Titelei kommt aus den
+    Pflichtseiten). Ohne Metadaten bliebe aber auch die Dateieigenschaft leer
+    -- sie wird hier nachgetragen, Reihenfolge der Archivteile unveraendert.
+    """
+    path = Path(docx_path)
+    werte = {"title": title.strip(), "creator": author.strip()}
+    if not any(werte.values()) or not path.is_file():
+        return False
+    with zipfile.ZipFile(path, "r") as archive:
+        namen = archive.namelist()
+        teile = {name: archive.read(name) for name in namen}
+    if _CORE_PART not in teile:
+        return False
+
+    for prefix, uri in _CORE_NS.items():
+        ET.register_namespace(prefix, uri)
+    root = ET.fromstring(teile[_CORE_PART])
+    for name, wert in werte.items():
+        if not wert:
+            continue
+        el = root.find(f"{{{_CORE_NS['dc']}}}{name}")
+        if el is None:
+            el = ET.SubElement(root, f"{{{_CORE_NS['dc']}}}{name}")
+        el.text = wert
+    teile[_CORE_PART] = ET.tostring(root, xml_declaration=True, encoding="UTF-8")
+
+    from io import BytesIO
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as out:
+        for name in namen:
+            out.writestr(name, teile[name])
+    path.write_bytes(buf.getvalue())
+    return True
+
+
 __all__ = [
     "DocxTargetError",
     "build_reference_docx",
     "fetch_base_reference",
     "find_pandoc",
+    "patch_docx_core_properties",
     "patch_docx_style_languages",
 ]

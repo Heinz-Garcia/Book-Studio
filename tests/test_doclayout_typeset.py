@@ -42,7 +42,7 @@ def _buch(root: Path, *, kapitel: tuple[str, ...] = ("index.md", "kap1.md")) -> 
     for name in kapitel:
         pfad = root / name
         pfad.parent.mkdir(parents=True, exist_ok=True)
-        pfad.write_text(f"# {name}\n\nText.\n", encoding="utf-8")
+        pfad.write_text(f"# {name}\n\nText von {name}.\n", encoding="utf-8")
     vorlagen = root / "bookconfig" / "doclayout"
     vorlagen.mkdir(parents=True)
     (vorlagen / "reference.docx").write_bytes(b"PK\x03\x04")
@@ -182,7 +182,7 @@ def test_the_chapters_reach_pandoc_in_order(
     eingaben = [Path(t).name for t in befehl if t.endswith(".md")]
     assert eingaben == [T.ASSEMBLED_NAME]
     text = pandoc_attrappe.texte[0]
-    assert text.index("# a.md") < text.index("# b.md") < text.index("# c.md")
+    assert text.index("Text von a.md") < text.index("Text von b.md") < text.index("Text von c.md")
 
 
 def test_every_chapter_starts_behind_a_boundary(
@@ -242,15 +242,23 @@ def test_without_a_toc_there_is_no_placeholder_either(
     assert T.TOC_PLACEHOLDER not in pandoc_attrappe.texte[0]
 
 
-def test_the_book_data_reaches_pandoc(
+def test_pandoc_gets_no_title_block(
     tmp_path: Path, layout: LayoutDefinition, pandoc_attrappe, monkeypatch
 ):
+    """Ein Pandoc-Titelblatt gibt es im Typst-PDF nicht -- die Titelei kommt
+    aus den Pflichtseiten. Titel und Autor gehen nur in die Eigenschaften."""
     buch = _buch(tmp_path)
     monkeypatch.setattr(T, "find_soffice", lambda explicit=None: None)
+    gesehen: dict[str, str] = {}
+    monkeypatch.setattr(
+        "tools.doclayout.targets.docx.patch_docx_core_properties",
+        lambda docx, *, title="", author="": gesehen.update(title=title, author=author),
+    )
     T.typeset_book(layout, buch)
     befehl = pandoc_attrappe[0]
-    assert "title=Mein Band" in befehl
-    assert "author=Eine Autorin" in befehl
+    assert not any(t.startswith(("title=", "author=")) for t in befehl)
+    assert "lang=de" in befehl
+    assert gesehen == {"title": "Mein Band", "author": "Eine Autorin"}
 
 
 def test_pandoc_runs_inside_the_book_so_images_resolve(

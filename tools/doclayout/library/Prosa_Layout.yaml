@@ -182,6 +182,66 @@ styles:
         color: accent2
         space_pt: 4.0
         style: single
+  TOC2:
+    size_pt: 11.0
+    space_before_pt: 3.0
+    space_after_pt: 0.0
+    indent:
+      left_mm: 0.0
+      right_mm: 0.0
+      hanging_mm: 0.0
+      first_line_mm: 0.0
+  TOC3:
+    size_pt: 11.0
+    space_before_pt: 0.0
+    space_after_pt: 0.0
+    indent:
+      left_mm: 0.0
+      right_mm: 0.0
+      hanging_mm: 0.0
+      first_line_mm: 0.0
+  Titelei-Autor:
+    name: Titelei-Autor
+    based_on: BodyText
+    next: Titelei-Autor
+    size_pt: 13.0
+    align: center
+    space_before_pt: 0.0
+    space_after_pt: 6.0
+    keep_next: true
+    indent:
+      left_mm: 0.0
+      right_mm: 0.0
+      hanging_mm: 0.0
+      first_line_mm: 0.0
+  Titelei-Titel:
+    name: Titelei-Titel
+    based_on: BodyText
+    next: Titelei-Titel
+    size_pt: 26.5
+    align: center
+    space_before_pt: 0.0
+    space_after_pt: 6.0
+    keep_next: true
+    indent:
+      left_mm: 0.0
+      right_mm: 0.0
+      hanging_mm: 0.0
+      first_line_mm: 0.0
+  Titelei-Zusatz:
+    name: Titelei-Zusatz
+    based_on: BodyText
+    next: Titelei-Zusatz
+    size_pt: 11.0
+    align: center
+    space_before_pt: 0.0
+    space_after_pt: 6.0
+    keep_next: true
+    indent:
+      left_mm: 0.0
+      right_mm: 0.0
+      hanging_mm: 0.0
+      first_line_mm: 0.0
 classmap:
   fachtext: Fachtext
   prompt: Prompt-Frage
@@ -194,3 +254,6 @@ classmap:
   callout-warning: Callout
   callout-caution: Callout
   callout-important: Callout
+  titelei-autor: Titelei-Autor
+  titelei-titel: Titelei-Titel
+  titelei-zusatz: Titelei-Zusatz

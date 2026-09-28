@@ -7,11 +7,13 @@ required: true
 order: '6'
 ---
 
-# Impressum
-
 <!-- Eigene Absatzvorlage (Layout-Klasse "impressum"): linksbündig statt
-Blocksatz. Leerzeilen um jeden ":::"-Block sind Pflicht, sonst liest Pandoc
+Blocksatz; im Typst-Satz dasselbe über den Block drumherum. Leerzeilen um jeden ":::"-Block sind Pflicht, sonst liest Pandoc
 die Zeile als Text. -->
+
+```{=typst}
+#block[#set par(justify: false)
+```
 
 ::: {.impressum}
 © 2026 Heinz-Garcia Verlag GmbH, Gaggenau\
@@ -50,6 +52,10 @@ Der Autor und der Verlag übernehmen keine Haftung für Schäden, Verluste oder 
 
 Bei der Erstellung dieses Buches wurden Werkzeuge der Künstlichen Intelligenz (KI) als unterstützende Hilfsmittel eingesetzt (z. B. zur Recherche, Strukturierung, Textoptimierung sowie zur Überarbeitung von Formulierungen). Die finale inhaltliche Konzeption, fachliche Kontrolle, Auswahl sowie die redaktionelle und argumentative Gesamtverantwortung liegen vollumfänglich beim Autor. Sämtliche KI-unterstützten Passagen wurden auf Inhalt, Richtigkeit und Verständlichkeit hin geprüft und angepasst.
 :::
+
+```{=typst}
+]
+```
 
 ```{=typst}
 #pagebreak()

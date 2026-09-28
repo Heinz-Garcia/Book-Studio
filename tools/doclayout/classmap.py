@@ -201,6 +201,22 @@ local function callout_titles(blocks)
   return out
 end
 
+--- Der Fragen-Trenner aelterer Lieferungen: ``::: {{style="text-align: center;"}}``
+--- mit genau einer Zeile, ohne Klasse. Dieselbe Regel wie im Typst-Weg
+--- (``pre_processor._PROMPT_SEPARATOR_DIV_RE``) -- sonst stuende das Zeichen
+--- im DOCX linksbuendig im Fliesstext, im PDF zentriert und abgesetzt.
+local function separator_style(el)
+  local css = el.attributes["style"] or ""
+  if not css:match("text%-align:%s*center") then return nil end
+  if #el.content ~= 1 then return nil end
+  local block = el.content[1]
+  if block.t ~= "Para" and block.t ~= "Plain" then return nil end
+  for _, inline in ipairs(block.content) do
+    if inline.t == "SoftBreak" or inline.t == "LineBreak" then return nil end
+  end
+  return classmap["prompt-separator"]
+end
+
 function Div(el)
   if el.classes:includes("bs-ivz") then
     if satz then return toc_block() end
@@ -208,7 +224,7 @@ function Div(el)
   end
   local callout = is_callout(el.classes)
   if callout then el.content = callout_titles(el.content) end
-  local style = style_for(el.classes)
+  local style = style_for(el.classes) or separator_style(el)
   if not style then
     if callout then return el end
     return nil

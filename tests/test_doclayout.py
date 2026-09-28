@@ -1068,12 +1068,13 @@ def test_is_standard_does_not_depend_on_a_definition():
     assert is_standard("Prompt-Frage") is False
 
 
-def test_ifjn_splits_into_six_own_and_the_rest_inherited(ifjn: LayoutDefinition):
-    # Vier Inhaltsformate plus Impressum und Callout (Pflichtseiten).
+def test_ifjn_splits_into_nine_own_and_the_rest_inherited(ifjn: LayoutDefinition):
+    # Vier Inhaltsformate plus die der Pflichtseiten: Impressum, Callout und
+    # die drei Titelei-Formate.
     tally = counts(ifjn)
-    assert tally[StyleOrigin.CONTENT] == 6
+    assert tally[StyleOrigin.CONTENT] == 9
     assert tally[StyleOrigin.UNUSED] == 0
-    assert tally[StyleOrigin.STANDARD] == len(ifjn.styles) - 6
+    assert tally[StyleOrigin.STANDARD] == len(ifjn.styles) - 9
 
 
 # ---------------------------------------------------------------------------
