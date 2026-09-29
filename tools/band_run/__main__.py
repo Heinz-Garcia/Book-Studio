@@ -8,6 +8,14 @@ Eingabe (stdin, UTF-8): ``stage`` (A–F), ``detail``, optional ``artifacts``
 Geschrieben wird mit ``writer="gg"`` -- die Zonen- und Lock-Regeln von
 ``services.band_run.update_band_run`` gelten unverändert. Ausgabe: JSON
 ``{"ok": true}`` oder ``{"ok": false, "fehler": "…"}``; Exit 0 / 1.
+
+    # GG legt nach der Lieferung den Handoff an (JSON auf stdin)
+    echo {"delivery_path": "…", "gg_project": "…", "project_slug": "…", "detail": "…"} | python -m tools.band_run handoff --uuid <uuid>
+
+Eine Schreiblogik für den Handoff: ``services.handoff.write_pending_handoff``
+(Lock, ``band_run``, Marker -- in dieser Reihenfolge). Vorher schrieb GG den
+Marker mit einer Schema-Kopie selbst, ohne Lock und ohne Lauf-Objekt
+(Prüfbericht 2026-09-29). Ausgabe: ``{"ok": true, "handoff": {…}}``.
 """
 
 from __future__ import annotations
@@ -35,7 +43,35 @@ def build_parser() -> argparse.ArgumentParser:
     unter = p.add_subparsers(dest="befehl", required=True)
     gg = unter.add_parser("gg", help="GG-Zone, GG-Gates (A–F) und GG-Pfade schreiben (JSON auf stdin)")
     gg.add_argument("--uuid", required=True, help="Production-UUID")
+    ho = unter.add_parser("handoff", help="Pending-Handoff nach einer GG-Lieferung anlegen (JSON auf stdin)")
+    ho.add_argument("--uuid", required=True, help="Production-UUID")
     return p
+
+
+def schreibe_handoff(uuid: str, eingabe: dict, *, repo: Path = _WURZEL) -> dict:
+    """GG-Handoff über die BS-SSOT; Rückgabe ``{"ok": …, "handoff"?|"fehler"?}``."""
+    from services.handoff import DEFAULT_TIMEOUT_HOURS, HandoffError, write_pending_handoff
+
+    lieferung = str(eingabe.get("delivery_path") or "").strip()
+    if not lieferung:
+        return {"ok": False, "fehler": "delivery_path fehlt."}
+    try:
+        stunden = float(eingabe.get("timeout_hours") or DEFAULT_TIMEOUT_HOURS)
+        daten = write_pending_handoff(
+            uuid,
+            delivery_path=Path(lieferung),
+            repo=repo,
+            gg_project=str(eingabe.get("gg_project") or "") or None,
+            project_slug=str(eingabe.get("project_slug") or ""),
+            created_by="gg",
+            timeout_hours=stunden,
+            detail=str(eingabe.get("detail") or ""),
+        )
+    except (HandoffError, BandRunError, OSError, TypeError, ValueError) as exc:
+        return {"ok": False, "fehler": str(exc)}
+    from services.handoff import handoff_path
+
+    return {"ok": True, "handoff": daten, "pfad": str(handoff_path(uuid, repo=repo))}
 
 
 def schreibe_gg(uuid: str, eingabe: dict, *, repo: Path = _WURZEL) -> dict:
@@ -73,7 +109,10 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(eingabe, dict):
         _ausgeben({"ok": False, "fehler": "Eingabe muss ein JSON-Objekt sein."})
         return 1
-    ergebnis = schreibe_gg(args.uuid, eingabe)
+    if args.befehl == "handoff":
+        ergebnis = schreibe_handoff(args.uuid, eingabe)
+    else:
+        ergebnis = schreibe_gg(args.uuid, eingabe)
     _ausgeben(ergebnis)
     return 0 if ergebnis["ok"] else 1
 

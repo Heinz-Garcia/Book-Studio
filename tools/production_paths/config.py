@@ -146,3 +146,23 @@ def is_under_books_workspace(path: Path, cfg: dict[str, Any], base_path: Path) -
         return True
     except ValueError:
         return False
+
+
+def production_root_for_repo(repo: Path | None = None) -> Path:
+    """SSOT: die Produktionswurzel eines Book-Studio-Repos.
+
+    ``$BSU_PRODUCTION_ROOT`` → ``app_config.json`` ``production_root_path`` →
+    ``<repo>/production``. Vorher lösten ``band_run`` (ohne Konfiguration)
+    und Handoff/Brücke/Lebensende (mit) die Wurzel verschieden auf -- mit
+    einem konfigurierten ``production_root_path`` lagen Lock und Marker in
+    verschiedenen ``runs/`` (Prüfbericht 2026-09-29).
+    """
+    import app_config as _app_config
+    from tools.production_paths.paths import resolve_repo_root
+
+    base = resolve_repo_root(repo)
+    try:
+        cfg = _app_config.read_config(base / "app_config.json")
+    except (OSError, TypeError, ValueError):
+        cfg = {}
+    return resolve_production_root(cfg if isinstance(cfg, dict) else {}, base)

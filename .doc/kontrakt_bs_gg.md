@@ -19,7 +19,7 @@ Prüfer `pruefe.py`, Beispiel-Lieferung). Die Datei nennt je Kanal, was die
 | Layout-Klassen (`tools/doclayout/library/_available_classes.json`) | BS → GG | BS `doclayout/registry.build_registry` | GG `book_studio_bridge/layout_classes` |
 | Buchnotiz (`<Buch>/bookconfig/notiz.md`) | beide | beide | beide |
 | Band-Lauf (`production/runs/<uuid>/band_run.json`) | beide lesen; Zonen schreiben | BS `services/band_run`; GG seine Zone über `python -m tools.band_run gg` (seit 27.09.) | BS Arbeitsweg; GG `book_studio_bridge/band_run` |
-| Handoff (`handoff_pending.json`) | GG → BS | GG `book_studio_bridge/handoff` nach `--liefern` | BS `services/handoff` / „Band durchlaufen“ |
+| Handoff (`handoff_pending.json`) | GG → BS | BS `services/handoff::write_pending_handoff` (einzige Schreiblogik); GG ruft sie nach `--liefern` über `python -m tools.band_run handoff` (seit 29.09.) | BS `services/handoff` / „Band durchlaufen“ |
 | Automatik-Profil (`production/runs/<uuid>/automatik.json`) | GG schreibt, beide lesen | GG `tools/band_automatik/profil` (Startdialog/CLI) | BS `services/automatik` + CLI `python -m tools.automatik optionen\|pruefe`; GG `book_studio_bridge/automatik` |
 
 Lieferordner: `<inbox>/<Projekt>/<TT.MM.JJJJ_HH.MM>`. Erkannt wird er an
@@ -37,6 +37,30 @@ GG ruft BS für die UUIDs als Unterprozess auf (BS-Python im BS-Verzeichnis).
 Für Tests lassen sich Registry, Cover-Ablage und die ganze Produktionswurzel
 (Bücher, Inbox, Runs) umlenken: `BSU_COVER_REGISTRY`, `BSU_COVERS_ROOT`,
 `BSU_PRODUCTION_ROOT` (seit 2026-09-27, für den Ende-zu-Ende-Test der Automatik).
+Seit 2026-09-29 beachtet auch GG die Variable (Inbox der Lieferungen); vorher
+lieferte die GG-Suite trotz Umlenkung in die echte Inbox. Beide Suiten lenken
+sie für jeden Test ins Temp um bzw. verbieten Schreibzugriffe auf die echte
+Produktion.
+
+### Handoff und Lock (Prüfbericht 2026-09-29)
+
+- **Eine Schreiblogik.** Den Handoff schreibt nur BS `services/handoff.py`:
+  erst Soft-Lock (`purpose handoff`, Owner `gg`), dann `band_run` (Lieferpfad,
+  `zone_gg` F), zuletzt der Marker. Hält ein anderer den Lock oder fehlt der
+  Lieferordner, entsteht kein Handoff. GG ruft das als Unterprozess auf und
+  prüft, dass der Marker unter der Produktionswurzel liegt, die GG erwartet.
+- **Genau diese Lieferung.** Die Übernahme nimmt nur den Lieferordner des
+  Handoffs; fehlt er oder trägt die Lieferung eine andere UUID, wird nichts
+  übernommen -- nie eine Ersatz-Lieferung aus der Inbox.
+- **Lock über die ganze Übernahme.** Der Claim übergibt nur den Handoff-Lock an
+  BS (`handoff_consume`); jeder andere aktive Lock blockiert. Er gilt bis
+  `complete_handoff`, auch während der Studio-Kette. Jeder Schreibweg auf
+  `band_run.json` prüft den Lock (nicht nur `update_band_run`).
+- **Status.** `done` = übernommen (optional `warning`, etwa Cover offen);
+  `cancelled` = abgebrochen (`error`).
+- **Studio-Stand.** Nach jeder Studio-Kette spiegelt BS die Gates G–J und die
+  Stufe aus `book_run.json` nach `band_run` (`spiegele_book_run`).
+- **Audit.** Gebrochene Locks stehen in `lock_history`, nicht in einer Zone.
 
 ### Automatik-Profil (2026-09-27)
 

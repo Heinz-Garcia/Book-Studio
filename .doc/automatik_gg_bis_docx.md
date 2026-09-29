@@ -322,3 +322,22 @@ Werden **vor** Paket 1 geklärt und dann in die Leitregeln übernommen.
   das Projekt ist kein Prosa-Projekt, die Teilkette greift dort ohnehin nicht. Beleg eines
   Sachfehlers: „Policía Local (062)“ -- 062 ist die Guardia Civil, Policía Local 092 (kommt im
   Band nicht vor).
+- 2026-09-29: **Prüfbericht Gesamtorchestrierung (fremde KI) -- geprüft und behoben.** Bestätigt und
+  behoben (Regressionstests `tests/test_orchestrierung_pruefbericht.py`, GG `tests/test_handoff_bridge.py`):
+  - P0: Toter `delivery_path` im Handoff -> die Brücke wählte selbst eine Lieferung aus der Inbox.
+    Jetzt Abbruch; zusätzlich (nicht im Bericht): UUID der Lieferung ≠ UUID des Handoffs -> Abbruch.
+  - P0: `write_band_run`/`materialize(force)` schrieben unter fremdem Lock. Jetzt prüft jeder Schreibweg.
+  - P1: Lock wurde vor der Studio-Kette freigegeben; Claim/Handoff schluckten Lock-Fehler (`pass`).
+    Jetzt Lock vom Anlegen bis `complete_handoff`, Claim übergibt nur den Handoff-Lock, Fehler hart.
+  - P1: Cover offen -> Handoff `cancelled`. Jetzt `done` + `warning`.
+  - P1: `band_run` blieb nach der Brücke auf G. Jetzt Spiegel G–J nach jeder Studio-Kette.
+  - P1: Zwei Handoff-Schreiber (GG-Schemakopie ohne Lock). Jetzt nur BS; GG über `tools.band_run handoff`.
+  - P1: Lebensende: Inbox ohne UUID mitgelöscht; Teil-Löschung ohne Tombstone. Beides behoben.
+  - P2: `lock_broken_expired` in `zone_bs` -> `lock_history`; MD-Spiegel atomar (dabei: offener
+    Deskriptor bei `fdopen`-Fehler ließ unter Windows Temp-Dateien liegen, auch in `write_handoff`);
+    `read_handoff` -> `HandoffError`; GUI claimt nicht mehr die UUID des offenen Buchs ohne Handoff.
+  - Zusätzlich gefunden: Produktionswurzel zweimal verschieden aufgelöst (`band_run` ohne Konfig) ->
+    eine SSOT `production_root_for_repo`. **Testsuiten schrieben in die echte Produktion** (36
+    „Kontraktbuch“-Lieferungen in der Inbox, Test-UUIDs unter `runs/`): GG beachtet jetzt
+    `BSU_PRODUCTION_ROOT`, beide Suiten lenken um bzw. verbieten es; Reste in den Papierkorb.
+  - Nicht umgesetzt (Bericht: optional): gemeinsame A–J-Ampel in der BS-Leiste (S8).

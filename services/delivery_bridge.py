@@ -49,14 +49,9 @@ class BridgeResult:
 
 
 def _production_root(repo: Path) -> Path:
-    try:
-        import app_config as _app_config
-        from tools.production_paths.config import resolve_production_root
+    from tools.production_paths.config import production_root_for_repo
 
-        cfg = _app_config.read_config(Path(repo) / "app_config.json")
-        return resolve_production_root(cfg, Path(repo))
-    except (OSError, TypeError, ValueError, ImportError):
-        return Path(repo) / "production"
+    return production_root_for_repo(repo)
 
 
 def _uuid_from_delivery(delivery: Path) -> str:
@@ -210,15 +205,20 @@ def _record_band_run(
     cover_status: str,
     cover_message: str,
     writer: str = "orchestrator",
+    lock_vom_aufrufer: bool = False,
 ) -> None:
     """Pfade, Gate F und ``zone_bs`` nach der Übernahme ins Lauf-Objekt.
 
     *writer*: wer den Lock hält. Nach einem Handoff-Claim ist das ``bs`` --
     als ``orchestrator`` wäre jedes Schreiben abgewiesen worden (real bis
     2026-09-27: ``band_run`` bekam nach „Band durchlaufen“ nie Buch/Lieferung).
+
+    *lock_vom_aufrufer*: Der Aufrufer (Handoff-Übernahme) hält den Lock über
+    die ganze Übernahme samt Studio-Kette -- dann wird er hier weder genommen
+    noch freigegeben. Sonst: nehmen, schreiben, freigeben. Ein fremder Lock ist
+    ein Fehler (``BandRunLockError``), kein stilles Weiter (Prüfbericht 2026-09-29).
     """
     from services.band_run import (
-        BandRunLockError,
         acquire_lock,
         materialize_band_run_from_book,
         release_lock,
@@ -226,7 +226,7 @@ def _record_band_run(
     )
 
     prod = _production_root(repo)
-    try:
+    if not lock_vom_aufrufer:
         acquire_lock(
             uid,
             owner=writer,
@@ -234,10 +234,6 @@ def _record_band_run(
             production_root=prod,
             repo=repo,
         )
-    except BandRunLockError:
-        # Schon gelockt — trotzdem Pfade nachziehen versuchen mit writer=orchestrator
-        # scheitert dann in update; Aufrufer sieht details.
-        pass
 
     try:
         materialize_band_run_from_book(
@@ -278,10 +274,11 @@ def _record_band_run(
                 zone_bs={"detail": cover_message},
             )
     finally:
-        try:
-            release_lock(uid, owner=writer, production_root=prod, repo=repo)
-        except (OSError, ValueError, TypeError):
-            pass
+        if not lock_vom_aufrufer:
+            try:
+                release_lock(uid, owner=writer, production_root=prod, repo=repo)
+            except (OSError, ValueError, TypeError):
+                pass  # läuft ab; der eigentliche Schreibfehler ist schon oben
 
 
 def run_delivery_bridge(
@@ -295,6 +292,7 @@ def run_delivery_bridge(
     apply_bundle: bool = True,
     pipeline_options: Any = None,
     band_run_writer: str = "orchestrator",
+    lock_vom_aufrufer: bool = False,
 ) -> BridgeResult:
     """Orchestriert Übernahme + Primary-Cover-Bindung (+ optional Teilkette).
 
@@ -336,6 +334,7 @@ def run_delivery_bridge(
     )
 
     cover_status, cover_message = "skipped", ""
+    band_run_fehler = ""
     if uid:
         cover_status, cover_message = _bind_primary_cover(
             book_path,
@@ -352,9 +351,11 @@ def run_delivery_bridge(
                 cover_status=cover_status,
                 cover_message=cover_message,
                 writer=band_run_writer,
+                lock_vom_aufrufer=lock_vom_aufrufer,
             )
         except (OSError, TypeError, ValueError) as exc:
-            cover_message = f"{cover_message} (band_run: {exc})".strip()
+            # Sichtbar im Ergebnis (eigenes Feld + Meldung), nicht nur am Cover-Text.
+            band_run_fehler = str(exc)
 
     pipeline_ran = False
     pipeline_ok: Optional[bool] = None
@@ -395,6 +396,8 @@ def run_delivery_bridge(
             f"Lieferung übernommen → {book_path.name}"
             + (f"; Cover: {cover_message}" if cover_message else "")
         )
+    if band_run_fehler:
+        message = f"{message}; band_run nicht aktualisiert: {band_run_fehler}".strip("; ")
 
     return BridgeResult(
         status=status,
@@ -413,5 +416,6 @@ def run_delivery_bridge(
             "bundle_applied": accept.bundle_applied,
             "accept_cover_status": accept.cover_bind_status,
             "pipeline_result": pipeline_result,
+            "band_run_fehler": band_run_fehler,
         },
     )

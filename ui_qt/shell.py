@@ -1095,6 +1095,20 @@ class MainWindow(QMainWindow):
                 uid = ""
 
         pending = list_pending_handoffs(repo=root)
+        # Das offene Buch zählt nur, wenn für seine UUID ein Handoff aussteht.
+        # Vorher hatte es immer Vorrang -- ein anderes Buch offen, und der
+        # wartende Handoff wurde nie gefunden (Claim-Fehler statt Auswahl;
+        # Prüfbericht 2026-09-29).
+        buch_uid_ohne_handoff = ""
+        if uid and uid not in {normalize_uuid(str(p.get("production_uuid") or "")) for p in pending}:
+            buch_uid_ohne_handoff = uid
+            if pending:
+                self._facade.log(
+                    f"Offenes Buch ({uid}) hat keinen ausstehenden Handoff — "
+                    "Auswahl aus den wartenden.",
+                    "info",
+                )
+            uid = ""
         if not uid and not pending:
             QMessageBox.information(
                 self,
@@ -1127,6 +1141,18 @@ class MainWindow(QMainWindow):
             uid = str(pending[idx].get("production_uuid") or "")
         elif not uid and len(pending) == 1:
             uid = str(pending[0].get("production_uuid") or "")
+            if buch_uid_ohne_handoff:
+                antwort = QMessageBox.question(
+                    self,
+                    "Band durchlaufen",
+                    "Für das offene Buch wartet kein Handoff.\n\n"
+                    f"Den wartenden Handoff „{pending[0].get('project_slug') or '?'}“ "
+                    f"(UUID {uid}) übernehmen?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if antwort != QMessageBox.StandardButton.Yes:
+                    return
 
         def _on_interrupt(outcome):
             return prompt_pipeline_interrupt(self, outcome)

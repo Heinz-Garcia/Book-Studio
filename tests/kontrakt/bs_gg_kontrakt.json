@@ -161,6 +161,7 @@
           "zone_gg": "dict",
           "zone_bs": "dict",
           "lock": "dict?",
+          "lock_history": "list?",
           "tombstone": "dict?"
         }
       },
@@ -168,7 +169,7 @@
     },
     "handoff": {
       "richtung": "GG schreibt pending; BS claimt und konsumiert (Slice C)",
-      "erzeuger": "GG tools/book_studio_bridge/handoff.py::write_pending_handoff (nach Teilkette --liefern); BS services/handoff.py",
+      "erzeuger": "BS services/handoff.py::write_pending_handoff (einzige Schreiblogik: Lock, band_run, Marker); GG ruft sie nach Teilkette --liefern als Unterprozess: python -m tools.band_run handoff --uuid <uuid> (JSON stdin {delivery_path, gg_project?, project_slug?, detail?, timeout_hours?} -> {ok, handoff?|fehler?})",
       "leser": [
         "BS services/handoff.py::read_handoff / claim_handoff / run_handoff_consume",
         "BS ui_qt/shell.py::_consume_band_handoff"
@@ -178,7 +179,7 @@
       "schema_version": 1,
       "timeout_default_hours": 2,
       "status": ["pending", "claimed", "done", "expired", "cancelled"],
-      "hinweis": "Timeout → expired, kein Auto-Retry. Kein paralleler A→J-Lauf derselben UUID."
+      "hinweis": "Timeout → expired, kein Auto-Retry. Kein paralleler A→J-Lauf derselben UUID. Lieferordner muss existieren und (falls sie eine traegt) dieselbe UUID tragen -- sonst kein Handoff bzw. keine Uebernahme, nie eine Ersatz-Lieferung. done = uebernommen (optional warning, z. B. Cover offen); cancelled = abgebrochen (error). Der Lock (purpose handoff -> handoff_consume) gilt vom Anlegen bis complete_handoff, auch waehrend der Studio-Kette."
     },
     "automatik": {
       "richtung": "GG schreibt (Startdialog/CLI); beide lesen",

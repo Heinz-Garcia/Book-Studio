@@ -30,6 +30,10 @@ STAGES = frozenset("ABCDEFGHIJ")
 #: Was GG schreiben darf: seine Stufen (F = Lieferung; F′–J gehören BS) und seine Pfade.
 GG_GATES = frozenset("ABCDEF")
 GG_PATHS = frozenset({"gg_project", "delivery"})
+#: BS setzt keine GG-Pfade (Zonen-Symmetrie, Prüfbericht 2026-09-29).
+BS_PATHS = frozenset({"book", "delivery", "cover_primary", "archive_hint"})
+#: So viele Einträge behält ``lock_history`` (Audit gebrochener Locks).
+LOCK_HISTORY_MAX = 20
 LOCK_OWNERS = UPDATED_BY
 DEFAULT_LOCK_HOURS = 2
 
@@ -58,6 +62,7 @@ __all__ = [
     "release_lock",
     "break_expired_lock",
     "update_band_run",
+    "spiegele_book_run",
 ]
 
 
@@ -78,12 +83,15 @@ def resolve_runs_root(
     *,
     repo: Optional[Path] = None,
 ) -> Path:
-    """``<production>/runs``."""
-    root = (
-        Path(production_root)
-        if production_root is not None
-        else default_production_root(repo)
-    )
+    """``<production>/runs`` -- Wurzel wie Handoff/Brücke/Lebensende (eine SSOT)."""
+    if production_root is not None:
+        return Path(production_root) / RUNS_DIR_NAME
+    try:
+        from tools.production_paths.config import production_root_for_repo
+
+        root = production_root_for_repo(repo)
+    except ImportError:
+        root = default_production_root(repo)
     return Path(root) / RUNS_DIR_NAME
 
 
@@ -266,6 +274,43 @@ def render_band_run_markdown(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _atomar_schreiben(dest: Path, text: str) -> None:
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{dest.stem}_", suffix=".tmp", dir=str(dest.parent)
+    )
+    try:
+        try:
+            handle = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
+        except OSError:
+            os.close(fd)  # sonst bleibt die Temp-Datei offen und unter Windows unlöschbar
+            raise
+        with handle:
+            handle.write(text)
+        Path(tmp_name).replace(dest)
+    except OSError:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass  # Aufräumen ist Kür; der eigentliche Fehler folgt
+        raise
+
+
+def _fremder_lock(dest: Path, writer: str) -> Optional[dict[str, Any]]:
+    """Aktiver Lock der Datei auf der Platte, wenn er nicht *writer* gehört."""
+    if not dest.is_file():
+        return None
+    try:
+        vorhanden = json.loads(dest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    lock = vorhanden.get("lock") if isinstance(vorhanden, dict) else None
+    if not isinstance(lock, dict) or lock_is_expired(lock):
+        return None
+    if str(lock.get("owner") or "").strip().lower() == writer:
+        return None
+    return lock
+
+
 def write_band_run(
     data: dict[str, Any],
     *,
@@ -273,30 +318,31 @@ def write_band_run(
     repo: Optional[Path] = None,
     write_markdown: bool = True,
 ) -> Path:
-    """Atomar schreiben (+ optional Markdown-Spiegel)."""
+    """Atomar schreiben (JSON und Markdown-Spiegel).
+
+    Schreiber ist ``updated_by``. Hält ein **anderer** den Lock der Datei auf
+    der Platte, wird verweigert (``BandRunLockError``) -- jeder Schreibweg,
+    nicht nur ``update_band_run``. Vorher überschrieb ``write_band_run``
+    (und damit ``materialize_band_run_from_book(force=True)``) fremde Locks
+    still (Prüfbericht 2026-09-29).
+    """
     payload = validate_band_run(dict(data))
     payload["schema_version"] = SCHEMA_VERSION
     payload["updated_at"] = _utc_now_iso()
     uid = str(payload["production_uuid"])
     dest = band_run_path(uid, production_root=production_root, repo=repo)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=".band_run_", suffix=".tmp", dir=str(dest.parent)
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
-        Path(tmp_name).replace(dest)
-    except OSError:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+    writer = str(payload.get("updated_by") or "").strip().lower()
+    fremd = _fremder_lock(dest, writer)
+    if fremd is not None:
+        raise BandRunLockError(
+            f"{str(fremd.get('owner')).upper()} hält Lock für „{fremd.get('purpose')}“ "
+            f"(bis {fremd.get('expires_at')}) — {writer.upper()} darf nicht schreiben."
+        )
+    _atomar_schreiben(dest, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     if write_markdown:
         md = band_run_md_path(uid, production_root=production_root, repo=repo)
-        md.write_text(render_band_run_markdown(payload), encoding="utf-8")
+        _atomar_schreiben(md, render_band_run_markdown(payload))
     return dest
 
 
@@ -487,17 +533,20 @@ def break_expired_lock(
     if not lock or not lock_is_expired(lock, now=now):
         return False
     data["lock"] = None
-    data["updated_by"] = (
-        broken_by if broken_by in UPDATED_BY else "orchestrator"
-    )
-    # Hinweis für Menschen / Audit (nicht Schema-Pflicht)
-    zone = data.get("zone_bs") if isinstance(data.get("zone_bs"), dict) else {}
-    detail = str(zone.get("detail") or "")
-    note = "lock_broken_expired"
-    if note not in detail:
-        zone = dict(zone)
-        zone["detail"] = f"{detail}; {note}".strip("; ").strip()
-        data["zone_bs"] = zone
+    who = broken_by if broken_by in UPDATED_BY else "orchestrator"
+    data["updated_by"] = who
+    # Audit in einem neutralen Feld -- nicht in einer Zone: GG brach sonst
+    # „in zone_bs“ (Prüfbericht 2026-09-29).
+    verlauf = data.get("lock_history") if isinstance(data.get("lock_history"), list) else []
+    verlauf = list(verlauf) + [{
+        "event": "lock_broken_expired",
+        "at": _utc_now_iso(),
+        "by": who,
+        "owner": lock.get("owner"),
+        "purpose": lock.get("purpose"),
+        "expired_at": lock.get("expires_at"),
+    }]
+    data["lock_history"] = verlauf[-LOCK_HISTORY_MAX:]
     write_band_run(data, production_root=production_root, repo=repo)
     return True
 
@@ -622,6 +671,10 @@ def update_band_run(
         fremde_pfade = sorted(set(paths_patch or {}) - GG_PATHS)
         if fremde_pfade:
             raise BandRunError(f"GG darf nur die Pfade {sorted(GG_PATHS)} setzen, nicht {fremde_pfade}.")
+    if who == "bs":
+        fremde_pfade = sorted(set(paths_patch or {}) - BS_PATHS)
+        if fremde_pfade:
+            raise BandRunError(f"BS darf nur die Pfade {sorted(BS_PATHS)} setzen, nicht {fremde_pfade}.")
 
     data = _ensure_loaded(
         production_uuid, production_root=production_root, repo=repo, create=True
@@ -667,3 +720,59 @@ def update_band_run(
     data["updated_by"] = who
     write_band_run(data, production_root=production_root, repo=repo)
     return data
+
+
+#: Studio-Stufen, die ``book_run.json`` führt und ``band_run`` spiegelt.
+_STUDIO_STUFEN = ("G", "H", "I", "J")
+
+
+def spiegele_book_run(
+    book_path: Path,
+    *,
+    writer: str = "bs",
+    production_root: Optional[Path] = None,
+    repo: Optional[Path] = None,
+) -> Optional[dict[str, Any]]:
+    """Studio-Stand (Gates G–J, Stufe) aus ``book_run.json`` nach ``band_run``.
+
+    ``book_run`` ist Studio-lokal und führend für F′–J; ``band_run`` ist die
+    app-übergreifende Landkarte. Bis 2026-09-29 blieb sie nach der Brücke auf
+    G stehen -- H (Satz), I (Prüfung), J (Archiv) kamen nie an. ``None`` =
+    Buch ohne UUID (nichts zu spiegeln). Lock-Konflikte werfen
+    ``BandRunLockError`` -- der Aufrufer meldet sie, kein stilles Weiter.
+    """
+    from services.work_path import read_book_run
+    from tools.production_uuid import read_book_uuid
+
+    book = Path(book_path)
+    uid = read_book_uuid(book)
+    if not uid:
+        return None
+    book_run = read_book_run(book) or {}
+    quelle = book_run.get("gates") if isinstance(book_run.get("gates"), dict) else {}
+    gates: dict[str, Any] = {}
+    for stufe in _STUDIO_STUFEN:
+        eintrag = quelle.get(stufe)
+        if isinstance(eintrag, dict):
+            gates[stufe] = {
+                "status": eintrag.get("status"),
+                "at": eintrag.get("at"),
+                "detail": eintrag.get("detail") or eintrag.get("reason"),
+                "source": "book_run",
+            }
+    stufe = str(book_run.get("current_stage") or "").strip().upper()
+    if stufe not in STAGES or stufe < "G":
+        stufe = max(gates) if gates else ""
+    zone: dict[str, Any] = {"artifacts": {"book_run": "bookconfig/book_run.json"}}
+    if stufe:
+        zone["stage"] = stufe
+        zone["detail"] = (gates.get(stufe) or {}).get("detail") or f"Studio-Kette bis {stufe}"
+    return update_band_run(
+        uid,
+        writer=writer,
+        production_root=production_root,
+        repo=repo,
+        zone_bs=zone,
+        gates_patch=gates or None,
+        current_stage=stufe or None,
+    )

@@ -68,16 +68,14 @@ def _parse_iso(value: object) -> Optional[datetime]:
 
 
 def _production_root(repo: Optional[Path] = None) -> Path:
-    if repo is None:
-        return Path("production")
-    try:
-        import app_config as _app_config
-        from tools.production_paths.config import resolve_production_root
+    """Dieselbe Wurzel wie ``band_run`` (``production_root_for_repo``).
 
-        cfg = _app_config.read_config(Path(repo) / "app_config.json")
-        return resolve_production_root(cfg, Path(repo))
-    except (OSError, TypeError, ValueError, ImportError):
-        return Path(repo) / "production"
+    Früher: ohne *repo* ein relatives ``production`` (abhängig vom
+    Arbeitsverzeichnis) und eine eigene Kopie der Konfig-Auflösung.
+    """
+    from tools.production_paths.config import production_root_for_repo
+
+    return production_root_for_repo(repo)
 
 
 def handoff_path(
@@ -160,7 +158,10 @@ def read_handoff(
     )
     if not path.is_file():
         return None
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HandoffError(f"Handoff nicht lesbar ({path.name}): {exc}") from exc
     return validate_handoff(raw)
 
 
@@ -179,7 +180,12 @@ def write_handoff(
         dir=str(path.parent), prefix=".handoff_", suffix=".tmp"
     )
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+        try:
+            handle = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
+        except OSError:
+            os.close(fd)  # sonst bleibt die Temp-Datei offen und unter Windows unlöschbar
+            raise
+        with handle:
             handle.write(payload)
         os.replace(tmp_name, path)
     except OSError:
@@ -219,9 +225,12 @@ def write_pending_handoff(
                     "kein paralleler A→J-Lauf."
                 )
             # abgelaufen → überschreiben erlaubt
+    lieferung = Path(delivery_path)
+    if not lieferung.is_dir():
+        raise HandoffError(f"Lieferordner fehlt: {lieferung} — kein Handoff.")
     data = empty_handoff(
         production_uuid,
-        delivery_path=delivery_path,
+        delivery_path=lieferung.resolve(),
         created_by=created_by,
         gg_project=gg_project,
         project_slug=project_slug,
@@ -229,41 +238,34 @@ def write_pending_handoff(
         detail=detail,
         now=stamp,
     )
-    write_handoff(data, production_root=production_root, repo=repo)
 
-    # Soft-Lock für Handoff-Übergabe (best effort)
+    # Erst Lock und Lauf-Objekt, dann der Marker: Hält ein anderer den Lock,
+    # entsteht kein Handoff. Früher: Marker geschrieben, Lock-Fehler mit
+    # ``pass`` geschluckt -- Handoff „ok“, band_run inkonsistent
+    # (Prüfbericht 2026-09-29).
+    from services.band_run import (
+        BandRunError,
+        acquire_lock,
+        release_lock,
+        update_band_run,
+    )
+
+    uid = str(data["production_uuid"])
+    owner = "gg" if created_by == "gg" else "orchestrator"
+    prod = Path(production_root) if production_root is not None else _production_root(repo)
     try:
-        from services.band_run import (
-            BandRunLockError,
-            acquire_lock,
-            update_band_run,
+        acquire_lock(
+            uid, owner=owner, purpose="handoff", production_root=prod, repo=repo, now=stamp
         )
-
-        uid = str(data["production_uuid"])
-        prod = (
-            Path(production_root)
-            if production_root is not None
-            else _production_root(repo)
-        )
-        try:
-            acquire_lock(
-                uid,
-                owner="gg" if created_by == "gg" else "orchestrator",
-                purpose="handoff",
-                production_root=prod,
-                repo=repo,
-                now=stamp,
-            )
-        except BandRunLockError:
-            pass
-        paths_patch: dict[str, Any] = {
-            "delivery": str(Path(delivery_path).resolve()),
-        }
-        if gg_project:
-            paths_patch["gg_project"] = str(Path(gg_project).resolve())
+    except BandRunError as exc:
+        raise HandoffError(f"Kein Handoff — Lock: {exc}") from exc
+    paths_patch: dict[str, Any] = {"delivery": str(lieferung.resolve())}
+    if gg_project:
+        paths_patch["gg_project"] = str(Path(gg_project).resolve())
+    try:
         update_band_run(
             uid,
-            writer="gg" if created_by == "gg" else "orchestrator",
+            writer=owner,
             production_root=prod,
             repo=repo,
             paths_patch=paths_patch,
@@ -275,8 +277,13 @@ def write_pending_handoff(
             current_stage="F",
             now=stamp,
         )
-    except (OSError, TypeError, ValueError, ImportError):
-        pass
+        write_handoff(data, production_root=prod, repo=repo)
+    except (BandRunError, OSError) as exc:
+        try:
+            release_lock(uid, owner=owner, production_root=prod, repo=repo, now=stamp)
+        except (BandRunError, OSError):
+            pass  # Lock läuft ohnehin ab; der eigentliche Fehler folgt
+        raise HandoffError(f"Handoff nicht geschrieben: {exc}") from exc
     return data
 
 
@@ -349,48 +356,57 @@ def claim_handoff(
     if status != "pending":
         raise HandoffError(f"Handoff nicht claimbar (status={status}).")
     stamp = now or _now()
+    wer = str(claimed_by or "bs").strip().lower() or "bs"
+
+    # Lock von GG an BS übergeben -- **bevor** der Handoff „claimed“ heißt.
+    # Hält danach noch ein Dritter den Lock (etwa ein Lebensende), wird nicht
+    # übernommen. Früher: ``except BandRunLockError: pass`` -- claimed ohne
+    # Lock, die Übernahme lief ungeschützt (Prüfbericht 2026-09-29).
+    from services.band_run import (
+        BandRunError,
+        acquire_lock,
+        lock_is_expired,
+        read_band_run,
+        release_lock,
+    )
+
+    prod = Path(production_root) if production_root is not None else _production_root(repo)
+    uid = str(data["production_uuid"])
+    try:
+        band = read_band_run(uid, production_root=prod, repo=repo) or {}
+    except BandRunError:
+        band = {}
+    lock = band.get("lock") if isinstance(band.get("lock"), dict) else None
+    # Nur den Handoff-Lock des Lieferanten übergeben -- ein GG-Lock für etwas
+    # anderes ist ein fremder Lauf und blockiert die Übernahme.
+    if (
+        lock
+        and not lock_is_expired(lock, now=stamp)
+        and str(lock.get("purpose") or "") == "handoff"
+        and str(lock.get("owner") or "") in {"gg", "orchestrator"}
+    ):
+        try:
+            release_lock(
+                uid, owner=str(lock["owner"]), production_root=prod, repo=repo, now=stamp
+            )
+        except (OSError, BandRunError) as exc:
+            raise HandoffError(f"Handoff nicht übernommen — Lock: {exc}") from exc
+    try:
+        acquire_lock(
+            uid,
+            owner=wer,
+            purpose="handoff_consume",
+            production_root=prod,
+            repo=repo,
+            now=stamp,
+        )
+    except BandRunError as exc:
+        raise HandoffError(f"Handoff nicht übernommen — Lock: {exc}") from exc
+
     data["status"] = "claimed"
     data["claimed_at"] = _iso(stamp)
-    data["claimed_by"] = str(claimed_by or "bs").strip().lower() or "bs"
+    data["claimed_by"] = wer
     write_handoff(data, production_root=production_root, repo=repo)
-
-    # Lock von GG an BS/Orchestrator übergeben
-    try:
-        from services.band_run import (
-            BandRunLockError,
-            acquire_lock,
-            release_lock,
-        )
-
-        prod = (
-            Path(production_root)
-            if production_root is not None
-            else _production_root(repo)
-        )
-        for owner in ("gg", "orchestrator"):
-            try:
-                release_lock(
-                    str(data["production_uuid"]),
-                    owner=owner,
-                    production_root=prod,
-                    repo=repo,
-                    now=stamp,
-                )
-            except (OSError, TypeError, ValueError, BandRunLockError):
-                continue
-        try:
-            acquire_lock(
-                str(data["production_uuid"]),
-                owner=str(claimed_by or "bs"),
-                purpose="bridge",
-                production_root=prod,
-                repo=repo,
-                now=stamp,
-            )
-        except BandRunLockError:
-            pass
-    except ImportError:
-        pass
     return data
 
 
@@ -400,8 +416,15 @@ def complete_handoff(
     production_root: Optional[Path] = None,
     repo: Optional[Path] = None,
     error: Optional[str] = None,
+    warnung: Optional[str] = None,
     now: Optional[datetime] = None,
 ) -> dict[str, Any]:
+    """Abschluss: ``done`` (auch mit *warnung*, etwa Cover offen) oder
+    ``cancelled`` (nur bei *error* = echter Abbruch).
+
+    Ein übernommenes Buch mit offenem Cover hieß vorher ``cancelled`` --
+    der Marker sagte Abbruch, obwohl übernommen war (Prüfbericht 2026-09-29).
+    """
     data = read_handoff(
         production_uuid, production_root=production_root, repo=repo
     )
@@ -412,6 +435,8 @@ def complete_handoff(
     data["completed_at"] = _iso(stamp)
     if error:
         data["error"] = str(error)
+    if warnung:
+        data["warning"] = str(warnung)
     write_handoff(data, production_root=production_root, repo=repo)
     try:
         from services.band_run import release_lock
@@ -525,16 +550,27 @@ def run_handoff_consume(
         status = "expired" if "abgelaufen" in msg.lower() else "error"
         return {"status": status, "message": msg, "uuid": uid or ""}
 
+    # Genau die Lieferung des Handoffs -- nie eine andere aus der Inbox.
+    # Früher: toter Pfad -> ``delivery=None`` -> die Brücke wählte selbst und
+    # übernahm unter dieser UUID womöglich eine fremde Lieferung
+    # (Prüfbericht 2026-09-29, P0).
     delivery = Path(str(handoff.get("delivery_path") or ""))
+    abweisung = _pruefe_lieferung(delivery, uid)
+    if abweisung:
+        complete_handoff(uid, production_root=prod, repo=repo, error=abweisung)
+        return {"status": "error", "message": abweisung, "uuid": uid}
     try:
         bridge = run_delivery_bridge(
             repo,
-            delivery=delivery if delivery.is_dir() else None,
+            delivery=delivery,
             run_pipeline=run_pipeline,
             pipeline_hooks=pipeline_hooks,
             pipeline_options=pipeline_options,
-            # Der Claim hat den Lock an BS übergeben -- die Brücke schreibt als BS.
+            # Der Claim hat den Lock an BS übergeben: Die Brücke schreibt als BS
+            # und lässt den Lock stehen -- er gilt bis complete_handoff, auch
+            # während der Studio-Kette.
             band_run_writer="bs",
+            lock_vom_aufrufer=True,
         )
     except (OSError, TypeError, ValueError) as exc:
         complete_handoff(
@@ -545,11 +581,22 @@ def run_handoff_consume(
             "message": f"Bridge fehlgeschlagen: {exc}",
             "uuid": uid,
         }
+    except BaseException as exc:  # Handoff abschliessen, Lock frei; danach raise
+        # Unerwartet (auch KeyboardInterrupt): Handoff abschließen und Lock
+        # freigeben, statt ihn bis zum Ablauf stehen zu lassen -- dann weiter.
+        complete_handoff(
+            uid, production_root=prod, repo=repo, error=f"Abbruch: {exc!r}"
+        )
+        raise
 
     if bridge.status in {"ok", "interrupt", "conflict"}:
-        err = None if bridge.status == "ok" else bridge.message
-        complete_handoff(uid, production_root=prod, repo=repo, error=err)
-        # interrupt/conflict: Buch übernommen, Cover offen — Handoff done mit Hinweis
+        # Übernommen ist übernommen: interrupt/conflict (Cover offen) ist ein
+        # Hinweis, kein Abbruch -- Handoff „done“ mit Warnung.
+        hinweis = None if bridge.status == "ok" else bridge.message
+        band_fehler = bridge.details.get("band_run_fehler")
+        if band_fehler:
+            hinweis = "; ".join(x for x in (hinweis, f"band_run: {band_fehler}") if x)
+        complete_handoff(uid, production_root=prod, repo=repo, warnung=hinweis)
         gemeinsam = {
             "uuid": uid,
             "book_path": str(bridge.book_path) if bridge.book_path else None,
@@ -571,3 +618,21 @@ def run_handoff_consume(
         "message": bridge.message or bridge.status,
         "uuid": uid,
     }
+
+
+def _pruefe_lieferung(delivery: Path, uid: str) -> str:
+    """Grund, warum *delivery* nicht zu Handoff *uid* passt -- ``""`` = passt."""
+    if not str(delivery).strip() or not delivery.is_dir():
+        return (
+            f"Lieferordner des Handoffs fehlt: {delivery} — nichts übernommen "
+            "(keine andere Lieferung ersatzweise). Neu liefern oder manuell übernehmen."
+        )
+    from services.delivery_bridge import _uuid_from_delivery
+
+    liefer_uid = _uuid_from_delivery(delivery)
+    if liefer_uid and liefer_uid != uid:
+        return (
+            f"Lieferung {delivery.name} trägt UUID {liefer_uid}, der Handoff {uid} — "
+            "nichts übernommen."
+        )
+    return ""

@@ -56,14 +56,9 @@ class LifecycleEndResult:
 
 
 def _production_root(repo: Path) -> Path:
-    try:
-        import app_config as _app_config
-        from tools.production_paths.config import resolve_production_root
+    from tools.production_paths.config import production_root_for_repo
 
-        cfg = _app_config.read_config(Path(repo) / "app_config.json")
-        return resolve_production_root(cfg, Path(repo))
-    except (OSError, TypeError, ValueError, ImportError):
-        return Path(repo) / "production"
+    return production_root_for_repo(repo)
 
 
 def _uuid_from_path(path: Path) -> str:
@@ -125,14 +120,18 @@ def _find_inbox_matches(
             continue
         delivery_uid = _uuid_from_path(path)
         slug_ok = cand.project_slug == slug or path.parent.name == slug
-        if uid and delivery_uid:
+        if uid:
+            # Buch mit UUID: nur Lieferungen **derselben** UUID. Eine
+            # Lieferung ohne UUID mit gleichem Namen ist nicht nachweislich
+            # dieses Buch -- vorher wurde sie mitgelöscht (Plan: „Slug + UUID
+            # müssen passen“, Prüfbericht 2026-09-29).
             if delivery_uid == uid:
                 seen.add(key)
                 found.append(path)
             continue
-        if delivery_uid and uid and delivery_uid != uid:
-            continue
-        if slug_ok and (not delivery_uid or not uid or delivery_uid == uid):
+        # Buch ohne UUID: nur der Name trägt -- ohne band_run sind die
+        # Häkchen ohnehin aus (``default_include_inbox``).
+        if slug_ok:
             seen.add(key)
             found.append(path)
     return found
@@ -341,23 +340,26 @@ def run_lifecycle_end(
             locked = False
 
     try:
-        for target in targets:
+        fehler = ""
+        for index, target in enumerate(targets):
             if not target.exists() and not target.is_symlink():
                 continue
             try:
                 if in_papierkorb(target):
                     deleted.append(str(Path(target).resolve()))
             except PapierkorbFehler as exc:
-                return LifecycleEndResult(
-                    status="error",
-                    message=str(exc),
-                    deleted=tuple(deleted),
-                    left_behind=tuple(left_behind),
-                    production_uuid=uid,
-                )
+                # Nicht still aufhören: Was schon im Papierkorb liegt, steht
+                # gleich im Tombstone, der Rest unter left_behind. Vorher kam
+                # bei Teil-Löschung gar kein Tombstone -- Buch weg, lifecycle
+                # „active“ (Prüfbericht 2026-09-29).
+                fehler = str(exc)
+                left_behind.append(f"Nicht gelöscht (Fehler): {target} — {exc}")
+                for rest in targets[index + 1:]:
+                    left_behind.append(f"Nicht mehr versucht: {rest}")
+                break
 
         tombstone_written = False
-        if uid:
+        if uid and (deleted or not fehler):
             try:
                 from services.band_run import (
                     empty_band_run,
@@ -395,11 +397,25 @@ def run_lifecycle_end(
                         "by": who,
                         "deleted": list(deleted),
                         "left_behind": list(left_behind),
+                        "complete": not fehler,
                     },
                 )
                 tombstone_written = True
             except (OSError, TypeError, ValueError) as exc:
                 left_behind.append(f"Tombstone fehlgeschlagen: {exc}")
+
+        if fehler:
+            return LifecycleEndResult(
+                status="error",
+                message=(
+                    f"Lebensende unvollständig: {fehler} — {len(deleted)} Pfad(e) im "
+                    "Papierkorb" + (", Tombstone geschrieben" if tombstone_written else "")
+                ),
+                deleted=tuple(deleted),
+                left_behind=tuple(left_behind),
+                production_uuid=uid,
+                tombstone_written=tombstone_written,
+            )
 
         msg = (
             f"In den Papierkorb: {len(deleted)} Pfad(e)"

@@ -280,6 +280,30 @@ def _finish(book: Path, result: PipelineResult) -> None:
         )
     except OSError:
         pass
+    _spiegele_band_run(book, result)
+
+
+def _spiegele_band_run(book: Path, result: PipelineResult) -> None:
+    """Studio-Stand G–J ins app-übergreifende ``band_run`` (Prüfbericht 2026-09-29).
+
+    Vorher blieb ``band_run`` nach der Brücke auf G stehen. Scheitert das
+    Spiegeln (fremder Lock, kaputte Datei), steht es als Warnung im Ergebnis
+    -- die Kette selbst ist trotzdem gelaufen.
+    """
+    try:
+        from services.band_run import BandRunError, spiegele_book_run
+        from tools.production_paths.paths import BOOKS_DIR_NAME
+    except ImportError:
+        return
+    # Dieselbe Produktion wie das Buch: ``<production>/books/<Buch>``. Ohne
+    # das landete der Spiegel eines Test- oder Fremdbuchs in der Produktion
+    # dieses Repos.
+    buch = Path(book).resolve()
+    produktion = buch.parent.parent if buch.parent.name == BOOKS_DIR_NAME else None
+    try:
+        spiegele_book_run(book, writer="bs", production_root=produktion)
+    except (BandRunError, OSError) as exc:
+        result.warnungen.append(f"band_run nicht aktualisiert: {exc}")
 
 
 def _persist_step(book: Path, outcome: StageOutcome) -> None:

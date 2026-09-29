@@ -90,6 +90,47 @@ def _qt_fenster_abraeumen():
 
 
 @pytest.fixture(autouse=True)
+def _echte_produktion_schreibgeschuetzt(monkeypatch):
+    """Kein Test schreibt Lauf-Objekte oder Handoffs in die echte Produktion.
+
+    Bis 2026-09-29 legten Tests ``production/runs/<Test-UUID>/band_run.json``
+    im echten Repo an (Lauf-Objekte ohne ``production_root``/``repo``
+    lösen die Wurzel des Repos auf). Solche Schreibzugriffe schlagen jetzt
+    mit einem klaren Fehler fehl, statt still die Produktion zu füllen.
+    """
+    from pathlib import Path
+
+    from services import band_run, handoff
+    from tools.production_paths.paths import PRODUCTION_DIR_NAME
+
+    echt = (Path(__file__).resolve().parent.parent / PRODUCTION_DIR_NAME).resolve()
+
+    def _pruefe(ziel) -> None:
+        pfad = Path(ziel).resolve()
+        if pfad.is_relative_to(echt):
+            raise AssertionError(
+                f"Test schreibt in die echte Produktion: {pfad} -- "
+                "production_root/repo auf tmp_path setzen oder BSU_PRODUCTION_ROOT."
+            )
+
+    atomar = band_run._atomar_schreiben
+
+    def _atomar_geprueft(dest, text):
+        _pruefe(dest)
+        return atomar(dest, text)
+
+    monkeypatch.setattr(band_run, "_atomar_schreiben", _atomar_geprueft)
+    marker = handoff.write_handoff
+
+    def _handoff_geprueft(data, *, production_root=None, repo=None):
+        _pruefe(handoff.handoff_path(str(data.get("production_uuid") or ""),
+                                     production_root=production_root, repo=repo))
+        return marker(data, production_root=production_root, repo=repo)
+
+    monkeypatch.setattr(handoff, "write_handoff", _handoff_geprueft)
+
+
+@pytest.fixture(autouse=True)
 def _papierkorb_im_tmp(tmp_path_factory, monkeypatch):
     """Kein Test füllt den echten Windows-Papierkorb (Paket 2).
 
