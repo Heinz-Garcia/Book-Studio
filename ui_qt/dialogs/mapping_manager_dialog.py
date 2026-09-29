@@ -453,7 +453,7 @@ class MappingManagerQtDialog(QDialog):
             self._all_renders = []
             self._renders = []
             self.table.setRowCount(0)
-            self.empty_label.setText("Kein Buch gewählt.")
+            self.empty_label.setText("Kein Buch gewählt — oben in der Liste ein Buch wählen.")
             return
         previous_id = self.snapshot_combo.currentData()
         self._snapshots = load_snapshots(book)

@@ -382,7 +382,7 @@ class ChapterListDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "Kein Buchprojekt",
-                f"{pfad.name} enthält keine _quarto.yml.",
+                f"{pfad.name} enthält keine _quarto.yml — bitte einen Buchordner (mit _quarto.yml) wählen.",
             )
             self.fill_book_choices()
             return

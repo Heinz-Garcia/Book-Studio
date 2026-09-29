@@ -172,7 +172,7 @@ class BookNoteDialog(QDialog):
         self.book_list.blockSignals(False)
 
         if not self._books:
-            self.book_label.setText("Kein Buchprojekt gefunden.")
+            self.book_label.setText("Kein Buchprojekt gefunden — Weiter: Bücher verwalten (siehe unten).")
             self.editor.setEnabled(False)
             self.status_label.setText(
                 "Gesucht wurde nach Ordnern mit einer _quarto.yml. "

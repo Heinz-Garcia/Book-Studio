@@ -783,10 +783,14 @@ class AssetManagerQtDialog(QDialog):
 
     def _copy_pool_to_book(self) -> None:
         if self._book is None:
-            QMessageBox.information(
+            # Empty State mit Policy-Aktion, nicht nur Warnung (B-10).
+            from ui_qt.work_path_guidance import warn_need_book
+
+            warn_need_book(
                 self,
-                "Asset Manager",
-                "Kein aktives Buch — bitte zuerst ein Buchprojekt wählen.",
+                title="Asset Manager",
+                message="Kein aktives Buch.\n\nStufe G: zuerst ein Buchprojekt wählen, dann in das Buch kopieren.",
+                studio=self.studio,
             )
             return
         paths = self._selected_pool_paths()

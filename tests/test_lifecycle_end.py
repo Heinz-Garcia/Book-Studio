@@ -140,7 +140,10 @@ def test_inbox_foreign_uuid_not_matched(tmp_path: Path) -> None:
     assert foreign.resolve() not in plan.inbox_paths
 
 
-def test_gg_1to1_default_on(tmp_path: Path, monkeypatch) -> None:
+def test_quellen_nie_vorbelegt_nur_ausdruecklich(tmp_path: Path, monkeypatch) -> None:
+    """B-05 (Nutzer, 2026-09-29): Quellen werden nie automatisch entsorgt --
+    auch bei 1:1-Bindung und vorhandenem band_run sind die Häkchen aus; wer
+    sie ausdrücklich setzt, entsorgt sie."""
     repo = tmp_path / "BS"
     repo.mkdir()
     _write_cfg(repo)
@@ -165,9 +168,12 @@ def test_gg_1to1_default_on(tmp_path: Path, monkeypatch) -> None:
     data["paths"]["gg_project"] = str(proj)
     write_band_run(data, production_root=repo / "production", repo=repo)
 
+    lieferung = _make_delivery(repo, "Prosa_X", "01.01.2026_12.00", uid=uid)
     plan = plan_lifecycle_end(book, repo=repo)
     assert plan.gg_bound_1to1
-    assert plan.default_include_gg is True
+    assert plan.default_include_gg is False  # nie vorbelegt
+    assert plan.has_band_run and lieferung.resolve() in plan.inbox_paths
+    assert plan.default_include_inbox is False  # auch mit band_run nicht
     assert plan.gg_project == proj.resolve()
 
     result = run_lifecycle_end(
@@ -180,3 +186,18 @@ def test_gg_1to1_default_on(tmp_path: Path, monkeypatch) -> None:
     assert result.status == "ok"
     assert not proj.exists()
     assert str(proj.resolve()) in result.deleted
+    assert lieferung.exists()  # nicht angehakt -> bleibt
+
+
+def test_ohne_haekchen_bleiben_quellen_stehen(tmp_path: Path) -> None:
+    """Aufruf ohne include_*: Die Vorgabe entsorgt keine Quelle (B-05)."""
+    repo = tmp_path / "BS"
+    repo.mkdir()
+    _write_cfg(repo)
+    uid = str(uuid4())
+    book = _make_book(repo, "Prosa_Y", uid=uid)
+    lieferung = _make_delivery(repo, "Prosa_Y", "01.01.2026_12.00", uid=uid)
+    result = run_lifecycle_end(book, repo=repo, confirm_name="Prosa_Y")
+    assert result.status == "ok"
+    assert not book.exists()
+    assert lieferung.exists()

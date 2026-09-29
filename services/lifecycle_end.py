@@ -39,7 +39,9 @@ class LifecycleEndPlan:
     gg_project: Optional[Path] = None
     gg_candidates: tuple[Path, ...] = ()
     gg_bound_1to1: bool = False
-    default_include_inbox: bool = True
+    #: Quellen (Inbox-Läufe, GG-Projekt) werden nie automatisch mitentsorgt --
+    #: nur, wenn der Mensch sie ausdrücklich anhakt (Nutzer, 2026-09-29, B-05).
+    default_include_inbox: bool = False
     default_include_gg: bool = False
     cover_note: str = "Cover-Registry / geplante UUID bleiben (Nachweis)."
     details: dict[str, Any] = field(default_factory=dict)
@@ -249,8 +251,11 @@ def plan_lifecycle_end(
         gg_project=gg_primary,
         gg_candidates=gg_cands,
         gg_bound_1to1=bound,
-        default_include_inbox=bool(has_band and inbox),
-        default_include_gg=bool(bound and gg_primary is not None),
+        # Nie vorbelegt: Quellen gehen nur mit, wenn der Mensch sie anhakt --
+        # auch bei eindeutiger UUID-Zuordnung nicht (B-05). Vorher: Inbox an,
+        # sobald ein band_run existierte; GG an bei 1:1-Bindung.
+        default_include_inbox=False,
+        default_include_gg=False,
         details={
             "band_delivery": band_delivery or None,
             "band_gg": band_gg,
@@ -263,7 +268,7 @@ def run_lifecycle_end(
     *,
     repo: Path,
     confirm_name: str,
-    include_inbox: bool = True,
+    include_inbox: bool = False,  # Quellen nur ausdrücklich (B-05)
     include_gg: bool = False,
     active_book: Optional[Path] = None,
     writer: str = "orchestrator",

@@ -90,11 +90,13 @@ def prompt_lifecycle_end(
     elif plan.gg_candidates:
         chk_gg.setToolTip("\n".join(str(p) for p in plan.gg_candidates))
     layout.addWidget(chk_gg)
-    # Ehrlich sagen, wo es landet: BS verschiebt auch den GG-Ordner in den
-    # Windows-Papierkorb -- GGs eigener „_trash“ zeigt ihn nicht (B-05).
+    # Quellen gehen nie automatisch mit (Nutzer, 2026-09-29, B-05): Beide
+    # Häkchen sind aus; wer sie setzt, entscheidet ausdrücklich. Ehrlich sagen,
+    # wo es dann landet -- GGs eigener „_trash“ zeigt es nicht.
     gg_hinweis = QLabel(
-        "Alles Angehakte kommt in den Windows-Papierkorb — auch das "
-        "GrammarGraph-Projekt (nicht in GrammarGraphs eigenen „_trash“)."
+        "Quellen (Inbox-Läufe, GrammarGraph-Projekt) werden nie automatisch "
+        "mitgelöscht — nur, wenn Sie sie hier ausdrücklich anhaken. Angehaktes "
+        "kommt in den Windows-Papierkorb (nicht in GrammarGraphs „_trash“)."
     )
     gg_hinweis.setWordWrap(True)
     layout.addWidget(gg_hinweis)

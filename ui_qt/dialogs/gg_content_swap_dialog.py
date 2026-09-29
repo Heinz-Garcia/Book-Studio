@@ -383,11 +383,7 @@ class GgContentSwapQtDialog(QDialog):
 
         book = self._book_path()
         if book is None:
-            QMessageBox.warning(
-                self,
-                "Buchstruktur",
-                "Kein aktives Buch — zuerst ein Projekt wählen.",
-            )
+            self._warn_need_book()  # mit „Buch wählen…“ statt nur Warnung (B-10)
             return
         paths = None
         host = self._host
