@@ -131,6 +131,53 @@ def _echte_produktion_schreibgeschuetzt(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _cover_ablage_im_tmp(tmp_path_factory, monkeypatch):
+    """Cover-Ablage, Cover-Registry und KDP-Dialogzustand nie die echten.
+
+    Bis 2026-09-29 legte der Speichern-Test des KDP-Dialogs Cover unter
+    ``production/covers/<Zufalls-UUID>`` an und überschrieb die gemerkte
+    Fenstergeometrie in ``tools/kdp_cover/last_session.json``. Umgebogen wird
+    nur, was in die **echte** Ablage zeigen würde -- Tests mit eigenem
+    ``repo=tmp_path`` behalten ihre ``<repo>/production/covers``.
+    """
+    import os
+    from pathlib import Path
+
+    try:
+        from tools.kdp_cover import cover_paths, cover_registry
+        from tools.kdp_cover import settings as kdp_settings
+    except ImportError:
+        return
+    echte_ablage = (Path(__file__).resolve().parent.parent / "production" / "covers").resolve()
+    ersatz = tmp_path_factory.mktemp("covers")
+    original_root = cover_paths.covers_root
+
+    def _covers_root(repo=None):
+        pfad = original_root(repo)
+        return ersatz if Path(pfad).resolve() == echte_ablage else pfad
+
+    monkeypatch.setattr(cover_paths, "covers_root", _covers_root)
+    if not os.environ.get(cover_registry.REGISTRY_ENV):
+        echte_registry = cover_registry.registry_path().resolve()
+        ersatz_registry = tmp_path_factory.mktemp("registry") / "registry.json"
+        original_registry = cover_registry.registry_path
+
+        def _registry_path():
+            pfad = original_registry()
+            return ersatz_registry if Path(pfad).resolve() == echte_registry else pfad
+
+        monkeypatch.setattr(cover_registry, "registry_path", _registry_path)
+        try:
+            from tools.kdp_cover import planned_uuid  # importiert registry_path direkt
+        except ImportError:
+            pass  # Modul fehlt -- dann gibt es dort auch nichts umzubiegen
+        else:
+            monkeypatch.setattr(planned_uuid, "registry_path", _registry_path)
+    sitzung = tmp_path_factory.mktemp("kdp_sitzung") / "last_session.json"
+    monkeypatch.setattr(kdp_settings, "settings_path", lambda: sitzung)
+
+
+@pytest.fixture(autouse=True)
 def _papierkorb_im_tmp(tmp_path_factory, monkeypatch):
     """Kein Test füllt den echten Windows-Papierkorb (Paket 2).
 
