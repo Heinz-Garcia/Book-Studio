@@ -13,7 +13,7 @@ Bewusst **nicht** still geschlossen — entweder späterer Slice oder Produktent
 | QProcess GG→BS (sofortige Übergabe ohne Marker-Poll) | bewusst nicht | Plan erlaubt Marker **oder** QProcess; Marker ist SSOT für Slice C |
 | Cover-UUID „retired“ nach Tombstone | nicht-Ziel | Registry bleibt Nachweis; optional später |
 | Mehrere Handoffs ohne Buch: UUID-Dialog nur in BS-GUI | ok / UX | Policy: kein Auto-Pick |
-| Lebensende: GG-Papierkorb (`_trash`) vs. Windows-Papierkorb für GG-Pfad | offen | BS nutzt `send2trash` auch für GG-Ordner — Explorer-_trash_ sieht das nicht |
+| Lebensende: GG-Papierkorb (`_trash`) vs. Windows-Papierkorb für GG-Pfad | teilweise (29.09.) | BS nutzt `send2trash` auch für GG-Ordner — GGs `_trash` sieht das nicht. Der Lebensende-Dialog sagt das jetzt ausdrücklich. Offen, Entscheidung Nutzer: GG-Ordner stattdessen über GGs eigenen Papierkorb (Unterprozess) |
 | Empty States in allen Shell-Dialogen flächig (Asset Manager, GG-Swap, …) | teilweise | Primär-CTA Leiste + Need-Book angeglichen; Rest laut next_Level Feinschliff |
 | Handbuch-TOC / Stand Orchestrierung | erledigt (26.09.) | Kap. 16-Link + Kopf Stand/Version |
 | Parallel A→J derselben UUID | abgefangen | Zweiter Pending-Handoff → Fehler |

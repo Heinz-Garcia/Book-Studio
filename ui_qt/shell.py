@@ -922,6 +922,51 @@ class MainWindow(QMainWindow):
         self._refresh_work_path()
         return bridge.book_path
 
+    def _teilkette_export_optionen(self) -> dict:
+        """Export-Optionen der Studio-Kette -- manuell und nach Handoff dieselben."""
+        bridge = self.as_export_studio()
+        opts = dict(bridge.get_last_export_options() or {})
+        if opts:
+            return opts
+        try:
+            from session_state import read_session_state
+
+            data = read_session_state(repo_root() / "session_state.json")
+            raw = (data or {}).get("export_options") if isinstance(data, dict) else {}
+            return dict(raw) if isinstance(raw, dict) else {}
+        except (ImportError, OSError, TypeError, ValueError):
+            return {}
+
+    def _teilkette_skeleton_profil(self) -> Optional[Path]:
+        """Skeleton-Profil der Studio-Kette (Einstellung, sonst erstes Profil).
+
+        Eine Quelle für die manuelle Teilkette und „Band durchlaufen“: ohne
+        Profil blieb ein frisches Buch nach einem Handoff an Gate G hängen
+        (Nachprüfung 2026-09-29, B-03).
+        """
+        try:
+            from tools.skeleton.config import read_skeleton_settings
+            from tools.skeleton.manifest import (
+                list_profiles,
+                resolve_library_root,
+                resolve_profile_dir,
+            )
+
+            root = repo_root()
+            settings = read_skeleton_settings(root)
+            library = resolve_library_root(
+                root, str(settings.get("library_path") or "tools/skeleton/library")
+            )
+            profiles = list_profiles(library)
+            if not profiles:
+                return None
+            name = str(settings.get("default_profile") or profiles[0])
+            if name not in profiles:
+                name = profiles[0]
+            return resolve_profile_dir(library, name)
+        except (ImportError, OSError, TypeError, ValueError, KeyError):
+            return None
+
     def _run_studio_pipeline(self, *, from_delivery: bool = False) -> None:
         """Teilkette: optional F′ -> Smart-G′ -> Render -> Freigabe -> Archiv."""
         from pathlib import Path as _Path
@@ -980,43 +1025,8 @@ class MainWindow(QMainWindow):
         def _log(msg: str, level: str = "info") -> None:
             self._facade.log(msg, level)
 
-        def _export_opts() -> dict:
-            bridge = self.as_export_studio()
-            opts = dict(bridge.get_last_export_options() or {})
-            if opts:
-                return opts
-            try:
-                from session_state import read_session_state
-
-                data = read_session_state(repo_root() / "session_state.json")
-                raw = (data or {}).get("export_options") if isinstance(data, dict) else {}
-                return dict(raw) if isinstance(raw, dict) else {}
-            except (ImportError, OSError, TypeError, ValueError):
-                return {}
-
-        def _skeleton_profile() -> Optional[_Path]:
-            try:
-                from tools.skeleton.config import read_skeleton_settings
-                from tools.skeleton.manifest import (
-                    list_profiles,
-                    resolve_library_root,
-                    resolve_profile_dir,
-                )
-
-                root = repo_root()
-                settings = read_skeleton_settings(root)
-                library = resolve_library_root(
-                    root, str(settings.get("library_path") or "tools/skeleton/library")
-                )
-                profiles = list_profiles(library)
-                if not profiles:
-                    return None
-                name = str(settings.get("default_profile") or profiles[0])
-                if name not in profiles:
-                    name = profiles[0]
-                return resolve_profile_dir(library, name)
-            except (ImportError, OSError, TypeError, ValueError, KeyError):
-                return None
+        _export_opts = self._teilkette_export_optionen
+        _skeleton_profile = self._teilkette_skeleton_profil
 
         def _interrupt(outcome):
             decision = prompt_pipeline_interrupt(self, outcome)
@@ -1157,8 +1167,11 @@ class MainWindow(QMainWindow):
         def _on_interrupt(outcome):
             return prompt_pipeline_interrupt(self, outcome)
 
+        # Dieselben Hooks wie die manuelle Teilkette (Skeleton-Profil, Export).
         hooks = PipelineHooks(
             log=self._facade.log,
+            get_export_options=self._teilkette_export_optionen,
+            resolve_skeleton_profile=self._teilkette_skeleton_profil,
             on_interrupt=_on_interrupt,
             repo_root=root,
         )

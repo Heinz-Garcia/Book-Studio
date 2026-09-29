@@ -50,8 +50,12 @@ Produktion.
   Lieferordner, entsteht kein Handoff. GG ruft das als Unterprozess auf und
   prüft, dass der Marker unter der Produktionswurzel liegt, die GG erwartet.
 - **Genau diese Lieferung.** Die Übernahme nimmt nur den Lieferordner des
-  Handoffs; fehlt er oder trägt die Lieferung eine andere UUID, wird nichts
-  übernommen -- nie eine Ersatz-Lieferung aus der Inbox.
+  Handoffs; fehlt er oder trägt die Lieferung keine bzw. eine andere UUID, wird
+  nichts übernommen -- nie eine Ersatz-Lieferung aus der Inbox. Dieselbe
+  Prüfung schon beim Anlegen des Handoffs.
+- **Ablauf.** `claimed` läuft nur ab, wenn auch der Lock des Übernehmers
+  abgelaufen ist; die Übernahme verlängert ihn vor jeder Studio-Stufe. Beim
+  Ablauf wird der Lock dieses Handoffs freigegeben, gleich wer ihn hält.
 - **Lock über die ganze Übernahme.** Der Claim übergibt nur den Handoff-Lock an
   BS (`handoff_consume`); jeder andere aktive Lock blockiert. Er gilt bis
   `complete_handoff`, auch während der Studio-Kette. Jeder Schreibweg auf

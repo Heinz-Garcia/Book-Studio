@@ -93,6 +93,10 @@ class PipelineHooks:
     resolve_delivery: Optional[Callable[[Path], Optional[Path]]] = None
     #: Repo-Root für F′-Import (Default: Studio-Root).
     repo_root: Optional[Path] = None
+    #: Vor jeder Stufe gerufen -- die Handoff-Übernahme verlängert damit ihren
+    #: Soft-Lock, damit er bei langen Läufen nicht mittendrin abläuft
+    #: (Nachprüfung 2026-09-29, B-09). Fehler hier halten die Kette nicht an.
+    heartbeat: Callable[[], None] = lambda: None
 
 
 @dataclass
@@ -173,6 +177,10 @@ def run_studio_chain(
     idx = 0
     while idx < len(stages):
         stage_id = stages[idx]
+        try:
+            h.heartbeat()
+        except (OSError, ValueError) as exc:
+            h.log(f"Teilkette: Lock nicht verlängert — {exc}", "warning")
         h.log(f"Teilkette: Stufe {stage_id} …", "info")
         outcome = _run_stage(book, stage_id, opts, h)
         result.outcomes.append(outcome)
@@ -237,7 +245,7 @@ def run_studio_chain(
             except OSError:
                 pass
             if stage_id == "compliance":
-                pdf = _newest_pdf(book)
+                pdf = _pdf_aus_gate_h(book) or _newest_pdf(book)
                 try:
                     mark_gate(
                         book,
@@ -611,6 +619,13 @@ def _stage_render(
     except ImportError as exc:
         return StageOutcome("render", StageStatus.FAIL, f"Render-Modul fehlt: {exc}")
 
+    import time
+
+    # Gate H gilt der PDF **dieses** Satzes, nicht irgendeiner neuesten im
+    # Ordner -- eine ältere PDF zählte sonst als Ergebnis eines gescheiterten
+    # Satzes (Fund 27.09., Nachprüfung 2026-09-29, B-06). Toleranz 2 s für
+    # grobe Zeitstempel mancher Dateisysteme.
+    beginn = time.time() - 2.0
     try:
         code = run_safe_render(
             book,
@@ -624,12 +639,17 @@ def _stage_render(
         return StageOutcome("render", StageStatus.FAIL, f"Render-Fehler: {exc}")
 
     pdf = _newest_pdf(book)
-    if int(code) != 0 or pdf is None:
+    alt = pdf is not None and _mtime(pdf) < beginn
+    if int(code) != 0 or pdf is None or alt:
+        grund = ""
+        if pdf is None:
+            grund = " — keine Export-PDF."
+        elif alt:
+            grund = f" — keine neue PDF aus diesem Satz (neueste ist älter: {pdf.name})."
         return StageOutcome(
             "render",
             StageStatus.FAIL,
-            f"Render fehlgeschlagen (code={code})"
-            + ("" if pdf else " — keine Export-PDF."),
+            f"Render fehlgeschlagen (code={code}){grund}",
             details={"returncode": int(code)},
         )
 
@@ -762,6 +782,33 @@ def _resolve_render_args(
     return target_fmt, profile_name, extra_opts, archive_dir, render_channel
 
 
+def _mtime(pfad: Path) -> float:
+    try:
+        return pfad.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _pdf_aus_gate_h(book: Path) -> Optional[Path]:
+    """Die PDF, die Gate H für den letzten Satz festhielt -- sonst ``None``.
+
+    Die Freigabe (I) prüft so genau das Satzergebnis, nicht „die neueste PDF
+    im Ordner“ (B-06). Ohne Gate-H-Eintrag (etwa Start bei ``compliance``)
+    fällt der Aufrufer auf die neueste PDF zurück.
+    """
+    from services.work_path import read_book_run
+
+    try:
+        gate = (read_book_run(book).get("gates") or {}).get("H") or {}
+    except (OSError, TypeError, ValueError, AttributeError):
+        return None
+    roh = str(gate.get("pdf") or "").strip() if isinstance(gate, dict) else ""
+    if not roh:
+        return None
+    pfad = Path(roh)
+    return pfad if pfad.is_file() else None
+
+
 def _stage_compliance(
     book: Path, opts: PipelineOptions, hooks: Optional[PipelineHooks] = None
 ) -> StageOutcome:
@@ -773,7 +820,7 @@ def _stage_compliance(
             "DOCX-Ziel: keine Druckprüfung — die PDF entsteht erst nach den "
             "Korrekturen in der DOCX.",
         )
-    pdf = _newest_pdf(book)
+    pdf = _pdf_aus_gate_h(book) or _newest_pdf(book)
     if pdf is None:
         return StageOutcome(
             "compliance",

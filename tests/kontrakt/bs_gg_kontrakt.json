@@ -179,7 +179,7 @@
       "schema_version": 1,
       "timeout_default_hours": 2,
       "status": ["pending", "claimed", "done", "expired", "cancelled"],
-      "hinweis": "Timeout → expired, kein Auto-Retry. Kein paralleler A→J-Lauf derselben UUID. Lieferordner muss existieren und (falls sie eine traegt) dieselbe UUID tragen -- sonst kein Handoff bzw. keine Uebernahme, nie eine Ersatz-Lieferung. done = uebernommen (optional warning, z. B. Cover offen); cancelled = abgebrochen (error). Der Lock (purpose handoff -> handoff_consume) gilt vom Anlegen bis complete_handoff, auch waehrend der Studio-Kette."
+      "hinweis": "Timeout → expired, kein Auto-Retry. Kein paralleler A→J-Lauf derselben UUID. Lieferordner muss existieren und dieselbe UUID tragen (publish_meta.json uuid bzw. _book_studio.toml) -- ohne oder mit fremder UUID kein Handoff bzw. keine Uebernahme, nie eine Ersatz-Lieferung. claimed laeuft nur ab, wenn auch der Lock des Uebernehmers abgelaufen ist; die Uebernahme verlaengert ihn je Studio-Stufe (Herzschlag). done = uebernommen (optional warning, z. B. Cover offen); cancelled = abgebrochen (error). Der Lock (purpose handoff -> handoff_consume) gilt vom Anlegen bis complete_handoff, auch waehrend der Studio-Kette."
     },
     "automatik": {
       "richtung": "GG schreibt (Startdialog/CLI); beide lesen",

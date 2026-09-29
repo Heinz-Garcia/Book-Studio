@@ -60,8 +60,10 @@ def prompt_lifecycle_end(
     chk_bs.setEnabled(False)
     layout.addWidget(chk_bs)
 
+    # Mit UUID zählt nur die UUID; nur Bücher ohne UUID werden über den Namen gefunden.
+    kriterium = "derselben UUID" if plan.production_uuid else "desselben Namens"
     inbox_label = (
-        f"Inbox-Läufe derselben UUID/desselben Slugs ({len(plan.inbox_paths)})"
+        f"Inbox-Läufe {kriterium} ({len(plan.inbox_paths)})"
         if plan.inbox_paths
         else "Inbox-Läufe (keine gefunden)"
     )
@@ -88,6 +90,14 @@ def prompt_lifecycle_end(
     elif plan.gg_candidates:
         chk_gg.setToolTip("\n".join(str(p) for p in plan.gg_candidates))
     layout.addWidget(chk_gg)
+    # Ehrlich sagen, wo es landet: BS verschiebt auch den GG-Ordner in den
+    # Windows-Papierkorb -- GGs eigener „_trash“ zeigt ihn nicht (B-05).
+    gg_hinweis = QLabel(
+        "Alles Angehakte kommt in den Windows-Papierkorb — auch das "
+        "GrammarGraph-Projekt (nicht in GrammarGraphs eigenen „_trash“)."
+    )
+    gg_hinweis.setWordWrap(True)
+    layout.addWidget(gg_hinweis)
 
     cover = QLabel(plan.cover_note)
     cover.setWordWrap(True)

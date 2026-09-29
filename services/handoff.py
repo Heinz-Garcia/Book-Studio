@@ -226,8 +226,11 @@ def write_pending_handoff(
                 )
             # abgelaufen → überschreiben erlaubt
     lieferung = Path(delivery_path)
-    if not lieferung.is_dir():
-        raise HandoffError(f"Lieferordner fehlt: {lieferung} — kein Handoff.")
+    # Dieselbe Prüfung wie vor der Übernahme -- schon hier, damit GG den
+    # Fehler sofort sieht statt erst Book Studio beim Übernehmen.
+    abweisung = _pruefe_lieferung(lieferung, normalize_uuid(production_uuid) or "")
+    if abweisung:
+        raise HandoffError(f"Kein Handoff: {abweisung}")
     data = empty_handoff(
         production_uuid,
         delivery_path=lieferung.resolve(),
@@ -294,7 +297,16 @@ def expire_if_stale(
     repo: Optional[Path] = None,
     now: Optional[datetime] = None,
 ) -> Optional[dict[str, Any]]:
-    """Pending/claimed nach ``expires_at`` → ``expired`` (kein Auto-Retry)."""
+    """Pending/claimed nach ``expires_at`` → ``expired`` (kein Auto-Retry).
+
+    ``claimed`` läuft nur ab, wenn auch der Lock des Übernehmers abgelaufen
+    ist -- eine lebende Übernahme verlängert ihn je Stufe (Herzschlag) und
+    wird nicht mittendrin für abgelaufen erklärt (B-09). Beim Ablauf wird der
+    Lock **dieses** Handoffs freigegeben, wer auch immer ihn hält (``gg`` beim
+    Anlegen, ``bs`` nach dem Claim); ein fremder Lock bleibt unberührt.
+    Vorher gab der Ablauf immer nur ``gg`` frei -- nach einem abgestürzten
+    Claim blieb der BS-Lock bis zu 2 h stehen (Nachprüfung 2026-09-29, B-04).
+    """
     data = read_handoff(
         production_uuid, production_root=production_root, repo=repo
     )
@@ -307,6 +319,11 @@ def expire_if_stale(
     exp = _parse_iso(data.get("expires_at"))
     if exp is not None and exp > stamp:
         return data
+    prod = Path(production_root) if production_root is not None else _production_root(repo)
+    uid = str(data["production_uuid"])
+    lock = _lock_des_handoffs(uid, data, production_root=prod, repo=repo)
+    if status == "claimed" and lock is not None and not _lock_abgelaufen(lock, stamp):
+        return data  # Übernahme lebt (Herzschlag) -- nicht abbrechen
     data["status"] = "expired"
     data["error"] = (
         data.get("error")
@@ -314,19 +331,43 @@ def expire_if_stale(
         "oder manuell übernehmen."
     )
     write_handoff(data, production_root=production_root, repo=repo)
-    try:
-        from services.band_run import release_lock
+    if lock is not None:
+        from services.band_run import BandRunError, release_lock
 
-        release_lock(
-            str(data["production_uuid"]),
-            owner="gg",
-            production_root=production_root or _production_root(repo),
-            repo=repo,
-            now=stamp,
-        )
-    except (OSError, TypeError, ValueError, ImportError):
-        pass
+        try:
+            release_lock(uid, owner=str(lock["owner"]), production_root=prod, repo=repo, now=stamp)
+        except (OSError, BandRunError):
+            pass  # Soft-Lock läuft ohnehin ab; der Handoff ist schon „expired“
     return data
+
+
+#: Lock-Zwecke, die zu einem Handoff gehören (Anlegen / Übernahme).
+_HANDOFF_LOCK_ZWECKE = {"pending": "handoff", "claimed": "handoff_consume"}
+
+
+def _lock_abgelaufen(lock: dict[str, Any], stamp: datetime) -> bool:
+    from services.band_run import lock_is_expired
+
+    return lock_is_expired(lock, now=stamp)
+
+
+def _lock_des_handoffs(
+    uid: str, data: dict[str, Any], *, production_root: Path, repo: Optional[Path]
+) -> Optional[dict[str, Any]]:
+    """Der Lock im ``band_run``, wenn er zu diesem Handoff gehört (Zweck passt)."""
+    from services.band_run import BandRunError, read_band_run
+
+    try:
+        band = read_band_run(uid, production_root=production_root, repo=repo) or {}
+    except BandRunError:
+        return None
+    lock = band.get("lock") if isinstance(band.get("lock"), dict) else None
+    zweck = _HANDOFF_LOCK_ZWECKE.get(str(data.get("status") or ""))
+    if not lock or str(lock.get("purpose") or "") != zweck:
+        return None
+    if zweck == "handoff_consume" and str(lock.get("owner") or "") != str(data.get("claimed_by") or "bs"):
+        return None
+    return lock
 
 
 def claim_handoff(
@@ -406,6 +447,9 @@ def claim_handoff(
     data["status"] = "claimed"
     data["claimed_at"] = _iso(stamp)
     data["claimed_by"] = wer
+    # Frische Frist ab dem Claim: Die Wartezeit bis zur Übernahme zählt nicht
+    # gegen die Übernahme selbst (B-09).
+    data["expires_at"] = _iso(stamp + timedelta(hours=DEFAULT_TIMEOUT_HOURS))
     write_handoff(data, production_root=production_root, repo=repo)
     return data
 
@@ -564,7 +608,7 @@ def run_handoff_consume(
             repo,
             delivery=delivery,
             run_pipeline=run_pipeline,
-            pipeline_hooks=pipeline_hooks,
+            pipeline_hooks=_mit_herzschlag(pipeline_hooks, uid, production_root=prod, repo=repo),
             pipeline_options=pipeline_options,
             # Der Claim hat den Lock an BS übergeben: Die Brücke schreibt als BS
             # und lässt den Lock stehen -- er gilt bis complete_handoff, auch
@@ -620,6 +664,27 @@ def run_handoff_consume(
     }
 
 
+def _mit_herzschlag(
+    hooks: Any, uid: str, *, production_root: Path, repo: Optional[Path]
+) -> Any:
+    """Kopie der Studio-Hooks, die vor jeder Stufe den Übernahme-Lock verlängert.
+
+    Ohne Verlängerung lief der 2-h-Lock bei langen Läufen mittendrin ab --
+    danach durften andere schreiben, obwohl die Übernahme noch lief (B-09).
+    Die Hooks des Aufrufers bleiben unverändert.
+    """
+    from dataclasses import replace
+
+    from services.band_run import acquire_lock
+    from services.studio_pipeline import PipelineHooks
+
+    def _herzschlag() -> None:
+        acquire_lock(uid, owner="bs", purpose="handoff_consume",
+                     production_root=production_root, repo=repo)
+
+    return replace(hooks if hooks is not None else PipelineHooks(), heartbeat=_herzschlag)
+
+
 def _pruefe_lieferung(delivery: Path, uid: str) -> str:
     """Grund, warum *delivery* nicht zu Handoff *uid* passt -- ``""`` = passt."""
     if not str(delivery).strip() or not delivery.is_dir():
@@ -630,7 +695,16 @@ def _pruefe_lieferung(delivery: Path, uid: str) -> str:
     from services.delivery_bridge import _uuid_from_delivery
 
     liefer_uid = _uuid_from_delivery(delivery)
-    if liefer_uid and liefer_uid != uid:
+    if not liefer_uid:
+        # Ohne UUID ist nicht nachweisbar, dass es die Lieferung dieses Bandes
+        # ist -- nichts raten (Nachprüfung 2026-09-29, B-07). GG schreibt die
+        # UUID in jede Lieferung, zu der ein Handoff gehört (publish_meta.json).
+        return (
+            f"Lieferung {delivery.name} trägt keine Production-UUID — nicht "
+            f"nachweisbar die Lieferung von {uid}; nichts übernommen. Manuell "
+            "über „Lieferung übernehmen“."
+        )
+    if liefer_uid != uid:
         return (
             f"Lieferung {delivery.name} trägt UUID {liefer_uid}, der Handoff {uid} — "
             "nichts übernommen."

@@ -87,8 +87,14 @@ def test_toter_lieferpfad_uebernimmt_keine_fremde_lieferung(tmp_path, monkeypatc
 def test_lieferung_mit_fremder_uuid_wird_abgewiesen(tmp_path, monkeypatch) -> None:
     repo = _repo(tmp_path)
     uid = str(uuid4())
-    fremd = _lieferung(repo, "Buch_A", uid=str(uuid4()))
-    ho.write_pending_handoff(uid, delivery_path=fremd, production_root=_prod(repo), repo=repo)
+    # Schon beim Anlegen: kein Handoff auf eine fremde Lieferung.
+    fremd = _lieferung(repo, "Buch_B", uid=str(uuid4()))
+    with pytest.raises(ho.HandoffError, match="trägt UUID"):
+        ho.write_pending_handoff(uid, delivery_path=fremd, production_root=_prod(repo), repo=repo)
+    # Vor der Übernahme: die Lieferung wurde danach umgeschrieben.
+    eigene = _lieferung(repo, "Buch_A", uid=uid)
+    ho.write_pending_handoff(uid, delivery_path=eigene, production_root=_prod(repo), repo=repo)
+    (eigene / "publish_meta.json").write_text(json.dumps({"uuid": str(uuid4())}), encoding="utf-8")
     monkeypatch.setattr("services.delivery_bridge.run_delivery_bridge", lambda *a, **k: pytest.fail("Brücke"))
     ergebnis = ho.run_handoff_consume(repo, production_uuid=uid, run_pipeline=False)
     assert ergebnis["status"] == "error"
@@ -98,7 +104,7 @@ def test_lieferung_mit_fremder_uuid_wird_abgewiesen(tmp_path, monkeypatch) -> No
 def test_handoff_ohne_lieferordner_entsteht_nicht(tmp_path) -> None:
     repo = _repo(tmp_path)
     uid = str(uuid4())
-    with pytest.raises(ho.HandoffError, match="Lieferordner fehlt"):
+    with pytest.raises(ho.HandoffError, match="Lieferordner des Handoffs fehlt"):
         ho.write_pending_handoff(uid, delivery_path=tmp_path / "gibt_es_nicht", production_root=_prod(repo), repo=repo)
     assert ho.read_handoff(uid, production_root=_prod(repo)) is None
 
@@ -362,3 +368,162 @@ def test_cli_handoff_schreibt_ueber_die_bs_ssot(tmp_path, monkeypatch) -> None:
     # Zweiter Handoff derselben UUID: abgewiesen, als Fehler, nicht still.
     zweite = schreibe_handoff(uid, {"delivery_path": str(lieferung)}, repo=repo)
     assert not zweite["ok"] and "bereits pending" in zweite["fehler"]
+
+
+# ── Nachprüfung 2026-09-29 (B-03, B-04, B-06, B-07, B-09) ───────────
+
+
+def test_band_durchlaufen_gibt_skeleton_und_export_mit(monkeypatch) -> None:
+    """B-03: „Band durchlaufen“ nutzt dieselben Hooks wie die manuelle Kette."""
+    pytest.importorskip("PySide6")
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    import services.handoff as handoff_modul
+    from ui_qt.facade import StudioFacade
+    from ui_qt.shell import MainWindow
+
+    QApplication.instance() or QApplication([])
+    fenster = MainWindow(StudioFacade())
+    gesehen: dict = {}
+    uid = str(uuid4())
+    monkeypatch.setattr(handoff_modul, "list_pending_handoffs",
+                        lambda **_k: [{"production_uuid": uid, "project_slug": "X"}])
+
+    def _consume(_root, **kwargs):
+        gesehen.update(kwargs)
+        return {"status": "empty", "message": ""}
+
+    monkeypatch.setattr(handoff_modul, "run_handoff_consume", _consume)
+    monkeypatch.setattr(fenster, "_teilkette_skeleton_profil", lambda: Path("profil"))
+    # Offscreen schließt niemand eine modale Meldung -- alle abfangen.
+    from PySide6.QtWidgets import QMessageBox
+
+    for name in ("information", "warning", "critical"):
+        monkeypatch.setattr(QMessageBox, name, staticmethod(lambda *_a, **_k: QMessageBox.StandardButton.Ok))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *_a, **_k: QMessageBox.StandardButton.No))
+    fenster._consume_band_handoff()
+    hooks = gesehen["pipeline_hooks"]
+    assert hooks.resolve_skeleton_profile() == Path("profil")
+    assert hooks.get_export_options == fenster._teilkette_export_optionen
+    fenster.close()
+
+
+def _abgelaufen(stunden: float = 3.0) -> datetime:
+    return datetime.now(timezone.utc) + timedelta(hours=stunden)
+
+
+def test_ablauf_nach_abgestuerztem_claim_gibt_den_bs_lock_frei(tmp_path) -> None:
+    """B-04: Nach einem toten Claim blieb der BS-Lock 2 h stehen."""
+    repo = _repo(tmp_path)
+    uid = str(uuid4())
+    lieferung = _lieferung(repo, "Buch_A", uid=uid)
+    ho.write_pending_handoff(uid, delivery_path=lieferung, production_root=_prod(repo), repo=repo)
+    ho.claim_handoff(uid, production_root=_prod(repo), repo=repo)
+    assert br.read_band_run(uid, production_root=_prod(repo))["lock"]["owner"] == "bs"
+    # Übernahme stirbt: kein Herzschlag mehr, Frist und Lock laufen ab.
+    spaeter = _abgelaufen()
+    daten = ho.expire_if_stale(uid, production_root=_prod(repo), repo=repo, now=spaeter)
+    assert daten["status"] == "expired"
+    assert br.read_band_run(uid, production_root=_prod(repo))["lock"] is None
+
+
+def test_lebende_uebernahme_laeuft_nicht_ab(tmp_path) -> None:
+    """B-09: Solange der Übernahme-Lock lebt (Herzschlag), kein „expired“."""
+    repo = _repo(tmp_path)
+    uid = str(uuid4())
+    lieferung = _lieferung(repo, "Buch_A", uid=uid)
+    ho.write_pending_handoff(uid, delivery_path=lieferung, production_root=_prod(repo), repo=repo)
+    ho.claim_handoff(uid, production_root=_prod(repo), repo=repo)
+    spaeter = _abgelaufen()
+    # Herzschlag kurz vor der Prüfung: Lock frisch bis spaeter + 2 h.
+    br.acquire_lock(uid, owner="bs", purpose="handoff_consume", production_root=_prod(repo),
+                    repo=repo, now=spaeter - timedelta(minutes=1))
+    daten = ho.expire_if_stale(uid, production_root=_prod(repo), repo=repo, now=spaeter)
+    assert daten["status"] == "claimed"
+    assert br.read_band_run(uid, production_root=_prod(repo))["lock"]["owner"] == "bs"
+
+
+def test_ablauf_laesst_fremden_lock_stehen(tmp_path) -> None:
+    repo = _repo(tmp_path)
+    uid = str(uuid4())
+    lieferung = _lieferung(repo, "Buch_A", uid=uid)
+    ho.write_pending_handoff(uid, delivery_path=lieferung, production_root=_prod(repo), repo=repo)
+    br.release_lock(uid, owner="gg", production_root=_prod(repo), repo=repo)
+    br.acquire_lock(uid, owner="orchestrator", purpose="delete", production_root=_prod(repo),
+                    repo=repo, now=_abgelaufen(-0.5), hours=10)
+    daten = ho.expire_if_stale(uid, production_root=_prod(repo), repo=repo, now=_abgelaufen())
+    assert daten["status"] == "expired"
+    assert br.read_band_run(uid, production_root=_prod(repo))["lock"]["purpose"] == "delete"
+
+
+def test_uebernahme_verlaengert_ihren_lock_je_stufe(tmp_path, monkeypatch) -> None:
+    """B-09: Der Herzschlag der Studio-Kette erneuert den Übernahme-Lock."""
+    repo = _repo(tmp_path)
+    uid = str(uuid4())
+    lieferung = _lieferung(repo, "Buch_A", uid=uid)
+    ho.write_pending_handoff(uid, delivery_path=lieferung, production_root=_prod(repo), repo=repo)
+    ho.claim_handoff(uid, production_root=_prod(repo), repo=repo)
+    vorher = br.read_band_run(uid, production_root=_prod(repo))["lock"]["expires_at"]
+    hooks = ho._mit_herzschlag(None, uid, production_root=_prod(repo), repo=repo)
+    import time
+
+    time.sleep(1.1)
+    hooks.heartbeat()
+    nachher = br.read_band_run(uid, production_root=_prod(repo))["lock"]
+    assert nachher["owner"] == "bs" and nachher["expires_at"] > vorher
+
+
+def test_lieferung_ohne_uuid_bekommt_keinen_handoff(tmp_path) -> None:
+    """B-07: ohne UUID nicht nachweisbar die Lieferung dieses Bandes."""
+    repo = _repo(tmp_path)
+    uid = str(uuid4())
+    ohne = _lieferung(repo, "Buch_A", uid=None)
+    with pytest.raises(ho.HandoffError, match="keine Production-UUID"):
+        ho.write_pending_handoff(uid, delivery_path=ohne, production_root=_prod(repo), repo=repo)
+    assert ho.read_handoff(uid, production_root=_prod(repo)) is None
+
+
+def test_gate_h_nimmt_keine_alte_pdf(tmp_path, monkeypatch) -> None:
+    """B-06: Eine ältere PDF im Ordner zählt nicht als Ergebnis dieses Satzes."""
+    import os
+    import sys
+    import types
+
+    import services.studio_pipeline as sp
+
+    buch = tmp_path / "Buch"
+    buch.mkdir()
+    alt = buch / "alt.pdf"
+    alt.write_bytes(b"%PDF-1.4")
+    os.utime(alt, (1_000_000_000, 1_000_000_000))
+    monkeypatch.setattr(sp, "_g_content_gap", lambda _b: None, raising=False)
+    import services.work_path as wp
+
+    monkeypatch.setattr(wp, "_g_content_gap", lambda _b: None)
+    monkeypatch.setattr(wp, "_cover_gap", lambda _b: None)
+    monkeypatch.setattr(sp, "_resolve_render_args", lambda _b, _e: ("typst", "p", {}, None, "c"))
+    monkeypatch.setitem(sys.modules, "quarto_render_safe",
+                        types.SimpleNamespace(run_safe_render=lambda *a, **k: 0))
+    monkeypatch.setattr(sp, "_newest_pdf", lambda _b: alt)
+    hooks = sp.PipelineHooks(get_export_options=lambda: {"format": "typst"})
+    ergebnis = sp._stage_render(buch, hooks)
+    assert ergebnis.status == sp.StageStatus.FAIL
+    assert "keine neue PDF" in ergebnis.message
+
+
+def test_freigabe_prueft_die_pdf_aus_gate_h(tmp_path, monkeypatch) -> None:
+    import services.studio_pipeline as sp
+    from services.work_path import mark_gate
+
+    buch = tmp_path / "Buch"
+    buch.mkdir()
+    satz = buch / "satz.pdf"
+    satz.write_bytes(b"%PDF-1.4")
+    neuer = buch / "neuer.pdf"
+    neuer.write_bytes(b"%PDF-1.4")
+    mark_gate(buch, "H", "pass", pdf=str(satz), current_stage="H")
+    monkeypatch.setattr(sp, "_newest_pdf", lambda _b: neuer)
+    assert sp._pdf_aus_gate_h(buch) == satz

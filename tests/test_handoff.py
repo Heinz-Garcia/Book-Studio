@@ -35,12 +35,14 @@ def _write_cfg(repo: Path) -> None:
     )
 
 
-def _delivery(repo: Path, slug: str = "Prosa_X") -> Path:
+def _delivery(repo: Path, slug: str = "Prosa_X", *, uid: str | None = None) -> Path:
+    """Lieferung wie von GG -- mit der UUID ihres Handoffs (Pflicht seit B-07)."""
     run = repo / "production" / "inbox" / slug / "01.01.2026_12.00"
     run.mkdir(parents=True)
-    (run / "publish_meta.json").write_text(
-        json.dumps({"book_title": slug, "name": slug}), encoding="utf-8"
-    )
+    meta: dict = {"book_title": slug, "name": slug}
+    if uid:
+        meta["uuid"] = uid
+    (run / "publish_meta.json").write_text(json.dumps(meta), encoding="utf-8")
     (run / f"{slug}.md").write_text("# x\n", encoding="utf-8")
     return run
 
@@ -50,7 +52,7 @@ def test_write_claim_complete_roundtrip(tmp_path: Path) -> None:
     repo.mkdir()
     _write_cfg(repo)
     uid = str(uuid4())
-    delivery = _delivery(repo)
+    delivery = _delivery(repo, uid=uid)
 
     data = write_pending_handoff(
         uid,
@@ -76,7 +78,7 @@ def test_no_parallel_pending(tmp_path: Path) -> None:
     repo.mkdir()
     _write_cfg(repo)
     uid = str(uuid4())
-    delivery = _delivery(repo)
+    delivery = _delivery(repo, uid=uid)
     write_pending_handoff(
         uid, delivery_path=delivery, production_root=repo / "production", repo=repo
     )
@@ -94,7 +96,7 @@ def test_expire_no_auto_retry(tmp_path: Path) -> None:
     repo.mkdir()
     _write_cfg(repo)
     uid = str(uuid4())
-    delivery = _delivery(repo)
+    delivery = _delivery(repo, uid=uid)
     past = datetime.now(timezone.utc) - timedelta(hours=3)
     write_pending_handoff(
         uid,
@@ -124,7 +126,7 @@ def test_list_pending(tmp_path: Path) -> None:
     repo.mkdir()
     _write_cfg(repo)
     uid = str(uuid4())
-    delivery = _delivery(repo)
+    delivery = _delivery(repo, uid=uid)
     write_pending_handoff(
         uid, delivery_path=delivery, production_root=repo / "production", repo=repo
     )
@@ -146,7 +148,7 @@ def test_consume_calls_bridge(tmp_path: Path, monkeypatch) -> None:
     repo.mkdir()
     _write_cfg(repo)
     uid = str(uuid4())
-    delivery = _delivery(repo)
+    delivery = _delivery(repo, uid=uid)
     write_pending_handoff(
         uid, delivery_path=delivery, production_root=repo / "production", repo=repo
     )

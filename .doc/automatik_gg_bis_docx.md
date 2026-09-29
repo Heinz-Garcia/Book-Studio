@@ -341,3 +341,15 @@ Werden **vor** Paket 1 geklärt und dann in die Leitregeln übernommen.
     „Kontraktbuch“-Lieferungen in der Inbox, Test-UUIDs unter `runs/`): GG beachtet jetzt
     `BSU_PRODUCTION_ROOT`, beide Suiten lenken um bzw. verbieten es; Reste in den Papierkorb.
   - Nicht umgesetzt (Bericht: optional): gemeinsame A–J-Ampel in der BS-Leiste (S8).
+- 2026-09-29: **Nachprüfung (`.doc/pruefbericht_orchestrierung_2026-09-29.md`) -- Restpunkte behoben.**
+  B-01/B-02: GG-Gegenstück committet (31.76.2), Vertrag byte-gleich. B-03: „Band durchlaufen“
+  nutzt dieselben Hooks wie die manuelle Teilkette (Skeleton-Profil, Export) -- eine Quelle
+  (`MainWindow._teilkette_skeleton_profil`/`_teilkette_export_optionen`). B-04: Ablauf gibt den
+  Lock **dieses** Handoffs frei, gleich wer ihn hält; fremde Locks bleiben. B-09: Claim setzt eine
+  frische Frist, die Übernahme verlängert ihren Lock vor jeder Studio-Stufe (`PipelineHooks.heartbeat`);
+  `claimed` läuft nur ab, wenn der Übernehmer tot ist. B-07 (Entscheidung: streng): Handoff nur auf
+  eine Lieferung **mit** derselben UUID -- geprüft beim Anlegen und vor der Übernahme. B-06: Gate H
+  zählt nur eine PDF, die nach dem Start dieses Satzes entstand; die Freigabe (I) prüft die PDF aus
+  Gate H. B-08: Warnungs-Sammelliste der Teilkette je Lauf (`ContextVar`). B-05: Dialog nennt den
+  Windows-Papierkorb (Entscheidung offen). Nicht angefasst: B-10 (Empty States), B-11 (Typst-H1,
+  schon als offene Entscheidung notiert).
