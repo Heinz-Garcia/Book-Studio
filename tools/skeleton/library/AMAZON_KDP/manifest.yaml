@@ -81,55 +81,22 @@ files:
   title: Schmutztitel
   order: '2'
   required: true
-- path: content/Vakanz_Verlagsdaten.md
-  title: Vakanz oder Verlagsdaten
-  order: '3'
-  required: true
 - path: content/Haupttitel.md
   title: Haupttitel
   order: '4'
   required: true
-- path: content/Vakanz.md
-  title: IVZ Ende / Vakanz
-  order: '9'
-  required: true
-  description: Vakanz
 - path: content/Vorwort.md
   title: Vorwort
   order: '15'
-  required: true
-- path: content/Vakanz_2.md
-  title: Vakanz_2
-  order: '7'
-  required: true
-- path: content/Vakanz_3.md
-  title: Vakanz_3
-  order: '12'
   required: true
 - path: content/Epilog.md
   title: Epilog
   order: END-90
   required: true
-- path: content/Vakanz_4.md
-  title: Vakanz_4
-  order: END-100
-  required: true
 - path: content/Abkverzeichnis.md
   title: Abkürzungsverzeichnis
   order: END-44
   required: false
-- path: content/Vakanz_5.md
-  title: Vakanz_5
-  order: END-45
-  required: false
-- path: content/Vakanz_6.md
-  title: Vakanz_6
-  order: END-40
-  required: false
-- path: content/Vakanz_7.md
-  title: Vakanz_7
-  order: END-30
-  required: true
 - path: content/Druckvermerk.md
   title: Druckvermerk
   order: END-2

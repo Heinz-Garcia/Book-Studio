@@ -7,4 +7,3 @@ order: '20'
 unnumbered: true
 ---
 
-# Vorwort

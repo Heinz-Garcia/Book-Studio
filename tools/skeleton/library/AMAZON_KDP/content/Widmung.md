@@ -7,7 +7,7 @@ comment: Persönliche Widmung
 order: '6'
 ---
 
-# Widmung
+<!-- Hinweis: Widmung -->
 
 ```{=typst}
 #pagebreak()

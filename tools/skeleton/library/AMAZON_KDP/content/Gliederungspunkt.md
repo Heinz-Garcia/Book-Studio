@@ -6,8 +6,6 @@ status: bookstudio
 content_role: outline
 ---
 
-# Gliederungspunkt (Beispiel)
-
 <!--
 Vorlage: optionaler Skeleton-Snippet.
 Im Buch Titel anpassen (z. B. „Teil I — Grundlagen“).

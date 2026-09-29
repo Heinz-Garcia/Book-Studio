@@ -7,8 +7,6 @@ order: '60'
 unnumbered: true
 ---
 
-# Danksagung
-
 Dank an …
 
 ```{=typst}

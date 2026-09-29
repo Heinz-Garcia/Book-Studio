@@ -7,8 +7,6 @@ print_title: true
 unnumbered: true
 ---
 
-# Einleitung
-
 Einführung in das Thema des Buches.
 
 ```{=typst}

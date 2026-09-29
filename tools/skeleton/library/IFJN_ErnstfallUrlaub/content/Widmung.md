@@ -6,10 +6,7 @@ status: bookstudio
 comment: Persönliche Widmung
 order: '4'
 ---
-\
-\
-\
-\
+
 `#align(center)[Für Simone]`{=typst}
 
 ```{=typst}

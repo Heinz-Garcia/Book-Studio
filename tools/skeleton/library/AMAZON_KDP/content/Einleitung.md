@@ -7,8 +7,6 @@ order: "60"
 unnumbered: true
 ---
 
-# Einleitung
-
 Einführung in das Thema des Buches.
 
 ```{=typst}

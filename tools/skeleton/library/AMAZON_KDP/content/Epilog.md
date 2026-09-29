@@ -7,8 +7,6 @@ order: 'END-90'
 unnumbered: true
 ---
 
-# Epilog
-
 ```{=typst}
 #pagebreak()
 ```

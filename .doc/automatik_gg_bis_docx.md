@@ -353,3 +353,13 @@ Werden **vor** Paket 1 geklärt und dann in die Leitregeln übernommen.
   Gate H. B-08: Warnungs-Sammelliste der Teilkette je Lauf (`ContextVar`). B-05: Dialog nennt den
   Windows-Papierkorb (Entscheidung offen). Nicht angefasst: B-10 (Empty States), B-11 (Typst-H1,
   schon als offene Entscheidung notiert).
+- 2026-09-29: **Überschriften nie weglassen (B-11, Nutzerentscheid).** `#`, `##`, `###` werden in Typst
+  und DOCX gerendert. Vorher fiel die erste `#` jeder Datei in beiden Formaten weg (`ohne_erste_h1`,
+  entfernt), und `typst-show.typ` blendete jede weitere H1 aus -- in Andalusien fehlten 55
+  Antworttitel im PDF, in der DOCX standen sie. Jetzt setzt der PreProcessor Text-H1 für Typst sichtbar
+  (`chapter_title_render.h1_im_text_sichtbar`: IVZ + Lesezeichen, ohne Kapitelnummer, Betonung über
+  `#emph`/`#strong`); YAML-Titel stiller Seiten bleiben still. Echttest: Typst-PDF zeigt beide H1 und
+  Lesezeichen. **Quellen repariert statt `#` zu verstecken:** Skeleton ohne Vakatseiten (12 Dateien,
+  12 Manifest-Einträge; Rechts-Beginn ist Sache von Writer), 49 doppelte Titel-`#` entfernt, 15
+  Platzhalter-`#` stiller Seiten als Kommentar. Wächter: `tests/test_ueberschriften_b11.py`.
+  Offen: Bestehende Bücher (aus älterem Skeleton befüllt) tragen noch Vakatseiten und Platzhalter-`#`.

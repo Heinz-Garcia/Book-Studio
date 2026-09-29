@@ -232,7 +232,9 @@ def test_populate_replace_existing_file(tmp_path: Path) -> None:
 
     assert result.ok
     assert "content/Einleitung.md" in result.replaced
-    assert "# Einleitung" in existing.read_text(encoding="utf-8")
+    # Vorlagentext statt „# Einleitung“: die doppelte Titel-# steht seit
+    # B-11 (2026-09-29) nicht mehr in der Vorlage.
+    assert "Einführung in das Thema des Buches" in existing.read_text(encoding="utf-8")
 
 
 def test_populate_replace_backup_stays_outside_title_registry(tmp_path: Path) -> None:

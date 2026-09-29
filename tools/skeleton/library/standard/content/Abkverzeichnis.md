@@ -6,8 +6,6 @@ status: bookstudio
 order: END-44
 ---
 
-# Abkürzungsverzeichnis
-
 ```{=typst}
 #pagebreak()
 ```

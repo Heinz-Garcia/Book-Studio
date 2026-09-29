@@ -6,7 +6,7 @@ status: bookstudio
 order: END-20
 ---
 
-# Klappentext (hinten)
+<!-- Hinweis: Klappentext (hinten) -->
 
 Klappentext für die Rückseite des Umschlags.
 

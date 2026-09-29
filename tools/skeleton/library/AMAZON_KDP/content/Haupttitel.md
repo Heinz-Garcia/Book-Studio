@@ -7,7 +7,7 @@ required: true
 order: '4'
 ---
 
-# Haupttitel (rechte Seite)
+<!-- Hinweis: Haupttitel (rechte Seite) -->
 
 ```{=typst}
 #pagebreak()

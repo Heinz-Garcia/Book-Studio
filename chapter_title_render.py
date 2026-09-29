@@ -179,8 +179,12 @@ def build_visible_chapter_title_injection(
     unlisted: bool = False,
     unnumbered: bool = False,
     used_ids: Optional[set] = None,
+    typst_markup: Optional[str] = None,
 ) -> str:
     """Typst-Block: Heading kurz sichtbar machen, dann wieder sperren.
+
+    *typst_markup*: fertig maskierter Typst-Inhalt der Überschrift (etwa mit
+    ``_kursiv_``) statt des rohen *title* -- für Text-H1 (``h1_im_text_sichtbar``).
 
     Quarto hat die YAML-``title`` bereits als (ausgeblendetes) Heading
     gesetzt; dieses Injizat erzeugt die *sichtbare* Überschrift und den
@@ -213,7 +217,7 @@ def build_visible_chapter_title_injection(
     stattdessen die dort einmalig gesetzte Typst-Variable
     ``bs-section-numbering``.
     """
-    safe = (
+    safe = typst_markup if typst_markup is not None else (
         str(title)
         .replace("\\", "\\\\")
         .replace("#", "\\#")
@@ -352,3 +356,87 @@ def maybe_inject_chapter_title(
         return body
     lead, rest = split_leading_typst_pagebreaks(body)
     return lead + injection + (rest.lstrip("\r\n") if rest else "")
+
+
+# ---------------------------------------------------------------------------
+# Text-H1 sichtbar (Nutzerentscheid 2026-09-29, B-11)
+# ---------------------------------------------------------------------------
+
+#: ``# Titel`` am Zeilenanfang, optional mit Pandoc-Attributen ``{#id .klasse}``
+#: und einem harten Zeilenumbruch ``\`` am Ende.
+_TEXT_H1 = re.compile(r"^#[ \t]+(?P<text>.*?)[ \t]*(?:\{[^{}]*\})?[ \t]*\\?[ \t]*$")
+_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
+#: Zeichen, die in Typst-Markup eine Bedeutung haben -- maskiert.
+_TYPST_SONDER = set("\\#[]@$<>*_`~")
+#: Wie Pandoc: ``_`` betont nur an Wortgrenzen (``Vakanz_7`` bleibt, wie es ist).
+_BETONUNG = re.compile(
+    r"\*\*(?P<fett>.+?)\*\*|\*(?P<kursiv1>[^*]+?)\*|(?<!\w)_(?P<kursiv2>[^_]+?)_(?!\w)"
+)
+
+
+def _typst_maskiert(text: str) -> str:
+    return "".join(f"\\{z}" if z in _TYPST_SONDER else z for z in text)
+
+
+def markdown_inline_zu_typst(text: str) -> str:
+    """Überschriftentext (Markdown) als Typst-Markup -- **fett**, *kursiv* bleiben.
+
+    Alles übrige wird maskiert, damit ``@``, ``$``, ``#`` usw. nicht als
+    Typst-Befehl gelesen werden.
+    """
+    teile: list[str] = []
+    pos = 0
+    for treffer in _BETONUNG.finditer(text):
+        teile.append(_typst_maskiert(text[pos:treffer.start()]))
+        # Funktionen statt ``*…*``/``_…_``: Typst-Markup schließt Betonung nur
+        # an Wortgrenzen -- ``_Prüf_überschrift`` bliebe offen („unclosed
+        # delimiter“, Echttest 2026-09-29). ``#emph[…]`` wirkt überall.
+        if treffer.group("fett") is not None:
+            teile.append(f"#strong[{_typst_maskiert(treffer.group('fett'))}]")
+        else:
+            inhalt = treffer.group("kursiv1") or treffer.group("kursiv2") or ""
+            teile.append(f"#emph[{_typst_maskiert(inhalt)}]")
+        pos = treffer.end()
+    teile.append(_typst_maskiert(text[pos:]))
+    return "".join(teile)
+
+
+def h1_im_text_sichtbar(body: str, *, used_ids: Optional[set] = None) -> str:
+    """Jede ``#``-Überschrift im Text wird im Typst-PDF gerendert (B-11).
+
+    ``typst-show.typ`` blendet Level-1-Überschriften aus, weil Quarto aus
+    jedem YAML-``title`` eine macht (still für Pflichtseiten). Eine ``#`` im
+    **Text** ist aber eine Überschrift des Autors oder Generators -- im DOCX
+    stand sie immer, im PDF fehlte sie (Andalusien: 55 Antworttitel). Sie wird
+    hier wie ein sichtbarer Kapiteltitel gesetzt: mit IVZ- und
+    Lesezeichen-Eintrag, ohne Kapitelnummer. Codeblöcke bleiben unberührt.
+
+    Nutzerregel: Überschriften werden nie weggelassen -- zu viele ``#`` in
+    den Quellen repariert man in den Quellen (Skeleton), nicht im Satz.
+    """
+    zeilen = body.split("\n")
+    raus: list[str] = []
+    zaun: Optional[str] = None
+    ids = used_ids if used_ids is not None else set()
+    for zeile in zeilen:
+        marke = _FENCE.match(zeile)
+        if marke:
+            zeichen = marke.group(1)
+            if zaun is None:
+                zaun = zeichen
+            elif zeichen[0] == zaun[0] and len(zeichen) >= len(zaun):
+                zaun = None
+            raus.append(zeile)
+            continue
+        treffer = _TEXT_H1.match(zeile.rstrip("\r")) if zaun is None else None
+        if treffer and treffer.group("text").strip():
+            text = treffer.group("text").strip()
+            raus.append(
+                build_visible_chapter_title_injection(
+                    text, unnumbered=True, used_ids=ids,
+                    typst_markup=markdown_inline_zu_typst(text),
+                ).rstrip("\n")
+            )
+            continue
+        raus.append(zeile)
+    return "\n".join(raus)

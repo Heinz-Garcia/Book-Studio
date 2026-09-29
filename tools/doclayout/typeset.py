@@ -200,10 +200,12 @@ def assemble_book(root: Path, kapitel: list[Path], *, toc: bool) -> str:
 
     - Frontmatter faellt weg; der Text durchlaeuft die formatneutrale
       Vorbereitung (``render_text_prep.bereite_markdown_vor``).
-    - Die erste ``#`` im Text wird entfernt (sie konkurrierte mit dem
-      Kapiteltitel); der Frontmatter-``title`` wird zur Ueberschrift, wenn
-      ``chapter_title_render`` ihn drucken laesst. Stille Pflichtseiten
-      (Impressum, Titelei) bekommen so auch im DOCX keine Ueberschrift.
+    - Jede ``#``/``##``/``###`` im Text bleibt eine Ueberschrift -- nichts
+      wird weggelassen (Nutzer, 2026-09-29, B-11; vorher fiel die erste
+      ``#`` weg). Der Frontmatter-``title`` wird zur Ueberschrift, wenn
+      ``chapter_title_render`` ihn drucken laesst; stille Pflichtseiten
+      (Impressum, Titelei) bekommen keinen Titel. Zu viele ``#`` in den
+      Quellen werden in den Quellen repariert (Skeleton), nicht hier.
     - Es wird **nichts erfunden**: Ein Kapitel ohne Titel bleibt ohne Titel.
       Ueberschriften im Nutzinhalt liefert der Generator.
     - Zwischen den Kapiteln steht :data:`CHAPTER_BOUNDARY`.
@@ -212,7 +214,7 @@ def assemble_book(root: Path, kapitel: list[Path], *, toc: bool) -> str:
     """
     import frontmatter_parser
     from chapter_title_render import resolve_print_title_text, should_print_chapter_title
-    from render_text_prep import bereite_markdown_vor, ohne_erste_h1
+    from render_text_prep import bereite_markdown_vor
 
     teile: list[tuple[str, str]] = []  # (Ueberschrift, Text)
     for pfad in kapitel:
@@ -220,7 +222,7 @@ def assemble_book(root: Path, kapitel: list[Path], *, toc: bool) -> str:
         parts = frontmatter_parser.parse(roh)
         body = parts.body if parts.has_frontmatter else roh.lstrip("﻿")
         daten = parts.parsed() if parts.has_frontmatter else {}
-        body = ohne_erste_h1(bereite_markdown_vor(body))
+        body = bereite_markdown_vor(body)
         rel = pfad.relative_to(root).as_posix()
         ueberschrift = ""
         if daten and should_print_chapter_title(daten, rel_path=rel):

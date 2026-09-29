@@ -8,7 +8,7 @@ required: false
 comment: Kurzbeschreibung für die Vorderseite.
 ---
 
-# Klappentext (vorne)
+<!-- Hinweis: Klappentext (vorne) -->
 
 ```{=typst}
 #pagebreak()

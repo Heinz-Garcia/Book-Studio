@@ -78,10 +78,6 @@ files:
   title: Schmutztitel
   order: '2'
   required: true
-- path: content/Vakanz_Verlagsdaten.md
-  title: Vakanz oder Verlagsdaten
-  order: '3'
-  required: false
 - path: content/Haupttitel.md
   title: Haupttitel
   order: '5'

@@ -7,6 +7,4 @@ order: END-35
 required: false
 ---
 
-# Glossar
-
 Begriffe und Definitionen.

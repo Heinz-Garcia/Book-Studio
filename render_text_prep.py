@@ -19,16 +19,9 @@ from list_markup_fixer import repariere_listen_markup
 from table_to_definition_list import wandle_breite_tabellen
 from table_width_fixer import setze_spaltenbreiten
 
-#: Die erste Level-1-Ueberschrift im Kapiteltext. Quarto macht aus dem
-#: Frontmatter-``title`` die Kapitelueberschrift; eine H1 im Text wuerde mit
-#: ihr konkurrieren und wird deshalb in beiden Formaten entfernt.
-ERSTE_H1 = re.compile(r"^(#\s+.*)$", re.MULTILINE)
-
-
-def ohne_erste_h1(body: str) -> str:
-    """Entfernt die erste ``# ``-Zeile -- dieselbe Regel wie im PreProcessor."""
-    return ERSTE_H1.sub("", body, count=1)
-
+# Hier stand ``ohne_erste_h1``: Die erste ``#`` jedes Kapitels fiel in beiden
+# Formaten weg. Entfernt 2026-09-29 (Nutzer, B-11): Überschriften werden nie
+# weggelassen -- zu viele ``#`` repariert man in den Quellen (Skeleton).
 
 def _citation_group(match: re.Match) -> str:
     labels = re.findall(r"@([a-zA-Z0-9_-]+)", match.group(1))
@@ -71,4 +64,4 @@ def bereite_markdown_vor(text: str) -> str:
     return re.sub(r"(?<![\w\[\^])@([a-zA-Z0-9_-]+)", r"[^\1]", text)
 
 
-__all__ = ["ERSTE_H1", "bereite_markdown_vor", "ohne_erste_h1"]
+__all__ = ["bereite_markdown_vor"]

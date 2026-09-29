@@ -7,8 +7,6 @@ print_title: true
 unnumbered: true
 ---
 
-# Über den Autor\
-\
 Was bringt einen technischen Redakteur dazu, mit Hilfe von KI ein Buch über ein medizinisches Fachgebiet zu schreiben? Neben den typischen Motiven wie Neugier, Wissensdurst und der Faszination an die Arbeit mit KI und Large Language Models ist es in diesem Fall vor allem persönliche Betroffenheit: Die Diagnose Brustkrebs im engsten Familienkreis. Die Erfahrung, wie schwer es in einer solchen emotionalen Ausnahmesituation ist, schnelle, verlässliche und vor allem verständliche Antworten zu finden, gab den entscheidenden Anstoß für dieses Projekt.\
 \
 W. Heinz-Garcia ist Initiator und Kurator der bereits zuvor angedachten Buchreihe „Ich frage ja nur“. Angetrieben von der Überzeugung, dass fundiertes Wissen für jeden zugänglich und verständlich sein muss, sammelt er darin die drängendsten Fragen aus Gesellschaft, Medizin und Wissenschaft.\

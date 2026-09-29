@@ -63,21 +63,27 @@ def test_stille_pflichtseiten_bekommen_keine_ueberschrift(tmp_path: Path, kopf: 
     assert "# " not in T.assemble_book(tmp_path, [kap], toc=False)
 
 
-def test_erste_h1_weicht_dem_kapiteltitel_wie_im_typst_weg(tmp_path: Path) -> None:
-    """Dieselbe Regel wie ``PreProcessor``: Die Text-H1 konkurriert mit dem Titel."""
-    kap = _schreibe(tmp_path / "k.md", "---\ntitle: Titel\n---\n\n# Eigene\n\nText.\n")
+def test_keine_ueberschrift_im_text_faellt_weg(tmp_path: Path) -> None:
+    """B-11 (Nutzer, 2026-09-29): Jede ``#`` im Text bleibt -- auch die erste.
+    Vorher verschwand sie („konkurrierte mit dem Titel“)."""
+    kap = _schreibe(tmp_path / "k.md", "---\ntitle: Titel\n---\n\n# Eigene\n\nText.\n\n# Zweite\n")
     text = T.assemble_book(tmp_path, [kap], toc=False)
-    assert "# Titel" in text and "# Eigene" not in text
+    assert "# Titel" in text and "# Eigene" in text and "# Zweite" in text
 
 
-def test_impressum_hat_wie_im_pdf_keine_ueberschrift(tmp_path: Path) -> None:
-    """Im Typst-PDF verschwindet ``# Impressum`` (stille Pflichtseite) -- im DOCX
-    ebenso, damit steht es auch nicht im Verzeichnis."""
-    kap = _schreibe(
+def test_stille_pflichtseite_ohne_titel_aber_mit_text_ueberschrift(tmp_path: Path) -> None:
+    """Der Titel einer stillen Pflichtseite erscheint nicht; eine ``#`` im Text
+    schon -- die gehört dann aus der Quelle entfernt, nicht im Satz versteckt."""
+    ohne = _schreibe(
         tmp_path / "content" / "Impressum.md",
+        "---\ntitle: Impressum\nprint_title: false\nrequired: true\n---\n\nText.\n",
+    )
+    assert "# " not in T.assemble_book(tmp_path, [ohne], toc=False)
+    mit = _schreibe(
+        tmp_path / "content" / "Impressum2.md",
         "---\ntitle: Impressum\nprint_title: false\nrequired: true\n---\n\n# Impressum\n\nText.\n",
     )
-    assert "# " not in T.assemble_book(tmp_path, [kap], toc=False)
+    assert "# Impressum" in T.assemble_book(tmp_path, [mit], toc=False)
 
 
 def test_nichts_wird_erfunden(tmp_path: Path) -> None:

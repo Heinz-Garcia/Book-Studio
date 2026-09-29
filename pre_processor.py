@@ -7,6 +7,7 @@ import yaml
 
 from chapter_title_render import (
     ensure_silent_chapter_frontmatter,
+    h1_im_text_sichtbar,
     maybe_inject_chapter_title,
     parse_frontmatter_yaml,
 )
@@ -22,7 +23,7 @@ from recto_open import (
     should_open_on_recto,
     strip_manual_recto_breaks,
 )
-from render_text_prep import bereite_markdown_vor, ohne_erste_h1
+from render_text_prep import bereite_markdown_vor
 
 _LOG = logging.getLogger(__name__)
 
@@ -458,8 +459,8 @@ class PreProcessor:
         # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
         body = self._sanitize_markdown(body)
 
-        # 2. H1 bereinigen (Body-H1 würde mit YAML-title konkurrieren)
-        body = ohne_erste_h1(body)
+        # 2. Überschriften: nichts weglassen (B-11) -- Text-H1 im Typst-PDF sichtbar.
+        body = self._text_h1_fuer_format(body)
 
         # 2b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround Typst-PDF-
         # Named-Destination-Bug bei Umlauten, siehe heading_anchor_ascii.py)
@@ -494,6 +495,20 @@ class PreProcessor:
 
         return dest
 
+    def _text_h1_fuer_format(self, body: str) -> str:
+        """``#`` im Text wird gerendert, in jedem Format (Nutzer, 2026-09-29, B-11).
+
+        Früher fiel die erste ``#`` jeder Datei weg (``ohne_erste_h1``: sie
+        „konkurrierte mit dem YAML-title“), und Typst blendete alle weiteren
+        aus -- in Andalusien fehlten so 55 Antworttitel im PDF. Jetzt: nichts
+        weglassen; für Typst werden Text-H1 sichtbar gesetzt, alle anderen
+        Formate (DOCX, HTML) rendern ``#`` ohnehin. Zu viele ``#`` in den
+        Quellen werden in den Quellen repariert (Skeleton), nicht hier.
+        """
+        if not str(self.output_format or "").lower().startswith("typst"):
+            return body
+        return h1_im_text_sichtbar(body, used_ids=self._used_heading_ids)
+
     def _process_host_file(self, node):
         src = self.book_path / node["path"]
         dest = self.processed_dir / node["path"]
@@ -512,8 +527,8 @@ class PreProcessor:
         # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
         body = self._sanitize_markdown(body)
 
-        # 2. H1 bereinigen (Body-H1 würde mit YAML-title konkurrieren)
-        body = ohne_erste_h1(body)
+        # 2. Überschriften: nichts weglassen (B-11) -- Text-H1 im Typst-PDF sichtbar.
+        body = self._text_h1_fuer_format(body)
 
         # 2b. ASCII-IDs fuer Level 2–6 Ueberschriften (Workaround Typst-PDF-
         # Named-Destination-Bug bei Umlauten, siehe heading_anchor_ascii.py)
