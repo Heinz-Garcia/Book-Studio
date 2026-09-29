@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -63,6 +64,8 @@ __all__ = [
     "break_expired_lock",
     "update_band_run",
     "spiegele_book_run",
+    "GgStufe",
+    "gg_stufen_fuer_buch",
 ]
 
 
@@ -776,3 +779,69 @@ def spiegele_book_run(
         gates_patch=gates or None,
         current_stage=stufe or None,
     )
+
+
+#: GG-Stufen, die Book Studios Arbeitsweg-Leiste zur Orientierung zeigt (S8).
+#: F (Lieferung) zeigt BS selbst -- dort beginnt die Studio-Seite.
+GG_STUFEN_ANZEIGE = (
+    ("A", "Anlage"),
+    ("B", "Planung"),
+    ("C", "Lauf"),
+    ("D", "Kanon"),
+    ("E", "Nachbesserung"),
+)
+#: Gate-Status -> Ampel der Leiste (``ok`` | ``open`` | ``blocked`` | ``empty``).
+_GG_AMPEL = {"pass": "ok", "running": "open", "fail": "blocked", "skipped": "empty"}
+
+
+@dataclass(frozen=True)
+class GgStufe:
+    """Eine GG-Stufe für die Anzeige in Book Studio (nur lesen, nie klickbar)."""
+
+    id: str
+    label: str
+    ampel: str
+    detail: str = ""
+
+
+def _produktion_fuer_buch(book: Path) -> Optional[Path]:
+    """``<production>`` eines Buchs unter ``<production>/books/<Buch>`` -- sonst ``None``."""
+    from tools.production_paths.paths import BOOKS_DIR_NAME
+
+    pfad = Path(book).resolve()
+    return pfad.parent.parent if pfad.parent.name == BOOKS_DIR_NAME else None
+
+
+def gg_stufen_fuer_buch(
+    book_path: Path,
+    *,
+    production_root: Optional[Path] = None,
+    repo: Optional[Path] = None,
+) -> tuple[GgStufe, ...]:
+    """GG-Stand A–E aus ``band_run.json`` -- für die gemeinsame Ampel (S8).
+
+    Leer, wenn das Buch keine UUID oder kein Lauf-Objekt hat. Quelle sind die
+    GG-Gates (``gates.A``–``E``), die GG über ``tools.band_run gg`` einträgt;
+    das Detail der laufenden Stufe kommt aus ``zone_gg``. Kaputte Datei ->
+    ``BandRunError`` (der Aufrufer entscheidet).
+    """
+    from tools.production_uuid import read_book_uuid
+
+    uid = read_book_uuid(Path(book_path))
+    if not uid:
+        return ()
+    root = production_root if production_root is not None else _produktion_fuer_buch(book_path)
+    data = read_band_run(uid, production_root=root, repo=repo)
+    if data is None:
+        return ()
+    gates = data.get("gates") if isinstance(data.get("gates"), dict) else {}
+    zone = data.get("zone_gg") if isinstance(data.get("zone_gg"), dict) else {}
+    stufen: list[GgStufe] = []
+    for sid, label in GG_STUFEN_ANZEIGE:
+        gate = gates.get(sid) if isinstance(gates.get(sid), dict) else {}
+        ampel = _GG_AMPEL.get(str(gate.get("status") or ""), "empty")
+        detail = str(gate.get("detail") or "")
+        if not detail and str(zone.get("stage") or "") == sid:
+            detail = str(zone.get("detail") or "")
+        stufen.append(GgStufe(sid, label, ampel, detail))
+    return tuple(stufen)

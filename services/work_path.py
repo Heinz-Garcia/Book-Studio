@@ -146,6 +146,9 @@ class WorkPathState:
     checklist: tuple[ChecklistItem, ...] = ()
     #: Für Primär-CTA (Lieferung 1 vs. n); optional.
     repo_root: Optional[Path] = None
+    #: GG-Stand A–E aus ``band_run`` (``services.band_run.GgStufe``) -- nur
+    #: Anzeige vor F–J, gemeinsame Ampel beider Apps (S8). Leer ohne Lauf-Objekt.
+    gg_stufen: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -1889,6 +1892,15 @@ def assess_work_path(
     except ImportError:
         pass
     _persist_derived(book, stages, current, artifacts)
+    gg_stufen: tuple = ()
+    try:
+        from services.band_run import BandRunError, gg_stufen_fuer_buch
+
+        gg_stufen = gg_stufen_fuer_buch(book, repo=repo_root)
+    except ImportError:
+        pass
+    except (BandRunError, OSError) as exc:
+        summary = f"{summary} — Lauf-Objekt nicht lesbar: {exc}"
     return WorkPathState(
         book_path=book,
         stages=stages,
@@ -1900,6 +1912,7 @@ def assess_work_path(
             book, repo_root=repo_root, structure_paths=structure_paths
         ),
         repo_root=Path(repo_root) if repo_root is not None else None,
+        gg_stufen=gg_stufen,
     )
 
 

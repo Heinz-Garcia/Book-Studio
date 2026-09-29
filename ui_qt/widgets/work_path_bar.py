@@ -306,6 +306,9 @@ class WorkPathBar(QWidget):
         chip_rows: list[Optional[QWidget]] = []
         chip_counts: list[int] = []
         prev_kind: Optional[StageKind] = None
+        self._gg_nodes: list[StageNodeButton] = []
+        if getattr(state, "gg_stufen", ()):
+            prev_kind = self._add_gg_block(state.gg_stufen)
 
         for index, stage in enumerate(state.stages):
             if index:
@@ -429,6 +432,76 @@ class WorkPathBar(QWidget):
         )
 
         self._apply_collapsed_chrome()
+
+    def _add_connector(self, prev_kind: Optional[StageKind]) -> None:
+        host = QWidget()
+        host.setFixedWidth(20)
+        lay = QVBoxLayout(host)
+        lay.setContentsMargins(2, 0, 2, 0)
+        lay.setSpacing(0)
+        lay.addSpacing(_NODE_SIZE // 2 - 1)
+        lay.addWidget(_connector_line(done=prev_kind == StageKind.OK))
+        lay.addStretch(1)
+        self._columns_box.addWidget(host, alignment=Qt.AlignmentFlag.AlignTop)
+
+    def _add_gg_block(self, gg_stufen) -> Optional[StageKind]:
+        """GG-Stufen A–E vor F–J -- nur Anzeige, nie klickbar (S8, 2026-09-29).
+
+        Diese Schritte führt GrammarGraph aus; Book Studio zeigt ihren Stand aus
+        ``band_run.json``, damit beide Apps eine Ampel A–J haben.
+        """
+        from types import SimpleNamespace
+
+        kinds = {
+            "ok": StageKind.OK,
+            "open": StageKind.OPEN,
+            "blocked": StageKind.BLOCKED,
+            "empty": StageKind.EMPTY,
+        }
+        prev: Optional[StageKind] = None
+        for index, stufe in enumerate(gg_stufen):
+            if index:
+                self._add_connector(prev)
+            kind = kinds.get(str(getattr(stufe, "ampel", "")), StageKind.EMPTY)
+            daten = SimpleNamespace(
+                id=SimpleNamespace(value=stufe.id),
+                label=stufe.label,
+                kind=kind,
+                action="",
+                tip=f"GrammarGraph, Stufe {stufe.id} ({stufe.label}) — Stand aus band_run.json.",
+                detail=stufe.detail,
+            )
+            node = StageNodeButton(
+                daten, enabled=False, guide_reason="Führt GrammarGraph aus (nur Anzeige)."
+            )
+            if kind == StageKind.BLOCKED:
+                # Gescheiterte GG-Stufe sichtbar rot -- nicht grau wie „noch nicht dran“.
+                rot = StatusFg.DANGER_SOFT
+                node._node.setStyleSheet(
+                    f"QPushButton#workPathStageNodeCircle {{ background: #fef2f2; color: {rot};"
+                    f" border: 1px solid {rot}; border-radius: {_NODE_SIZE // 2}px;"
+                    f" font-weight: 700; font-size: 11px; padding: 0; }}"
+                )
+                node._label.setStyleSheet(
+                    f"QLabel#workPathStageNodeLabel {{ color: {rot}; font-size: 11px; font-weight: 600; }}"
+                )
+            self._gg_nodes.append(node)
+            col = QFrame()
+            col.setObjectName("workPathGgColumn")
+            col_layout = QVBoxLayout(col)
+            col_layout.setContentsMargins(6, 4, 6, 4)
+            col_layout.addWidget(node, alignment=Qt.AlignmentFlag.AlignHCenter)
+            # Oben ausrichten wie F–J (deren Spalten tragen darunter noch die Chips).
+            self._columns_box.addWidget(col, 0, Qt.AlignmentFlag.AlignTop)
+            prev = kind
+        trenner = QLabel("GG │ Book Studio")
+        trenner.setObjectName("workPathAppDivider")
+        trenner.setStyleSheet(
+            "QLabel#workPathAppDivider { color: #94a3b8; font-size: 10px; padding: 0 6px; }"
+        )
+        trenner.setToolTip("Links: GrammarGraph (A–E, nur Anzeige). Rechts: Book Studio (F–J).")
+        self._columns_box.addWidget(trenner, alignment=Qt.AlignmentFlag.AlignTop)
+        return prev
 
     def _equalize_stage_widths(
         self,

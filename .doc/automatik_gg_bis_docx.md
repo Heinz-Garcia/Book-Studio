@@ -249,7 +249,7 @@ Werden **vor** Paket 1 geklärt und dann in die Leitregeln übernommen.
   anderswo scheiterte an „keine Production-UUID“. Die Kette übergibt sie jetzt ausdrücklich.
 - 2026-09-27: Datenfund, nicht Code: Die Formatvorlage `Prosa_Layout` trägt das Label
   „IFJN Reiseführer“ (wie `Formate_Backup`/`IFJN_layout`) -- im Startdialog verwirrend.
-  Im Layout-Editor umbenennen, wenn gewünscht.
+  Im Layout-Editor umbenennen, wenn gewünscht. **Erledigt:** Label ist „Prosa“ (Stand 29.09.).
 - 2026-09-27: Gate H der Studio-Kette prüft „neueste PDF im Ausgabeordner“ und kann damit eine
   alte PDF für den aktuellen Lauf halten.
 - 2026-09-28: **DOCX-Satz als Buch (8 Mängel aus HuG-Lauf 2, behoben im Pool, nicht im Artefakt).**
