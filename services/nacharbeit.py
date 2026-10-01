@@ -23,6 +23,7 @@ from typing import Any
 
 __all__ = [
     "FLIESSTEXT",
+    "ZuordnungsKonflikt",
     "als_fliesstext",
     "offene_punkte",
     "ordne_zu",
@@ -235,18 +236,55 @@ def uebernimm_ressource(quelle: Path | str, ablage: Path | str) -> Path:
     return ziel
 
 
-def ordne_zu(layout_name: str, klasse: str, absatzformat: str) -> Path:
-    """Klasse einem Absatzformat der Formatvorlage zuordnen (schreibt die Vorlage)."""
+class ZuordnungsKonflikt(ValueError):
+    """Der Stufentyp ist schon einem anderen Format zugeordnet -- das gilt für alle Bücher."""
+
+    def __init__(self, schluessel: str, bisher: str, neu: str) -> None:
+        super().__init__(
+            f"„{schluessel}“ ist schon „{bisher}“ zugeordnet; das gilt für alle Bücher "
+            f"mit dieser Vorlage. Auf „{neu}“ ändern?"
+        )
+        self.schluessel, self.bisher, self.neu = schluessel, bisher, neu
+
+
+def ordne_zu(
+    layout_name: str,
+    klasse: str,
+    absatzformat: str,
+    *,
+    buch: Path | None = None,
+    ueberschreiben: bool = False,
+) -> Path:
+    """Klasse einem Absatzformat der Formatvorlage zuordnen (schreibt die Vorlage).
+
+    Mit *buch* gilt die Zuordnung dauerhaft für den **Stufentyp**: aus
+    ``<projekt>_spanisch`` wird der Eintrag ``spanisch`` -- er trifft jedes
+    künftige Buch mit dieser Vorlage und dieser Stufe (Nutzer, 2026-09-30).
+    Ein Eintrag unter dem vollen Namen, der dann nichts mehr ändert, fällt weg.
+    """
+    from tools.doclayout.classmap import normalize_class, stufentyp
     from tools.doclayout.library import layout_path, load_layout
 
     definition = load_layout(layout_name)
-    neu = replace(definition, classmap={**definition.classmap, klasse.lstrip("."): absatzformat})
+    voll = normalize_class(klasse)
+    schluessel = stufentyp(voll, Path(buch).name) if buch is not None else voll
+    bisher = definition.classmap.get(schluessel)
+    if bisher and bisher != absatzformat and schluessel != voll and not ueberschreiben:
+        # Still überschrieben hätte das jedes andere Buch dieser Vorlage
+        # umgestellt (Übergabe K-11) -- erst fragen.
+        raise ZuordnungsKonflikt(schluessel, bisher, absatzformat)
+    classmap = {**definition.classmap, schluessel: absatzformat}
+    if schluessel != voll and classmap.get(voll) == absatzformat:
+        del classmap[voll]
+    neu = replace(definition, classmap=classmap)
     return neu.save(layout_path(layout_name))
 
 
-def als_fliesstext(layout_name: str, klasse: str) -> Path:
+def als_fliesstext(
+    layout_name: str, klasse: str, *, buch: Path | None = None, ueberschreiben: bool = False
+) -> Path:
     """„Als Fließtext fortsetzen“: Klasse → ``BodyText`` in der Formatvorlage."""
-    return ordne_zu(layout_name, klasse, FLIESSTEXT)
+    return ordne_zu(layout_name, klasse, FLIESSTEXT, buch=buch, ueberschreiben=ueberschreiben)
 
 
 def setze_docx_neu(book: Path, layout_name: str) -> dict[str, Any]:

@@ -33,6 +33,10 @@ ALIGNMENTS = ("left", "center", "right", "justify")
 #: Rahmenkanten eines Absatzes.
 BORDER_EDGES = ("top", "bottom", "left", "right")
 
+#: Einfarbige Symbolschrift für Kastentitel (Windows, in Word und LibreOffice
+#: vorhanden; Typst findet sie über die Systemschriften).
+SYMBOL_FONT_DEFAULT = "Segoe UI Symbol"
+
 #: Absatzformate, die Pandocs Basisvorlage selbst mitbringt: Kennung -> Name in
 #: Word. Eine Klasse darf darauf zeigen, auch wenn das Layout sie nicht
 #: definiert (``Verwerfen`` = zurück auf die Grundschrift). Im Lua-Filter muss
@@ -154,6 +158,48 @@ class Indent:
 
 
 @dataclass(frozen=True)
+class Kastentitel:
+    """Titelzeile eines Kastens -- gehört zum Absatzformat, nie zum Inhalt.
+
+    Nutzer, 2026-10-01: „Am Schalter auf Spanisch“, „Key Takeaway“ setzt das
+    Layout beim Satz vor den Kasteninhalt (DOCX und Typst), mit einem
+    einfarbigen Symbol (``typography.symbol_font``). *text* leer: Der Kasten
+    bringt seinen Titel selbst mit (Callout ``## Titel``); dann steht nur das
+    Symbol davor. *format*: das Absatzformat der Titelzeile (sonst das des
+    Kastens, fett).
+    """
+
+    text: str = ""
+    icon: str = ""
+    format: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: Any, *, wo: str) -> "Kastentitel":
+        if isinstance(data, str):
+            data = {"text": data}
+        if not isinstance(data, dict):
+            raise LayoutError(f"{wo}: kastentitel muss eine Zuordnung sein")
+        return cls(
+            text=str(data.get("text", "") or "").strip(),
+            icon=str(data.get("icon", "") or "").strip(),
+            format=_opt_str(data.get("format")),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.text:
+            out["text"] = self.text
+        if self.icon:
+            out["icon"] = self.icon
+        if self.format:
+            out["format"] = self.format
+        return out
+
+    def is_empty(self) -> bool:
+        return not (self.text or self.icon)
+
+
+@dataclass(frozen=True)
 class ParagraphStyle:
     """Ein benanntes Absatzformat -- in Word ein ``w:style``, in Typst eine Regel."""
 
@@ -184,6 +230,14 @@ class ParagraphStyle:
     #: BCP-47 language for spellcheck (e.g. ``de-DE``, ``es-ES``). Written as
     #: ``w:lang`` on the style so LibreOffice/Word use the matching dictionary.
     language: Optional[str] = None
+    #: Titelzeile, die der Satz vor den Inhalt eines Kastens dieses Formats
+    #: setzt (:class:`Kastentitel`). Wird nicht vererbt: Jeder Kasten nennt
+    #: seinen eigenen Titel.
+    kastentitel: Optional[Kastentitel] = None
+    #: Absätze in einem Block dieses Formats, die nur aus Hervorhebung
+    #: bestehen (``*Transparenzhinweis …*`` im Impressum), bekommen dieses
+    #: Absatzformat -- Zwischentitel im Buchsatz. Der Inhalt bleibt, wie er ist.
+    zwischentitel: Optional[str] = None
 
     def carries_formatting(self) -> bool:
         """Traegt das Format eigene Gestaltung -- oder ist es nur ein Name?
@@ -211,6 +265,8 @@ class ParagraphStyle:
                 self.shading,
                 self.borders,
                 self.language,
+                self.kastentitel is not None and not self.kastentitel.is_empty(),
+                self.zwischentitel,
             )
         )
 
@@ -283,6 +339,11 @@ class ParagraphStyle:
             shading=_opt_str(data.get("shading")),
             borders=borders,
             language=_opt_str(data.get("language")),
+            kastentitel=(
+                Kastentitel.from_dict(data["kastentitel"], wo=f"Format '{style_id}'")
+                if data.get("kastentitel") else None
+            ),
+            zwischentitel=_opt_str(data.get("zwischentitel")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -318,6 +379,10 @@ class ParagraphStyle:
             out["indent"] = self.indent.to_dict()
         if self.borders:
             out["borders"] = {e: b.to_dict() for e, b in sorted(self.borders.items())}
+        if self.kastentitel is not None and not self.kastentitel.is_empty():
+            out["kastentitel"] = self.kastentitel.to_dict()
+        if self.zwischentitel:
+            out["zwischentitel"] = self.zwischentitel
         return out
 
 
@@ -442,6 +507,9 @@ class Typography:
     hyphenation: bool = True
     hyphenation_zone_mm: float = 5.0
     hyphenate_caps: bool = False
+    #: Schrift für die Symbole der Kastentitel. Einfarbig, damit kein
+    #: Farb-Emoji ins Druckbild kommt (Nutzer, 2026-10-01).
+    symbol_font: str = SYMBOL_FONT_DEFAULT
 
     @classmethod
     def from_dict(cls, data: Any) -> "Typography":
@@ -470,6 +538,7 @@ class Typography:
             hyphenation=bool(data.get("hyphenation", True)),
             hyphenation_zone_mm=_zahl(data, "hyphenation_zone_mm", 5.0, wo="typography"),
             hyphenate_caps=bool(data.get("hyphenate_caps", False)),
+            symbol_font=str(data.get("symbol_font", "") or SYMBOL_FONT_DEFAULT),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -484,12 +553,28 @@ class Typography:
             "hyphenation": self.hyphenation,
             "hyphenation_zone_mm": self.hyphenation_zone_mm,
             "hyphenate_caps": self.hyphenate_caps,
+            # Nur wenn abweichend: bestehende Vorlagen bleiben Byte für Byte gleich.
+            **({} if self.symbol_font == SYMBOL_FONT_DEFAULT else {"symbol_font": self.symbol_font}),
         }
 
 
 # ---------------------------------------------------------------------------
 # Die Definition
 # ---------------------------------------------------------------------------
+
+
+#: Voreinstellung der Verzeichnistiefe -- dieselbe wie ``typeset --toc-depth``.
+TOC_DEPTH_DEFAULT = 2
+
+
+def _toc_depth_from(raw: Any) -> int:
+    """``toc: {depth: N}`` aus dem YAML; alles andere ist die Voreinstellung."""
+    if isinstance(raw, dict):
+        raw = raw.get("depth")
+    try:
+        return int(raw) if raw is not None else TOC_DEPTH_DEFAULT
+    except (TypeError, ValueError) as exc:
+        raise LayoutError(f"toc.depth muss eine Zahl sein, nicht {raw!r}") from exc
 
 
 @dataclass(frozen=True)
@@ -504,6 +589,11 @@ class LayoutDefinition:
     colors: dict[str, str] = field(default_factory=dict)
     styles: dict[str, ParagraphStyle] = field(default_factory=dict)
     classmap: dict[str, str] = field(default_factory=dict)
+    #: Wie viele Überschriftenebenen das Inhaltsverzeichnis zeigt (YAML
+    #: ``toc: {depth: N}``). Ein F&A-Buch braucht 3 (Kapitel ``##``, Frage
+    #: ``###``); die Überschriften der Antwort liegen darunter und bleiben
+    #: draußen (Reisefuehrer 2026-09-30).
+    toc_depth: int = TOC_DEPTH_DEFAULT
 
     # -- Farbaufloesung ----------------------------------------------------
 
@@ -736,6 +826,16 @@ class LayoutDefinition:
                     f"Format '{style_id}': hanging_mm und first_line_mm "
                     f"schliessen sich aus."
                 )
+            titel = style.kastentitel
+            if titel is not None and titel.format and titel.format not in self.styles:
+                problems.append(
+                    f"Format '{style_id}': Kastentitel-Format '{titel.format}' ist nicht definiert."
+                )
+            if style.zwischentitel and style.zwischentitel not in self.styles:
+                problems.append(
+                    f"Format '{style_id}': Zwischentitel-Format '{style.zwischentitel}' "
+                    "ist nicht definiert."
+                )
 
         for cls_name, style_id in sorted(self.classmap.items()):
             if not cls_name.strip():
@@ -751,6 +851,9 @@ class LayoutDefinition:
 
         for cycle in _style_cycles(self.styles):
             problems.append("Format-Vererbung ist zyklisch: " + " -> ".join(cycle))
+
+        if not 1 <= int(self.toc_depth) <= 6:
+            problems.append(f"Verzeichnistiefe {self.toc_depth} liegt nicht zwischen 1 und 6.")
 
         return problems
 
@@ -788,6 +891,7 @@ class LayoutDefinition:
             colors={str(k): str(v) for k, v in colors_raw.items()},
             styles=styles,
             classmap={str(k): str(v) for k, v in classmap_raw.items()},
+            toc_depth=_toc_depth_from(data.get("toc")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -800,6 +904,9 @@ class LayoutDefinition:
             "colors": dict(sorted(self.colors.items())),
             "styles": {sid: st.to_dict() for sid, st in self.styles.items()},
             "classmap": dict(sorted(self.classmap.items())),
+            # Nur wenn abweichend: bestehende Vorlagen bleiben Byte für Byte gleich.
+            **({"toc": {"depth": int(self.toc_depth)}}
+               if int(self.toc_depth) != TOC_DEPTH_DEFAULT else {}),
         }
 
     @classmethod

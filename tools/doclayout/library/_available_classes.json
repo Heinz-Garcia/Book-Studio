@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-28T09:06:50",
+  "generated_at": "2026-09-30T20:38:37",
   "library": "C:\\Users\\RDP-Nutzer\\IDE\\Book_Studio_Unleashed\\tools\\doclayout\\library",
   "layouts": [
     "Formate_Backup",
@@ -23,6 +23,7 @@
     "prompt",
     "prompt-separator",
     "spanisch",
+    "takeaway",
     "themenblock",
     "titelei-autor",
     "titelei-titel",
@@ -173,6 +174,14 @@
       ],
       "styles": [
         "Spanisch"
+      ]
+    },
+    "takeaway": {
+      "layouts": [
+        "Reisefuehrer_Andalusien"
+      ],
+      "styles": [
+        "KeyTakeaway"
       ]
     },
     "themenblock": {

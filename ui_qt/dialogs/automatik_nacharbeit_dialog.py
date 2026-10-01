@@ -246,14 +246,35 @@ class NacharbeitDialog(QDialog):
 
     def _ordne_zu(self, eintrag: dict, absatzformat: str, status: QLabel) -> None:
         try:
-            pfad = nacharbeit.ordne_zu(self.layout_name, eintrag["klasse"], absatzformat)
+            # Mit dem Buch: gespeichert wird unter dem Stufentyp -- die
+            # Zuordnung gilt dann auch für alle künftigen Bücher dieser Art.
+            try:
+                pfad = nacharbeit.ordne_zu(
+                    self.layout_name, eintrag["klasse"], absatzformat, buch=self.book
+                )
+            except nacharbeit.ZuordnungsKonflikt as konflikt:
+                antwort = QMessageBox.question(
+                    self, "Zuordnung für alle Bücher", str(konflikt),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if antwort != QMessageBox.StandardButton.Yes:
+                    return
+                pfad = nacharbeit.ordne_zu(
+                    self.layout_name, eintrag["klasse"], absatzformat,
+                    buch=self.book, ueberschreiben=True,
+                )
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "Zuordnung", str(exc))
             return
         status.setText(f"✅ → {absatzformat}")
         self.geaendert = True
         wie = "als Fließtext fortgesetzt" if absatzformat == nacharbeit.FLIESSTEXT else f"→ {absatzformat}"
-        self._melde(f"Klasse .{eintrag['klasse']} {wie} (Vorlage {pfad})")
+        from tools.doclayout.classmap import stufentyp
+
+        typ = stufentyp(eintrag["klasse"], self.book.name)
+        dauerhaft = f" — gilt für alle Bücher mit Stufe „{typ}“" if typ != eintrag["klasse"].lstrip(".") else ""
+        self._melde(f"Klasse .{eintrag['klasse']} {wie}{dauerhaft} (Vorlage {pfad})")
 
     def _layout_editor(self) -> None:
         try:
@@ -368,6 +389,12 @@ def open_nacharbeit_dialog(**kwargs: Any) -> int:
     """
     eigene_app = QApplication.instance() is None
     app = QApplication.instance() or QApplication([])
+    if eigene_app:
+        # Eigenständig (aus GG nach dem Automatik-Lauf) gab es kein Studio-
+        # Thema -- das Fenster kam im dunklen Windows-Look (Nutzer, 2026-09-30).
+        from ui_qt.theme import apply_theme
+
+        apply_theme(app)
     dialog = NacharbeitDialog(kwargs.pop("parent", None), **kwargs)
     dialog.setModal(False)
     _OFFEN.append(dialog)

@@ -40,6 +40,7 @@ from tools.doclayout.schema import (
     BORDER_EDGES,
     Border,
     Indent,
+    Kastentitel,
     LayoutDefinition,
     ParagraphStyle,
 )
@@ -71,6 +72,7 @@ class _StyleForm(QWidget):
         tabs.addTab(self._build_text_tab(), "Schrift")
         tabs.addTab(self._build_paragraph_tab(), "Absatz")
         tabs.addTab(self._build_frame_tab(), "Rahmen und Fläche")
+        tabs.addTab(self._build_box_tab(), "Kasten")
 
     # -- Aufbau ------------------------------------------------------------
 
@@ -346,12 +348,70 @@ class _StyleForm(QWidget):
         outer.addStretch(1)
         return page
 
+    def _build_box_tab(self) -> QWidget:
+        """Kastentitel und Zwischentitel -- Teil des Formats, nie des Inhalts."""
+        page = QWidget()
+        form = QFormLayout(page)
+        self.box_title = QLineEdit()
+        self.box_title.setPlaceholderText("leer = kein Titel (oder: der Kasten bringt ihn mit)")
+        self.box_icon = QLineEdit()
+        self.box_icon.setMaxLength(4)
+        self.box_icon.setPlaceholderText("z. B. 🗨 ✔ ℹ")
+        self.box_title_style = QComboBox()
+        self.box_title_style.setEditable(True)
+        self.box_title_style.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.subtitle_style = QComboBox()
+        self.subtitle_style.setEditable(True)
+        self.subtitle_style.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        form.addRow(
+            _info(
+                "Kastentitel",
+                "Titelzeile, die der Satz vor jeden Kasten dieses Formats setzt "
+                "(DOCX und Typst) — z. B. „Am Schalter auf Spanisch“. Sie steht "
+                "nur im Format, nie im Text des Buchs. Leer mit Symbol: Der "
+                "Kasten bringt seinen Titel selbst mit (Callout), davor steht "
+                "nur das Symbol.",
+            ),
+            self.box_title,
+        )
+        form.addRow(
+            _info(
+                "Symbol",
+                "Ein einfarbiges Zeichen vor dem Titel, gesetzt in der "
+                "Symbolschrift der Typografie (Segoe UI Symbol). Keine "
+                "Farb-Emojis — sie brächten Farbe ins Druckbild.",
+            ),
+            self.box_icon,
+        )
+        form.addRow(
+            _info(
+                "Titelformat",
+                "Absatzformat der Titelzeile. Am besten eines, das auf diesem "
+                "Kasten aufbaut (gleicher Hintergrund und Rahmen), fett und "
+                "mit „Absatz nicht trennen“. Leer: das Kastenformat, fett.",
+            ),
+            self.box_title_style,
+        )
+        form.addRow(
+            _info(
+                "Zwischentitel",
+                "Absätze in einem Block dieses Formats, die nur aus "
+                "Hervorhebung bestehen (etwa *Transparenzhinweis* im "
+                "Impressum), bekommen dieses Absatzformat. Der Text bleibt, "
+                "wie er ist.",
+            ),
+            self.subtitle_style,
+        )
+        return page
+
     def connect_signals(self) -> None:
         self.name.textChanged.connect(self._emit)
         # ``based_on`` und ``next_style`` sind Auswahlfelder mit freier Eingabe;
         # ``currentTextChanged`` deckt beides ab -- Auswahl wie Getipptes.
-        for widget in (self.based_on, self.next_style):
+        for widget in (self.based_on, self.next_style, self.box_title_style, self.subtitle_style):
             widget.currentTextChanged.connect(self._emit)
+        for widget in (self.box_title, self.box_icon):
+            widget.textChanged.connect(self._emit)
         self.size.valueChanged.connect(lambda _v: self._update_size_hint())
         for widget in (
             self.size, self.letter_spacing, self.space_before, self.space_after,
@@ -400,6 +460,8 @@ class _StyleForm(QWidget):
         for combo, auswahl in (
             (self.based_on, moegliche_basen),
             (self.next_style, sorted(definition.styles)),
+            (self.box_title_style, sorted(definition.styles)),
+            (self.subtitle_style, sorted(definition.styles)),
         ):
             aktuell = combo.currentText()
             combo.blockSignals(True)
@@ -475,6 +537,12 @@ class _StyleForm(QWidget):
             widgets_map["colour"].set_value(border.color if border else "rule")
             widgets_map["space"].setValue(border.space_pt if border else 3.0)
 
+        titel = style.kastentitel or Kastentitel()
+        self.box_title.setText(titel.text)
+        self.box_icon.setText(titel.icon)
+        self.box_title_style.setCurrentText(titel.format or "")
+        self.subtitle_style.setCurrentText(style.zwischentitel or "")
+
         for widget, blocked in zip(widgets, blockers):
             widget.blockSignals(blocked)
         self._update_size_hint(style.style_id)
@@ -486,7 +554,8 @@ class _StyleForm(QWidget):
             self.space_before, self.space_after, self.line_height,
             self.indent_left, self.indent_right, self.indent_hanging,
             self.indent_first, self.keep_next, self.keep_lines, self.page_break,
-            self.outline, self.shading,
+            self.outline, self.shading, self.box_title, self.box_icon,
+            self.box_title_style, self.subtitle_style,
         ]
         for widgets_map in self.border_widgets.values():
             widgets.extend(
@@ -509,6 +578,11 @@ class _StyleForm(QWidget):
                 style="single",
             )
         outline = self.outline.value()
+        kastentitel = Kastentitel(
+            text=self.box_title.text().strip(),
+            icon=self.box_icon.text().strip(),
+            format=self.box_title_style.currentText().strip() or None,
+        )
         return replace(
             self._style,
             name=self.name.text().strip(),
@@ -535,6 +609,8 @@ class _StyleForm(QWidget):
             outline_level=None if outline < 0 else outline,
             shading=self.shading.value(),
             borders=borders,
+            kastentitel=None if kastentitel.is_empty() else kastentitel,
+            zwischentitel=self.subtitle_style.currentText().strip() or None,
         )
 
 

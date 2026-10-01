@@ -17,6 +17,7 @@ Frontmatter:
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any, Optional
 
 import page_required
@@ -319,6 +320,75 @@ def ensure_silent_chapter_frontmatter(frontmatter_block: str, *, rel_path: str =
         default_flow_style=False,
     ).rstrip("\r\n")
     return f"{bom}---{newline}{dumped}{newline}---{trailing or newline}"
+
+
+def stiller_kapitelkopf(
+    frontmatter_block: str,
+    *,
+    node_title: str = "",
+    rel_path: str = "",
+    output_format: str = "typst",
+) -> tuple[str, str]:
+    """Kapitel ohne eigenen YAML-Titel: still statt Dateiname als Überschrift.
+
+    Eine Lieferung aus GrammarGraph (``<Projekt>_01.10.2026.md``) hat kein
+    Frontmatter; ihre Gliederung steht im Text (``##``). Bisher galt sie als
+    „Titel drucken“ und bekam den Knotennamen -- den **Dateinamen** -- als
+    sichtbares Kapitel im Typst-PDF und im Verzeichnis. Und ohne Titel nahm
+    Quarto die erste ``##`` als Kapitel (Ebene 1, im Satz still): Die erste
+    Gliederung fehlte im Verzeichnis (Andalusien, 2026-10-01).
+
+    Liefert ``(frontmatter, kopfzeile)``: ``print_title: false`` im
+    Frontmatter und eine Kopfzeile ``# Titel {.unnumbered .unlisted}``, die der
+    Aufrufer **nach** dem Sichtbarmachen von Text-H1 vor den Text setzt
+    (:func:`setze_kapitelkopf`). So ist sie das stille, ungezählte Kapitel --
+    und ein ungezähltes Kapitel macht in Quarto auch seine Abschnitte
+    ungezählt. Ein YAML-``title`` täte das nicht (dort nummerierte Quarto die
+    Abschnitte als „0.0.0.1“).
+
+    Nur im Typst-Satz und nur, wenn weder ein Titel noch ein ausdrückliches
+    ``print_title`` gesetzt ist -- eine bewusste Entscheidung bleibt.
+    """
+    import yaml
+
+    if not str(output_format or "").lower().startswith("typst"):
+        return frontmatter_block, ""
+    parsed = parse_frontmatter_yaml(frontmatter_block) if frontmatter_block else {}
+    yaml_titel = str(parsed.get("title") or "").strip()
+    drucken = _as_bool(parsed.get("print_title"))
+    if yaml_titel:
+        # Fall B: stiller Inhaltsteil mit YAML-Titel (etwa eine GG-Lieferung,
+        # deren Titel nur ihr Dateiname ist -- ``print_title: false`` setzt der
+        # Inhaltstausch). Der YAML-Titel würde Quartos Kapitel und nummerierte
+        # Abschnitte („0.0.0.1“) ergeben -- er wird hier zur stillen Kopfzeile.
+        # Pflichtseiten (Impressum, Titelei) bleiben, wie sie sind.
+        if drucken is not False or page_required.is_page_required(rel_path=rel_path, frontmatter=parsed):
+            return frontmatter_block, ""
+        titel = yaml_titel
+    else:
+        if drucken is not None:
+            return frontmatter_block, ""
+        titel = str(node_title or "").strip() or Path(rel_path).stem
+    if not titel:
+        return frontmatter_block, ""
+    daten = {k: v for k, v in parsed.items() if k != "title"}
+    daten["print_title"] = False
+    newline = "\r\n" if "\r\n" in (frontmatter_block or "") else "\n"
+    dumped = yaml.safe_dump(
+        daten, sort_keys=False, allow_unicode=True, default_flow_style=False
+    ).rstrip("\r\n")
+    frontmatter = f"---{newline}{dumped}{newline}---{newline}{newline}"
+    # Pandoc-Markdown: Zeichen mit Bedeutung im Titel maskieren.
+    sicher = re.sub(r"([\\\[\]{}#*`])", r"\\\1", titel)
+    return frontmatter, f"# {sicher} {{.unnumbered .unlisted}}"
+
+
+def setze_kapitelkopf(body: str, kopfzeile: str) -> str:
+    """Die stille Kopfzeile vor den Text -- nach führenden Typst-Seitenumbrüchen."""
+    if not kopfzeile:
+        return body
+    lead, rest = split_leading_typst_pagebreaks(body)
+    return lead + kopfzeile + "\n\n" + (rest.lstrip("\r\n") if rest else "")
 
 
 def maybe_inject_chapter_title(

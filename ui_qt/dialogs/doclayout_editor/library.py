@@ -319,7 +319,9 @@ class LibraryMixin:
             definition = replace(definition, page=self.page_form.collect(definition.page))
         if self.typography_form.isVisible():
             definition = replace(
-                definition, typography=self.typography_form.collect(definition.typography)
+                definition,
+                typography=self.typography_form.collect(definition.typography),
+                toc_depth=self.typography_form.collect_toc_depth(),
             )
         if self.colors_form.isVisible():
             definition = replace(definition, colors=self.colors_form.collect())

@@ -147,7 +147,8 @@ def test_optionen_nennen_vorlagen_und_profile() -> None:
     assert "Prosa_Standard" in daten["skeleton_profile"]
     assert daten["ziele"] == ["docx"]
     assert all(
-        set(d) == {"name", "label", "ok", "problem", "taschenbuch", "ivz_zeichen"}
+        set(d) == {"name", "label", "ok", "problem", "taschenbuch", "ivz_zeichen",
+                   "woerter_je_seite", "seitendichte_grundlage"}
         for d in daten["doclayouts"]
     )
     # Buecher nur im Taschenbuchformat: jede mitgelieferte Vorlage ist eins.

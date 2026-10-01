@@ -252,7 +252,7 @@ def typeset_book(
     out_dir: Optional[Path] = None,
     to_pdf: bool = True,
     toc: bool = True,
-    toc_depth: int = 2,
+    toc_depth: Optional[int] = None,
     pandoc: Optional[str] = None,
     soffice: Optional[str] = None,
     rebuild_template: bool = True,
@@ -267,6 +267,9 @@ def typeset_book(
     problems = definition.validate()
     if problems:
         raise TypesetError("Layout ist nicht erzeugbar:\n  - " + "\n  - ".join(problems))
+    # Ohne Angabe gilt die Vorlage (Layout-Editor: „Verzeichnistiefe“).
+    if toc_depth is None:
+        toc_depth = int(definition.toc_depth)
 
     # Aufgeloest, nicht wie uebergeben: Pandoc laeuft mit ``cwd`` im Buch, damit
     # Bildverweise wie ``images/x.png`` stimmen. Ein relativ uebergebener

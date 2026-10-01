@@ -915,25 +915,40 @@ Gemeinsames Lauf-Objekt und Handoff ergänzen den klassischen Import — Details
 
 Timeout beim Handoff: kein Auto-Retry — Marker bleibt `expired` bis du neu lieferst oder manuell übernimmst.
 
-### Vollautomatik: GG-Batchlauf bis zur DOCX (Stand 27.09.) {#sec-automatik-docx}
+### Vollautomatik: GG-Batchlauf bis zur DOCX (Stand 30.09.) {#sec-automatik-docx}
 
 Optional läuft alles ohne Eingreifen vom Batchlauf in El Pitugrafo bis zur fertigen **DOCX** in Book Studio. Die DOCX ist das Endformat: Darin korrigierst du Kleinigkeiten und exportierst danach selbst als PDF. Entscheidungen fallen **am Anfang**, offene Punkte werden **am Ende** gefragt — unterwegs fragt niemand.
 
 **So startest du sie**
 
-1. In El Pitugrafo das Buchprojekt (Prosa) laden. Am Projekt muss eine Production-UUID gewählt sein (Cover-first, geplante UUID aus Book Studio).
+1. In El Pitugrafo das Buchprojekt laden (Prosa oder Frage-Antwort). Am Projekt muss eine Production-UUID gewählt sein (Cover-first, geplante UUID aus Book Studio).
 2. **Tools → Arbeitsweg → Automatik (Band → DOCX)…** öffnen.
-3. Entscheiden: Formatvorlage (Layout-Editor), Skeleton-Profil, Startstufe (*ab Zuschnitt* = neuer, bezahlter Lauf; *ab Kanon/Nachbesserung* = vorhandener Lauf), Nachbessern (aus / an / nur messen), Zielordner für eine Kopie der DOCX, Benachrichtigung per ntfy. Ein Cover gehört nicht in die DOCX und wird nicht abgefragt.
+3. Entscheiden: Formatvorlage (Layout-Editor), Skeleton-Profil, Startstufe (*ab Zuschnitt* = neuer, bezahlter Lauf; *ab Kanon/Nachbesserung* = vorhandener Lauf), Nachbessern (aus / an / nur messen), **Zielumfang in Seiten** (optional, 0 = ohne), Zielordner für eine Kopie der DOCX, Benachrichtigung per ntfy. Ein Cover gehört nicht in die DOCX und wird nicht abgefragt.
 4. **Prüfen:** Die Vorab-Prüfung zeigt **alle** Lücken auf einmal (UUID, Buchkonfiguration, Formatvorlage, Pandoc, ein noch ausstehender Handoff …). Erst ohne Lücken lässt sich starten; vorher wird nichts bezahlt.
-5. **Starten.** Bei einem neuen Lauf kommt die einzige Rückfrage — vor dem Start.
+5. **Starten:** Vor jedem bezahlten Lauf erscheint die **Kostenabschätzung** (siehe unten). Dort wählst du eine von drei Optionen und startest — das ist die einzige Rückfrage.
 
-Ohne Oberfläche (im GrammarGraph-Ordner): `python -m tools.band_automatik neu --project <Projekt> --doclayout <Vorlage> [--skeleton …] [--nachbessern an] [--start-at …] --starten`.
+Ohne Oberfläche (im GrammarGraph-Ordner): `python -m tools.band_automatik neu --project <Projekt> --doclayout <Vorlage> [--skeleton …] [--nachbessern an] [--start-at …] [--zielseiten 300] --starten`. Ohne Rückfrage — die Kostenabschätzung steht dann auf der Konsole bzw. im Automatik-Log.
+
+**Kostenabschätzung vor dem Start**
+
+Gerechnet wird mit dem gewählten Modell (dem aktiven LLM-Preset) und mit dem, was der **letzte Lauf desselben Projekts wirklich verbraucht** hat. Gibt es noch keinen, stehen dort Annahmen, und der Dialog sagt das.
+
+| Option (= Nachbessern) | Was bezahlt wird |
+|------------------------|------------------|
+| **Nur Lauf** (`aus`) | Der Lauf mit allen aktiven Stufen; der Kanon läuft mit (er ruft kein Modell auf, kostet nur seine Zeilen im Prompt). |
+| **Nachbessern nur bei Befunden** (`nur_messen`) | Zusätzlich nachgebessert werden nur Kapitel, in denen die kostenlose Messung etwas findet. |
+| **Prüfmodell liest jedes Kapitel + Nachbessern** (`an`) | Das Prüfmodell liest alles, nachgebessert wird, wo nötig. |
+
+Dazu zeigt der Dialog **je aktiver Stufe** Kosten und Wörter und eine **Seitenprognose** — gemessen an der Seitendichte der gewählten Formatvorlage (Wörter je Seite am zuletzt damit gesetzten Buch). Für die Seiten zählen nur die Stufen, die die Buchkonfiguration ins Buch liefert. Liegt die Prognose über dem **Zielumfang**, steht sie rot da, und der Start verlangt eine zweite Bestätigung (vorbelegt: *Nein*). Gekürzt wird dabei nichts — die Länge schreibt das Modell; der Zielumfang warnt nur.
 
 **Was dann passiert**
 
-- **El Pitugrafo:** Teilkette Zuschnitt → Lauf → Kanon → Nachbesserung. Mit „Nachbessern an“ werden fehlende direkte Vergleiche alt/neu geholt und die empfohlenen Fassungen übernommen. Danach Lieferung und Handoff an Book Studio.
-- **Book Studio (ohne Oberfläche):** Lieferung übernehmen, fehlende **Pflichtseiten** in die Struktur aufnehmen (vorher Time-Machine-Snapshot; im Log steht je Seite, aus welchem Skeleton-Profil sie stammt), DOCX setzen, ins Render-Archiv legen.
+- **El Pitugrafo:** Teilkette Zuschnitt → Lauf → Kanon → Nachbesserung. Nachgebessert wird die Pflichtstufe (der Haupttext); übernommene Fassungen ersetzen genau diese Datei, Begleitstufen wie „Spanisch“ oder „Key Takeaway“ bleiben unberührt. Danach Lieferung und Handoff an Book Studio.
+- **Frage-Antwort-Bücher:** Jede Frage steht als Überschrift eine Ebene unter dem Kapitel; die Überschriften der Antwort rücken darunter (sie bleiben Überschriften). Begleitstufen bekommen ihren Anzeigenamen als Kastentitel.
+- **Book Studio (ohne Oberfläche):** Lieferung übernehmen, fehlende **Pflichtseiten** in die Struktur aufnehmen (vorher Time-Machine-Snapshot), DOCX setzen, ins Render-Archiv legen, den **Abschlussbericht** als Markdown und PDF neben die DOCX legen.
 - **Rote Gates halten nicht an** — sie werden **Warnungen** im Bericht. Abgebrochen wird nur, wenn der nächsten Stufe der Input fehlt (kein Lauf, keine Lieferung, Satz gescheitert).
+- **Frühbremse:** Scheitert die Pflichtstufe bei drei Prompts in Folge, endet der Buchlauf (Fortsetzen per Resume) — Kanon, Nachbesserung und DOCX laufen dann nicht auf einem kaputten Lauf.
+- **Guthaben leer** beim Anbieter: sofortiger Stopp, auch mitten in der Nachbesserung (fertige Fassungen werden übernommen). Bericht und ntfy melden **GUTHABEN LEER** an erster Stelle.
 - Beide Apps tragen ihren Stand in `production/runs/<UUID>/band_run.json` ein.
 
 **Am Ende: Nacharbeit**
@@ -944,7 +959,7 @@ Nach einem Lauf aus der El-Pitugrafo-Oberfläche öffnet sich in Book Studio der
 |---------|-------------------|
 | Ergebnis | vollständiger DOCX-Pfad mit **Öffnen** / **Ordner**; Links auf Gegenüberstellung und Abschlussbericht |
 | Fehlende Ressourcen (z. B. Bilder) | **Datei wählen…** oder **Platzhalter einsetzen** (beschriftetes Bild am erwarteten Ort) |
-| Absatzformate ohne Zuordnung | Format der Vorlage wählen → **Zuordnen**, oder **Als Fließtext fortsetzen**; Shortcut in den Layout-Editor. Die Zuordnung ändert die Formatvorlage (gilt für alle Bücher mit ihr). |
+| Absatzformate ohne Zuordnung | Format der Vorlage wählen → **Zuordnen**, oder **Als Fließtext fortsetzen**; Shortcut in den Layout-Editor. Die Zuordnung wird unter dem **Stufentyp** gespeichert (`spanisch` statt `<projekt>_spanisch`) und gilt damit für alle künftigen Bücher mit dieser Vorlage und dieser Stufe. Ist der Stufentyp schon einem anderen Format zugeordnet, fragt der Dialog vorher nach. |
 | Pflichtseiten aus Vorlagen | **Im Buch öffnen**, **Vorlage öffnen** (★ = wörtlich gleich, also die benutzte Vorlage; weitere im Menü), Shortcut in den Skeleton-Editor — so korrigierst du die Vorlage selbst |
 | Danach | **DOCX neu setzen** |
 
@@ -955,9 +970,17 @@ Den Dialog später erneut öffnen (im Book-Studio-Ordner): `python -m tools.auto
 | Ergebnis | Pfad |
 |----------|------|
 | DOCX | `production/books/<Buch>/export/doclayout/<Formatvorlage>.docx` (+ Render-Archiv `export/publish_renders/`, + Kopie im Zielordner, falls gewählt) |
-| Abschlussbericht: Stufen, alle Warnungen, API-Kosten je Stufe und Modell | `production/runs/<UUID>/automatik_bericht.md` |
+| Abschlussbericht: Stufen, alle Warnungen, API-Kosten je Stufe und Modell | `production/runs/<UUID>/automatik_bericht.md` **und** neben der DOCX als `automatik_bericht.md` / `.pdf` |
 | Gegenüberstellung Vorfassung ↔ übernommene Fassung (Absätze nebeneinander, Begründung des Vergleichs) | `production/runs/<UUID>/automatik_gegenueberstellung.html` |
-| Ausführliches Log | `production/runs/<UUID>/automatik_<Zeit>.log` |
+| Ausführliches Log (mit der Kostenabschätzung vor dem Start) | `production/runs/<UUID>/automatik_<Zeit>.log` |
+
+**Neues Modell ausprobieren (Probelauf)**
+
+Bevor ein ganzes Buch mit einem neuen LLM-Preset läuft, lässt es sich an wenigen Prompts testen — in einer Kopie des Projekts, ohne Kanon, Läufe oder aktives Preset des echten Projekts anzufassen (im GrammarGraph-Ordner):
+
+`python -m tools.band_automatik.probelauf --project <Projekt> --preset <Preset> --prompts 1,2,3,4,5`
+
+Der Bericht (`projects/_Probe_<Projekt>_<Zeit>/probelauf_bericht.md`) vergleicht die Wörter je Stufe mit dem letzten echten Lauf, listet JSON- und Stufenfehler, die Zahl der Google-Suchanfragen (Gemini) und die tatsächlichen Kosten.
 
 Plan und Fortschritt: [`.doc/automatik_gg_bis_docx.md`](../.doc/automatik_gg_bis_docx.md) · Zusammenfassung: [`.doc/Vollautomatik.md`](../.doc/Vollautomatik.md).
 
@@ -1864,6 +1887,16 @@ Sie wird gemerkt und ist beim nächsten Öffnen wieder da. Das Vorschaublatt
 selbst bleibt in beiden Fällen weiß: Es zeigt, was Writer aus der Vorlage macht,
 und es einzufärben hieße, die Vorschau zu fälschen.
 
+### Klassen nach Stufentyp {#sec-doclayout-stufentyp}
+
+GrammarGraph benennt Klassen nach der Stufe, mit dem Projekt davor
+(`ifjn_reisefuehrer_ernstfall_andalusien_v_2_spanisch`). Die Klassen-Abbildung
+sucht deshalb erst den vollen Namen, dann den **Stufentyp** — das Endstück nach
+einem `_`, vom längsten zum kürzesten (`…_v_2_spanisch` → `spanisch`). Ein
+Eintrag `spanisch: Spanisch` in der Vorlage gilt damit für jedes Buch mit dieser
+Stufe, auch für `…_v_3`. Die Nacharbeit speichert Zuordnungen so; der
+Satz, die Formatinventur und der Abgleich mit dem Buch lösen genauso auf.
+
 ### Woher die Absatzformate kommen
 
 Ein Layout enthält rund 25 Absatzformate, aber nur eine Handvoll davon hat
@@ -2115,6 +2148,11 @@ Tag-Feld bleibt frei beschreibbar.
 8. Grundschrift, Überschriftenschrift, Grundgröße, Zeilenabstand.
 9. **Sprache** bestimmt Silbentrennung *und* die Überschrift des
    Inhaltsverzeichnisses (`de-DE` → „Inhaltsverzeichnis").
+9a. **Verzeichnistiefe** — wie viele Überschriftenebenen das
+   Inhaltsverzeichnis zeigt (Vorgabe 2). Ein Frage-Antwort-Buch braucht **3**:
+   Kapitel und Fragen; die Überschriften in den Antworten liegen darunter und
+   bleiben draußen. Die Prüfung „Verzeichniseinträge, die umbrechen“ misst
+   dieselben Ebenen. In der YAML-Definition: `toc: {depth: 3}`.
 
 **Schritt 4 — Farben** (links: *Farben*)
 
@@ -2204,6 +2242,8 @@ hinaus, deren Ausgabe sich unterscheidet.
 | Änderung wirkt an unerwarteter Stelle | Ein Farb-**Token** wurde geändert, nicht eine einzelne Farbe |
 | Ein Format steht orange in der Liste | Keine Klasse zeigt darauf — es bleibt wirkungslos |
 | Viele Absätze bleiben Fließtext | `Buch prüfen…` im Bereich Klassen-Abbildung — vermutlich fehlen Zuordnungen |
+| Überschriften der Antworten stehen im Verzeichnis | *Verzeichnistiefe* in *Typografie* zu groß — für Frage-Antwort-Bücher 3 |
+| Zwei farbige Kästen laufen ineinander | Behoben (30.09.): zwischen Kästen steht ein leerer Absatz ohne Rahmen. Mit älterem Layout: Layout erneut aufs Buch anwenden |
 | Codeblöcke sehen aus wie Fließtext | Das Format `SourceCode` fehlt — der `Assistent…` legt es an |
 | Eine Klasse lässt sich partout nicht formatieren | Sie ist als `::: {name}` ohne Punkt geschrieben; der Text muss geändert werden |
 

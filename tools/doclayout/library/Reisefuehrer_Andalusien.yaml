@@ -29,19 +29,19 @@ typography:
   hyphenation_zone_mm: 5.0
   hyphenate_caps: false
 colors:
-  accent: 1F3864
-  accent2: 2E5C8A
-  fill: EEF3F9
+  dunkelgrau: '404040'
   footer: 7F7F7F
+  grau: A6A6A6
+  hellgrau: F2F2F2
+  link: '404040'
   muted: '595959'
-  rule: 9DB2CE
   table_border: BFBFBF
   table_border_light: DCDCDC
-  table_header: F2F4F7
+  table_header: F2F2F2
 styles:
   Title:
     size_pt: 26.0
-    color: accent
+    color: dunkelgrau
     space_before_pt: 0.0
     space_after_pt: 6.0
     line_height: 1.0
@@ -54,13 +54,13 @@ styles:
     based_on: BodyText
     next: BodyText
     size_pt: 13.0
-    color: accent
+    color: dunkelgrau
     align: left
     space_before_pt: 3.0
     space_after_pt: 12.0
     line_height: 1.1
     outline_level: 1
-    shading: fill
+    shading: hellgrau
     bold: true
     keep_next: true
     keep_lines: true
@@ -72,22 +72,22 @@ styles:
     borders:
       bottom:
         width_pt: 0.25
-        color: rule
+        color: grau
         space_pt: 3.0
         style: single
       left:
         width_pt: 2.25
-        color: accent2
+        color: dunkelgrau
         space_pt: 4.0
         style: single
       right:
         width_pt: 0.25
-        color: rule
+        color: grau
         space_pt: 3.0
         style: single
       top:
         width_pt: 0.25
-        color: rule
+        color: grau
         space_pt: 3.0
         style: single
   Fachtext:
@@ -95,18 +95,22 @@ styles:
     based_on: BodyText
     next: Fachtext
     align: justify
-    language: de-DE
     space_before_pt: 0.0
     space_after_pt: 7.0
+    language: de-DE
   KeyTakeaway:
     name: KeyTakeaway
     based_on: BodyText
     next: BodyText
     align: left
-    language: de-DE
-    shading: D5D5D5
     space_before_pt: 4.0
     space_after_pt: 4.0
+    shading: hellgrau
+    language: de-DE
+    kastentitel:
+      text: Key Takeaway
+      icon: ✔
+      format: KeyTakeaway-Titel
     borders:
       bottom:
         width_pt: 1.5
@@ -133,45 +137,51 @@ styles:
     based_on: KeyTakeaway
     next: BodyText
     align: left
-    language: es-ES
-    shading: FFAAFF
     space_before_pt: 4.0
     space_after_pt: 4.0
+    shading: hellgrau
+    language: es-ES
+    kastentitel:
+      text: Am Schalter auf Spanisch
+      icon: 🗨
+      format: Spanisch-Titel
   Callout:
     name: Callout
     based_on: BodyText
     next: BodyText
     align: left
-    language: de-DE
-    shading: fill
     space_before_pt: 12.0
     space_after_pt: 12.0
+    shading: hellgrau
+    language: de-DE
+    kastentitel:
+      icon: ℹ
     borders:
       bottom:
         width_pt: 0.75
-        color: accent2
+        color: dunkelgrau
         space_pt: 4.0
         style: single
       left:
         width_pt: 2.25
-        color: accent
+        color: dunkelgrau
         space_pt: 4.0
         style: single
       right:
         width_pt: 0.75
-        color: accent2
+        color: dunkelgrau
         space_pt: 4.0
         style: single
       top:
         width_pt: 0.75
-        color: accent2
+        color: dunkelgrau
         space_pt: 4.0
         style: single
   Prompt-Trenner:
     name: Prompt-Trenner
     next: Prompt-Frage
     size_pt: 21.0
-    color: rule
+    color: grau
     letter_spacing_pt: 3.0
     align: center
     space_before_pt: 20.0
@@ -179,20 +189,18 @@ styles:
     line_height: 1.0
     keep_next: true
   TOC1:
-    size_pt: 12.0
-    color: accent
+    size_pt: 11.0
     space_before_pt: 14.0
     space_after_pt: 3.0
-    bold: true
   BodyText:
     name: Fließtext
     based_on: Normal
     next: BodyText
     align: justify
-    language: de-DE
     space_before_pt: 0.0
     space_after_pt: 3.0
     line_height: 1.2
+    language: de-DE
   FirstParagraph:
     name: Erster Absatz
     based_on: BodyText
@@ -203,7 +211,7 @@ styles:
     based_on: Normal
     next: FirstParagraph
     size_pt: 16.0
-    color: accent
+    color: dunkelgrau
     align: left
     space_before_pt: 0.0
     space_after_pt: 10.0
@@ -217,7 +225,7 @@ styles:
     based_on: Normal
     next: FirstParagraph
     size_pt: 14.0
-    color: accent
+    color: dunkelgrau
     space_before_pt: 12.0
     space_after_pt: 4.0
     outline_level: 1
@@ -229,7 +237,7 @@ styles:
     based_on: Normal
     next: FirstParagraph
     size_pt: 11.5
-    color: accent2
+    color: dunkelgrau
     space_before_pt: 9.0
     space_after_pt: 3.0
     outline_level: 2
@@ -274,7 +282,7 @@ styles:
     borders:
       left:
         width_pt: 1.5
-        color: rule
+        color: grau
         space_pt: 4.0
         style: single
   SourceCode:
@@ -286,7 +294,7 @@ styles:
     space_before_pt: 4.0
     space_after_pt: 4.0
     line_height: 1.0
-    shading: fill
+    shading: hellgrau
     indent:
       left_mm: 3.0
       right_mm: 0.0
@@ -297,7 +305,7 @@ styles:
     based_on: Heading2
     next: BodyText
     size_pt: 20.0
-    color: accent
+    color: dunkelgrau
     space_before_pt: 0.0
     space_after_pt: 16.0
     outline_level: 0
@@ -308,7 +316,7 @@ styles:
     borders:
       bottom:
         width_pt: 1.5
-        color: accent2
+        color: dunkelgrau
         space_pt: 3.0
         style: single
   Impressum:
@@ -318,29 +326,55 @@ styles:
     align: left
     space_before_pt: 0.0
     space_after_pt: 6.0
-    indent:
-      left_mm: 0.0
-      right_mm: 0.0
-      hanging_mm: 0.0
-      first_line_mm: 0.0
+    zwischentitel: Impressum-Zwischentitel
+  Impressum-Zwischentitel:
+    name: Impressum-Zwischentitel
+    based_on: Impressum
+    next: Impressum
+    space_before_pt: 9.0
+    space_after_pt: 3.0
+    bold: true
+    italic: true
+    keep_next: true
+    keep_lines: true
+  Spanisch-Titel:
+    name: Spanisch-Titel
+    based_on: Spanisch
+    next: Spanisch
+    space_after_pt: 3.0
+    language: de-DE
+    bold: true
+    keep_next: true
+    keep_lines: true
+  KeyTakeaway-Titel:
+    name: KeyTakeaway-Titel
+    based_on: KeyTakeaway
+    next: KeyTakeaway
+    space_after_pt: 3.0
+    bold: true
+    keep_next: true
+    keep_lines: true
   TOC2:
     size_pt: 11.0
-    space_before_pt: 3.0
-    space_after_pt: 0.0
-    indent:
-      left_mm: 0.0
-      right_mm: 0.0
-      hanging_mm: 0.0
-      first_line_mm: 0.0
+    space_before_pt: 10.0
+    space_after_pt: 2.0
+    bold: true
+    keep_next: true
+  TOCHeading:
+    name: TOC Heading
+    based_on: Normal
+    next: BodyText
+    size_pt: 16.0
+    color: dunkelgrau
+    align: left
+    space_before_pt: 0.0
+    space_after_pt: 10.0
+    bold: true
+    keep_next: true
   TOC3:
     size_pt: 11.0
     space_before_pt: 0.0
     space_after_pt: 0.0
-    indent:
-      left_mm: 0.0
-      right_mm: 0.0
-      hanging_mm: 0.0
-      first_line_mm: 0.0
   Titelei-Autor:
     name: Titelei-Autor
     based_on: BodyText
@@ -350,11 +384,6 @@ styles:
     space_before_pt: 0.0
     space_after_pt: 6.0
     keep_next: true
-    indent:
-      left_mm: 0.0
-      right_mm: 0.0
-      hanging_mm: 0.0
-      first_line_mm: 0.0
   Titelei-Titel:
     name: Titelei-Titel
     based_on: BodyText
@@ -364,11 +393,6 @@ styles:
     space_before_pt: 0.0
     space_after_pt: 6.0
     keep_next: true
-    indent:
-      left_mm: 0.0
-      right_mm: 0.0
-      hanging_mm: 0.0
-      first_line_mm: 0.0
   Titelei-Zusatz:
     name: Titelei-Zusatz
     based_on: BodyText
@@ -378,25 +402,23 @@ styles:
     space_before_pt: 0.0
     space_after_pt: 6.0
     keep_next: true
-    indent:
-      left_mm: 0.0
-      right_mm: 0.0
-      hanging_mm: 0.0
-      first_line_mm: 0.0
 classmap:
+  callout: Callout
+  callout-caution: Callout
+  callout-important: Callout
+  callout-note: Callout
+  callout-tip: Callout
+  callout-warning: Callout
   fachtext: Fachtext
+  impressum: Impressum
+  key-takeaway: KeyTakeaway
   prompt: Prompt-Frage
   prompt-separator: Prompt-Trenner
   spanisch: Spanisch
-  key-takeaway: KeyTakeaway
-  callout: Callout
-  callout-tip: Callout
-  callout-note: Callout
-  callout-warning: Callout
-  callout-caution: Callout
-  callout-important: Callout
+  takeaway: KeyTakeaway
   themenblock: Themenblock
-  impressum: Impressum
   titelei-autor: Titelei-Autor
   titelei-titel: Titelei-Titel
   titelei-zusatz: Titelei-Zusatz
+toc:
+  depth: 3

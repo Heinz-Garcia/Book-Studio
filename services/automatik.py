@@ -110,6 +110,10 @@ def validate_automatik(data: Any) -> dict[str, Any]:
         fehler.append(f"bs.ziel {ziel!r} (erlaubt: {', '.join(ZIELE)})")
     if not _str(bs, "doclayout"):
         fehler.append("bs.doclayout fehlt (Formatvorlage für die DOCX)")
+    # Zielumfang für die Seitenprognose (GG warnt vor dem Start); 0 = ohne.
+    zielseiten = bs.get("zielseiten", 0)
+    if isinstance(zielseiten, bool) or not isinstance(zielseiten, int) or zielseiten < 0:
+        fehler.append("bs.zielseiten muss eine ganze Zahl >= 0 sein (0 = ohne)")
 
     if fehler:
         raise AutomatikError("Automatik-Profil ungültig:\n  - " + "\n  - ".join(fehler))
@@ -136,6 +140,7 @@ def validate_automatik(data: Any) -> dict[str, Any]:
             "doclayout": _str(bs, "doclayout"),
             "skeleton_profil": _str(bs, "skeleton_profil"),
             "zielordner": _str(bs, "zielordner"),
+            "zielseiten": int(zielseiten),
         },
     }
 
@@ -202,7 +207,9 @@ def optionen(repo: Path) -> dict[str, Any]:
     from tools.doclayout.ivz import grenzen
     from tools.doclayout.library import available_layouts
     from tools.doclayout.schema import LayoutDefinition, LayoutError
+    from tools.doclayout.seitendichte import woerter_je_seite
     from tools.doclayout.taschenbuch import pruefe_taschenbuch, taschenbuch_format
+    from tools.production_paths.config import production_root_for_repo
 
     layouts: list[dict[str, Any]] = []
     for pfad in available_layouts():
@@ -212,6 +219,11 @@ def optionen(repo: Path) -> dict[str, Any]:
             layouts.append({"name": pfad.stem, "label": "", "ok": False, "problem": str(exc)})
             continue
         probleme = definition.validate() + pruefe_taschenbuch(definition)
+        # Für die Seitenprognose vor dem Lauf (Nutzer, 2026-09-30).
+        try:
+            dichte, dichte_grundlage = woerter_je_seite(pfad.stem, production_root_for_repo(Path(repo)))
+        except (OSError, LayoutError, RuntimeError, ValueError) as exc:
+            dichte, dichte_grundlage = 0.0, f"nicht messbar: {exc}"
         layouts.append(
             {
                 "name": pfad.stem,
@@ -220,6 +232,8 @@ def optionen(repo: Path) -> dict[str, Any]:
                 "problem": "; ".join(probleme),
                 "taschenbuch": taschenbuch_format(definition) or "",
                 "ivz_zeichen": grenzen(definition).zeichen,
+                "woerter_je_seite": round(dichte, 1),
+                "seitendichte_grundlage": dichte_grundlage,
             }
         )
 

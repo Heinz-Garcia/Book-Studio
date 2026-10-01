@@ -10,6 +10,8 @@ from chapter_title_render import (
     h1_im_text_sichtbar,
     maybe_inject_chapter_title,
     parse_frontmatter_yaml,
+    setze_kapitelkopf,
+    stiller_kapitelkopf,
 )
 from heading_anchor_ascii import ensure_ascii_heading_ids
 from recto_open import (
@@ -454,6 +456,13 @@ class PreProcessor:
         frontmatter, body = self._extract_parts(content)
         frontmatter = self._sanitize_frontmatter_for_render(frontmatter)
         rel_path = str(node.get("path") or "")
+        # Ohne eigenen Titel: still statt Dateiname als Kapitel (Typst).
+        frontmatter, kapitelkopf = stiller_kapitelkopf(
+            frontmatter,
+            node_title=str(node.get("title") or ""),
+            rel_path=rel_path,
+            output_format=self.output_format,
+        )
         frontmatter = ensure_silent_chapter_frontmatter(frontmatter, rel_path=rel_path)
 
         # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
@@ -484,6 +493,7 @@ class PreProcessor:
             rel_path=rel_path,
             used_ids=self._used_heading_ids,
         )
+        body = setze_kapitelkopf(body, kapitelkopf)
 
         # B4: Footnote-Harvesting-Block entfernt (war 3+5).
 
@@ -522,6 +532,13 @@ class PreProcessor:
         frontmatter, body = self._extract_parts(content)
         frontmatter = self._sanitize_frontmatter_for_render(frontmatter)
         rel_path = str(node.get("path") or "")
+        # Ohne eigenen Titel: still statt Dateiname als Kapitel (Typst).
+        frontmatter, kapitelkopf = stiller_kapitelkopf(
+            frontmatter,
+            node_title=str(node.get("title") or ""),
+            rel_path=rel_path,
+            output_format=self.output_format,
+        )
         frontmatter = ensure_silent_chapter_frontmatter(frontmatter, rel_path=rel_path)
 
         # 1. Text waschen (Box-Reparatur, @-Zitation → [^Key])
@@ -552,6 +569,7 @@ class PreProcessor:
             rel_path=rel_path,
             used_ids=self._used_heading_ids,
         )
+        body = setze_kapitelkopf(body, kapitelkopf)
 
         # B4: Footnote-Harvesting-Block entfernt (war 3+5).
 

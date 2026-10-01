@@ -173,3 +173,41 @@ def test_dialog(tmp_path: Path, vorlagen, monkeypatch) -> None:
     assert dlg.docx_feld.text() == "neu.docx"
     protokoll = dlg.protokoll.toPlainText()
     assert "Platzhalter eingesetzt" in protokoll and "als Fließtext fortgesetzt" in protokoll
+
+
+def test_zuordnung_gilt_fuer_den_stufentyp(tmp_path, monkeypatch) -> None:
+    """Nutzer 2026-09-30: eine Zuordnung für alle künftigen Bücher dieser Art."""
+    from tools.doclayout.classmap import stufentyp, zuordnungs_schluessel
+
+    buch = tmp_path / "IFJN_Reisefuehrer_Ernstfall_Andalusien_v_2"
+    klasse = ".ifjn_reisefuehrer_ernstfall_andalusien_v_2_spanisch"
+    assert stufentyp(klasse, buch.name) == "spanisch"
+    assert stufentyp(".zitat", buch.name) == "zitat"
+    # v_3 findet den Eintrag über denselben Stufentyp
+    assert zuordnungs_schluessel({"spanisch"}, "ifjn_reisefuehrer_ernstfall_andalusien_v_3_spanisch") == "spanisch"
+    assert zuordnungs_schluessel({"x_spanisch", "spanisch"}, "a_x_spanisch") == "x_spanisch"  # längster zuerst
+    assert zuordnungs_schluessel({"spanisch"}, "englisch") is None
+
+
+def test_zuordnen_speichert_unter_dem_stufentyp(vorlagen, tmp_path: Path) -> None:
+    buch = tmp_path / "Mein_Buch_v_2"
+    nacharbeit.ordne_zu("Prosa_Layout", ".mein_buch_v_2_spanisch", "Fachtext", buch=buch)
+    definition = library.load_layout("Prosa_Layout")
+    assert definition.classmap["spanisch"] == "Fachtext"
+    assert "mein_buch_v_2_spanisch" not in definition.classmap
+
+
+def test_anderer_stufentyp_wird_nicht_still_ueberschrieben(vorlagen, tmp_path: Path) -> None:
+    """K-11: Eine Umstellung des Stufentyps träfe alle Bücher -- erst fragen."""
+    import pytest
+
+    buch = tmp_path / "Mein_Buch_v_2"
+    nacharbeit.ordne_zu("Prosa_Layout", ".mein_buch_v_2_spanisch", "Fachtext", buch=buch)
+    with pytest.raises(nacharbeit.ZuordnungsKonflikt):
+        nacharbeit.ordne_zu("Prosa_Layout", ".mein_buch_v_3_spanisch", "BodyText", buch=tmp_path / "Mein_Buch_v_3")
+    assert library.load_layout("Prosa_Layout").classmap["spanisch"] == "Fachtext"
+    nacharbeit.ordne_zu(
+        "Prosa_Layout", ".mein_buch_v_3_spanisch", "BodyText",
+        buch=tmp_path / "Mein_Buch_v_3", ueberschreiben=True,
+    )
+    assert library.load_layout("Prosa_Layout").classmap["spanisch"] == "BodyText"

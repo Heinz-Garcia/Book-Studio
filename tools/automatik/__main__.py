@@ -82,7 +82,24 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help='JSON-Datei mit [[ebene, "Titel"], ...] (oder "-" fuer stdin); gemessen wird jeder Titel',
     )
+    bericht = unter.add_parser(
+        "bericht", help="Abschlussbericht neben die DOCX legen (Markdown + PDF)"
+    )
+    bericht.add_argument("--md", required=True, help="automatik_bericht.md aus dem Laufordner")
+    bericht.add_argument("--ziel", required=True, help="Ordner der DOCX")
     return p
+
+
+def _bericht(md: str, ziel: str) -> int:
+    """``{md, pdf, hinweis}`` -- der Bericht liegt danach neben dem Buch."""
+    from services.automatik_bericht import lege_bericht_ab
+
+    try:
+        _ausgeben(lege_bericht_ab(md, ziel))
+    except OSError as exc:
+        _ausgeben({"fehler": str(exc)})
+        return 1
+    return 0
 
 
 def _ivz(layout: str, titel_quelle: str) -> int:
@@ -175,6 +192,8 @@ def _main(argv: list[str] | None) -> int:
         return 0
     if args.befehl == "ivz":
         return _ivz(args.doclayout, args.titel)
+    if args.befehl == "bericht":
+        return _bericht(args.md, args.ziel)
     try:
         profil = read_automatik(args.profil)
     except AutomatikError as exc:

@@ -820,10 +820,15 @@ def build_markup_inventory(
 
     namen = set(gueltig) | set(generator_counts) | set(klassen)
     rows: list[MarkupRow] = []
+    from tools.doclayout.classmap import zuordnungs_schluessel
+
     for name in namen:
         benutzung: Optional[ClassUsage] = gueltig.get(name)
-        eintrag = klassen.get(name, {})
-        gestaltet, beschreibung, vorschau = aussehen.get(name, (None, "", None))
+        # Ohne eigenen Eintrag gilt der des Stufentyps (``<projekt>_spanisch``
+        # -> ``spanisch``) -- wie im Filter, der das Buch setzt.
+        schluessel = name if name in klassen else (zuordnungs_schluessel(klassen, name) or name)
+        eintrag = klassen.get(schluessel, {})
+        gestaltet, beschreibung, vorschau = aussehen.get(schluessel, (None, "", None))
         proben = textproben.get(name, ())
         if vorschau is not None and proben:
             vorschau = replace(

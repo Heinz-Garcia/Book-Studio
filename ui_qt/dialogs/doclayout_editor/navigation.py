@@ -183,6 +183,7 @@ class NavigationMixin:
             self.page_form.show()
         elif section == _SECTION_TYPOGRAPHY:
             self.typography_form.load(self._definition.typography)
+            self.typography_form.load_toc_depth(self._definition.toc_depth)
             self.typography_form.show()
         elif section == _SECTION_COLORS:
             self.colors_form.set_usage_lookup(self._styles_using_colour)

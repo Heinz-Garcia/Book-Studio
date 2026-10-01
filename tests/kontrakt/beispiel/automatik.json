@@ -17,6 +17,7 @@
     "ziel": "docx",
     "doclayout": "Prosa_Layout",
     "skeleton_profil": "Prosa_Standard",
-    "zielordner": ""
+    "zielordner": "",
+    "zielseiten": 0
   }
 }

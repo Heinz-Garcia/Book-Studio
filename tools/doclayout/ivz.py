@@ -159,7 +159,9 @@ def grenzen(definition: LayoutDefinition) -> Grenzen:
     """Verfuegbare Breite und Zeichengrenze je Verzeichnisebene."""
     satz = satzbreite_mm(definition)
     ergebnis = Grenzen(layout=definition.name, satzbreite_mm=satz)
-    for n in EBENEN:
+    # So tief wie das Verzeichnis der Vorlage (``toc: {depth}``) -- ein F&A-Buch
+    # zeigt mit 3 auch die Fragen, und die sollen ebenfalls einzeilig bleiben.
+    for n in range(1, int(getattr(definition, "toc_depth", max(EBENEN))) + 1):
         familie, groesse, fett, einzug = _ebene(definition, n)
         datei = schriftdatei(familie, fett=fett) or schriftdatei(familie)
         reserve, _ = _breite_mm(RESERVE, datei, groesse)
@@ -243,7 +245,9 @@ def buch_titel(book_path: Path | str) -> list[tuple[int, str]]:
         if any(divs):
             continue
         kopf = _ATX.match(zeile)
-        if kopf and len(kopf.group(1)) in EBENEN:
+        # Alle Ebenen; welche ins Verzeichnis kommen, entscheidet
+        # ``zu_lange_titel`` mit der Tiefe der Vorlage.
+        if kopf:
             titel.append((len(kopf.group(1)), kopf.group(2).strip()))
     return titel
 

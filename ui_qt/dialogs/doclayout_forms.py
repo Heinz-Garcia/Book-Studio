@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -282,6 +283,7 @@ class _TypographyForm(QWidget):
         self.body_font = _font_combo()
         self.heading_font = _font_combo(empty_label="— wie Grundschrift —")
         self.mono_font = _font_combo(fixed_pitch=True)
+        self.symbol_font = _font_combo()
         self.base_size = _pt_spin(maximum=72.0, minimum=4.0)
         self.line_height = QDoubleSpinBox()
         self.line_height.setRange(0.5, 4.0)
@@ -292,6 +294,8 @@ class _TypographyForm(QWidget):
         self.hyphenation = QCheckBox("Silbentrennung")
         self.hyphenate_caps = QCheckBox("Auch Wörter in Großbuchstaben trennen")
         self.hyphenation_zone = _mm_spin(50)
+        self.toc_depth = QSpinBox()
+        self.toc_depth.setRange(1, 6)
 
         form.addRow("Grundschrift", self.body_font)
         form.addRow(
@@ -309,6 +313,15 @@ class _TypographyForm(QWidget):
             "breit, damit Einrückungen stimmen.",
         ),
             self.mono_font,
+        )
+        form.addRow(
+            _info(
+            "Symbolschrift",
+            "Schrift für die Symbole der Kastentitel (🗨 ✔ ℹ). Eine einfarbige "
+            "Symbolschrift wie Segoe UI Symbol — sonst kommen Farb-Emojis ins "
+            "Druckbild.",
+        ),
+            self.symbol_font,
         )
         form.addRow(
             _info(
@@ -354,11 +367,20 @@ class _TypographyForm(QWidget):
         ),
             self.hyphenate_caps,
         )
+        form.addRow(
+            _info(
+            "Verzeichnistiefe",
+            "Wie viele Überschriftenebenen das Inhaltsverzeichnis zeigt. Ein "
+            "Frage-Antwort-Buch braucht 3: Kapitel und Fragen — die "
+            "Überschriften in den Antworten liegen darunter und bleiben draußen.",
+        ),
+            self.toc_depth,
+        )
 
-        for widget in (self.body_font, self.heading_font, self.mono_font):
+        for widget in (self.body_font, self.heading_font, self.mono_font, self.symbol_font):
             widget.currentTextChanged.connect(self._emit)
         self.language.textChanged.connect(self._emit)
-        for widget in (self.base_size, self.line_height, self.hyphenation_zone):
+        for widget in (self.base_size, self.line_height, self.hyphenation_zone, self.toc_depth):
             widget.valueChanged.connect(self._emit)
         for widget in (self.hyphenation, self.hyphenate_caps):
             widget.toggled.connect(self._emit)
@@ -373,6 +395,7 @@ class _TypographyForm(QWidget):
         set_font_value(self.body_font, typography.body_font)
         set_font_value(self.heading_font, typography.heading_font)
         set_font_value(self.mono_font, typography.mono_font)
+        set_font_value(self.symbol_font, typography.symbol_font)
         self.base_size.setValue(typography.base_size_pt)
         self.line_height.setValue(typography.line_height)
         self.language.setText(typography.language)
@@ -384,10 +407,19 @@ class _TypographyForm(QWidget):
 
     def _widgets(self) -> list[QWidget]:
         return [
-            self.body_font, self.heading_font, self.mono_font, self.base_size,
+            self.body_font, self.heading_font, self.mono_font, self.symbol_font, self.base_size,
             self.line_height, self.language, self.hyphenation,
-            self.hyphenation_zone, self.hyphenate_caps,
+            self.hyphenation_zone, self.hyphenate_caps, self.toc_depth,
         ]
+
+    def load_toc_depth(self, depth: int) -> None:
+        """Die Verzeichnistiefe gehört zur Vorlage, nicht zur Typografie."""
+        blocked = self.toc_depth.blockSignals(True)
+        self.toc_depth.setValue(int(depth))
+        self.toc_depth.blockSignals(blocked)
+
+    def collect_toc_depth(self) -> int:
+        return int(self.toc_depth.value())
 
     def collect(self, typography: Typography) -> Typography:
         return replace(
@@ -395,6 +427,7 @@ class _TypographyForm(QWidget):
             body_font=font_value(self.body_font) or typography.body_font,
             heading_font=font_value(self.heading_font),
             mono_font=font_value(self.mono_font) or typography.mono_font,
+            symbol_font=font_value(self.symbol_font) or typography.symbol_font,
             base_size_pt=self.base_size.value(),
             line_height=self.line_height.value(),
             language=self.language.text().strip() or "de-DE",

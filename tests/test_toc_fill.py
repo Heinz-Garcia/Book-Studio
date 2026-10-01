@@ -130,4 +130,5 @@ def test_satz_fuellt_das_verzeichnis_nach_der_pdf(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr(T, "find_soffice", lambda explicit=None: "soffice")
     monkeypatch.setattr(T, "_convert_to_pdf", konvertiere)
     T.typeset_book(load_layout("Reisefuehrer_Andalusien"), buch)
-    assert gerufen == [("Reisefuehrer_Andalusien.docx", "x.pdf", 2)]
+    # Tiefe aus der Vorlage (``toc: {depth: 3}``) -- F&A: Kapitel und Fragen.
+    assert gerufen == [("Reisefuehrer_Andalusien.docx", "x.pdf", 3)]

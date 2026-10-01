@@ -137,6 +137,63 @@ def ensure_typst_book_author(book_path: Path, log: Log) -> None:
         log(f"[safe-render] Hinweis: book.author fehlte – Platzhalter gesetzt: {author!r}")
 
 
+#: Woran ein Layout-Filter mit Typst-Zweig zu erkennen ist. Ältere Filter
+#: kennen nur DOCX -- im Typst-Satz machten sie Listen in Kästen zu Absätzen.
+_TYPST_FAEHIG = "local function is_typst()"
+
+
+def ensure_typst_layout_filter(book_path: Path, log: Log) -> None:
+    """Den Layout-Filter des Buchs auch im Typst-Satz anwenden -- nur im Klon.
+
+    Kastentitel, Zwischentitel und die Kastengestalt stehen in der
+    Layout-Definition (``tools/doclayout``); deren Filter liegt nach dem
+    Anwenden unter ``bookconfig/doclayout/classmap.lua``. Typst bleibt
+    Fallback und bekommt denselben Satz (Nutzer, 2026-10-01). Das doclayout-
+    Werkzeug selbst fasst den Typst-Pfad nicht an (Anforderung „Print-Pfad
+    unverändert“); eingetragen wird hier, im Render-Klon. Das Original-Buch
+    bleibt unverändert.
+    """
+    from tools.doclayout.apply import LUA_FILTER_NAME, book_relative
+
+    relativ = book_relative(LUA_FILTER_NAME).as_posix()
+    filter_datei = Path(book_path) / relativ
+    try:
+        if _TYPST_FAEHIG not in filter_datei.read_text(encoding="utf-8"):
+            log("[safe-render] Hinweis: Layout-Filter ohne Typst-Teil -- Layout neu anwenden.")
+            return
+    except OSError:
+        return
+    yaml_path = Path(book_path) / "_quarto.yml"
+    try:
+        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    formate = data.get("format")
+    if not isinstance(formate, dict):
+        formate = {}
+        data["format"] = formate
+    typst = formate.get("typst")
+    if not isinstance(typst, dict):
+        typst = {}
+        formate["typst"] = typst
+    filter_liste = typst.get("filters")
+    if not isinstance(filter_liste, list):
+        filter_liste = [] if filter_liste is None else [filter_liste]
+    if relativ in [str(f) for f in filter_liste]:
+        return
+    typst["filters"] = [*filter_liste, relativ]
+    try:
+        yaml_path.write_text(
+            yaml.dump(data, sort_keys=False, allow_unicode=True, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+    log("[safe-render] Typst: Layout-Filter angewandt (Kastentitel, Zwischentitel, Kästen)")
+
+
 def _iter_tree_paths(tree_data):
     for item in tree_data:
         path = item.get("path") if isinstance(item, dict) else None
@@ -293,6 +350,7 @@ def render_im_klon(
         ensure_typst_template_partials(temp_book, extra_format_options, output_format)
         if str(output_format).lower().startswith("typst"):
             ensure_typst_book_author(temp_book, log)
+            ensure_typst_layout_filter(temp_book, log)
 
         # Stand der Wurzel VOR dem Render: nur was Quarto neu schreibt, ist
         # ein Artefakt (Partials/Cover-PDF des Klons bleiben draußen).

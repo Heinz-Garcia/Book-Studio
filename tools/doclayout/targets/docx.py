@@ -261,7 +261,37 @@ def _patch_styles(definition: LayoutDefinition, blob: bytes) -> bytes:
 
     _patch_doc_defaults(definition, root)
     _patch_table_style(definition, root)
+    _patch_link_color(definition, root)
     return _serialize(root)
+
+
+#: Farbtoken für Verweise (Zeichenformat ``Hyperlink``). Ohne ihn bleibt das
+#: Blau aus Pandocs Basisvorlage.
+LINK_FARBE = "link"
+
+
+def _patch_link_color(definition: LayoutDefinition, root: ET.Element) -> None:
+    """Verweise in der Farbe des Tokens ``link`` statt im Blau der Basisvorlage.
+
+    ``Hyperlink`` ist ein Zeichenformat -- die Layout-Definition kennt nur
+    Absatzformate. Ein Buch ohne Farben im Inhalt (Nutzer, 2026-10-01) braucht
+    trotzdem einen Weg, das Blau loszuwerden: den Farbtoken ``link``.
+    """
+    if LINK_FARBE not in definition.colors:
+        return
+    farbe = definition.resolve_color(LINK_FARBE)
+    if not farbe or farbe == "auto":
+        return
+    for style in root.findall(qn("style")):
+        if style.get(qn("styleId")) != "Hyperlink":
+            continue
+        rpr = style.find(qn("rPr"))
+        if rpr is None:
+            rpr = ET.Element(qn("rPr"))
+            _ordered_append(style, rpr, _STYLE_ORDER)
+        # Ersetzt auch ``w:themeColor`` der Basisvorlage -- sonst gewaenne das Thema.
+        _replace_child(rpr, "color", {"val": farbe}, _RPR_ORDER)
+        return
 
 
 def _patch_table_style(definition: LayoutDefinition, root: ET.Element) -> None:

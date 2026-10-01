@@ -75,8 +75,13 @@ def test_grenze_aus_schrift_und_satzbreite(andalusien) -> None:
         pytest.skip("Cambria nicht installiert")
     # Gemessen am gedruckten IVZ: Einträge brechen nach gut 50 Zeichen um.
     assert 45 <= ebene2.zeichen <= 55
-    assert g.ebenen[1].zeichen < ebene2.zeichen  # fett, 12 pt
-    assert g.zeichen == g.ebenen[1].zeichen
+    # Seit 2026-10-01 ist die Gliederung (Ebene 2 in diesem Buch) fett --
+    # prominenter als die Fragen (Nutzer). Fett läuft breiter: Ebene 2 ist
+    # jetzt die strengste Grenze, das schlichte TOC1 hat mehr Platz.
+    assert ebene2.fett and not g.ebenen[3].fett
+    assert g.ebenen[1].zeichen >= ebene2.zeichen
+    assert g.zeichen == ebene2.zeichen
+    assert sorted(g.ebenen) == [1, 2, 3]  # Tiefe 3: Kapitel und Fragen
 
 
 def test_zu_lange_titel_werden_gemessen(andalusien) -> None:
@@ -99,7 +104,16 @@ def test_buch_titel_wie_im_satz_ohne_callouts(tmp_path: Path) -> None:
         "```\n## auch keiner\n```\n\n### zu tief\n",
         encoding="utf-8",
     )
-    assert ivz.buch_titel(tmp_path) == [(1, "Kapitel"), (2, "Abschnitt")]
+    # Alle Ebenen; die Tiefe der Vorlage filtert erst ``zu_lange_titel``.
+    assert ivz.buch_titel(tmp_path) == [(1, "Kapitel"), (2, "Abschnitt"), (3, "zu tief")]
+
+
+def test_verzeichnistiefe_der_vorlage_bestimmt_die_pruefung(andalusien) -> None:
+    """F&A (Reisefuehrer 2026-09-30): Mit Tiefe 3 werden auch die Fragen gemessen."""
+    flach = replace(andalusien, toc_depth=2)
+    tief = replace(andalusien, toc_depth=3)
+    assert ivz.zu_lange_titel(flach, [(3, LANG)]) == []
+    assert [e["titel"] for e in ivz.zu_lange_titel(tief, [(3, LANG)])] == [LANG]
 
 
 def test_cli_ivz(tmp_path: Path) -> None:

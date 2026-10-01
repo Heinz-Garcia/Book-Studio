@@ -88,6 +88,15 @@ def merge_book_frontmatter_with_source_body(book_text: str, source_text: str) ->
     )
 
 
+def payload_has_title(source_text: str) -> bool:
+    """Bringt die Lieferung einen eigenen Titel mit -- oder nur einen Dateinamen?"""
+    parts = frontmatter_parser.parse(source_text)
+    if not parts.has_frontmatter:
+        return False
+    data = parts.parsed()
+    return isinstance(data, dict) and data.get("title") not in (None, "")
+
+
 def payload_display_title(source_rel: str, source_text: str) -> str:
     """Anzeigename für die Buchstruktur: Payload-Titel oder Dateiname ohne Endung."""
     parts = frontmatter_parser.parse(source_text)
@@ -104,6 +113,7 @@ def sync_book_display_title(
     new_title: str,
     book_rel: str = "",
     notes: Optional[list[str]] = None,
+    als_ueberschrift: bool = True,
 ) -> tuple[str, bool]:
     """Setzt Frontmatter ``title`` (und ggf. ``description``) für die Buchstruktur.
 
@@ -133,9 +143,16 @@ def sync_book_display_title(
             f"Frontmatter ist kein gültiges YAML, Titel nicht angeglichen: {parts.parse_error}"
         )
 
+    # Ein Titel, der nur der Dateiname ist (die Lieferung bringt keinen mit),
+    # ist ein Anzeigename für die Buchstruktur -- keine Überschrift. Die
+    # Gliederung steht im Text (``##``). Ohne diesen Schalter setzten DOCX und
+    # Typst „IFJN_…_01.10.2026“ als Kapitel ins Buch und ins IVZ (Nutzer,
+    # 2026-10-01). Eine ausdrückliche Angabe im Buch bleibt unangetastet.
+    still = {} if als_ueberschrift else {"print_title": False}
+
     if not parts.has_frontmatter:
         header = yaml.safe_dump(
-            {"title": new_title, "description": new_title, "status": "bookstudio"},
+            {"title": new_title, "description": new_title, "status": "bookstudio", **still},
             allow_unicode=True,
             sort_keys=False,
             default_flow_style=False,
@@ -170,6 +187,9 @@ def sync_book_display_title(
         changed = True
     if old_desc in ("", old_title, stem) and old_desc != new_title:
         data["description"] = new_title
+        changed = True
+    if still and "print_title" not in data:
+        data["print_title"] = False
         changed = True
     if not changed:
         return book_text, False
@@ -352,6 +372,7 @@ def apply_swap_plan(
                         new_title=desired_title,
                         book_rel=line.book_rel,
                         notes=result.warnings,
+                        als_ueberschrift=payload_has_title(source_text),
                     )
                 except FrontmatterUnreadable as exc:
                     # Der Body-Tausch bleibt gültig -- er übernimmt den Header

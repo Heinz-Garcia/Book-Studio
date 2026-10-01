@@ -210,10 +210,11 @@
         ]
       },
       "cli_bs": {
-        "optionen": "python -m tools.automatik optionen -> JSON {doclayouts[{name,label,ok,problem,taschenbuch,ivz_zeichen}], skeleton_profile[], skeleton_default, ziele[]}; ok=false auch fuer Nicht-Taschenbuch-Formate",
+        "optionen": "python -m tools.automatik optionen -> JSON {doclayouts[{name,label,ok,problem,taschenbuch,ivz_zeichen,woerter_je_seite,seitendichte_grundlage}], skeleton_profile[], skeleton_default, ziele[]}; ok=false auch fuer Nicht-Taschenbuch-Formate",
         "pruefe": "python -m tools.automatik pruefe --profil <automatik.json> -> JSON {luecken[], warnungen[]}; Exit 0 = keine Luecken; Formatvorlage ohne Taschenbuchformat = Luecke",
-        "ivz": "python -m tools.automatik ivz --doclayout <name> [--titel <json [[ebene,titel],...]>] -> JSON {layout, satzbreite_mm, zeichen, ebenen{1,2}, zu_lang[{ebene,titel,zeichen,grenze,breite_mm,platz_mm}]}; gemessen mit der echten Schrift",
-        "nacharbeit": "python -m tools.automatik nacharbeit --profil <automatik.json> --json -> JSON {docx, fehlende_ressourcen[], formate_ohne_zuordnung[], pflichtseiten[], ivz_zu_lang[], offen, ...}"
+        "ivz": "python -m tools.automatik ivz --doclayout <name> [--titel <json [[ebene,titel],...]>] -> JSON {layout, satzbreite_mm, zeichen, ebenen{1..toc_depth}, zu_lang[{ebene,titel,zeichen,grenze,breite_mm,platz_mm}]}; gemessen mit der echten Schrift",
+        "nacharbeit": "python -m tools.automatik nacharbeit --profil <automatik.json> --json -> JSON {docx, fehlende_ressourcen[], formate_ohne_zuordnung[], pflichtseiten[], ivz_zu_lang[], offen, ...}",
+        "bericht": "python -m tools.automatik bericht --md <automatik_bericht.md> --ziel <Ordner der DOCX> -> JSON {md, pdf, hinweis}; legt den Abschlussbericht als Markdown und PDF neben die DOCX"
       },
       "felder": {
         "automatik.json": {
@@ -229,10 +230,15 @@
           "gg.batch": "str",
           "gg.nachbessern": "str",
           "gg.max_durchgaenge": "int?",
+          "gg.custom_lines": "str?",
+          "gg.start_line": "int?",
+          "gg.llm_preset": "str?",
+          "gg.neubeginn": "bool?",
           "bs.ziel": "str",
           "bs.doclayout": "str",
           "bs.skeleton_profil": "str",
-          "bs.zielordner": "str"
+          "bs.zielordner": "str",
+          "bs.zielseiten": "int"
         }
       },
       "hinweis": "Alle Entscheidungen vorab (kein Nachfragen unterwegs). durchlaufen=true: rotes Gate = Warnung + weiter, Abbruch nur ohne technischen Input. Kein Cover in der DOCX, kein Kostenlimit (nur Bericht). Plan: BS .doc/automatik_gg_bis_docx.md."
