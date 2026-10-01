@@ -194,3 +194,23 @@ def test_update_zone_rules_and_lock(tmp_path: Path) -> None:
         zone_bs={"stage": "G"},
         production_root=prod,
     )
+
+
+def test_rueckgabe_traegt_den_geschriebenen_zeitstempel(tmp_path: Path, monkeypatch) -> None:
+    """Deterministisch, was ``test_materialize_from_book`` unter Last zufällig traf."""
+    import itertools
+
+    import services.band_run as modul
+
+    zaehler = itertools.count()
+    monkeypatch.setattr(modul, "_utc_now_iso", lambda: f"2026-01-01T00:00:{next(zaehler):02d}+00:00")
+    uid = "11111111-2222-3333-4444-555555555555"
+    book = tmp_path / "books" / "Prosa_X"
+    book.mkdir(parents=True)
+    (book / "_quarto.yml").write_text("project:\n  type: book\n", encoding="utf-8")
+    (book / "_book_studio.toml").write_text(f'[book]\ntitle = "X"\nuuid = "{uid}"\n', encoding="utf-8")
+    prod = tmp_path / "production"
+    data = modul.materialize_band_run_from_book(book, production_root=prod)
+    auf_platte = modul.read_band_run(uid, production_root=prod)
+    assert data["updated_at"] == auf_platte["updated_at"]
+    assert modul.materialize_band_run_from_book(book, production_root=prod)["updated_at"] == data["updated_at"]

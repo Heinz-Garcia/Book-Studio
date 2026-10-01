@@ -343,6 +343,12 @@ def write_band_run(
             f"(bis {fremd.get('expires_at')}) — {writer.upper()} darf nicht schreiben."
         )
     _atomar_schreiben(dest, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    # Der Aufrufer gibt meist sein *data* zurück -- es muss dem Geschriebenen
+    # entsprechen. Sonst trug es den Zeitstempel von vor dem Schreiben, und
+    # über eine Sekundengrenze hinweg wich es von der Datei ab (der Test
+    # ``test_materialize_from_book`` wurde darüber unter Last rot).
+    data["updated_at"] = payload["updated_at"]
+    data["schema_version"] = payload["schema_version"]
     if write_markdown:
         md = band_run_md_path(uid, production_root=production_root, repo=repo)
         _atomar_schreiben(md, render_band_run_markdown(payload))

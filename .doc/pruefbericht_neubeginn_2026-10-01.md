@@ -19,7 +19,7 @@
 | **N-05** | **behoben** | GUI prüft `laufende_laeufe` vor Rückfrage. `test_neu_beginnen_sperrt_vor_der_rueckfrage`. |
 | **N-06** | **behoben** | Papierkorb/Kanon zuerst, Archiv zuletzt; bei PapierkorbFehler nichts archiviert. `test_n06_*`. |
 | **N-07** | **behoben** | Nachbesserung: `lauf_id` an `_gedaechtnis`/`_rueckblick`; Callers setzen `batch.name`. `test_n07_*`. |
-| **N-08** | **offen / kein Bug** | Weiterhin kein Automatik-Dialog-Einstieg (nur Arbeitsweg + CLI) — Produktentscheid, kein Regressionsschaden. |
+| **N-08** | **erledigt** | Einstieg im Automatik-Dialog: Haken „Vorher neu beginnen“ (siehe Abschnitt 7). |
 
 **Tests dieser Nachprüfung:** `16 passed` (`test_neubeginn.py` + UI-Neubeginn + Sammelanfrage-Reset).
 
@@ -155,7 +155,7 @@ Alle Befunde am Code bestätigt (N-04: Datei heißt `kanon.ausgeschaltet.json`).
 | N-05 | GUI prüft Laufmarken (Automatik/Teilkette/Lauf) **vor** der Rückfrage. |
 | N-06 | Reihenfolge: Papierkorb + Kanon zuerst, Archivieren zuletzt; scheitert der Papierkorb, ist nichts archiviert. |
 | N-07 | Nachbesserung reicht `lauf_id=batch.name` an `baue_kontext` → Teilgedächtnis und Rückblick nur aus dem eigenen Lauf. |
-| N-08 | **Offen** (Produktentscheid). |
+| N-08 | **Erledigt** (01.10.): Der Automatik-Dialog hat den Haken „Vorher neu beginnen (frühere Läufe archivieren, Kanon und roter Faden neu)“; „Vergleichslauf wiederholen“ setzt ihn selbst. Ein eigener Hinweis ist damit überflüssig. |
 
 Zusatz: Dialog nennt, dass das Buch in Book Studio seinen Inhalt bis zur nächsten Lieferung behält.
 

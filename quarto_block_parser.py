@@ -46,6 +46,32 @@ _DIV_CLOSE_PATTERN = re.compile(r"^\s*:::+\s*$")
 _ANSWER_DIV_OPEN_PATTERN = re.compile(r"^\s*:::+\s*\{[^}]*\B\.answer\b[^}]*\}\s*$")
 
 
+def _ohne_html_kommentare(line: str, in_comment: bool) -> tuple[str, bool]:
+    """Sichtbarer Teil einer Zeile ohne ``<!-- … -->`` (auch über Zeilen hinweg).
+
+    Kommentare rendert weder Quarto noch Pandoc -- ein ``":::"`` darin ist kein
+    Div und kein Fließtext (Skeleton-Impressum, 2026-10-01).
+    """
+    sichtbar: list[str] = []
+    rest = line
+    while rest:
+        if in_comment:
+            ende = rest.find("-->")
+            if ende < 0:
+                return "".join(sichtbar), True
+            rest = rest[ende + 3:]
+            in_comment = False
+        else:
+            anfang = rest.find("<!--")
+            if anfang < 0:
+                sichtbar.append(rest)
+                break
+            sichtbar.append(rest[:anfang])
+            rest = rest[anfang + 4:]
+            in_comment = True
+    return "".join(sichtbar), in_comment
+
+
 # --- Datenklasse ------------------------------------------------------------
 
 
@@ -75,6 +101,7 @@ def find_fenced_div_issues(
     - falsch verschachtelte Schließer (z. B. `:::` schließt `::::`)
     - Inline-`:::`-Vorkommen im Fließtext (außerhalb von Markern)
     - ignoriert `:::`-Vorkommen in Code-Blöcken (zwischen ```-Fences)
+      und in HTML-Kommentaren (``<!-- … -->``)
 
     `base_line_number` ist der Offset für die Zeilennummern (z. B. 1 + Anzahl
     der Header-Zeilen), damit die Befunde auf die Originaldatei zeigen.
@@ -82,16 +109,18 @@ def find_fenced_div_issues(
     issues: list[FencedDivIssue] = []
     stack: list[tuple[int, int]] = []  # (colon_count, line_number)
     in_code_block = False
+    in_comment = False
 
     for offset, raw_line in enumerate(body.splitlines()):
         line = raw_line.rstrip("\r")
         line_number = base_line_number + offset
 
-        if _CODE_FENCE_PATTERN.match(line):
+        if not in_comment and _CODE_FENCE_PATTERN.match(line):
             in_code_block = not in_code_block
             continue
         if in_code_block:
             continue
+        line, in_comment = _ohne_html_kommentare(line, in_comment)
 
         marker_match = _MARKER_PATTERN.match(line)
         if marker_match:

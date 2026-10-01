@@ -485,6 +485,25 @@ def test_repair_orphan_fenced_div_closes_reports_file_line_numbers():
     assert removed == [6]
 
 
+def test_doppelpunkte_in_html_kommentar_sind_kein_befund():
+    """Skeleton-Impressum (2026-10-01): ``":::"-Block`` im Kommentar meldete
+    ``ERROR … L12 (inline)`` beim Typst-Satz."""
+    body = (
+        '<!-- Leerzeilen um jeden ":::"-Block sind Pflicht,\n'
+        "auch ::: hier im Kommentar. -->\n"
+        "\n"
+        "::: {.impressum}\n"
+        "Text <!-- ::: --> weiter\n"
+        ":::\n"
+    )
+    assert qp.find_fenced_div_issues(body) == []
+
+
+def test_doppelpunkte_nach_kommentar_werden_weiter_gemeldet():
+    body = "<!-- Kommentar --> Text ::: mitten drin\n"
+    issues = qp.find_fenced_div_issues(body)
+    assert [i.kind for i in issues] == ["inline"]
+
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
