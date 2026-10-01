@@ -63,7 +63,10 @@ class BuildMixin:
             "Pandoc beim DOCX-Export.\n"
             "Das PDF entsteht über Typst mit eigenen Vorlagen; Kästen und "
             "Auszeichnungen kommen dort aus dem Layout-Profil und den "
-            "Typst-Partials, nicht von hier."
+            "Typst-Partials, nicht von hier.\n"
+            "Ausnahme: Kästen mit Kastentitel, Zwischentitel und die "
+            "Verzeichnistiefe gelten auch im Typst-PDF — sobald das Buch "
+            "einmal mit dieser Vorlage gesetzt wurde."
         )
         outer.addWidget(self.scope_banner)
 

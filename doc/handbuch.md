@@ -317,12 +317,16 @@ Quarto erzeugt aus dem YAML-Feld `title` jeder Kapiteldatei automatisch eine **L
 | `print_title: true` | sichtbar (Titel aus YAML) |
 | Flag fehlt + `required: true` | unterdrückt (Vakat, Deckblatt, …) |
 | Flag fehlt + nicht required | sichtbar (Inhaltkapitel) |
+| GG-Lieferung ohne eigenen Titel | unterdrückt — der Inhaltstausch setzt `print_title: false` (der Titel ist nur der Dateiname, die Gliederung steht im Text) |
+| Kapitel ganz ohne Frontmatter | unterdrückt (nie der Dateiname als Kapitel) |
 
 Skeleton-Profile (`standard`, `AMAZON_KDP`) setzen `print_title` auf den Rahmenseiten **explizit**. Der YAML-`title` bleibt für Studio, Baum und Buch-Doktor — er erscheint nur dann im PDF, wenn die Regel oben das erlaubt.
 
 **Bedienung ohne Flag-Merken:** Im Markdown-Editor Toolbar-Gruppe **YAML** — Toggle **H1** (`print_title`). Weitere Bools (`required`, `unnumbered`, `unlisted`, …) stehen in derselben Gruppe. Speichern nicht vergessen.
 
-Technisch: `typst-show.typ` blendet Level-1 standardmäßig aus; der PreProcessor setzt sichtbare Titel nur bei Opt-in und markiert stille Seiten als `unnumbered` / `unlisted`.
+Dieselbe Regel gilt im **DOCX-Satz** (Layout-Editor): Ein unterdrückter Titel wird dort keine `Überschrift 1` und steht damit auch nicht im Inhaltsverzeichnis.
+
+Technisch: `typst-show.typ` blendet Level-1 standardmäßig aus; der PreProcessor setzt sichtbare Titel nur bei Opt-in und markiert stille Seiten als `unnumbered` / `unlisted`. Stille Inhaltsteile (GG-Lieferung, Kapitel ohne Titel) bekommen im Render-Klon eine unsichtbare, ungezählte Kopfzeile statt des YAML-Titels — so bleiben ihre `##`-Gliederungen Gliederungen (vollständig im Verzeichnis) und ihre Zwischenüberschriften ungezählt.
 
 ### Typst: Rechte Seite und Vakat (`pagebreak`) {#sec-pagebreak-recto}
 
@@ -915,7 +919,7 @@ Gemeinsames Lauf-Objekt und Handoff ergänzen den klassischen Import — Details
 
 Timeout beim Handoff: kein Auto-Retry — Marker bleibt `expired` bis du neu lieferst oder manuell übernimmst.
 
-### Vollautomatik: GG-Batchlauf bis zur DOCX (Stand 30.09.) {#sec-automatik-docx}
+### Vollautomatik: GG-Batchlauf bis zur DOCX (Stand 01.10.) {#sec-automatik-docx}
 
 Optional läuft alles ohne Eingreifen vom Batchlauf in El Pitugrafo bis zur fertigen **DOCX** in Book Studio. Die DOCX ist das Endformat: Darin korrigierst du Kleinigkeiten und exportierst danach selbst als PDF. Entscheidungen fallen **am Anfang**, offene Punkte werden **am Ende** gefragt — unterwegs fragt niemand.
 
@@ -923,15 +927,17 @@ Optional läuft alles ohne Eingreifen vom Batchlauf in El Pitugrafo bis zur fert
 
 1. In El Pitugrafo das Buchprojekt laden (Prosa oder Frage-Antwort). Am Projekt muss eine Production-UUID gewählt sein (Cover-first, geplante UUID aus Book Studio).
 2. **Tools → Arbeitsweg → Automatik (Band → DOCX)…** öffnen.
-3. Entscheiden: Formatvorlage (Layout-Editor), Skeleton-Profil, Startstufe (*ab Zuschnitt* = neuer, bezahlter Lauf; *ab Kanon/Nachbesserung* = vorhandener Lauf), Nachbessern (aus / an / nur messen), **Zielumfang in Seiten** (optional, 0 = ohne), Zielordner für eine Kopie der DOCX, Benachrichtigung per ntfy. Ein Cover gehört nicht in die DOCX und wird nicht abgefragt.
+3. Entscheiden: Formatvorlage (Layout-Editor), Skeleton-Profil, Startstufe (*ab Zuschnitt* = neuer, bezahlter Lauf; *ab Kanon/Nachbesserung* = vorhandener Lauf), Nachbessern (aus / an / nur messen), **Zielumfang in Seiten** (optional, 0 = ohne), Zielordner für eine Kopie der DOCX, Benachrichtigung per ntfy. Ein Cover gehört nicht in die DOCX und wird nicht abgefragt. Der Dialog zeigt außerdem, **welche Prompts** laufen (aus „Start line“/„Benutzerdefiniert“ im El-Pitugrafo-Hauptfenster; die Auswahl gilt je Sitzung) und mit welchem **LLM-Preset**.
 4. **Prüfen:** Die Vorab-Prüfung zeigt **alle** Lücken auf einmal (UUID, Buchkonfiguration, Formatvorlage, Pandoc, ein noch ausstehender Handoff …). Erst ohne Lücken lässt sich starten; vorher wird nichts bezahlt.
 5. **Starten:** Vor jedem bezahlten Lauf erscheint die **Kostenabschätzung** (siehe unten). Dort wählst du eine von drei Optionen und startest — das ist die einzige Rückfrage.
 
-Ohne Oberfläche (im GrammarGraph-Ordner): `python -m tools.band_automatik neu --project <Projekt> --doclayout <Vorlage> [--skeleton …] [--nachbessern an] [--start-at …] [--zielseiten 300] --starten`. Ohne Rückfrage — die Kostenabschätzung steht dann auf der Konsole bzw. im Automatik-Log.
+Ohne Oberfläche (im GrammarGraph-Ordner): `python -m tools.band_automatik neu --project <Projekt> --doclayout <Vorlage> [--skeleton …] [--nachbessern an] [--start-at …] [--zielseiten 300] [--custom-lines 11,22,43] [--preset <LLM-Preset>] [--neubeginn] --starten`. Ohne Rückfrage — die Kostenabschätzung steht dann auf der Konsole bzw. im Automatik-Log.
+
+**Vergleichslauf:** Um kleine Läufe nach Code-Änderungen zu vergleichen, im Automatik-Dialog **Wie Lauf … wiederholen…** wählen: Prompts, LLM-Preset und Optionen eines früheren Laufs werden übernommen, und der Haken **Vorher neu beginnen** sorgt für den gleichen Ausgangszustand (frühere Läufe archiviert, Kanon und roter Faden neu). Jeder Lauf legt dafür sein Profil in seinen Batch-Ordner (`output/<Batch>/automatik_profil.json`). Kommandozeile: `python -m tools.band_automatik wiederholen --lauf <Batch> [--starten]`. **Neu beginnen** gibt es auch einzeln, als Knopf in der Arbeitsweg-Leiste von El Pitugrafo.
 
 **Kostenabschätzung vor dem Start**
 
-Gerechnet wird mit dem gewählten Modell (dem aktiven LLM-Preset) und mit dem, was der **letzte Lauf desselben Projekts wirklich verbraucht** hat. Gibt es noch keinen, stehen dort Annahmen, und der Dialog sagt das.
+Oben steht groß die **Gesamtsumme** der gewählten Option, mit der Zahl der Prompts und dem Betrag **je Prompt**. Gerechnet wird mit dem LLM-Preset des Laufs, nur für die **gewählten Prompts**, und mit dem, was ein **früherer Lauf desselben Projekts mit demselben Modell** wirklich verbraucht hat. Gibt es keinen (oder lief der letzte mit einem anderen Modell), stehen dort Annahmen, und der Dialog sagt das.
 
 | Option (= Nachbessern) | Was bezahlt wird |
 |------------------------|------------------|
@@ -939,12 +945,12 @@ Gerechnet wird mit dem gewählten Modell (dem aktiven LLM-Preset) und mit dem, w
 | **Nachbessern nur bei Befunden** (`nur_messen`) | Zusätzlich nachgebessert werden nur Kapitel, in denen die kostenlose Messung etwas findet. |
 | **Prüfmodell liest jedes Kapitel + Nachbessern** (`an`) | Das Prüfmodell liest alles, nachgebessert wird, wo nötig. |
 
-Dazu zeigt der Dialog **je aktiver Stufe** Kosten und Wörter und eine **Seitenprognose** — gemessen an der Seitendichte der gewählten Formatvorlage (Wörter je Seite am zuletzt damit gesetzten Buch). Für die Seiten zählen nur die Stufen, die die Buchkonfiguration ins Buch liefert. Liegt die Prognose über dem **Zielumfang**, steht sie rot da, und der Start verlangt eine zweite Bestätigung (vorbelegt: *Nein*). Gekürzt wird dabei nichts — die Länge schreibt das Modell; der Zielumfang warnt nur.
+Dazu zeigt der Dialog **je aktiver Stufe** die Kosten für alle gewählten Prompts und je Prompt, die Wörter und eine **Seitenprognose** — gemessen an der Seitendichte der gewählten Formatvorlage (Wörter je Seite am zuletzt damit gesetzten Buch). Für die Seiten zählen nur die Stufen, die die Buchkonfiguration ins Buch liefert. Liegt die Prognose über dem **Zielumfang**, steht sie rot da, und der Start verlangt eine zweite Bestätigung (vorbelegt: *Nein*). Gekürzt wird dabei nichts — die Länge schreibt das Modell; der Zielumfang warnt nur.
 
 **Was dann passiert**
 
 - **El Pitugrafo:** Teilkette Zuschnitt → Lauf → Kanon → Nachbesserung. Nachgebessert wird die Pflichtstufe (der Haupttext); übernommene Fassungen ersetzen genau diese Datei, Begleitstufen wie „Spanisch“ oder „Key Takeaway“ bleiben unberührt. Danach Lieferung und Handoff an Book Studio.
-- **Frage-Antwort-Bücher:** Jede Frage steht als Überschrift eine Ebene unter dem Kapitel; die Überschriften der Antwort rücken darunter (sie bleiben Überschriften). Begleitstufen bekommen ihren Anzeigenamen als Kastentitel.
+- **Frage-Antwort-Bücher:** Jede Frage steht als Überschrift eine Ebene unter dem Kapitel; die Überschriften der Antwort rücken darunter (sie bleiben Überschriften). **Kastentitel** („Am Schalter auf Spanisch“, „Key Takeaway“) und ihr Symbol stehen nicht im gelieferten Text, sondern im Absatzformat der Formatvorlage (siehe [§ Kästen](#sec-doclayout-kasten)). Bei einer **Teilauswahl** von Prompts steht jede Gliederungsüberschrift einmal vor dem ersten gewählten Prompt ihres Abschnitts; Abschnitte ohne gewählten Prompt kommen nicht ins Buch.
 - **Book Studio (ohne Oberfläche):** Lieferung übernehmen, fehlende **Pflichtseiten** in die Struktur aufnehmen (vorher Time-Machine-Snapshot), DOCX setzen, ins Render-Archiv legen, den **Abschlussbericht** als Markdown und PDF neben die DOCX legen.
 - **Rote Gates halten nicht an** — sie werden **Warnungen** im Bericht. Abgebrochen wird nur, wenn der nächsten Stufe der Input fehlt (kein Lauf, keine Lieferung, Satz gescheitert).
 - **Frühbremse:** Scheitert die Pflichtstufe bei drei Prompts in Folge, endet der Buchlauf (Fortsetzen per Resume) — Kanon, Nachbesserung und DOCX laufen dann nicht auf einem kaputten Lauf.
@@ -970,7 +976,7 @@ Den Dialog später erneut öffnen (im Book-Studio-Ordner): `python -m tools.auto
 | Ergebnis | Pfad |
 |----------|------|
 | DOCX | `production/books/<Buch>/export/doclayout/<Formatvorlage>.docx` (+ Render-Archiv `export/publish_renders/`, + Kopie im Zielordner, falls gewählt) |
-| Abschlussbericht: Stufen, alle Warnungen, API-Kosten je Stufe und Modell | `production/runs/<UUID>/automatik_bericht.md` **und** neben der DOCX als `automatik_bericht.md` / `.pdf` |
+| Abschlussbericht: Prompt-Auswahl, LLM-Preset, ggf. „Neu begonnen“, Stufen, alle Warnungen, API-Kosten je Stufe und Modell | `production/runs/<UUID>/automatik_bericht.md` **und** neben der DOCX als `automatik_bericht.md` / `.pdf` |
 | Gegenüberstellung Vorfassung ↔ übernommene Fassung (Absätze nebeneinander, Begründung des Vergleichs) | `production/runs/<UUID>/automatik_gegenueberstellung.html` |
 | Ausführliches Log (mit der Kostenabschätzung vor dem Start) | `production/runs/<UUID>/automatik_<Zeit>.log` |
 
@@ -1726,6 +1732,13 @@ erzeugt daraus `reference.docx` und `classmap.lua`.
 > der Export-Einstellungen. Beide Wege stehen nebeneinander und wissen
 > nichts voneinander. Derselbe Satz steht als Banner oben im Editorfenster —
 > er ist keine Fußnote.
+>
+> **Ausnahme (seit 01.10.2026):** Kästen mit **Kastentitel**, **Zwischentitel**
+> und die **Verzeichnistiefe** samt hervorgehobener oberster Ebene gelten auch
+> im Typst-PDF (Fallback) — der Render-Klon wendet dafür den Filter der
+> Vorlage an, wenn das Buch einmal mit ihr gesetzt wurde. Schriften, Abstände
+> und alle übrigen Absatzformate bleiben DOCX-only. Siehe
+> [§ Kästen](#sec-doclayout-kasten).
 
 ### Kick-Start (für schnelle Ergebnisse)
 
@@ -1886,6 +1899,41 @@ Die Wahl gilt **nur für dieses Fenster** — der Rest von Book Studio bleibt he
 Sie wird gemerkt und ist beim nächsten Öffnen wieder da. Das Vorschaublatt
 selbst bleibt in beiden Fällen weiß: Es zeigt, was Writer aus der Vorlage macht,
 und es einzufärben hieße, die Vorschau zu fälschen.
+
+### Kästen: Titel, Symbol, Zwischentitel, Farben {#sec-doclayout-kasten}
+
+Überschriften von Kästen, ihre Symbole und die Zwischentitel in Blöcken gehören
+zum **Absatzformat** — nie in den Text des Buches. Der Satz setzt sie aus der
+Vorlage, im DOCX und im Typst-PDF gleich.
+
+**Reiter „Kasten“** im Formular eines Absatzformats:
+
+| Feld | Bedeutung |
+|------|-----------|
+| **Kastentitel** | Titelzeile, die vor jeden Kasten dieses Formats gesetzt wird, z. B. „Am Schalter auf Spanisch“. Leer mit Symbol: Der Kasten bringt seinen Titel selbst mit (Callout `## Titel`), davor steht nur das Symbol. |
+| **Symbol** | Ein einfarbiges Zeichen vor dem Titel, z. B. 🗨 ✔ ℹ — gesetzt in der **Symbolschrift** der Typografie (Vorgabe *Segoe UI Symbol*). Keine Farb-Emojis. |
+| **Titelformat** | Absatzformat der Titelzeile. Am besten eines, das auf dem Kasten aufbaut (gleicher Hintergrund und Rahmen, also ein geschlossener Kasten), fett, mit „Absatz nicht trennen“. Leer: das Kastenformat, fett. |
+| **Zwischentitel** | Absätze im Block, die nur aus Hervorhebung bestehen (`*Transparenzhinweis …*` im Impressum), bekommen dieses Format — im Buchsatz üblich: fett, Abstand davor, bleibt beim folgenden Absatz. Der Text selbst bleibt unverändert. |
+
+**Typografie → Symbolschrift:** die Schrift für alle Kastensymbole.
+
+**Farben:** Der Farbtoken **`link`** färbt Verweise (Zeichenformat *Hyperlink*);
+ohne ihn bleibt das Blau aus Pandocs Basisvorlage. Für ein Buch ohne Farben im
+Inhalt alle Hintergründe auf ein Hellgrau und alle Schriftfarben (auch `link`)
+auf ein Dunkelgrau stellen — so ist die Vorlage *Reiseführer Andalusien*
+eingestellt (`hellgrau` `F2F2F2`, `dunkelgrau` `404040`).
+
+**Inhaltsverzeichnis:** Welche Ebene wie aussieht, steht in den Formaten
+`TOC1` … `TOC3`. In Frage-Antwort-Büchern ist die Gliederung Ebene 2 (`TOC2`,
+fett mit Abstand), die Fragen Ebene 3. Im Typst-PDF gilt die
+Verzeichnistiefe der Vorlage, und die oberste Ebene, die im Verzeichnis steht,
+ist fett.
+
+**Im Typst-PDF:** Kästen mit Kastentitel werden zu Blöcken mit dem Hintergrund
+und Rahmen ihres Formats, auch Quarto-Callouts (sonst farbig). Voraussetzung:
+Das Buch wurde einmal mit der Vorlage gesetzt (DOCX), dabei entsteht der Filter
+`bookconfig/doclayout/classmap.lua`; ältere Filter ohne Typst-Teil werden
+übergangen (Hinweis im Render-Log: „Layout neu anwenden“).
 
 ### Klassen nach Stufentyp {#sec-doclayout-stufentyp}
 
@@ -2427,7 +2475,7 @@ Buch schreiben. Frontmatter und `_quarto.yml` bleiben erhalten.
 | Tabelle **Zuordnung** | Ziel-Buchdatei ← Quell-Payload; Status; Hinweis. Klick = Diff; Doppelklick Buchdatei = Editor. |
 | **Im Export gefunden** | Weitere Export-.md; Sortierung (Datum/Name); Doppelklick = öffnen. |
 | **Auswahl der Buchzeile zuordnen** | Markierte Export-Datei der markierten Buchzeile zuweisen. |
-| **Anzeigename an Payload anpassen** | Frontmatter-Titel an Payload-Namen. |
+| **Anzeigename an Payload anpassen** | Frontmatter-Titel an Payload-Namen. Bringt die Lieferung keinen eigenen Titel mit, ist der Name nur der Dateiname — dann setzt der Abgleich `print_title: false`, damit er nicht als Kapitel im Buch und im Verzeichnis steht. |
 | **Buchdatei öffnen…** | Markierte Buch-.md im Editor. |
 | **Vorschau / Diff** | Unterschied Ziel ↔ Quelle. |
 | **ℹ** | Sprung in dieses Handbuchkapitel. |
