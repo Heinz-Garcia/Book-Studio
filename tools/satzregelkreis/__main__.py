@@ -115,5 +115,12 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+#: Bedienkatalog (``python -m tools.bedienkatalog`` in Book Studio).
+BEDIENUNG = {
+    "vorgang": "Satz-Regelkreis: setzen, prüfen, nachregeln",
+    "bereich": "Satz, Layout, Export"
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

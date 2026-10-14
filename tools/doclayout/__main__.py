@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -35,16 +36,16 @@ from tools.doclayout.library import (
     load_layout,
 )
 from tools.doclayout.preview import render_preview
-from tools.doclayout.typeset import typeset_book
-from tools.doclayout.requirements import check_requirements, is_blocked, missing
 from tools.doclayout.registry import build_registry, registry_path, write_registry
+from tools.doclayout.requirements import check_requirements, is_blocked, missing
 from tools.doclayout.schema import LayoutDefinition, LayoutError
+from tools.doclayout.targets.docx import build_reference_docx
+from tools.doclayout.typeset import typeset_book
 from tools.doclayout.usage import (
     compare,
     read_generator_classes,
     scan_book_detailed,
 )
-from tools.doclayout.targets.docx import build_reference_docx
 
 
 def _load(args: argparse.Namespace) -> LayoutDefinition:
@@ -375,6 +376,64 @@ def cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _gg_projekt(angabe: str) -> Path | None:
+    """GrammarGraph-Projekt aus Pfad oder Name (unter ``<GrammarGraph>/projects``)."""
+    pfad = Path(angabe).expanduser()
+    if (pfad / "manifest.json").is_file():
+        return pfad
+    from tools.path_favorites.placeholders import discover_grammargraph_root
+
+    gg = discover_grammargraph_root()
+    if gg is not None and (gg / "projects" / angabe / "manifest.json").is_file():
+        return gg / "projects" / angabe
+    return None
+
+
+def cmd_stufen(args: argparse.Namespace) -> int:
+    """Stufen eines GrammarGraph-Projekts ohne Absatzformat -- vor jedem Lauf."""
+    from tools.doclayout.neue_stufen import fehlende_stufen, stufen_des_projekts, vorschlag
+
+    projekt = _gg_projekt(args.projekt)
+    if projekt is None:
+        print(f"FEHLER: GrammarGraph-Projekt nicht gefunden: {args.projekt}", file=sys.stderr)
+        return 2
+    definition = _load(args)
+    stufen = stufen_des_projekts(projekt / "manifest.json")
+    offen = fehlende_stufen(definition, stufen)
+    if args.json:
+        print(json.dumps({
+            "projekt": str(projekt),
+            "layout": definition.name,
+            "stufen": len(stufen),
+            "fehlend": [
+                {
+                    "stage_id": s.stage_id, "anzeigename": s.anzeigename,
+                    "klasse": s.klasse, "stufentyp": s.stufentyp,
+                    "vorschlag": vorschlag(definition, s)[0],
+                }
+                for s in offen
+            ],
+        }, ensure_ascii=False, indent=2))
+    else:
+        print(f"{projekt.name} gegen »{definition.name}«: {len(stufen)} Stufe(n), "
+              f"{len(offen)} ohne Absatzformat.")
+        for s in offen:
+            ziel, gibt_es = vorschlag(definition, s)
+            print(f"  {s.anzeigename:<32s} .{s.klasse}  -> Vorschlag {ziel}"
+                  + ("" if gibt_es else " (neu)"))
+    if args.fenster and offen:
+        from PySide6.QtWidgets import QApplication
+
+        from ui_qt.dialogs.doclayout_neue_stufen import open_neue_stufen
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        _ = app
+        gg_output = projekt.parent.parent / "output"
+        open_neue_stufen(None, definition.name, projekt / "manifest.json",
+                         gg_output=gg_output if gg_output.is_dir() else None)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m tools.doclayout",
@@ -493,6 +552,20 @@ def build_parser() -> argparse.ArgumentParser:
     sp_doctor.add_argument("--soffice", help="Pfad zu soffice(.exe)")
     sp_doctor.set_defaults(func=cmd_doctor)
 
+    sp_stufen = sub.add_parser(
+        "stufen",
+        help="GrammarGraph-Stufen ohne Absatzformat finden (vor dem Lauf) und gestalten",
+    )
+    sp_stufen.add_argument("layout", nargs="?", help="Name aus der Bibliothek")
+    sp_stufen.add_argument("-f", "--file", help="Layout-Datei statt Bibliotheksname")
+    sp_stufen.add_argument("-p", "--projekt", required=True, help="GrammarGraph-Projekt (Name oder Pfad)")
+    sp_stufen.add_argument("--json", action="store_true", help="Ergebnis als JSON")
+    sp_stufen.add_argument(
+        "--fenster", action="store_true",
+        help="fehlende Stufen im Fenster mit Vorschau gestalten (Layout-Editor)",
+    )
+    sp_stufen.set_defaults(func=cmd_stufen)
+
     return parser
 
 
@@ -503,6 +576,14 @@ def main(argv: list[str] | None = None) -> int:
     except LayoutError as exc:
         print(f"FEHLER: {exc}", file=sys.stderr)
         return 2
+
+
+#: Bedienkatalog (``python -m tools.bedienkatalog`` in Book Studio).
+BEDIENUNG = {
+    "bereich": "Satz, Layout, Export",
+    "aendert": True,
+    "hinweis": "apply und import ändern Buch bzw. Vorlagen"
+}
 
 
 if __name__ == "__main__":

@@ -47,6 +47,9 @@ ERLAUBT: dict[str, str] = {
     "services/cover_deckblatt_pdf.py::build_interior_with_cover_deckblatt": TEMP,
     "tools/book_note/store.py::save": LEER,
     "tools/book_projects/label.py::write_display_name": LEER,
+    # Vorab angelegtes Buch: nur Platzhalter-_quarto.yml/-index.md (der
+    # Import erzeugt sie neu) und die eigene Wartemarke.
+    "tools/book_projects/gg_sync.py::erste_lieferung_uebernehmen": ERZEUGT,
     "tools/doclayout/preview.py::_alte_vorschauen_entfernen": ERZEUGT,
     "tools/doclayout/preview.py::_convert_to_pdf_locked": TEMP,
     "tools/doclayout/typeset.py::typeset_book": TEMP,

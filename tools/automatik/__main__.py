@@ -213,5 +213,13 @@ def _main(argv: list[str] | None) -> int:
     return 1 if ergebnis["luecken"] else 0
 
 
+#: Bedienkatalog (``python -m tools.bedienkatalog`` in Book Studio).
+BEDIENUNG = {
+    "bereich": "Läufe und Automatik",
+    "aendert": True,
+    "hinweis": "lauf setzt DOCX und schreibt ins Buch"
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

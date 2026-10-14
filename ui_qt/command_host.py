@@ -386,6 +386,11 @@ class CommandHost:
 
         open_manual(self.w)
 
+    def open_bedienkatalog(self) -> None:
+        from ui_qt.dialogs.help_dialog import open_bedienkatalog
+
+        open_bedienkatalog(self.w)
+
     def edit_help_manual_source(self) -> None:
         import app_config as _app_config
         from tools.handbook_pdf import resolve_handbook_path

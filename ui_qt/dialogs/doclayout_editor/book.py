@@ -202,6 +202,72 @@ class BookMixin:
         # steht die alte Vorschau da und widerspricht dem, was man gerade tat.
         self._start_preview(force=True)
 
+    def _gg_manifest_fuer_buch(self) -> Path | None:
+        """Manifest des gleichnamigen GrammarGraph-Projekts -- sonst fragen."""
+        from tools.path_favorites.placeholders import discover_grammargraph_root
+
+        gg = discover_grammargraph_root()
+        if gg is not None and self._book_path is not None:
+            kandidat = gg / "projects" / self._book_path.name / "manifest.json"
+            if kandidat.is_file():
+                return kandidat
+        gewaehlt, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Manifest des GrammarGraph-Projekts",
+            str(gg / "projects") if gg is not None else "",
+            "Manifest (manifest.json)",
+        )
+        return Path(gewaehlt) if gewaehlt else None
+
+    def _run_neue_stufen(self) -> None:
+        """Stufen ohne Absatzformat vorlegen -- vor dem ersten Lauf, mit Vorschau.
+
+        Derselbe Weg wie beim Assistenten: Das Fenster arbeitet auf der
+        Definition des Editors; „Layout speichern“ dort speichert wie hier.
+        """
+        if self._definition is None:
+            return
+        manifest = self._gg_manifest_fuer_buch()
+        if manifest is None:
+            return
+        from tools.doclayout.neue_stufen import fehlende_stufen, stufen_des_projekts
+        from ui_qt.dialogs.doclayout_neue_stufen import NeueStufenDialog
+
+        self._commit_current_style()
+        self._collect_into_definition()
+        stufen = stufen_des_projekts(manifest)
+        offen = fehlende_stufen(self._definition, stufen)
+        if not offen:
+            QMessageBox.information(
+                self,
+                "Neue Stufen",
+                f"Alle {len(stufen)} Stufen von {manifest.parent.name} haben in "
+                "diesem Layout ein Absatzformat.",
+            )
+            return
+        offenes_format = self._session.detach_form()
+
+        def speichern(definition: LayoutDefinition) -> bool:
+            self._session.replace_definition(definition)
+            self._save()
+            return not self._dirty
+
+        gg_output = manifest.parent.parent.parent / "output"
+        dialog = NeueStufenDialog(
+            self, self._definition, offen,
+            gg_output=gg_output if gg_output.is_dir() else None,
+            save=speichern, projekt_name=manifest.parent.name,
+        )
+        dialog.exec()
+        if not dialog.geaendert:
+            self._session.attach_form(offenes_format)
+            return
+        self._session.replace_definition(dialog.definition)
+        self._session.detach_form()
+        self._refresh_navigation()
+        self._update_dirty_label()
+        self._start_preview(force=True)
+
     def _run_comparison(self) -> None:
         """Fuehrt den Abgleich mit dem gemerkten Buch aus und zeigt ihn an."""
         if self._definition is None or self._book_path is None:

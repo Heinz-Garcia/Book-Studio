@@ -107,5 +107,13 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+#: Bedienkatalog (``python -m tools.bedienkatalog`` in Book Studio).
+BEDIENUNG = {
+    "bereich": "Buchprojekte und Bücher",
+    "aendert": True,
+    "hinweis": "migrate und rollback ändern Ordner"
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

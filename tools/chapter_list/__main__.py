@@ -65,5 +65,12 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+#: Bedienkatalog (``python -m tools.bedienkatalog`` in Book Studio).
+BEDIENUNG = {
+    "vorgang": "Kapitelliste eines Buches als CSV",
+    "bereich": "Prüfen, Vergleichen, Berichte"
+}
+
+
 if __name__ == "__main__":
     sys.exit(main())

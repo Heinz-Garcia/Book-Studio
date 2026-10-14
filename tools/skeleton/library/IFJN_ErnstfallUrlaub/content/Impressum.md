@@ -48,9 +48,13 @@ Dieses Buch dient ausschließlich der Information und Weiterbildung. Die enthalt
 
 Der Autor und der Verlag übernehmen keine Haftung für Schäden, Verluste oder gesundheitliche Folgewirkungen, die direkt oder indirekt aus der Anwendung der in diesem Werk beschriebenen Informationen oder Methoden entstehen. Leserinnen und Leser sind aufgerufen, bei gesundheitlichen Beschwerden, chronischen Leiden oder vor Beginn einer neuen Behandlung stets eigenverantwortlich den Rat eines qualifizierten Mediziners einzuholen.
 
+*Hinweis zu Telefonnummern, Adressen und sonstigen Angaben*
+
+Alle Telefonnummern, Adressen, Öffnungszeiten, Fristen, Beträge und sonstigen Angaben in diesem Buch wurden mit Sorgfalt zusammengestellt, erfolgen jedoch ohne Gewähr. Sie können sich nach Redaktionsschluss ändern. Prüfen Sie wichtige Angaben vor Ort oder bei der zuständigen Stelle nach. Im akuten Notfall gilt in ganz Spanien die europäische Notrufnummer **112**.
+
 *Transparenzhinweis zum Einsatz von Künstlicher Intelligenz (KI)*
 
-Bei der Erstellung dieses Buches wurden Werkzeuge der Künstlichen Intelligenz (KI) als unterstützende Hilfsmittel eingesetzt (z. B. zur Recherche, Strukturierung, Textoptimierung sowie zur Überarbeitung von Formulierungen). Die finale inhaltliche Konzeption, fachliche Kontrolle, Auswahl sowie die redaktionelle und argumentative Gesamtverantwortung liegen vollumfänglich beim Autor. Sämtliche KI-unterstützten Passagen wurden auf Inhalt, Richtigkeit und Verständlichkeit hin geprüft und angepasst.
+Bei der Erstellung dieses Buches wurden Werkzeuge der Künstlichen Intelligenz (KI) eingesetzt.
 :::
 
 ```{=typst}

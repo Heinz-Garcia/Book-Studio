@@ -163,12 +163,20 @@ class BuildMixin:
             "Kapitel."
         )
 
+        self.stufen_button = QPushButton("Neue Stufen…")
+        self.stufen_button.setToolTip(
+            "Legt die Stufen des GrammarGraph-Projekts vor, die in diesem Layout "
+            "noch kein Absatzformat haben -- eine nach der anderen, mit Vorschau. "
+            "Geht vor dem ersten Lauf."
+        )
+
         self.save_button = QPushButton("Speichern")
         for button in (
             self.new_button,
             self.duplicate_button,
             self.import_button,
             self.wizard_button,
+            self.stufen_button,
             self.save_button,
         ):
             bar.addWidget(button)
@@ -192,6 +200,7 @@ class BuildMixin:
         self.duplicate_button.clicked.connect(self._duplicate_layout)
         self.import_button.clicked.connect(self._import_layout)
         self.wizard_button.clicked.connect(self._run_wizard)
+        self.stufen_button.clicked.connect(self._run_neue_stufen)
         self.save_button.clicked.connect(self._save)
         self.dark_button.toggled.connect(self._on_dark_toggled)
         return bar

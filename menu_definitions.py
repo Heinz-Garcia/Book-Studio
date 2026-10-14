@@ -199,6 +199,7 @@ MENU_HELP = [
     MenuItem(label="📘 Handbuch öffnen", command="open_help_manual"),
     MenuItem(label="✏️ Handbuch-Quelle bearbeiten…", command="edit_help_manual_source"),
     MenuItem(label="📄 Handbuch als PDF rendern…", command="render_help_manual_pdf"),
+    MenuItem(label="🧭 Bedienkatalog (was Claude auslösen kann)", command="open_bedienkatalog"),
     MenuSeparator(),
     MenuItem(label="ℹ️ Über", command="_show_about_dialog"),
 ]

@@ -46,11 +46,11 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 22. KDP Cover-Designer (Wrap-PDF für Amazon)
 23. Layout-Editor (Word/Writer-Vorlagen)
 24. Neuerungen 2026-09: Autonome Plugins (Audit & Polish)
-25. What's new (14.10.2026): Vergleichsbericht und Längenvorgabe Fachtext
+25. What's new (14.10.2026): Vergleichsbericht, Längenvorgabe, neue Stufen, Bedienkatalog
 
 In Kapitel 16: [Orchestrierung beide Apps](#sec-orchestrierung-beide-apps) · optional **Marktvarianten** (AT/CH u. Ä.) — siehe [§ Marktvarianten](#sec-marktvarianten).  
 In Kapitel 22: [Geplante UUID (Cover zuerst)](#sec-kdp-planned-uuid) · [Cover aus Vorlage](#sec-kdp-clone-cover).  
-**Neu:** [What's new (14.10.2026)](#sec-whats-new) — Vergleichsbericht über mehrere Automatikläufe, Längenvorgabe für den Fachtext.
+**Neu:** [What's new (14.10.2026)](#sec-whats-new) — Vergleichsbericht über mehrere Automatikläufe, Längenvorgabe für den Fachtext, [neue Stufen gestalten](#sec-whats-new-stufen), [Bedienkatalog und Kurzbefehle](#sec-whats-new-bedienkatalog), [ein Buch ist ein Buch](#sec-whats-new-ein-buch).
 
 ---
 
@@ -729,6 +729,8 @@ Nicht den ganzen Ordner neu importieren, wenn nur der **Nutzinhalt** neu ist:
 - **HTML-Inhalt** rechts
 
 Keine Bearbeitung in diesem Fenster. Quarto ist zum Öffnen **nicht** nötig — `doc/handbuch.html` liegt fertig im Installationsordner.
+
+**Hilfe → 🧭 Bedienkatalog** öffnet daneben ein zweites Fenster: was Claude in beiden Apps gefahrlos auslösen kann — siehe [§ Bedienkatalog](#sec-whats-new-bedienkatalog).
 
 ### Handbuch-Quelle bearbeiten
 
@@ -2022,6 +2024,10 @@ Dasselbe auf der Kommandozeile:
 python -m tools.doclayout usage IFJN_layout -b Band_Dummy
 ```
 
+### Neue Stufen: vor dem ersten Lauf gestalten
+
+Der Knopf **Neue Stufen…** (oben, neben *Assistent…*) legt die Stufen des GrammarGraph-Projekts vor, die in diesem Layout noch **kein Absatzformat** haben — auch solche, die noch nie gelaufen sind. Ausführlich in [§ Neue Stufen gestalten](#sec-whats-new-stufen).
+
 ### Assistent: alle Formatierungsobjekte durchgehen
 
 Ein **Formatierungsobjekt** ist der *Adressat* eines Absatzformats — das,
@@ -2514,7 +2520,7 @@ Technische Audit-Liste: `.doc/autonome-tools-audit.md`.
 
 ---
 
-## 25) What's new (14.10.2026): Vergleichsbericht und Längenvorgabe Fachtext {#sec-whats-new}
+## 25) What's new (14.10.2026): Vergleichsbericht, Längenvorgabe, neue Stufen, Bedienkatalog {#sec-whats-new}
 
 Zwei neue Funktionen in El Pitugrafo (ab **31.79.0**), für die Vollautomatik und für den normalen Lauf. Sie gehören zusammen: Mit dem **Vergleichsbericht** misst du, was die **Längenvorgabe** bewirkt — derselbe Lauf einmal ohne, einmal mit Vorgabe.
 
@@ -2589,6 +2595,73 @@ Findet El Pitugrafo keine solche Stufe, wirkt die Vorgabe nicht. Das steht dann 
 - In der **Kostenabschätzung** rechnet die Seitenprognose mit der Vorgabe; die Zeile der Fachtext-Stufe heißt „(Umfang = Längenvorgabe)“. Die Euro-Beträge bleiben wie gemessen bzw. angenommen.
 
 **Empfehlung:** Erst einen kleinen Lauf ohne Vorgabe fahren, dann denselben mit Vorgabe (**Wie Lauf … wiederholen…** und **Vorher neu beginnen**), und beide im **Vergleichsbericht** nebeneinanderlegen. So siehst du, wie gut das gewählte Modell die Länge einhält.
+
+### Neu: Neue Stufen gestalten — vor dem ersten Lauf {#sec-whats-new-stufen}
+
+**Wozu:** Jede Stufe eines GrammarGraph-Projekts landet im Buch als eigener Block. Hat die Formatvorlage dafür kein Absatzformat, wird der Block im Satz zu gewöhnlichem Fließtext. Bisher fiel das erst **nach** einem bezahlten Lauf in der Nacharbeit auf. Jetzt wird jede fehlende Definition **vorher** gemeldet und dir zur Gestaltung vorgelegt.
+
+**Wo es dir begegnet**
+
+- In der **Vorab-Prüfung der Automatik** (El Pitugrafo, Knopf *Prüfen*) als Warnung: „Ohne Absatzformat in «Vorlage»: »Stufe« … — im Satz Fließtext“, mit dem Befehl zum Gestalten. Es ist eine Warnung, kein Stopp.
+- Im **Layout-Editor** über den Knopf **Neue Stufen…**. Das Buch des Editors bestimmt das GrammarGraph-Projekt (gleicher Name); sonst fragt ein Dialog nach dem Manifest.
+- Als Kurzbefehl in Claude Code: `/stufen-layout <Projekt> [<Formatvorlage>]`.
+- Auf der Kommandozeile: `python -m tools.doclayout stufen <Formatvorlage> -p <Projekt>` (`--json` für Maschinen, `--fenster` öffnet das Fenster).
+
+**Das Fenster „Neue Stufen gestalten“**
+
+| Bereich | Was du dort tust |
+|---|---|
+| Links | die Stufen ohne Format; ✓ = zugeordnet |
+| Mitte | Anzeigename der Stufe, Woher der Beispieltext stammt, Auswahl **Absatzformat** — vorbelegt mit einem Vorschlag: der Haupttext eines Kapitels → Fließtext (*BodyText*), jede andere Stufe → ein eigenes Format nach ihrem Namen (gibt es das schon, wird es wiederverwendet). Darunter dasselbe Formular wie im Editor zum Feinschliff (Schrift, Abstände, Rahmen, Kasten). |
+| Rechts | die **echte Vorschau** des Editors (Pandoc + LibreOffice) mit dem Text aus dem **jüngsten Lauf dieser Stufe**; ist sie noch nie gelaufen, mit einem Platzhalter |
+| Unten | **Zuordnen und weiter** (springt zur nächsten offenen Stufe), **Überspringen** (z. B. Stufe kommt nicht ins Buch), **Layout speichern**, **Schließen** (fragt bei ungespeicherten Zuordnungen nach) |
+
+Zugeordnet wird unter dem **Stufentyp** (`…_spanisch` → `spanisch`) — die Gestaltung gilt danach für **jedes** Buch mit dieser Stufe. Planungsstufen (die Prompts erzeugen, aber keinen Buchtext) erscheinen nicht.
+
+### Neu: Bedienkatalog und Kurzbefehle („Vibe Operating“) {#sec-whats-new-bedienkatalog}
+
+Wenn du Claude die beiden Apps bedienen lässt, zeigt der **Bedienkatalog**, was dabei gefahrlos und wiederholbar geht:
+
+| Zeichen | Bedeutung |
+|---|---|
+| 🟢 | erprobt — Funktion der App mit Tests; Claude nennt sie und führt sie aus |
+| ⚪ | ungetestet — nur mit deinem Okay |
+| 🟡 | nur Oberfläche — gibt es nur als Fenster; Claude leitet dich an |
+| 🔴 | alles, was **nicht** im Katalog steht — nur von Hand, mit Sicherung und deinem Okay |
+
+💶 kostet Geld (LLM-Aufrufe), ⚠️ verändert oder entfernt Daten — beides nur nach deinem ausdrücklichen Ja.
+
+- **Ansehen:** Book Studio **Hilfe → 🧭 Bedienkatalog**, El Pitugrafo **Hilfe → Bedienkatalog**. Beide zeigen dieselbe Datei (`.doc/bedienkatalog.md`).
+- **Erzeugen:** Knopf **Neu erzeugen** im Book-Studio-Fenster oder `python -m tools.bedienkatalog`. Der Katalog wird aus dem Code beider Apps gelesen — Kommandozeilen, Fenster, Tests und die `BEDIENUNG`-Angaben neben den Funktionen. Nicht von Hand bearbeiten.
+
+**Kurzbefehle in Claude Code** (Eingabe mit `/`, im Book-Studio-Ordner). Jeder folgt einem festen Ablauf und fragt vor 💶/⚠️ nach:
+
+| Kurzbefehl | Was er tut |
+|---|---|
+| `/probelauf <Projekt> <Preset> <Prompts>` 💶 | Probelauf eines Presets an wenigen Prompts, Bericht je Prompt |
+| `/vergleich <BatchA> <BatchB> …` | Vergleichsbericht über Läufe |
+| `/automatik-pruefen <Projekt> <Formatvorlage>` | Automatik-Profil anlegen und prüfen — startet nie |
+| `/katalog` | Bedienkatalog neu erzeugen und Änderungen nennen |
+| `/uuid-neu <Projekt> "<Titel>"` ⚠️ | Production-UUID in Book Studio anlegen und am Projekt setzen |
+| `/stufen-layout <Projekt> [<Formatvorlage>]` | Stufen ohne Absatzformat finden und im Fenster gestalten lassen |
+
+Die Kurzbefehle liegen unter `.claude/skills/` (nicht versioniert).
+
+### Neu: Ein Buch ist ein Buch {#sec-whats-new-ein-buch}
+
+Was du in El Pitugrafo mit einem Buchprojekt tust, kommt sofort auch in Book Studio an — nicht erst mit der ersten Lieferung:
+
+| In El Pitugrafo | In Book Studio |
+|---|---|
+| neues Buch anlegen | gleichnamiges, leeres Buch unter `production/books/`; es wartet auf die erste Lieferung und übernimmt sie dann vollständig |
+| Projekt umbenennen | Buch umbenannt — samt Notiz, Pfaden und dem zuletzt geöffneten Buch der Sitzung. Hält ein Programm den Ordner fest, wird kopiert; der alte Ordner kann danach in den Papierkorb |
+| Projekt duplizieren / Marktvariante anlegen | eigenes Buch; die Kopie bekommt **keine** kopierte Production-UUID (eigene wählen, Cover zuerst) |
+
+Book Studio selbst bietet kein Umbenennen von Büchern an — umbenannt wird in El Pitugrafo.
+
+**Buchnotiz:** In El Pitugrafo öffnet *Buchnotiz…* jetzt genau die Notiz des geladenen Projekts (gleicher Buchname) und wechselt mit, wenn du das Projekt umschaltest. Es ist dieselbe Datei, die Book Studio zeigt (`bookconfig/notiz.md`).
+
+**Impressum (Skeleton):** Die Skeleton-Vorlagen enthalten jetzt einen Hinweis, dass Telefonnummern, Adressen und andere Angaben **ohne Gewähr** sind; der KI-Hinweis sagt nur noch, dass KI-Werkzeuge eingesetzt wurden.
 
 ### Sonst geändert
 

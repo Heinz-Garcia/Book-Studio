@@ -161,8 +161,15 @@ def materialize_delivery_as_working_book(
     slug = resolve_project_slug_for_delivery(delivery, repo=repo_root)
     book = (books_dir / slug).resolve()
 
+    from tools.book_projects.gg_sync import erste_lieferung_uebernehmen, wartet_auf_lieferung
+
     if not book.exists():
         shutil.copytree(delivery, book)
+    elif wartet_auf_lieferung(book):
+        # Vorab für das GrammarGraph-Projekt angelegt: die erste Lieferung
+        # vollständig übernehmen wie in ein neues Buch (der Sync unten nähme
+        # nur Teile mit).
+        erste_lieferung_uebernehmen(delivery, book)
     else:
         _sync_delivery_into_existing_book(delivery, book)
 

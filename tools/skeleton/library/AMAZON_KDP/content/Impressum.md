@@ -50,7 +50,7 @@ Der Autor und der Verlag übernehmen keine Haftung für Schäden, Verluste oder 
 
 *Transparenzhinweis zum Einsatz von Künstlicher Intelligenz (KI)*
 
-Bei der Erstellung dieses Buches wurden Werkzeuge der Künstlichen Intelligenz (KI) als unterstützende Hilfsmittel eingesetzt (z. B. zur Recherche, Strukturierung, Textoptimierung sowie zur Überarbeitung von Formulierungen). Die finale inhaltliche Konzeption, fachliche Kontrolle, Auswahl sowie die redaktionelle und argumentative Gesamtverantwortung liegen vollumfänglich beim Autor. Sämtliche KI-unterstützten Passagen wurden auf Inhalt, Richtigkeit und Verständlichkeit hin geprüft und angepasst.
+Bei der Erstellung dieses Buches wurden Werkzeuge der Künstlichen Intelligenz (KI) eingesetzt.
 :::
 
 ```{=typst}

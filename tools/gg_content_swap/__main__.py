@@ -77,5 +77,12 @@ def main(argv: list[str] | None = None) -> int:
     return 1 if result.errors else 0
 
 
+#: Bedienkatalog (``python -m tools.bedienkatalog`` in Book Studio).
+BEDIENUNG = {
+    "bereich": "Satz, Layout, Export",
+    "aendert": True
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -64,3 +64,13 @@ def in_papierkorb(pfad: Path | str) -> bool:
 
 
 __all__ = ["PapierkorbFehler", "ablage", "in_papierkorb"]
+
+
+#: Bedienkatalog (``python -m tools.bedienkatalog`` in Book Studio).
+BEDIENUNG = {
+    "vorgang": "Ordner oder Datei in den Papierkorb (Book Studio)",
+    "bereich": "Buchprojekte und Bücher",
+    "aufruf": "services.papierkorb.in_papierkorb",
+    "aendert": True,
+    "hinweis": "nie endgültig löschen; Python der BS-.venv nehmen (send2trash)"
+}

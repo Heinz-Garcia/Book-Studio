@@ -81,14 +81,24 @@ class PreviewWorker(QThread):
     finished_ok = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, definition: LayoutDefinition, work_dir: Path) -> None:
+    def __init__(
+        self,
+        definition: LayoutDefinition,
+        work_dir: Path,
+        sample_markdown: str | None = None,
+    ) -> None:
         super().__init__()
         self._definition = definition
         self._work_dir = work_dir
+        # Eigener Musterinhalt (z. B. echte Texte neuer Stufen); sonst der
+        # aus der classmap abgeleitete.
+        self._sample_markdown = sample_markdown
 
     def run(self) -> None:  # noqa: D102 - QThread-Vertrag
         try:
-            result = render_preview(self._definition, self._work_dir)
+            result = render_preview(
+                self._definition, self._work_dir, sample_markdown=self._sample_markdown
+            )
         except LayoutError as exc:
             self.failed.emit(str(exc))
         except OSError as exc:
@@ -156,7 +166,9 @@ class PreviewRunner(QObject):
             return
         self._timer.start()
 
-    def start(self, definition: LayoutDefinition) -> None:
+    def start(
+        self, definition: LayoutDefinition, sample_markdown: str | None = None
+    ) -> None:
         """Setzt *definition* -- oder merkt sich, dass nachzuholen ist.
 
         Läuft schon einer, wird er **nicht** abgebrochen: Ein halb geschriebenes
@@ -171,7 +183,7 @@ class PreviewRunner(QObject):
             self._pending = True
             return
         self._pending = False
-        self._worker = PreviewWorker(definition, self._work_dir)
+        self._worker = PreviewWorker(definition, self._work_dir, sample_markdown)
         self._worker.finished_ok.connect(self.ready)
         self._worker.failed.connect(self.failed)
         self._worker.finished.connect(self._on_finished)

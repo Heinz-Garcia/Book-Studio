@@ -259,6 +259,32 @@ def optionen(repo: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _stufen_ohne_format(definition: Any, profil: dict[str, Any]) -> list[str]:
+    """Stufen des GG-Projekts, die in der Formatvorlage kein Absatzformat haben.
+
+    Warnung statt Lücke (rote Gates = Warnung + weiter): Ohne Format wird die
+    Stufe im Satz Fließtext -- hässlich, aber kein Grund, nicht zu liefern.
+    Vorher fiel das erst nach dem bezahlten Lauf in der Nacharbeit auf.
+    """
+    manifest = Path(_str(profil.get("gg") or {}, "projekt")) / "manifest.json"
+    if not manifest.is_file():
+        return []
+    from tools.doclayout.neue_stufen import fehlende_stufen, stufen_des_projekts
+
+    try:
+        offen = fehlende_stufen(definition, stufen_des_projekts(manifest))
+    except (OSError, ValueError) as exc:
+        return [f"Stufen nicht prüfbar ({manifest}): {exc}"]
+    if not offen:
+        return []
+    namen = ", ".join(f"»{s.anzeigename}«" for s in offen)
+    return [(
+        f"Ohne Absatzformat in «{definition.name}»: {namen} -- im Satz Fließtext. "
+        f"Vorher gestalten: python -m tools.doclayout stufen {definition.name} "
+        f"-p {manifest.parent.name} --fenster"
+    )]
+
+
 def pruefe_bs(profil: dict[str, Any], repo: Path) -> dict[str, list[str]]:
     """Prüft alles, was die BS-Seite braucht -- bevor GG Geld ausgibt.
 
@@ -288,6 +314,7 @@ def pruefe_bs(profil: dict[str, Any], repo: Path) -> dict[str, list[str]]:
             from tools.doclayout.taschenbuch import pruefe_taschenbuch
 
             luecken += pruefe_taschenbuch(definition)
+            warnungen += _stufen_ohne_format(definition, profil)
 
     try:
         from tools.doclayout.targets.docx import find_pandoc

@@ -49,10 +49,12 @@ class HelpDialog(QDialog):
         *,
         md_path: Optional[Path] = None,
         anchor: Optional[str] = None,
+        title: str = "Handbuch",
+        html_text: str | None = None,
     ) -> None:
         # Kein Qt-Parent: sonst bleibt die Hilfe modal/oben und blockiert Tools.
         super().__init__(None)
-        self.setWindowTitle("Handbuch")
+        self.setWindowTitle(title)
         apply_persisted_size(
             self,
             _SIZE_KEY,
@@ -80,10 +82,20 @@ class HelpDialog(QDialog):
         self.browser.setOpenExternalLinks(True)
         layout.addWidget(self.browser)
 
+        self.button_row = QHBoxLayout()
+        self.button_row.addStretch(1)
         close_btn = QPushButton("Schließen")
         close_btn.clicked.connect(self.accept)
-        layout.addWidget(close_btn)
+        self.button_row.addWidget(close_btn)
+        layout.addLayout(self.button_row)
 
+        if html_text is not None:
+            # Fertiges HTML (z. B. Bedienkatalog) -- ohne Verzeichnis-Einschub.
+            self.browser.setHtml(html_text)
+            self.browser.setSearchPaths([str(self._html_path.parent)])
+            if parent is not None:
+                prepare_autonomous_window(self, parent)
+            return
         try:
             html = self._html_path.read_text(encoding="utf-8")
             try:
@@ -180,4 +192,67 @@ def open_manual(
     return True
 
 
-__all__ = ["HelpDialog", "open_manual"]
+#: Eigenes Fenster neben dem Handbuch -- beide gleichzeitig offen.
+_active_katalog: list[HelpDialog] = []
+
+
+def _katalog_html(md_path: Path) -> str:
+    from tools.handbook_html import build_handbook_html
+
+    html, _sections = build_handbook_html(
+        md_path.read_text(encoding="utf-8"), title="Bedienkatalog"
+    )
+    return html
+
+
+def open_bedienkatalog(parent: QWidget | None = None) -> bool:
+    """Zeigt den Bedienkatalog (``.doc/bedienkatalog.md``) schreibgeschützt an.
+
+    Der Katalog wird aus beiden Apps erzeugt (``python -m tools.bedienkatalog``);
+    hier wird er nur gelesen. „Neu erzeugen“ ruft denselben Generator auf --
+    eine Quelle, keine zweite Pflege.
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from ui_qt.book_workspace import repo_root
+
+    md_path = repo_root() / ".doc" / "bedienkatalog.md"
+    existing = raise_if_open(_active_katalog, lambda _d: True)
+    if existing is not None:
+        return True
+    if not md_path.is_file():
+        QMessageBox.information(
+            parent,
+            "Bedienkatalog",
+            "Der Bedienkatalog ist noch nicht erzeugt.\n\n"
+            "Im Book-Studio-Ordner: python -m tools.bedienkatalog",
+        )
+        return False
+
+    dialog = HelpDialog(
+        parent, md_path, title="Bedienkatalog — was Claude auslösen kann",
+        html_text=_katalog_html(md_path),
+    )
+
+    def neu_erzeugen() -> None:
+        from tools.bedienkatalog.__main__ import main as erzeuge
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            erzeuge(["--out", str(md_path)])
+            dialog.browser.setHtml(_katalog_html(md_path))
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(dialog, "Bedienkatalog", f"Nicht erzeugt:\n{exc}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    knopf = QPushButton("Neu erzeugen")
+    knopf.setToolTip("Liest beide Apps neu ein (Kommandozeilen, BEDIENUNG-Angaben, Tests).")
+    knopf.clicked.connect(neu_erzeugen)
+    dialog.button_row.insertWidget(0, knopf)
+    show_autonomous_window(dialog, _active_katalog)
+    return True
+
+
+__all__ = ["HelpDialog", "open_bedienkatalog", "open_manual"]

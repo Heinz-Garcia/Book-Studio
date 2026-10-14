@@ -64,5 +64,12 @@ def main(argv: list[str] | None = None) -> int:
     return 1 if any(b.schwere == "hoch" for b in befunde) else 0
 
 
+#: Bedienkatalog (``python -m tools.bedienkatalog`` in Book Studio).
+BEDIENUNG = {
+    "vorgang": "Satzprüfung eines gesetzten PDFs",
+    "bereich": "Prüfen, Vergleichen, Berichte"
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -307,7 +307,12 @@ def accept_delivery(
         books_dir = ensure_books_workspace_dir(cfg, repo)
         slug = resolve_project_slug_for_delivery(delivery, repo=repo)
         prior = (books_dir / slug).resolve()
-        had_structure = prior.is_dir() and is_quarto_book(prior)
+        from tools.book_projects.gg_sync import wartet_auf_lieferung
+
+        # Ein vorab angelegtes, noch leeres Buch hat keine eigene Struktur.
+        had_structure = (
+            prior.is_dir() and is_quarto_book(prior) and not wartet_auf_lieferung(prior)
+        )
     except (OSError, TypeError, ValueError):
         had_structure = False
 

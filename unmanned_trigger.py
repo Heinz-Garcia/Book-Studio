@@ -379,5 +379,14 @@ def main():
         raise SystemExit(1) from exc
 
 
+#: Bedienkatalog (``python -m tools.bedienkatalog`` in Book Studio).
+BEDIENUNG = {
+    "vorgang": "Buch rendern ohne Oberfläche (Quarto/Typst)",
+    "bereich": "Satz, Layout, Export",
+    "aufruf": "python unmanned_trigger.py",
+    "hinweis": "arbeitet in einem Temp-Klon"
+}
+
+
 if __name__ == "__main__":
     main()

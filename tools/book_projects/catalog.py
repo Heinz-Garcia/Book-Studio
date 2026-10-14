@@ -227,3 +227,11 @@ __all__ = [
     "sanitize_book_folder_name",
     "write_content_root_config",
 ]
+
+
+#: Bedienkatalog (``python -m tools.bedienkatalog`` in Book Studio).
+BEDIENUNG = {
+    "vorgang": "Leeres Buch in Book Studio anlegen",
+    "bereich": "Buchprojekte und Bücher",
+    "aufruf": "catalog.create_empty_book"
+}
