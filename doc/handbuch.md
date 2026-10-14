@@ -10,7 +10,7 @@ format:
 
 # Quarto Book Studio — Nutzerhandbuch
 
-**Stand:** 26. September 2026 · **Version:** 2.85.37 („Skeleton Unleashed“)
+**Stand:** 14. Oktober 2026 · **Version:** 2.96.2 („Skeleton Unleashed“) · El Pitugrafo 31.79.0
 
 Dieses Handbuch beschreibt den täglichen Umgang mit dem Book Studio: Buch aufbauen, prüfen, bereinigen und als PDF/HTML/DOCX exportieren. Es ist für die **Einzelplatz-Nutzung** auf deinem Rechner geschrieben.
 
@@ -46,9 +46,11 @@ Beim PDF-Export erzeugt Quarto automatisch ein Inhaltsverzeichnis. Die Kapitel:
 22. KDP Cover-Designer (Wrap-PDF für Amazon)
 23. Layout-Editor (Word/Writer-Vorlagen)
 24. Neuerungen 2026-09: Autonome Plugins (Audit & Polish)
+25. What's new (14.10.2026): Vergleichsbericht und Längenvorgabe Fachtext
 
 In Kapitel 16: [Orchestrierung beide Apps](#sec-orchestrierung-beide-apps) · optional **Marktvarianten** (AT/CH u. Ä.) — siehe [§ Marktvarianten](#sec-marktvarianten).  
-In Kapitel 22: [Geplante UUID (Cover zuerst)](#sec-kdp-planned-uuid) · [Cover aus Vorlage](#sec-kdp-clone-cover).
+In Kapitel 22: [Geplante UUID (Cover zuerst)](#sec-kdp-planned-uuid) · [Cover aus Vorlage](#sec-kdp-clone-cover).  
+**Neu:** [What's new (14.10.2026)](#sec-whats-new) — Vergleichsbericht über mehrere Automatikläufe, Längenvorgabe für den Fachtext.
 
 ---
 
@@ -919,7 +921,7 @@ Gemeinsames Lauf-Objekt und Handoff ergänzen den klassischen Import — Details
 
 Timeout beim Handoff: kein Auto-Retry — Marker bleibt `expired` bis du neu lieferst oder manuell übernimmst.
 
-### Vollautomatik: GG-Batchlauf bis zur DOCX (Stand 01.10.) {#sec-automatik-docx}
+### Vollautomatik: GG-Batchlauf bis zur DOCX (Stand 14.10.) {#sec-automatik-docx}
 
 Optional läuft alles ohne Eingreifen vom Batchlauf in El Pitugrafo bis zur fertigen **DOCX** in Book Studio. Die DOCX ist das Endformat: Darin korrigierst du Kleinigkeiten und exportierst danach selbst als PDF. Entscheidungen fallen **am Anfang**, offene Punkte werden **am Ende** gefragt — unterwegs fragt niemand.
 
@@ -927,13 +929,15 @@ Optional läuft alles ohne Eingreifen vom Batchlauf in El Pitugrafo bis zur fert
 
 1. In El Pitugrafo das Buchprojekt laden (Prosa oder Frage-Antwort). Am Projekt muss eine Production-UUID gewählt sein (Cover-first, geplante UUID aus Book Studio).
 2. **Tools → Arbeitsweg → Automatik (Band → DOCX)…** öffnen.
-3. Entscheiden: Formatvorlage (Layout-Editor), Skeleton-Profil, Startstufe (*ab Zuschnitt* = neuer, bezahlter Lauf; *ab Kanon/Nachbesserung* = vorhandener Lauf), Nachbessern (aus / an / nur messen), **Zielumfang in Seiten** (optional, 0 = ohne), Zielordner für eine Kopie der DOCX, Benachrichtigung per ntfy. Ein Cover gehört nicht in die DOCX und wird nicht abgefragt. Der Dialog zeigt außerdem, **welche Prompts** laufen (aus „Start line“/„Benutzerdefiniert“ im El-Pitugrafo-Hauptfenster; die Auswahl gilt je Sitzung) und mit welchem **LLM-Preset**.
+3. Entscheiden: Formatvorlage (Layout-Editor), Skeleton-Profil, Startstufe (*ab Zuschnitt* = neuer, bezahlter Lauf; *ab Kanon/Nachbesserung* = vorhandener Lauf), Nachbessern (aus / an / nur messen), **Zielumfang in Seiten** (optional, 0 = ohne), **Wörter je Fachtext** (optionale Längenvorgabe, siehe [§ What's new](#sec-whats-new-laenge)), Zielordner für eine Kopie der DOCX, Benachrichtigung per ntfy. Ein Cover gehört nicht in die DOCX und wird nicht abgefragt. Der Dialog zeigt außerdem, **welche Prompts** laufen (aus „Start line“/„Benutzerdefiniert“ im El-Pitugrafo-Hauptfenster; die Auswahl gilt je Sitzung) und mit welchem **LLM-Preset**.
 4. **Prüfen:** Die Vorab-Prüfung zeigt **alle** Lücken auf einmal (UUID, Buchkonfiguration, Formatvorlage, Pandoc, ein noch ausstehender Handoff …). Erst ohne Lücken lässt sich starten; vorher wird nichts bezahlt.
 5. **Starten:** Vor jedem bezahlten Lauf erscheint die **Kostenabschätzung** (siehe unten). Dort wählst du eine von drei Optionen und startest — das ist die einzige Rückfrage.
 
-Ohne Oberfläche (im GrammarGraph-Ordner): `python -m tools.band_automatik neu --project <Projekt> --doclayout <Vorlage> [--skeleton …] [--nachbessern an] [--start-at …] [--zielseiten 300] [--custom-lines 11,22,43] [--preset <LLM-Preset>] [--neubeginn] --starten`. Ohne Rückfrage — die Kostenabschätzung steht dann auf der Konsole bzw. im Automatik-Log.
+Ohne Oberfläche (im GrammarGraph-Ordner): `python -m tools.band_automatik neu --project <Projekt> --doclayout <Vorlage> [--skeleton …] [--nachbessern an] [--start-at …] [--zielseiten 300] [--ziel-woerter-fachtext 450] [--custom-lines 11,22,43] [--preset <LLM-Preset>] [--neubeginn] --starten`. Ohne Rückfrage — die Kostenabschätzung steht dann auf der Konsole bzw. im Automatik-Log.
 
 **Vergleichslauf:** Um kleine Läufe nach Code-Änderungen zu vergleichen, im Automatik-Dialog **Wie Lauf … wiederholen…** wählen: Prompts, LLM-Preset und Optionen eines früheren Laufs werden übernommen, und der Haken **Vorher neu beginnen** sorgt für den gleichen Ausgangszustand (frühere Läufe archiviert, Kanon und roter Faden neu). Jeder Lauf legt dafür sein Profil in seinen Batch-Ordner (`output/<Batch>/automatik_profil.json`). Kommandozeile: `python -m tools.band_automatik wiederholen --lauf <Batch> [--starten]`. **Neu beginnen** gibt es auch einzeln, als Knopf in der Arbeitsweg-Leiste von El Pitugrafo.
+
+**Vergleichsbericht:** Daneben legt **Vergleichsbericht…** zwei oder mehr frühere Läufe als HTML nebeneinander — Kosten, Wörter, Status, Harmonie, Quality Cop und die Texte selbst. Ausführlich in [§ What's new](#sec-whats-new-vergleich).
 
 **Kostenabschätzung vor dem Start**
 
@@ -945,7 +949,7 @@ Oben steht groß die **Gesamtsumme** der gewählten Option, mit der Zahl der Pro
 | **Nachbessern nur bei Befunden** (`nur_messen`) | Zusätzlich nachgebessert werden nur Kapitel, in denen die kostenlose Messung etwas findet. |
 | **Prüfmodell liest jedes Kapitel + Nachbessern** (`an`) | Das Prüfmodell liest alles, nachgebessert wird, wo nötig. |
 
-Dazu zeigt der Dialog **je aktiver Stufe** die Kosten für alle gewählten Prompts und je Prompt, die Wörter und eine **Seitenprognose** — gemessen an der Seitendichte der gewählten Formatvorlage (Wörter je Seite am zuletzt damit gesetzten Buch). Für die Seiten zählen nur die Stufen, die die Buchkonfiguration ins Buch liefert. Liegt die Prognose über dem **Zielumfang**, steht sie rot da, und der Start verlangt eine zweite Bestätigung (vorbelegt: *Nein*). Gekürzt wird dabei nichts — die Länge schreibt das Modell; der Zielumfang warnt nur.
+Dazu zeigt der Dialog **je aktiver Stufe** die Kosten für alle gewählten Prompts und je Prompt, die Wörter und eine **Seitenprognose** — gemessen an der Seitendichte der gewählten Formatvorlage (Wörter je Seite am zuletzt damit gesetzten Buch). Für die Seiten zählen nur die Stufen, die die Buchkonfiguration ins Buch liefert. Liegt die Prognose über dem **Zielumfang**, steht sie rot da, und der Start verlangt eine zweite Bestätigung (vorbelegt: *Nein*). Gekürzt wird dabei nichts — die Länge schreibt das Modell; der Zielumfang warnt nur. Ist eine **Längenvorgabe** gesetzt, rechnet die Seitenprognose für die Fachtext-Stufe mit ihr statt mit der Messung; die Zeile heißt dann „(Umfang = Längenvorgabe)“. Die Euro-Beträge bleiben wie gemessen bzw. angenommen.
 
 **Was dann passiert**
 
@@ -976,9 +980,11 @@ Den Dialog später erneut öffnen (im Book-Studio-Ordner): `python -m tools.auto
 | Ergebnis | Pfad |
 |----------|------|
 | DOCX | `production/books/<Buch>/export/doclayout/<Formatvorlage>.docx` (+ Render-Archiv `export/publish_renders/`, + Kopie im Zielordner, falls gewählt) |
-| Abschlussbericht: Prompt-Auswahl, LLM-Preset, ggf. „Neu begonnen“, Stufen, alle Warnungen, API-Kosten je Stufe und Modell | `production/runs/<UUID>/automatik_bericht.md` **und** neben der DOCX als `automatik_bericht.md` / `.pdf` |
+| Abschlussbericht: Prompt-Auswahl, LLM-Preset, ggf. „Neu begonnen“, Längenvorgabe, Stufen, alle Warnungen (auch Ist↔Ziel der Längenvorgabe), API-Kosten je Stufe und Modell | `production/runs/<UUID>/automatik_bericht.md` **und** neben der DOCX als `automatik_bericht.md` / `.pdf` |
 | Gegenüberstellung Vorfassung ↔ übernommene Fassung (Absätze nebeneinander, Begründung des Vergleichs) | `production/runs/<UUID>/automatik_gegenueberstellung.html` |
 | Ausführliches Log (mit der Kostenabschätzung vor dem Start) | `production/runs/<UUID>/automatik_<Zeit>.log` |
+| Harmonie und Quality-Cop-Scan des Laufs (für den Vergleichsbericht) | im GrammarGraph-Batch: `output/<Batch>/_harmonie.json`, `output/<Batch>/_umlaut_candidates.csv` |
+| Vergleichsbericht über mehrere Läufe | GrammarGraph: `output/automatik_vergleichsbericht_<JJJJMMTT_hhmmss>.html` |
 
 **Neues Modell ausprobieren (Probelauf)**
 
@@ -2505,6 +2511,91 @@ Beim erneuten Import wird Provenance nur übersprungen, wenn der **Inhalt** iden
 | `GRAMMARGRAPH_ROOT` | Optionaler Pfad zum GrammarGraph-Repo (UUID-Manager) |
 
 Technische Audit-Liste: `.doc/autonome-tools-audit.md`.
+
+---
+
+## 25) What's new (14.10.2026): Vergleichsbericht und Längenvorgabe Fachtext {#sec-whats-new}
+
+Zwei neue Funktionen in El Pitugrafo (ab **31.79.0**), für die Vollautomatik und für den normalen Lauf. Sie gehören zusammen: Mit dem **Vergleichsbericht** misst du, was die **Längenvorgabe** bewirkt — derselbe Lauf einmal ohne, einmal mit Vorgabe.
+
+### Neu: Vergleichsbericht über mehrere Automatikläufe {#sec-whats-new-vergleich}
+
+**Wozu:** Nach einer Code-Änderung, einem anderen Modell oder einer neuen Längenvorgabe willst du wissen, was sich geändert hat. Bisher musstest du zwei Läufe von Hand nebeneinanderlegen. Jetzt erzeugt El Pitugrafo dafür einen HTML-Bericht, für **zwei oder mehr** Läufe (Reihe A, B, C …).
+
+**So öffnest du ihn**
+
+1. In El Pitugrafo **Tools → Arbeitsweg → Automatik (Band → DOCX)…** öffnen.
+2. In der Zeile *Vergleichslauf* auf **Vergleichsbericht…** klicken (neben **Wie Lauf … wiederholen…**).
+3. Die Liste zeigt alle früheren Automatikläufe dieses Buchs, **die älteste oben**. Die beiden neuesten sind angehakt. Weitere ankreuzen und mit der Maus die Reihenfolge ziehen: Von oben nach unten heißen die Läufe **A, B, C …**. **A ist die Referenz**; alle anderen werden gegen A verglichen.
+4. **OK:** Der Bericht wird geschrieben und öffnet sich im Browser.
+
+Ohne Oberfläche (im GrammarGraph-Ordner):
+`python -m tools.band_automatik vergleich --laeufe <BatchA>,<BatchB>[,<BatchC>…] [--out <Datei oder Ordner>] [--project <Projekt>]`
+Die Batches gibst du als Ordnernamen unter `output/` oder als Pfad an; die Reihenfolge ist A, B, C …
+
+**Was drinsteht:** nur, was die Läufe selbst festgehalten haben. Nichts wird geschätzt.
+
+| Teil | Inhalt |
+|------|--------|
+| **Warnungen** oben | ungleiche Prompt-Auswahl oder ungleiches LLM-Preset (dann ist es **kein fairer Vergleich**); ein Lauf ohne Laufübersicht (seine Kosten sind dann nur eine Untergrenze) |
+| **Kopf je Lauf** | Batch, **Startzeit**, Prompt-Auswahl, Preset, **Code-Version** von El Pitugrafo, Längenvorgabe, **Kosten** (Summe, darunter Kette und Lauf einzeln), Token ein/aus, **Dauer**, **Wiederholungen**, Fehler, Quality Cop, Harmonie |
+| **Wörter und Kosten je Prompt und Stufe** | Wörter je Lauf, Differenz zu A, Kosten je Lauf |
+| **Status, Pflichtstufe, Dauer, Versuche** | je Prompt und Lauf; „—“ heißt „nicht bekannt“ (z. B. ein alter Lauf ohne Schnappschuss) |
+| **Quality Cop & Harmonie (Details)** | die einzelnen Prüfungen je Lauf |
+| **Texte** | je Prompt und Stufe die Fassung von A und die des anderen Laufs, Absatz für Absatz, geänderte Wörter markiert (wie in der Gegenüberstellung der Nachbesserung). Hat ein Lauf eine Stufe, die dem anderen fehlt, steht das dabei. |
+
+**Was die Automatik dafür jetzt mitschreibt** (kostenlos, kein Modellaufruf):
+
+- die **Harmonie** des Laufs nach `output/<Batch>/_harmonie.json`. Der Bericht schreibt dann „(beim Lauf geprüft)“. Für ältere Läufe ohne diese Datei prüft er nachträglich und schreibt ausdrücklich „(heute geprüft …)“ dazu, denn dann gelten der heutige Code und die heutige `topic.yaml`.
+- den **Quality-Cop-Scan** nach `output/<Batch>/_umlaut_candidates.csv`. Das ist nur der Scan; **es wird nichts korrigiert**.
+- die **Code-Version** in `_batch_vorgabe.json`.
+- zu jedem Modellaufruf **Prompt und Stufe** in der Verbrauchsdatei. Daraus kommen die Kosten je Prompt und Stufe.
+
+**Gut zu wissen**
+
+- Läufe **vor 31.79** zeigen bei der Code-Version „nicht festgehalten“ und bei den Kosten je Stufe „—“. Die Gesamtkosten stimmen trotzdem; sie kommen aus der Laufübersicht `pitugrafo_run.json`.
+- Beim **Anthropic-Batch-Weg** gibt es keine Kosten je Prompt und Stufe, weil dieser Weg keinen Verbrauch je Aufruf meldet.
+- Jeder Bericht bekommt einen eigenen Namen mit Zeitstempel (`output/automatik_vergleichsbericht_<JJJJMMTT_hhmmss>.html`); ein neuer Vergleich überschreibt keinen alten.
+- Im Dialog erscheinen nur Läufe mit gespeichertem Automatik-Profil (`automatik_profil.json`). Über die Kommandozeile geht jeder Batch.
+
+### Neu: Längenvorgabe „Wörter je Fachtext“ {#sec-whats-new-laenge}
+
+**Wozu:** Bisher bestimmte allein das Modell, wie lang ein Fachtext wird; Gemini schreibt z. B. deutlich länger als Sonnet. Der **Zielumfang** in Seiten warnt nur. Jetzt kannst du dem Modell eine Länge vorgeben: **etwa N Wörter je Fachtext, ±15 %**.
+
+**Wo du sie einstellst**
+
+- **Hauptfenster von El Pitugrafo**, Gruppe *Ausführung*: Feld **Wörter je Fachtext**. „ohne“ (0) heißt keine Vorgabe, also das bisherige Verhalten. Die Zahl gilt für den Lauf, den du von dort startest.
+- **Automatik-Dialog**: Feld **Wörter je Fachtext (Ziel)**.
+  - Steht im Hauptfenster schon ein Wert, wird er übernommen (wie die Prompt-Auswahl).
+  - Sonst schlägt der Dialog einen Wert vor, sobald **Zielumfang** und **Formatvorlage** gewählt sind: so viele Wörter, dass das Buch den Zielumfang trifft, **nachdem** die übrigen Buchstufen (z. B. „Spanisch“, „Key Takeaway“), die Fragen und die Pflichtseiten abgezogen sind. Änderst du Zielumfang oder Formatvorlage, wird der Vorschlag neu berechnet. Trägst du selbst eine Zahl ein, bleibt sie stehen.
+- **Kommandozeile**: `--ziel-woerter-fachtext 450`, beim normalen Lauf (`run.py cli …`) wie bei `python -m tools.band_automatik neu …`.
+
+Die Vorgabe gilt **je Lauf**. Sie steht im Automatik-Profil, in `output/<Batch>/_batch_vorgabe.json` und im Abschlussbericht. **Wie Lauf … wiederholen…** übernimmt sie.
+
+**Was das Modell bekommt:** Nur die **Fachtext-Stufe** erhält am Ende ihres Auftrags den Satz „Schreibe etwa N Wörter (±15 %). Halte dich an diese Länge …“. Begleitstufen wie Spanisch oder Key Takeaway bleiben unberührt.
+
+**Welche Stufe ist „der Fachtext“?** Lauf, Bericht und Kostenschätzung beantworten das gleich, in dieser Reihenfolge:
+
+1. `[rolling_context] body_stage_id` des Projekts, falls gesetzt (z. B. bei *Hänsel und Gretel*),
+2. sonst die **eine Pflichtstufe** des Manifests,
+3. sonst eine Stufe, deren Name auf `_fachtext` endet oder die `fachtext`, `bodytext`, `text`, `prose` oder `content` heißt.
+
+Findet El Pitugrafo keine solche Stufe, wirkt die Vorgabe nicht. Das steht dann als **Warnung** im Lauf-Log und als Hinweis in der Kostenschätzung, zusammen mit der Abhilfe: `body_stage_id` im Projekt setzen.
+
+**Nach dem Lauf: prüfen, nicht abschneiden**
+
+- Liegt ein Fachtext außerhalb von ±15 %, erscheint eine **gelbe Warnung**: im Lauf-Log je Prompt und im Abschlussbericht der Automatik („Längenvorgabe: P_011: 1412 Wörter geliefert, Ziel waren etwa 900 …“).
+- Es wird **nie gekürzt** und keine Nachbesserung angeboten, nur gewarnt (wie bei allen roten Gates: Warnung und weiter).
+- In der **Kostenabschätzung** rechnet die Seitenprognose mit der Vorgabe; die Zeile der Fachtext-Stufe heißt „(Umfang = Längenvorgabe)“. Die Euro-Beträge bleiben wie gemessen bzw. angenommen.
+
+**Empfehlung:** Erst einen kleinen Lauf ohne Vorgabe fahren, dann denselben mit Vorgabe (**Wie Lauf … wiederholen…** und **Vorher neu beginnen**), und beide im **Vergleichsbericht** nebeneinanderlegen. So siehst du, wie gut das gewählte Modell die Länge einhält.
+
+### Sonst geändert
+
+- **Wortzählung einheitlich:** Lauf-Log, `metrics.json`, Längenwarnung, Gegenüberstellung und Vergleichsbericht zählen gleich (an Leerzeichen). Vorher konnten sie für denselben Text leicht verschiedene Zahlen nennen.
+- **Anthropic-Batch-Weg:** Er schickt jetzt wie der normale Weg den Zusatz aus dem Manifest (`user_prompt_suffix`) mit. Batch-Läufe eines Projekts mit einem solchen Zusatz können deshalb anders ausfallen als früher.
+
+Hintergrund und Prüfbericht: [`.doc/Nach_Urlaub.md`](../.doc/Nach_Urlaub.md) · [`.doc/pruefbericht_nach_urlaub_2026-10-14.md`](../.doc/pruefbericht_nach_urlaub_2026-10-14.md).
 
 ---
 

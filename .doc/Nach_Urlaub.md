@@ -1,9 +1,7 @@
 # Nach dem Urlaub — zwei offene Funktionen
 
-Stand: 01.10.2026. Beide Punkte betreffen El Pitugrafo (GrammarGraph) und die
-Vollautomatik. Sie sind bewusst zurückgestellt: Es sind neue Funktionen, keine
-Fehler, und sie brauchen vor dem Bau ein paar Entscheidungen von dir (unten je
-Punkt unter „Zu entscheiden“).
+Stand: 01.10.2026; **Entscheidungen 14.10.2026** (unten). Beide Punkte betreffen
+El Pitugrafo (GrammarGraph) und die Vollautomatik.
 
 ---
 
@@ -48,17 +46,27 @@ Inhalt, nur aus vorhandenen Laufdaten (nichts neu berechnen oder schätzen):
 5. Optional: Buch-Ebene — Seitenzahl des gesetzten Buchs A/B, falls beide
    bis zur DOCX gelaufen sind.
 
-### Zu entscheiden
+### Entschieden (14.10.2026)
 
-- Reicht HTML, oder soll der Bericht auch ins Automatik-Berichtsheft (Markdown)?
-- Sollen Befunde der Prüfstufen (Quality-Cop, Harmonie) mit in den Vergleich?
-- Nur zwei Läufe, oder eine Reihe (A, B, C … als Verlauf über mehrere
-  Code-Stände)?
+| Frage | Entscheidung |
+|-------|----------------|
+| Ausgabe | **Nur HTML** (erstmal ausreichend; kein Markdown-Berichtsheft) |
+| Prüfstufen | **Quality-Cop und Harmonie mit rein** |
+| Umfang | **Reihe A, B, C …** (nicht nur zwei Läufe) |
 
 ### Aufwand
 
 Mittel; neue Funktion (Minor-Version in GrammarGraph). Mit Tests für:
-gleiche/ungleiche Auswahl, fehlende Stufen, abgebrochener Lauf.
+gleiche/ungleiche Auswahl, fehlende Stufen, abgebrochener Lauf, Reihe ≥3.
+
+### Status (14.10.2026)
+
+**Umgesetzt** in GrammarGraph `tools/band_automatik/vergleichsbericht.py` (v31.78.0):
+
+- HTML-Bericht, Reihe A/B/C…, Quality Cop (CSV) + Harmonie (live-Check)
+- CLI: `python -m tools.band_automatik vergleich --laeufe a,b,c [--out …]`
+- Dialog: Knopf „Vergleichsbericht…“
+- Tests: `tests/tools/test_vergleichsbericht.py`
 
 ---
 
@@ -98,14 +106,14 @@ Die errechnete Wortzahl als **Längenvorgabe** an die Fachtext-Stufe geben:
 4. Die Kostenschätzung rechnet mit dem Ziel statt mit dem Messwert, sobald
    eine Vorgabe gesetzt ist.
 
-### Zu entscheiden
+### Entschieden (14.10.2026)
 
-- Toleranz: ±15 % oder anders?
-- Soll das Ziel auch im **Hauptfenster** (GUI-Lauf ohne Automatik) einstellbar
-  sein, oder nur in der Automatik?
-- Bei deutlicher Unterschreitung: nur warnen, oder Nachbesserung anbieten?
-- Gemini hält Längenvorgaben erfahrungsgemäß schlechter ein als Sonnet —
-  vorher einen kleinen Vergleichslauf (Punkt 1!) mit und ohne Vorgabe fahren?
+| Frage | Entscheidung |
+|-------|----------------|
+| Toleranz | **±15 %** (so lassen) |
+| Wo einstellbar | **Auch Hauptfenster-Lauf** (nicht nur Automatik) |
+| Unterschreitung | **Nur Warnung** (keine Nachbesserung anbieten) |
+| Messung vorher | Agent-Entscheidung: **kein separater Probe-Gate vor dem Bau** — Reihenfolge unten reicht; Wirkung der Vorgabe wird mit dem Vergleichsbericht (Punkt 1) nachgezogen |
 
 ### Aufwand
 
@@ -113,10 +121,22 @@ Klein bis mittel; neue Funktion (Minor-Version in GrammarGraph). Die
 Rechengrundlage existiert schon; neu sind Feld, Platzhalter im Fachtext-Prompt,
 Ist/Ziel-Zeile im Bericht und Tests.
 
+### Status (14.10.2026)
+
+**Umgesetzt** in GrammarGraph `src/core/laenge_vorgabe.py` (v31.79.0):
+
+- Feld „Wörter je Fachtext (Ziel)“ in Automatik-Dialog + Hauptfenster
+- Prompt-Suffix an Fachtext-/Haupttext-Stufe (±15 %); nur Warnung, kein Abschneiden
+- `_batch_vorgabe.json` + Laufprofil (`gg.ziel_woerter_fachtext`); Bericht nennt Ziel und Ist↔Ziel-Warnungen
+- Kostenschätzung rechnet mit der Vorgabe statt Messung, sobald gesetzt
+- CLI: `--ziel-woerter-fachtext`; Tests: `tests/test_laenge_vorgabe.py`
+
 ---
 
 ## Reihenfolge
 
-Erst **1 (Vergleichsbericht)**, dann **2 (Längenvorgabe)**: Mit dem
-Vergleichsbericht lässt sich die Wirkung der Längenvorgabe sauber messen
+1. **Vergleichsbericht** (HTML, Reihe, inkl. Quality-Cop/Harmonie) — erledigt  
+2. **Längenvorgabe** Fachtext (±15 %, Automatik + Hauptfenster, nur Warnung) — erledigt
+
+Mit dem Vergleichsbericht lässt sich die Wirkung der Längenvorgabe sauber messen
 (gleicher Lauf, einmal ohne, einmal mit Vorgabe).
